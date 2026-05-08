@@ -1,6 +1,7 @@
 'use client'
 
-// ChatLayout will be created in Task 3
+import { ChatLayout } from '../components/ChatLayout'
+
 export default function TUIPage() {
-  return null
+  return <ChatLayout />
 }
