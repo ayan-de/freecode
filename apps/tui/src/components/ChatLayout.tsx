@@ -36,9 +36,21 @@ export const ChatLayout: React.FC = () => {
   }, [])
 
   return (
-    <Box flexDirection="column" height={process.stdout.rows || 40}>
+    <Box flexDirection="column" height={process.stdout.rows || 40} paddingTop={5}>
+      {/* Logo and tagline centered */}
+      {!hasStartedTyping && messages.length === 0 && (
+        <Box justifyContent="center" alignItems="center">
+          <Logo visible={true} />
+        </Box>
+      )}
+
+      {/* Prompt below logo */}
+      <Box justifyContent="center" paddingTop={1}>
+        <PromptInput onSubmit={handleSubmit} onTyping={() => setHasStartedTyping(true)} />
+      </Box>
+
       {/* Messages area */}
-      <Box flexDirection="column" flexGrow={1} overflowY="hidden">
+      <Box flexDirection="column" flexGrow={1} overflowY="hidden" alignItems="center">
         {messages.map((msg) =>
           msg.role === 'user' ? (
             <UserMessage key={msg.id} content={msg.parts[0]?.content || ''} />
@@ -46,18 +58,6 @@ export const ChatLayout: React.FC = () => {
             <AssistantMessage key={msg.id} parts={msg.parts} />
           )
         )}
-      </Box>
-
-      {/* Logo overlay */}
-      {!hasStartedTyping && messages.length === 0 && (
-        <Box position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="center" alignItems="center">
-          <Logo visible={true} />
-        </Box>
-      )}
-
-      {/* Prompt at bottom */}
-      <Box>
-        <PromptInput onSubmit={handleSubmit} onTyping={() => setHasStartedTyping(true)} />
       </Box>
     </Box>
   )

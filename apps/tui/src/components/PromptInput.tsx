@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Box, Text, useInput } from 'ink'
 
 interface Key {
@@ -22,6 +22,14 @@ interface PromptInputProps {
 
 export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, onTyping }) => {
   const [value, setValue] = useState('')
+  const [cursorVisible, setCursorVisible] = useState(true)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCursorVisible((v) => !v)
+    }, 500)
+    return () => clearInterval(interval)
+  }, [])
 
   useInput((input: string, key: Key) => {
     if (key.return) {
@@ -41,9 +49,19 @@ export const PromptInput: React.FC<PromptInputProps> = ({ onSubmit, onTyping }) 
   })
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="black" padding={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor="black" padding={1} justifyContent="center" width={80}>
       <Text wrap="truncate-end">
-        {value || <Text dimColor>Ask FreeCode to help with your code...</Text>}
+        {value ? (
+          <>
+            {value}
+            {cursorVisible && <Text bold>|</Text>}
+          </>
+        ) : (
+          <>
+            {cursorVisible && <Text dimColor bold>|</Text>}
+            <Text dimColor> Ask FreeCode to help with your code...</Text>
+          </>
+        )}
       </Text>
       {value && (
         <Box marginTop={1}>

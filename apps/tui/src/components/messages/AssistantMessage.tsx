@@ -18,7 +18,7 @@ interface AssistantMessageProps {
 
 export const AssistantMessage: React.FC<AssistantMessageProps> = ({ parts }) => {
   return (
-    <Box flexDirection="column" paddingY={1}>
+    <Box flexDirection="column" paddingY={1} alignItems="center">
       <Box marginBottom={1}>
         <Text color="green" bold>F</Text>
         <Text dimColor> FreeCode</Text>
