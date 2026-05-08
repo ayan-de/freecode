@@ -1,0 +1,22 @@
+{
+  "name": "@freecode/tui-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron host for FreeCode TUI",
+  "main": "dist/main.js",
+  "scripts": {
+    "postinstall": "electron-rebuild -f -w node-pty",
+    "dev": "tsc && electron .",
+    "build": "tsc",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^36.0.0",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
