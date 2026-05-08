@@ -1,0 +1,31 @@
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+  --text-primary: #e4e4e4;
+  --text-secondary: #a3a3a3;
+  --text-muted: #6b6b6b;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --border: #2a2a2a;
+  --success: #22c55e;
+  --error: #ef4444;
+  --warning: #f59e0b;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Geist Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+#__next, main {
+  height: 100%;
+}
