@@ -2,6 +2,7 @@ import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
 
 export interface CommandContext {
 	showMessage(content: string): void;
+	showModelSelector?(): void;
 }
 
 export interface Command {
