@@ -3,14 +3,22 @@ import { ProcessTerminal, TUI, Key, matchesKey } from "@earendil-works/pi-tui";
 import { Editor } from "@earendil-works/pi-tui";
 import { Markdown } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
+import chalk from "chalk";
 import { defaultEditorTheme, defaultMarkdownTheme } from "./themes.js";
+import { logoLines, logoTagline } from "./assets/logo.js";
 
 let tui: TUI;
 
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
 
-tui.addChild(new Text("Welcome to FreeCode!\n\nType your messages below. Press Ctrl+C to exit."));
+const welcomeText = `${chalk.cyanBright(logoLines.join('\n'))}
+
+${chalk.dim(logoTagline)}
+
+Type your messages below. Press Ctrl+C to exit.`;
+
+tui.addChild(new Text(welcomeText));
 
 const editor = new Editor(tui, defaultEditorTheme);
 tui.addChild(editor);
