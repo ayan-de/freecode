@@ -19,8 +19,7 @@ export class FileTreeStrategy implements ContextStrategy {
 
     logger.info('Collecting project context', { projectPath, maxDepth });
 
-    const tree = this.generateTree(projectPath, ignorePatterns, maxDepth);
-    const files = this.collectFiles(projectPath, ignorePatterns, maxDepth);
+    const { tree, files } = this.gatherContext(projectPath, ignorePatterns, maxDepth);
 
     const metadata: ContextMetadata = {
       collectedAt: Date.now(),
@@ -39,15 +38,17 @@ export class FileTreeStrategy implements ContextStrategy {
     };
   }
 
-  private generateTree(
+  private gatherContext(
     dirPath: string,
     patterns: string[],
     maxDepth: number,
     currentDepth = 0
-  ): string {
-    if (currentDepth > maxDepth) return '';
-
+  ): { tree: string; files: Record<string, string> } {
     let tree = '';
+    const files: Record<string, string> = {};
+
+    if (currentDepth > maxDepth) return { tree, files };
+
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
@@ -59,15 +60,20 @@ export class FileTreeStrategy implements ContextStrategy {
         const icon = entry.isDirectory() ? '📁 ' : '📄 ';
         tree += `${indent}${icon}${entry.name}${entry.isDirectory() ? '/' : ''}\n`;
 
-        if (entry.isDirectory()) {
-          tree += this.generateTree(fullPath, patterns, maxDepth, currentDepth + 1);
+        if (entry.isFile()) {
+          const relativePath = path.relative(process.cwd(), fullPath);
+          files[relativePath] = this.readFile(fullPath);
+        } else if (entry.isDirectory()) {
+          const childContext = this.gatherContext(fullPath, patterns, maxDepth, currentDepth + 1);
+          tree += childContext.tree;
+          Object.assign(files, childContext.files);
         }
       }
     } catch {
       // Skip unreadable directories
     }
 
-    return tree;
+    return { tree, files };
   }
 
   private shouldIgnore(filePath: string, patterns: string[]): boolean {
@@ -76,38 +82,6 @@ export class FileTreeStrategy implements ContextStrategy {
       if (pattern.startsWith('*')) return basename.endsWith(pattern.slice(1));
       return basename === pattern;
     });
-  }
-
-  private collectFiles(
-    dirPath: string,
-    patterns: string[],
-    maxDepth: number,
-    currentDepth = 0
-  ): Record<string, string> {
-    const files: Record<string, string> = {};
-
-    if (currentDepth > maxDepth) return files;
-
-    try {
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        if (this.shouldIgnore(fullPath, patterns)) continue;
-
-        if (entry.isFile()) {
-          const relativePath = path.relative(process.cwd(), fullPath);
-          files[relativePath] = this.readFile(fullPath);
-        } else if (entry.isDirectory()) {
-          const childFiles = this.collectFiles(fullPath, patterns, maxDepth, currentDepth + 1);
-          Object.assign(files, childFiles);
-        }
-      }
-    } catch {
-      // Skip unreadable directories
-    }
-
-    return files;
   }
 
   private readFile(filePath: string): string {
