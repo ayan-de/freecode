@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^0.74.0",
-    "chalk": "^5.5.0"
+    "chalk": "^5.5.0",
+    "playwright": "^1.42.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
