@@ -1,4 +1,5 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
+import { AVAILABLE_MODELS } from "../models.js";
 
 const helpCommand: Command = {
 	name: "help",
@@ -8,6 +9,7 @@ const helpCommand: Command = {
 
 - **/help** - Show this help message
 - **/clear** - Clear all messages
+- **/model** - Select AI model
 - **/exit** - Exit FreeCode`);
 	},
 };
@@ -28,8 +30,18 @@ const exitCommand: Command = {
 	},
 };
 
+const modelCommand: Command = {
+	name: "model",
+	description: "Select AI model",
+	execute: (_args, ctx) => {
+		ctx.showMessage(`**Select AI Model:**\n\nUse the selector below to choose a model.`);
+		ctx.showModelSelector?.();
+	},
+};
+
 export function registerBuiltInCommands(): void {
 	registerCommand(helpCommand);
 	registerCommand(clearCommand);
 	registerCommand(exitCommand);
+	registerCommand(modelCommand);
 }
