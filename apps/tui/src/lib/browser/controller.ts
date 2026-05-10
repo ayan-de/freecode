@@ -64,6 +64,11 @@ export class PlaywrightBrowserController implements BrowserController {
     if (!this.page || !this.adapter) {
       throw new Error('Not connected or adapter not set');
     }
+
+    if (this.adapter.waitForInput) {
+      await this.adapter.waitForInput(this.page);
+    }
+
     const input = this.adapter.getInputLocator(this.page);
     await input.fill(prompt);
     const submitButton = this.adapter.getSubmitButton(this.page);
@@ -75,15 +80,38 @@ export class PlaywrightBrowserController implements BrowserController {
       throw new Error('Not connected or adapter not set');
     }
 
-    logger.debug('Waiting for streaming to complete');
-    while (await this.adapter.isStreaming(this.page)) {
-      await this.page.waitForTimeout(500);
+    const responseLocator = this.adapter.getResponseLocator(this.page);
+
+    // Wait for streaming to finish
+    let streaming = await this.adapter.isStreaming(this.page);
+    while (streaming) {
+      logger.debug('Streaming in progress...');
+      await this.page.waitForTimeout(1000);
+      streaming = await this.adapter.isStreaming(this.page);
     }
 
-    await this.page.waitForTimeout(1000);
+    // Wait for response to appear and have content
+    logger.debug('Waiting for response to have content');
+    try {
+      await responseLocator.last().waitFor({ state: 'visible', timeout: 60000 });
+      // Wait a bit for content to populate
+      await this.page.waitForTimeout(3000);
 
-    const responseLocator = this.adapter.getResponseLocator(this.page);
-    return responseLocator.innerText();
+      // Try multiple times to get text
+      let text = '';
+      for (let i = 0; i < 5; i++) {
+        text = await responseLocator.last().innerText({ timeout: 5000 }).catch(() => '');
+        if (text.length > 0) break;
+        logger.debug('Retrying get text', { attempt: i + 1 });
+        await this.page.waitForTimeout(1000);
+      }
+
+      logger.debug('Response received', { length: text.length });
+      return text;
+    } catch (e) {
+      logger.error('Timeout waiting for response content');
+      throw new Error('Timeout waiting for ChatGPT response content');
+    }
   }
 
   async executePrompt(prompt: string): Promise<string> {

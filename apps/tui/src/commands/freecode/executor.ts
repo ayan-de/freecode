@@ -4,6 +4,9 @@ import { parse } from '../../lib/parser/index.js';
 import { applyChanges } from './file-applier.js';
 import { type SelectedProvider } from './provider-mgr.js';
 import { logger } from '../../lib/utils/logger.js';
+import { createDefaultStrategies } from '../../lib/context/strategies/index.js';
+
+createDefaultStrategies();
 
 export interface ExecutorOptions {
   prompt: string;
@@ -73,7 +76,18 @@ Create or modify files as needed to complete the task.`;
     const response = await controller.waitForResponse();
     onStatus('✅ **Response received**');
 
+    logger.info('Raw response length', { length: response.length });
+    logger.debug('Response preview', { preview: response.slice(0, 300) });
+
+    if (response.length < 50) {
+      errors.push(`Response too short (${response.length} chars): ${response}`);
+      onStatus(`⚠️ **Response too short:** ${response}`);
+      return { success: false, filesCreated: 0, errors };
+    }
+
     const parseResult = parse(response);
+
+    logger.debug('Parse result', { success: parseResult.success, error: parseResult.error });
 
     if (!parseResult.success) {
       errors.push(`Parse failed: ${parseResult.error}`);
