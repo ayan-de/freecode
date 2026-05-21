@@ -1,0 +1,45 @@
+{
+  "name": "freecode",
+  "displayName": "FreeCode",
+  "description": "AI coding assistant with chat interface",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "activationEvents": ["onView:freecode.chat"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "freecode.chat",
+          "title": "FreeCode Chat",
+          "icon": "$(chat)"
+        }
+      ]
+    },
+    "views": {
+      "panel": [
+        {
+          "id": "freecode.chat",
+          "type": "webview",
+          "屏领": "Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.88.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.5.0"
+  }
+}
