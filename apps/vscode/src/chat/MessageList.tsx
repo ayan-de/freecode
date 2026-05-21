@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useChatStore } from '../stores/index.js';
-import { Message } from './Message.js';
+import { ChatMessage } from './Message.js';
 
 export const MessageList: React.FC = () => {
   const messages = useChatStore((state) => state.messages);
@@ -19,7 +19,7 @@ export const MessageList: React.FC = () => {
       flexDirection: 'column'
     }}>
       {messages.map((msg) => (
-        <Message key={msg.id} message={msg} />
+        <ChatMessage key={msg.id} message={msg} />
       ))}
       <div ref={bottomRef} />
     </div>

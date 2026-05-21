@@ -8,7 +8,7 @@ interface MessageProps {
   message: Message;
 }
 
-export const Message: React.FC<MessageProps> = ({ message }) => {
+export const ChatMessage: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.role === 'user';
 
   return (

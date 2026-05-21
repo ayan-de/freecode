@@ -18,7 +18,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getHtml();
 
-    this.root = createRoot(webviewView.webview.element!);
+    this.root = createRoot(webviewView.webview as unknown as HTMLElement);
     this.root.render(React.createElement(App));
   }
 
