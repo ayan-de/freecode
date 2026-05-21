@@ -1,8 +1,9 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import { callTool, startCli } from '../../ipc/client.js';
 import type { FileChange } from '../../lib/parser/types.js';
 import { logger } from '../../lib/utils/logger.js';
 import { ok, err, type Result } from '../../lib/utils/result.js';
+
+startCli();
 
 export interface ApplyResult {
   path: string;
@@ -14,24 +15,17 @@ export async function applyFileChange(
   change: FileChange,
   basePath: string
 ): Promise<Result<ApplyResult, string>> {
-  const fullPath = path.join(basePath, change.path);
+  const fullPath = change.path.startsWith('/') ? change.path : `${basePath}/${change.path}`;
 
   try {
     if (change.action === 'delete') {
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        logger.info('Deleted file', { path: change.path });
-      }
+      const result = await callTool('write', { filePath: fullPath, content: '' });
+      logger.info('Delete requested', { path: change.path });
       return ok({ path: change.path, success: true });
     }
 
-    const dir = path.dirname(fullPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
     if (change.content !== undefined) {
-      fs.writeFileSync(fullPath, change.content, 'utf-8');
+      await callTool('write', { filePath: fullPath, content: change.content });
       logger.info('Wrote file', { path: change.path, size: change.content.length });
       return ok({ path: change.path, success: true });
     }
