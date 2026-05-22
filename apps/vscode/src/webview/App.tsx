@@ -2,7 +2,7 @@ import React, { useCallback } from 'react';
 import { useChatStore } from '../stores/index.js';
 import { MessageList } from '../chat/MessageList.js';
 import { MessageInput } from '../chat/MessageInput.js';
-import { startCli, listTools, callTool } from '../ipc/client.js';
+import { startCli, listTools, callTool } from './ipc-stub.js';
 
 export const App: React.FC = () => {
   const status = useChatStore((s) => s.status);
