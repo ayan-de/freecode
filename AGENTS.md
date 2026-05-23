@@ -4,12 +4,45 @@
 
 ## Project Overview
 
-FreeCode is a CLI tool that drives ChatGPT (via Playwright/CDP) to assist with coding tasks. The architecture consists of:
+FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini) via browser automation to assist with coding tasks. The architecture uses a **thin-client model**: multiple frontends (TUI, VS Code extension) delegate all intelligence to a shared CLI backend via JSON-RPC over stdin/stdout.
 
-- **CLI Backend** (`apps/cli/`) — Node.js/TypeScript that handles browser automation, context management, response parsing, and file application
-- **TUI Frontend** (`apps/tui/`) — React + xterm.js terminal UI with layered architecture (terminal rendering + React DOM overlay)
+The system uses a two-phase approach: the AI first returns which files it needs, then receives those files + prompt and returns structured file changes.
 
-The system uses a two-phase approach: ChatGPT first returns which files it needs, then receives those files + prompt and returns structured file changes.
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                          TUI                                 │
+│              (apps/tui) — pure UI shell                    │
+│         Uses pi-tui for terminal rendering                  │
+│         IPC client sends/receives JSON-RPC                  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           │ JSON-RPC (stdin/stdout)
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                          CLI Backend                        │
+│              (apps/cli) — ALL intelligence                  │
+│   Browser controller, parser, tools, context engine,        │
+│   agent loop, file applier                                  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     AI Provider (Browser)                    │
+│                    ChatGPT / Claude / Gemini                 │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                      VS Code Extension                       │
+│              (apps/vscode) — pure UI shell                   │
+│         React webview + IPC client to CLI                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key principle:** TUI and VSCode are pure presentation layers. All business logic lives in CLI.
 
 ---
 
@@ -22,20 +55,11 @@ The system uses a two-phase approach: ChatGPT first returns which files it needs
 3. **DRY** — Don't repeat yourself; extract shared logic to single sources of truth
 4. **Decomposition** — Each file/module does one thing well; avoid bloated files
 
-### React Component Guidelines
+### Thin Client Principles
 
-1. **Single responsibility per component** — A component should render one UI element or compose smaller components. If a component exceeds ~150 lines, decompose it.
-2. **Colocation** — Keep component-specific hooks, utils, and types near the component that uses them
-3. **Composition over prop-drilling** — Use compound components, context, or composition patterns instead of passing many props through many levels
-4. **Extract when used in 2+ places** — If logic/JSX is copied, extract it
-5. **Pure presentational vs smart containers** — Separate data-fetching from rendering
-
-### State Management
-
-- **Zustand stores** (`stores/`) — Global state that crosses component boundaries (chat, panels, session)
-- **Local state** (`useState`) — Component-specific state that doesn't escape the component
-- **Derived state** — Compute from store values, don't duplicate in store
-- **Store access in non-components** — Use `store.getState()` (not hooks) for IPC, utilities, etc.
+1. **Zero business logic in frontends** — TUI and VSCode do only rendering and IPC. No browser automation, no file reading, no parsing.
+2. **IPC is the only bridge** — All communication between frontends and CLI goes through JSON-RPC. No shared state.
+3. **CLI owns everything** — Browser controller, providers, context engine, parser, tools, agent loop all live in CLI.
 
 ---
 
@@ -43,124 +67,193 @@ The system uses a two-phase approach: ChatGPT first returns which files it needs
 
 ```
 freecode/
-├── apps/
-│   ├── cli/                    # CLI backend (Node.js/TypeScript)
-│   │   └── src/
-│   │       ├── index.ts        # Entry point
-│   │       ├── cli.ts          # REPL orchestration
-│   │       ├── browser/        # Playwright + CDP controller
-│   │       │   ├── controller.ts
-│   │       │   ├── chatgpt-adapter.ts
-│   │       │   └── types.ts
-│   │       ├── context/        # Two-phase context engine
-│   │       │   ├── engine.ts
-│   │       │   └── file-tree.ts
-│   │       ├── parser/         # Format-agnostic response parser
-│   │       │   ├── index.ts
-│   │       │   ├── json-parser.ts
-│   │       │   ├── markdown-parser.ts
-│   │       │   └── types.ts
-│   │       ├── applier/        # File application with diff preview
-│   │       │   ├── index.ts
-│   │       │   ├── differ.ts
-│   │       │   └── writer.ts
-│   │       └── types/          # Shared types
-│   └── tui/                    # React TUI frontend
-│       └── src/
-│           ├── app/            # Next.js app router
-│           ├── components/     # UI components
-│           │   ├── ChatLayout.tsx
-│           │   ├── PromptInput.tsx
-│           │   ├── Logo.tsx
-│           │   ├── messages/   # Message rendering
-│           │   │   ├── UserMessage.tsx
-│           │   │   ├── AssistantMessage.tsx
-│           │   │   └── parts/   # Message part renderers
-│           │   │       ├── TextPart.tsx
-│           │   │       ├── CodePart.tsx
-│           │   │       └── ToolPart.tsx
-│           │   └── ui/         # LayerStack, Toast, Dialog
-│           ├── stores/          # Zustand stores
-│           │   ├── chat-store.ts
-│           │   ├── ui-panel-store.ts
-│           │   ├── session-store.ts
-│           │   └── index.ts
-│           ├── ipc/             # JSON-RPC bridge to CLI
-│           │   ├── bridge.ts
-│           │   ├── protocol.ts
-│           │   └── client.ts
-│           └── hooks/           # Custom hooks
-│               └── useAutoResize.ts
 ├── packages/
-│   └── shared/                 # Shared types between apps
+│   └── shared/                     # Shared types + IPC protocol ONLY
 │       └── src/
-│           └── types.ts
+│           ├── types.ts             # Message, MessagePart, ToolResult,
+│           │                         # FileChange, ParsedResponse
+│           ├── ipc/
+│           │   └── protocol.ts     # JsonRpcRequest/Response, StreamResponse
+│           └── index.ts
+│
+├── apps/
+│   ├── cli/                        # ALL intelligence lives here
+│   │   └── src/
+│   │       ├── server.ts            # JSON-RPC stdin/stdout server
+│   │       ├── agent/              # Agent loop + session management
+│   │       │   ├── loop.ts
+│   │       │   └── session.ts
+│   │       ├── browser/            # Playwright + CDP + provider adapters
+│   │       │   ├── controller.ts
+│   │       │   ├── providers/
+│   │       │   │   ├── index.ts
+│   │       │   │   ├── chatgpt.ts
+│   │       │   │   └── types.ts
+│   │       │   └── types.ts
+│   │       ├── context/            # File tree + context collection
+│   │       │   ├── collector.ts
+│   │       │   └── file-tree.ts
+│   │       ├── parser/             # Response parsing
+│   │       │   ├── registry.ts
+│   │       │   └── extractors/
+│   │       │       ├── structured.ts
+│   │       │       ├── markdown.ts
+│   │       │       └── json.ts
+│   │       ├── tools/              # Tool definitions + execution
+│   │       │   ├── index.ts
+│   │       │   ├── read.ts
+│   │       │   ├── write.ts
+│   │       │   ├── edit.ts
+│   │       │   ├── bash.ts
+│   │       │   ├── grep.ts
+│   │       │   ├── find.ts
+│   │       │   └── glob.ts
+│   │       └── applier/            # File diff + write
+│   │           ├── index.ts
+│   │           ├── differ.ts
+│   │           └── writer.ts
+│   │
+│   ├── tui/                        # Pure UI shell — no business logic
+│   │   └── src/
+│   │       ├── index.ts            # Entry point: mounts TUI, connects IPC
+│   │       ├── commands/           # TUI-specific commands (model select)
+│   │       │   ├── index.ts
+│   │       │   └── built-in.ts
+│   │       ├── ipc/
+│   │       │   └── client.ts       # JSON-RPC client to CLI
+│   │       └── assets/
+│   │           └── logo.ts
+│   │
+│   └── vscode/                     # Pure UI shell — no business logic
+│       └── src/
+│           ├── extension.ts        # VS Code extension entry point
+│           ├── chat/
+│           │   ├── ChatView.tsx    # Main webview panel
+│           │   ├── MessageList.tsx
+│           │   ├── MessageInput.tsx
+│           │   └── parts/          # Message part renderers
+│           │       ├── TextPart.tsx
+│           │       ├── CodePart.tsx
+│           │       └── ToolPart.tsx
+│           ├── stores/
+│           │   └── chat-store.ts   # UI state only (messages, status)
+│           └── ipc/
+│               └── client.ts       # JSON-RPC client to CLI
+│
 └── docs/
     └── superpowers/
-        ├── specs/              # Design specifications
-        └── plans/             # Implementation plans
+        ├── specs/                  # Design specifications
+        └── plans/                 # Implementation plans
 ```
 
 ---
 
-## Component Design Patterns
+## Boundary: What Lives Where
 
-### Message Parts Pattern
+| Concern | CLI | TUI | VSCode |
+|---------|-----|-----|--------|
+| Browser automation (Playwright/CDP) | ✅ | ❌ | ❌ |
+| Provider adapters (ChatGPT, Claude) | ✅ | ❌ | ❌ |
+| Agent loop + session management | ✅ | ❌ | ❌ |
+| Context collection (file tree) | ✅ | ❌ | ❌ |
+| Response parsing | ✅ | ❌ | ❌ |
+| Tool execution | ✅ | ❌ | ❌ |
+| File diff + writing | ✅ | ❌ | ❌ |
+| TUI rendering (pi-tui) | ❌ | ✅ | ❌ |
+| VS Code webview | ❌ | ❌ | ✅ |
+| IPC client | ❌ | ✅ | ✅ |
 
-Messages contain typed `parts`:
+---
 
-```typescript
-type MessagePart =
-  | { type: 'text'; content: string }
-  | { type: 'code'; language: string; content: string }
-  | { type: 'tool'; tool: { name: string; args: Record<string, unknown> }; result?: string }
-```
+## IPC Protocol
 
-Each part type has its own component (`TextPart`, `CodePart`, `ToolPart`). The parent `Message` component switches on type:
+CLI exposes a JSON-RPC 2.0 interface over stdin/stdout. Both TUI and VSCode use the same protocol.
 
-```typescript
-// In AssistantMessage.tsx
-{message.parts.map((part, i) => {
-  switch (part.type) {
-    case 'text': return <TextPart key={i} content={part.content} />
-    case 'code': return <CodePart key={i} language={part.language} content={part.content} />
-    case 'tool': return <ToolPart key={i} tool={part.tool} result={part.result} />
-  }
-})}
-```
+### Methods
 
-### Store Pattern
+| Method | Params | Returns | Description |
+|--------|--------|---------|-------------|
+| `tools.list` | — | `ToolListItem[]` | List available tools |
+| `tools.call` | `{ name: string, args: Record<string, unknown> }` | `ToolResult` | Execute a tool |
+| `session.start` | `{ projectPath: string, provider?: string }` | `{ sessionId: string }` | Start a new session |
+| `session.send` | `{ sessionId: string, message: string }` | `StreamResponse` (streaming) | Send a message |
+| `session.stop` | `{ sessionId: string }` | `void` | Abort current turn |
+| `providers.list` | — | `ProviderInfo[]` | List available AI providers |
 
-Each store is in its own file with co-located types:
-
-```typescript
-// stores/chat-store.ts
-interface ChatStore {
-  messages: Message[]
-  status: 'idle' | 'streaming' | 'error'
-  // ...
-}
-export const useChatStore = create<ChatStore>((set) => ({ /* ... */ }))
-```
-
-Export from `stores/index.ts` for clean imports:
+### Streaming Response
 
 ```typescript
-export { useChatStore, type Message, type MessagePart } from './chat-store'
-```
-
-### Hook Pattern
-
-Custom hooks encapsulate logic and state:
-
-```typescript
-// hooks/useAutoResize.ts
-export function useAutoResize(options: UseAutoResizeOptions = {}) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const resize = useCallback(() => { /* ... */ }, [])
-  return { textareaRef, resize }
+interface StreamResponse {
+  type: "text" | "code" | "tool" | "done" | "error";
+  content: string;
+  toolName?: string;      // when type === "tool"
+  toolArgs?: unknown;     // when type === "tool"
+  toolResult?: string;    // when type === "tool" (after execution)
 }
 ```
+
+---
+
+## Type Sharing
+
+Core domain types live in `packages/shared/src/types.ts`:
+
+```typescript
+export interface Message {
+  id: string;
+  role: "user" | "assistant";
+  parts: MessagePart[];
+  timestamp: number;
+}
+
+export type MessagePart =
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; content: string }
+  | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string };
+
+export interface ToolDef {
+  id: string;
+  description: string;
+  parameters: JsonSchema;
+}
+
+export interface ToolResult {
+  title: string;
+  output: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FileChange {
+  path: string;
+  action: "create" | "update" | "delete";
+  content?: string;
+  diff?: string;
+}
+```
+
+---
+
+## Key Design Decisions
+
+### 1. Long-Running CLI Daemon
+
+CLI stays alive between turns, maintaining browser connection and session state. Starting a new browser + logging in per prompt is slow (5-15 seconds). A persistent connection enables sub-second response for subsequent turns.
+
+### 2. Two-Phase Context Collection
+
+Before sending a prompt, CLI first asks the LLM which files it needs, then reads only those files:
+
+1. Send prompt + file tree to LLM → LLM returns list of needed files
+2. CLI reads those files
+3. Send files + prompt to LLM → LLM returns structured response
+
+### 3. Format-Agnostic Parser
+
+Parser tries multiple strategies (structured, markdown, JSON) in chain until one succeeds. LLMs are inconsistent in output format.
+
+### 4. Diff Preview Before Apply
+
+File changes are shown as a diff to the user for approval before writing. Prevents accidental data loss.
 
 ---
 
@@ -169,10 +262,10 @@ export function useAutoResize(options: UseAutoResizeOptions = {}) {
 | Type | Convention | Example |
 |------|-----------|---------|
 | Components | PascalCase | `ChatLayout.tsx`, `CodePart.tsx` |
-| Stores | kebab-case | `chat-store.ts`, `ui-panel-store.ts` |
-| Hooks | camelCase with `use` prefix | `useAutoResize.ts` |
-| Utilities | camelCase | `file-tree.ts`, `differ.ts` |
-| Types/Interfaces | PascalCase | `types.ts` exports `FileChange`, `ParsedResponse` |
+| Stores | kebab-case | `chat-store.ts` |
+| IPC client | camelCase | `ipc/client.ts` |
+| Provider adapters | camelCase | `chatgpt.ts` |
+| Tool implementations | camelCase | `read.ts`, `write.ts` |
 
 ---
 
@@ -184,7 +277,8 @@ export function useAutoResize(options: UseAutoResizeOptions = {}) {
 - **Context layer** (`apps/cli/src/context/`) — File tree, context compilation
 - **Parser layer** (`apps/cli/src/parser/`) — Response parsing (JSON/markdown/tool)
 - **Applier layer** (`apps/cli/src/applier/`) — File writing, diff generation
-- **UI components** (`apps/tui/src/components/`) — React components
+- **Tools layer** (`apps/cli/src/tools/`) — Tool definitions and execution
+- **UI components** (`apps/tui/src/`, `apps/vscode/src/`) — Rendering only
 
 ### 2. Check existing patterns
 
@@ -197,35 +291,26 @@ Before adding code, verify:
 
 If a file exceeds ~150 lines, decompose:
 - Extract sub-components
-- Move helper functions to `lib/` or `utils/`
+- Move helper functions to utils
 - Split store logic into separate files
 
-### 4. Testing
+---
 
-- **Components** — React Testing Library
-- **Stores** — Unit tests for state transitions
-- **IPC** — Integration tests with mock backend
-- **E2E** — Playwright for full flow
+## Key Invariants
+
+1. **Frontends are dumb** — TUI and VSCode only render UI and send/receive IPC. All logic is in CLI.
+2. **IPC is the only bridge** — No shared state between frontends and CLI.
+3. **Types are centralized** — Core domain types live in `packages/shared`. No duplicate type definitions.
+4. **Providers are swappable** — ChatGPT/Claude adapters in `browser/providers/` can be swapped without changing core logic.
+5. **Parser is chain-based** — Multiple extractors tried in order until one succeeds.
 
 ---
 
-## Key invariants
+## Deferred Items
 
-1. **Components are dumb** — They receive props and render UI; business logic lives in stores/hooks
-2. **Stores are flat** — No nested store composition; use selectors for derived state
-3. **IPC is centralized** — All TUI→backend communication goes through `ipc/client.ts`
-4. **Types are shared** — Core domain types (`FileChange`, `ParsedResponse`) live in `packages/shared`
-5. **DOM adapters are isolated** — ChatGPT/Claude adapters in `browser/` can be swapped without changing core logic
-
----
-
-## Deferred Items (Not Yet Implemented)
-
-- Rust TUI for richer terminal UI
-- Provider adapters (Claude, Gemini)
-- Context intelligence (graphify/contextcarry integration)
-- VS Code extension
-- Autonomous multi-step agents
-- Vector DB / semantic search
+- **MCP server integration** — Expose tools via Model Context Protocol
+- **Storage layer** — Persistent session history across restarts
+- **Claude/Gemini providers** — Additional AI provider adapters
+- **Rust TUI** — Higher-fidelity terminal rendering (only if performance demands)
 
 Don't implement these unless explicitly requested.
