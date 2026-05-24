@@ -1,0 +1,124 @@
+.container {
+  width: 100%;
+  max-width: 600px;
+}
+
+.title {
+  font-family: var(--font-geist-sans);
+  font-size: 20px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0 0 16px 0;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  .title {
+    color: #000000;
+  }
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.tab {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-family: var(--font-geist-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.tab.active {
+  background: rgba(0, 212, 255, 0.15);
+  border-color: rgba(0, 212, 255, 0.4);
+  color: #00d4ff;
+}
+
+@media (prefers-color-scheme: light) {
+  .tab {
+    border-color: rgba(0, 0, 0, 0.2);
+    color: rgba(0, 0, 0, 0.7);
+  }
+
+  .tab:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #000000;
+  }
+
+  .tab.active {
+    background: rgba(0, 212, 255, 0.1);
+    border-color: rgba(0, 212, 255, 0.4);
+    color: #0088aa;
+  }
+}
+
+.codeBlock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(0, 212, 255, 0.05);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.command {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 14px;
+  color: #00d4ff;
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.copyBtn {
+  appearance: none;
+  flex-shrink: 0;
+  background: rgba(0, 212, 255, 0.15);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  color: #00d4ff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: var(--font-geist-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.copyBtn:hover {
+  background: rgba(0, 212, 255, 0.25);
+}
+
+.copyBtn:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 500px) {
+  .codeBlock {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .command {
+    text-align: center;
+  }
+}
