@@ -70,9 +70,6 @@ export function FreeCodeInternalDiagram({
           <ResultFlow />
           <ProviderFlow />
 
-          {/* ==================== SANDBOX / SYSTEM CONTAINER ==================== */}
-          <SandboxContainer />
-
           {/* ==================== NODES / INTERACTIVE CARDS ==================== */}
           <ClientsNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
           <AgentNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
