@@ -6,13 +6,17 @@ export function ResultFlow() {
     <g className={styles.flowLineGroup}>
       <path
         id="flow-result"
-        d="M 690 320 H 560"
-        stroke="url(#grad-result)"
-        strokeWidth="2"
+        d="M 690 320 C 640 320 590 320 560 320"
+        stroke="rgba(168,85,247,0.85)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeDasharray="8 6"
         className={styles.flowLine}
+        fill="none"
       />
-      <polygon points="560,320 570,315 570,325" fill="#f97316" />
-      <text x="625" y="340" className={styles.connectionLabel} fill="#a855f7" textAnchor="middle">result</text>
+      <polygon points="560,320 570,315 570,325" fill="rgba(168,85,247,0.85)" />
+      <rect x="605" y="332" width="60" height="18" rx="4" fill="#0b0b14" stroke="rgba(168,85,247,0.26)" strokeWidth="1" />
+      <text x="635" y="344" className={styles.connectionLabel} fill="rgba(255,255,255,0.76)" textAnchor="middle">result</text>
     </g>
   );
 }
