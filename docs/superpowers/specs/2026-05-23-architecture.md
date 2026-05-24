@@ -1,6 +1,6 @@
 # FreeCode — Architecture Specification
 
-**Date:** 2026-05-23
+**Date:** 2026-05-23 (updated 2026-05-24)
 **Status:** Draft
 **Supersedes:** `2026-05-08-freecode-design.md`
 
@@ -9,6 +9,8 @@
 ## Overview
 
 FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini) via browser automation to assist with coding tasks. It uses a **thin-client architecture**: multiple frontends (TUI, VS Code extension) delegate all intelligence to a shared CLI backend via JSON-RPC over stdin/stdout.
+
+The design is inspired by the agent patterns popularized by Anthropic's Claude Code: an **agent loop** that repeatedly calls tools, a **hook middleware** system for safety and observability, **memory compaction** for long sessions, **context loading** for project conventions, and **sub-agents** for parallel task distribution.
 
 ---
 
@@ -65,6 +67,91 @@ FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini
 │                   ChatGPT / Claude / Gemini                                 │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Agent Loop
+
+The core of FreeCode is an **agent loop**: instead of a single request-response, the agent cycles through decisions until the task is complete.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Agent Loop (per turn)                               │
+│                                                                             │
+│   ┌───────┐    ┌─────────┐    ┌──────┐    ┌─────────┐                       │
+│   │ Model │───▶│ Decide  │───▶│ Tool │───▶│ Result  │                       │
+│   │       │◀───│         │◀───│ Runs │◀───│  comes  │                       │
+│   └───────┘    └─────────┘    └──────┘    └─────────┘                       │
+│       ▲                                                                     │
+│       │                                                                     │
+│   ┌───┴───┐                                                                 │
+│   │Memory │  ◀── Hooks intercept every tool call (before + after)           │
+│   └───────┘                                                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Flow:**
+1. Model decides what tool to call (read, write, bash, grep, etc.)
+2. **Hooks intercept** — pre-check input, post-check output, can block/modify
+3. Tool executes (file system, shell, search)
+4. Result flows back through hooks → model
+5. Model decides next step or signals completion
+
+### Hooks System
+
+Every tool call passes through hooks before and after execution:
+
+- **Pre-hook:** Inspect/modify input, or **block dangerous commands** before execution
+- **Post-hook:** Inspect/modify output, log for observability
+
+```typescript
+interface Hook {
+  name: string;
+  preExecute?: (tool: ToolCall) => ToolCall | null;  // null = blocked
+  postExecute?: (tool: ToolCall, result: ToolResult) => ToolResult;
+}
+```
+
+This is how safety (block harmful commands) and observability (log every tool call) are built into the agent.
+
+### Memory System
+
+Tasks can run for hundreds of steps. To avoid hitting context limits:
+
+- **Session memory:** Full conversation history accumulates
+- **Compaction:** When history exceeds a threshold, it is summarized and replaced with a compressed version
+- **Working memory:** Agent maintains orientation across long tasks
+
+### Context Loading (Before Loop Starts)
+
+Before the agent loop begins, context is loaded from the project:
+
+1. **AGENTS.md** (priority) or **CLAUDE.md** — Project conventions, preferences, folder conventions, test preferences. AGENTS.md is checked first; if present it is used, otherwise CLAUDE.md is loaded as fallback.
+2. **Skills** — Reusable instruction sets for specific tasks (code review, documentation, etc.) from `.claude/skills/`
+
+```typescript
+interface PreLoopContext {
+  projectConventions: string;   // from AGENTS.md (priority) or CLAUDE.md
+  skills: Skill[];            // from .claude/skills/
+}
+```
+
+### Sub-Agents
+
+For complex tasks, the main agent can spawn **sub-agents** to handle pieces in parallel:
+
+```
+┌─────────────────┐
+│ Orchestrator    │
+│    Agent        │──▶ Sub-agent: Code review
+│                 ├──▶ Sub-agent: Test generation
+└────────┬────────┘   └──▶ Sub-agent: Security scan
+         │
+         ▼
+   [Results aggregated]
+```
+
+Sub-agents run their own mini-loop focused on one specific task. Spawning is just another tool call (`agent` tool) — the system stays consistent.
 
 ---
 
@@ -334,12 +421,32 @@ export interface ParsedResponse {
 
 ---
 
+## Design Pattern Origins
+
+Every pattern in FreeCode has roots in familiar systems:
+
+| FreeCode Pattern | Analogous System | Why It Matters |
+|-----------------|------------------|----------------|
+| Agent loop | Worker processing a task queue | Model drives workflow decisions |
+| Tools | Service interface layer | Separation of thinking vs doing |
+| Hooks | Web middleware | Safety + observability on every call |
+| Memory compaction | Log rotation | Handles unbounded session length |
+| Sub-agents | Worker nodes / map-reduce | Parallel distributed processing |
+| CLAUDE.md | Project configuration | Agent understands your project |
+| Skills | Reusable scripts / templates | Pre-packaged behaviors |
+
+None of this is novel. The innovation is applying these patterns to an agent that drives browser automation for coding tasks.
+
+---
+
 ## Deferred Items
 
 - **MCP server integration** — Expose tools via Model Context Protocol
 - **Storage layer** — Persistent session history across restarts
-- **Claude/Gemini providers** — Additional AI provider adapters
 - **Rust TUI** — Higher-fidelity terminal rendering (only if performance demands)
+- **Sub-agent implementation** — Parallel task distribution for complex tasks
+- **Memory compaction** — Automatic summarization of long conversation histories
+- **Hook middleware** — Pluggable pre/post tool execution hooks
 
 ---
 
