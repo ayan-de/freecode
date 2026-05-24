@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ArchitectureDiagram, BoundaryDiagram, FreeCodeInternalDiagram, type NodeType } from '../diagrams';
-import { ArchitectureExplorer } from '../presentation';
+import { ArchitectureExplorer, IntroSection } from '../presentation';
 import styles from './ArchitectureContent.module.css';
 
 const BOUNDARY_LAYERS = [
@@ -39,10 +39,10 @@ export function OverviewContainer() {
   return (
     <div className={styles.container}>
       <div className={styles.introSection}>
-        <h3 className={styles.introTitle}>Interactive Blueprint & Execution Engine</h3>
-        <p className={styles.introText}>
-          FreeCode operates as a persistent CLI daemon coordinating a stateful <strong>Agent Loop</strong>, pluggable <strong>Safety Hooks</strong>, a local <strong>Context Engine</strong>, and parallelized <strong>Sub-Agents</strong>. Select any card or node in the interactive blueprint below to explore deep architectural insights, links to source code files, and simulated execution logs!
-        </p>
+        <IntroSection
+          title="Interactive Blueprint &amp; Execution Engine"
+          description="FreeCode operates as a persistent CLI daemon coordinating a stateful Agent Loop, pluggable Safety Hooks, a local Context Engine, and parallelized Sub-Agents. Select any card or node in the interactive blueprint below to explore deep architectural insights, links to source code files, and simulated execution logs!"
+        />
       </div>
 
       <div className={styles.fullWidthDiagram}>
