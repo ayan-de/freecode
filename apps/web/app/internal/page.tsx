@@ -37,10 +37,10 @@ export default function InternalPage() {
         onTabChange={(id) => onTabChange(id as TabId)}
       />
 
-      <PageHeader
+      {/* <PageHeader
         title="Internal Architecture"
         subtitle="Explore how FreeCode's thin-client architecture enables scalable AI-assisted coding"
-      />
+      /> */}
 
       <main className={styles.content}>
         {renderContent()}
