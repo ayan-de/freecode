@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import styles from "./Installation.module.css";
+import { Copy, Check, Terminal } from "lucide-react";
 
 const installers = {
   curl: {
@@ -18,7 +18,7 @@ const installers = {
   },
   brew: {
     label: "brew",
-    command: "brew install thisisayande/tap/freecode",
+    command: "brew install anomalyco/tap/freecode",
   },
   paru: {
     label: "paru",
@@ -30,43 +30,70 @@ type Installer = keyof typeof installers;
 
 const InstallTabs = ["curl", "npm", "bun", "brew", "paru"] as const;
 
-function CopyButton({ command }: { command: string }) {
+export function Installation() {
+  const [active, setActive] = useState<Installer>("curl");
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(command);
+    await navigator.clipboard.writeText(installers[active].command);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <button className={styles.copyBtn} onClick={handleCopy} type="button">
-      {copied ? "Copied!" : "Copy"}
-    </button>
-  );
-}
+    <div className="w-full max-w-xl mx-auto">
+      <h2 className="text-2xl font-semibold text-white text-center mb-2">
+        Get Started in Seconds
+      </h2>
+      <p className="text-base text-white/60 text-center mb-6">
+        One command to install FreeCode and start using AI coding assistants.
+      </p>
 
-export function Installation() {
-  const [active, setActive] = useState<Installer>("curl");
-
-  return (
-    <div className={styles.container}>
-      <h2 className={styles.title}>Install FreeCode</h2>
-      <div className={styles.tabs}>
-        {InstallTabs.map((tab) => (
+      <div className="rounded-sm border border-white/15 bg-black/30 overflow-hidden">
+        <div className="flex items-center border-b border-white/15">
+          <div className="flex items-center px-4 py-3 border-r border-white/15 text-white/50">
+            <Terminal size={16} />
+          </div>
+          <div className="flex flex-1">
+            {InstallTabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActive(tab)}
+                className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
+                  active === tab
+                    ? "text-cyan-400 border-cyan-400"
+                    : "text-white/50 border-transparent hover:text-white/80"
+                }`}
+              >
+                {installers[tab].label}
+              </button>
+            ))}
+          </div>
           <button
-            key={tab}
-            className={`${styles.tab} ${active === tab ? styles.active : ""}`}
-            onClick={() => setActive(tab)}
-            type="button"
+            onClick={handleCopy}
+            className="px-4 py-3 text-white/50 hover:text-cyan-400 transition-colors border-l border-white/15"
           >
-            {installers[tab].label}
+            {copied ? <Check size={16} /> : <Copy size={16} />}
           </button>
-        ))}
+        </div>
+        <div className="p-4 text-left">
+          <code className="font-mono text-sm text-cyan-400">$ {installers[active].command}</code>
+        </div>
       </div>
-      <div className={styles.codeBlock}>
-        <code className={styles.command}>{installers[active].command}</code>
-        <CopyButton command={installers[active].command} />
+
+      <div className="grid grid-cols-3 gap-4 mt-8 text-center">
+        <div>
+          <div className="text-3xl font-bold text-white">No</div>
+          <div className="text-sm text-white/50 mt-1">API Costs</div>
+        </div>
+        <div>
+          <div className="text-3xl font-bold text-white">3</div>
+          <div className="text-sm text-white/50 mt-1">AI Providers</div>
+        </div>
+        <div>
+          <div className="text-3xl font-bold text-white">~30s</div>
+          <div className="text-sm text-white/50 mt-1">Install Time</div>
+        </div>
       </div>
     </div>
   );
