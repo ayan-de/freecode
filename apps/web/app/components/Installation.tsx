@@ -41,7 +41,7 @@ export function Installation() {
   };
 
   return (
-    <div className="w-full max-w-xl mx-auto">
+    <div id="installation" className="w-full max-w-xl mx-auto">
       <h2 className="text-2xl font-semibold text-white text-center mb-2">
         Get Started in Seconds
       </h2>
