@@ -43,6 +43,13 @@ export function DiagramDefinitions() {
           <feMergeNode in="SourceGraphic" />
         </feMerge>
       </filter>
+      <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="6" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
 
       {/* Line Gradients */}
       <linearGradient id="grad-task" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -69,6 +76,11 @@ export function DiagramDefinitions() {
       <linearGradient id="grad-memory" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stopColor="#f59e0b" />
         <stop offset="100%" stopColor="#f97316" />
+      </linearGradient>
+      <linearGradient id="grad-llm" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stopColor="#f97316" />
+        <stop offset="55%" stopColor="#38bdf8" />
+        <stop offset="100%" stopColor="#60a5fa" />
       </linearGradient>
     </defs>
   );

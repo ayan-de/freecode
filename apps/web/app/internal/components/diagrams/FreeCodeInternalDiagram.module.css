@@ -177,6 +177,19 @@
   fill: rgba(28, 16, 42, 0.9);
 }
 
+/* External LLM / browser provider */
+.nodeBoxProvider {
+  fill: rgba(8, 20, 36, 0.88);
+  stroke: rgba(96, 165, 250, 0.42);
+  stroke-width: 1.8;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxProvider {
+  stroke: rgba(96, 165, 250, 0.9);
+  fill: rgba(10, 28, 50, 0.94);
+}
+
 /* Memory Box */
 .nodeBoxMemory {
   transition: all 0.3s ease;
@@ -260,6 +273,13 @@
   filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.5));
 }
 
+.activeNode .nodeBoxProvider {
+  stroke: #60a5fa;
+  stroke-width: 3;
+  fill: rgba(12, 34, 62, 0.96);
+  filter: drop-shadow(0 0 14px rgba(96, 165, 250, 0.5));
+}
+
 .activeNode .hooksCircle {
   stroke: #10b981;
   stroke-width: 3.5;
@@ -289,6 +309,27 @@
   font-size: 9px;
   font-family: monospace;
   letter-spacing: 0.5px;
+}
+
+.providerHeader {
+  fill: #bfdbfe;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1.2px;
+  font-family: monospace;
+}
+
+.providerCardText {
+  fill: rgba(239, 246, 255, 0.9);
+  font-size: 9px;
+  font-weight: 800;
+  font-family: monospace;
+}
+
+.providerSubtext {
+  fill: rgba(191, 219, 254, 0.55);
+  font-size: 7.5px;
+  font-family: monospace;
 }
 
 /* Sub-card texts inside frontend/clients */

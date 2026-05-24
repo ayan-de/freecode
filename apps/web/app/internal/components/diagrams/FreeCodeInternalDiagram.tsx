@@ -11,6 +11,7 @@ import { ContextFlow } from './flows/ContextFlow';
 import { MemoryFlow } from './flows/MemoryFlow';
 import { HooksFlow } from './flows/HooksFlow';
 import { ResultFlow } from './flows/ResultFlow';
+import { ProviderFlow } from './flows/ProviderFlow';
 import { ClientsNode } from './nodes/ClientsNode';
 import { AgentNode } from './nodes/AgentNode';
 import { SubagentsNode } from './nodes/SubagentsNode';
@@ -18,6 +19,7 @@ import { ContextNode } from './nodes/ContextNode';
 import { MemoryNode } from './nodes/MemoryNode';
 import { HooksNode } from './nodes/HooksNode';
 import { ToolsNode } from './nodes/ToolsNode';
+import { ProviderNode } from './nodes/ProviderNode';
 import { InteractiveGuide } from './InteractiveGuide';
 
 export type NodeType =
@@ -27,7 +29,8 @@ export type NodeType =
   | 'context'
   | 'memory'
   | 'hooks'
-  | 'tools';
+  | 'tools'
+  | 'provider';
 
 interface FreeCodeInternalDiagramProps {
   selectedNode: NodeType | null;
@@ -65,6 +68,7 @@ export function FreeCodeInternalDiagram({
           <MemoryFlow />
           <HooksFlow />
           <ResultFlow />
+          <ProviderFlow />
 
           {/* ==================== SANDBOX / SYSTEM CONTAINER ==================== */}
           <SandboxContainer />
@@ -77,6 +81,7 @@ export function FreeCodeInternalDiagram({
           <MemoryNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
           <HooksNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
           <ToolsNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
+          <ProviderNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
         </svg>
       </div>
 

@@ -178,7 +178,7 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.greenPulse, .orangePulse, .pinkPulse, .emeraldPulse, .amberPulse, .yellowPulse, .purplePulse {
+.greenPulse, .orangePulse, .pinkPulse, .emeraldPulse, .amberPulse, .yellowPulse, .purplePulse, .bluePulse {
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -193,6 +193,7 @@
 .amberPulse { color: #f59e0b; background: #f59e0b; animation: blinkPulse 2s infinite; }
 .yellowPulse { color: #ffd43b; background: #ffd43b; animation: fastPulse 0.5s infinite; }
 .purplePulse { color: #a855f7; background: #a855f7; animation: blinkPulse 1.5s infinite; }
+.bluePulse { color: #60a5fa; background: #60a5fa; animation: blinkPulse 1.5s infinite; }
 
 @keyframes blinkPulse {
   0%, 100% { opacity: 0.3; transform: scale(0.9); }
