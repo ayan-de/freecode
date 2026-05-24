@@ -1,0 +1,541 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 8, 16, 0.7);
+  backdrop-filter: blur(16px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  min-height: 480px;
+  justify-content: flex-start;
+  transition: all 0.3s ease;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  flex: 1;
+  padding: 40px 20px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.emptyIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+  animation: floatIcon 3s ease-in-out infinite alternate;
+}
+
+@keyframes floatIcon {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-10px); }
+}
+
+.emptyState h4 {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 8px;
+}
+
+.emptyState p {
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 320px;
+}
+
+/* ==================== CONTENT ELEMENTS ==================== */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.icon {
+  font-size: 28px;
+  width: 48px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0;
+}
+
+.subtext {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: monospace;
+  margin: 2px 0 0 0;
+}
+
+.description {
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 20px;
+}
+
+.description strong {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* Key Files List */
+.filesBox {
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.filesTitle {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.4);
+  margin: 0 0 12px 0;
+}
+
+.filesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filesList li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.fileBadge {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  width: 90px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.fileLink {
+  color: rgba(129, 140, 248, 0.9);
+  font-family: monospace;
+  text-decoration: underline;
+  transition: color 0.2s ease;
+  word-break: break-all;
+}
+
+.fileLink:hover {
+  color: rgba(129, 140, 248, 1);
+  text-shadow: 0 0 8px rgba(129, 140, 248, 0.4);
+}
+
+/* ==================== SIMULATION PANELS ==================== */
+
+.simContainer {
+  background: #06060c;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin-top: auto;
+}
+
+.simHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: monospace;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.greenPulse, .orangePulse, .pinkPulse, .emeraldPulse, .amberPulse, .yellowPulse, .purplePulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+  opacity: 0.8;
+}
+
+.greenPulse { color: #10b981; background: #10b981; animation: blinkPulse 1.5s infinite; }
+.orangePulse { color: #f97316; background: #f97316; animation: blinkPulse 1.5s infinite; }
+.pinkPulse { color: #ec4899; background: #ec4899; animation: blinkPulse 1.5s infinite; }
+.emeraldPulse { color: #10b981; background: #10b981; animation: blinkPulse 1.5s infinite; }
+.amberPulse { color: #f59e0b; background: #f59e0b; animation: blinkPulse 2s infinite; }
+.yellowPulse { color: #ffd43b; background: #ffd43b; animation: fastPulse 0.5s infinite; }
+.purplePulse { color: #a855f7; background: #a855f7; animation: blinkPulse 1.5s infinite; }
+
+@keyframes blinkPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 10px currentColor; }
+}
+
+@keyframes fastPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; box-shadow: 0 0 12px currentColor; }
+}
+
+.simConsole {
+  padding: 16px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.jsonCode {
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Terminal simulation inside Agent */
+.simTerminal {
+  padding: 16px;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  max-height: 220px;
+  overflow-y: auto;
+  color: rgba(255, 255, 255, 0.85);
+  background: #030307;
+}
+
+.terminalLine {
+  margin-bottom: 6px;
+}
+
+.promptArrow {
+  color: #f97316;
+  font-weight: 800;
+  margin-right: 4px;
+}
+
+/* Threads Manager inside Sub-Agents */
+.threadsDashboard {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.threadRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+
+.threadRunning {
+  border-color: rgba(236, 72, 153, 0.3);
+  background: rgba(236, 72, 153, 0.04);
+}
+
+.threadName {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: monospace;
+}
+
+.statusLabel {
+  font-family: monospace;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.statusIdle { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); }
+.statusWorking { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
+.statusSpawning { background: rgba(236,72,153,0.15); color: #ec4899; border: 1px solid rgba(236,72,153,0.3); }
+.statusActive { background: rgba(236,72,153,0.25); color: #ec4899; border: 1px solid #ec4899; animation: threadPulse 1s infinite alternate; }
+.statusSuccess { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+
+@keyframes threadPulse {
+  0% { opacity: 0.7; }
+  100% { opacity: 1; box-shadow: 0 0 6px rgba(236,72,153,0.4); }
+}
+
+/* Context compilation */
+.contextCompiler {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compilerStep {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stepIndicator {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.greenText {
+  color: #10b981;
+  font-weight: 700;
+}
+
+.compilerSystemPrompt {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 10px;
+}
+
+.promptHeader {
+  font-size: 9px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.promptCode {
+  margin: 0;
+  font-family: monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+/* Memory & compaction dashboard */
+.memoryBarContainer {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memoryBarLabel {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: monospace;
+}
+
+.memoryProgressBar {
+  height: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.memoryFill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.3);
+  border-radius: 5px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.memoryHigh {
+  background: linear-gradient(90deg, #f97316, #ef4444);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+  animation: glowHigh 0.5s infinite alternate;
+}
+
+@keyframes glowHigh {
+  0% { filter: brightness(1); }
+  100% { filter: brightness(1.2); }
+}
+
+.memoryFillCompacting {
+  background: #ffd43b !important;
+  animation: compactionStrobe 0.15s infinite;
+}
+
+@keyframes compactionStrobe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.compactAlert {
+  font-size: 9px;
+  font-weight: 800;
+  color: #ffd43b;
+  background: rgba(255, 212, 59, 0.1);
+  border: 1px solid rgba(255, 212, 59, 0.3);
+  padding: 8px;
+  border-radius: 6px;
+  text-align: center;
+  font-family: monospace;
+}
+
+.warningAlert {
+  font-size: 9px;
+  font-weight: 800;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 8px;
+  border-radius: 6px;
+  text-align: center;
+  font-family: monospace;
+}
+
+.successAlert {
+  font-size: 9px;
+  font-weight: 800;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 8px;
+  border-radius: 6px;
+  text-align: center;
+  font-family: monospace;
+}
+
+/* Hooks Sandbox */
+.hooksSandbox {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hooksToggle {
+  display: flex;
+  gap: 8px;
+}
+
+.toggleBtn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggleBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+}
+
+.toggleActiveSafe {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  color: #10b981 !important;
+}
+
+.toggleActiveUnsafe {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  color: #ef4444 !important;
+}
+
+.sandboxOutput {
+  background: #030307;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  min-height: 110px;
+}
+
+.hookConsoleLog {
+  font-family: monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.hookLogLine {
+  margin-bottom: 5px;
+}
+
+.hookInfo { color: rgba(255,255,255,0.4); }
+.hookPre { color: #f97316; font-weight: 700; }
+.hookSuccess { color: #10b981; font-weight: 700; }
+.hookPost { color: #a855f7; font-weight: 700; }
+.errorText { color: #ef4444; font-weight: 700; }
+
+.hookLogBlockAlert {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid #ef4444;
+  color: #ef4444;
+  font-weight: 700;
+  padding: 10px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.closeButton {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.closeButton:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  transform: rotate(90deg);
+}
