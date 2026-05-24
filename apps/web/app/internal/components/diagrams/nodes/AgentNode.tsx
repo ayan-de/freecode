@@ -16,9 +16,9 @@ export function AgentNode({ selectedNode, onSelectNode }: AgentNodeProps) {
       onClick={() => onSelectNode('agent')}
     >
       <rect
-        x="400"
+        x="390"
         y="220"
-        width="160"
+        width="180"
         height="160"
         rx="14"
         className={styles.nodeBoxAgent}
@@ -33,8 +33,8 @@ export function AgentNode({ selectedNode, onSelectNode }: AgentNodeProps) {
         <circle r="15" fill="#f97316" className={styles.pulsingCore} />
       </g>
 
-      <rect x="445" y="335" width="70" height="16" rx="4" fill="#0b0b14" stroke="rgba(249,115,22,0.5)" />
-      <text x="480" y="347" className={styles.agentTag} textAnchor="middle">⚙️ AGENT</text>
+      <rect x="430" y="335" width="100" height="16" rx="4" fill="#0b0b14" stroke="rgba(249,115,22,0.5)" />
+      <text x="480" y="347" className={styles.agentTag} textAnchor="middle">⚙️ FreeCode AGENT</text>
       <text x="480" y="367" className={styles.agentLoopLabel} textAnchor="middle">Reasoning Loop</text>
     </g>
   );
