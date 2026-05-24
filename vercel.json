@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm --filter=web build",
+  "buildCommand": "pnpm run build",
   "devCommand": "pnpm --filter=web dev",
-  "installCommand": "pnpm --filter=web install"
+  "installCommand": "pnpm install"
 }
