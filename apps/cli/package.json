@@ -9,6 +9,10 @@
     "build": "tsc",
     "lint": "tsc --noEmit"
   },
+  "dependencies": {
+    "@freecode/shared": "workspace:*",
+    "playwright": "^1.42.0"
+  },
   "devDependencies": {
     "@types/node": "^22.15.3",
     "tsx": "^4.0.0",
