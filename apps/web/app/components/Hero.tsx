@@ -4,7 +4,7 @@ import { Button } from "./Button";
 export function Hero() {
   return (
     <div className="flex flex-col items-center gap-4 mb-12">
-      <pre className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-8 py-6 font-mono text-[11px] leading-tight text-cyan-400 whitespace-pre overflow-x-auto">
+      <pre className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-8 py-6 font-mono text-[11px] leading-tight text-cyan-400 whitespace-pre overflow-x-auto -mt-8">
         {logoLines.join("\n")}
       </pre>
       <p className="text-sm text-white/60 tracking-widest">{logoTagline}</p>
