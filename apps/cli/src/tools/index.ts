@@ -12,8 +12,8 @@ export const tools = {
 
 export type ToolId = keyof typeof tools
 
-export function getTool(id: ToolId): ToolDef | undefined {
-  return tools[id] as ToolDef | undefined
+export function getTool(id: string): ToolDef | undefined {
+  return tools[id as ToolId] as ToolDef | undefined
 }
 
 export function listTools(): { id: string; description: string }[] {

@@ -79,12 +79,12 @@ importers:
       '@earendil-works/pi-tui':
         specifier: ^0.74.0
         version: 0.74.0
+      '@freecode/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       chalk:
         specifier: ^5.5.0
         version: 5.6.2
-      playwright:
-        specifier: ^1.42.0
-        version: 1.59.1
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
