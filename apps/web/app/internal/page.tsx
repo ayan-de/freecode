@@ -1,5 +1,6 @@
 'use client';
 
+import { PageHeader } from './components/presentation/PageHeader';
 import { TabNavigation } from './components/presentation/TabNavigation';
 import {
   OverviewContainer,
@@ -30,20 +31,16 @@ export default function InternalPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Internal Architecture</h1>
-        <p className={styles.subtitle}>
-          Explore how FreeCode&apos;s thin-client architecture enables scalable AI-assisted coding
-        </p>
-      </header>
+      <TabNavigation
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(id) => onTabChange(id as TabId)}
+      />
 
-      <div className={styles.navigation}>
-        <TabNavigation
-          tabs={tabs}
-          activeTab={activeTab}
-          onTabChange={(id) => onTabChange(id as TabId)}
-        />
-      </div>
+      <PageHeader
+        title="Internal Architecture"
+        subtitle="Explore how FreeCode's thin-client architecture enables scalable AI-assisted coding"
+      />
 
       <main className={styles.content}>
         {renderContent()}
