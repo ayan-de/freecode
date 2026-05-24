@@ -1,0 +1,46 @@
+import { ReactNode } from "react";
+import Link from "next/link";
+
+interface ButtonProps {
+  variant?: "primary" | "secondary" | "outline";
+  children: ReactNode;
+  className?: string;
+  href?: string;
+  target?: string;
+  rel?: string;
+  onClick?: () => void;
+}
+
+export function Button({
+  variant = "primary",
+  children,
+  className = "",
+  href,
+  target,
+  rel,
+  onClick,
+}: ButtonProps) {
+  const baseStyles = "inline-flex items-center justify-center rounded-sm px-4 py-2 text-sm font-medium transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none no-underline";
+
+  const variants = {
+    primary: "bg-white text-black hover:opacity-80",
+    secondary: "bg-[#9A9595] text-black hover:opacity-80",
+    outline: "border border-white/20 text-white hover:bg-white/5 hover:no-underline",
+  };
+
+  const classNames = `${baseStyles} ${variants[variant]} ${className}`;
+
+  if (href) {
+    return (
+      <Link href={href} className={classNames} target={target} rel={rel}>
+        {children}
+      </Link>
+    );
+  }
+
+  return (
+    <button className={classNames} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
