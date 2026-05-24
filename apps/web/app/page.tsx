@@ -12,7 +12,7 @@ export default function Home() {
       <div className="fixed top-0 bottom-0 left-[max(80px,calc((100vw-1280px)/2))] w-px bg-white/15 z-50" />
       <div className="fixed top-0 bottom-0 right-[max(80px,calc((100vw-1280px)/2))] w-px bg-white/15 z-50" />
 
-      <main className="flex flex-col items-center py-20 text-center">
+      <main className="flex flex-col items-center py-20 text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
 
         <Divider />
