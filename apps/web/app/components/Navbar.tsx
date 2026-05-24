@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Menu, X, Download } from "lucide-react";
 import { Button } from "./Button";
+import { Divider } from "./Divider";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -14,8 +15,8 @@ export function Navbar() {
   const [open, setOpen] = useState(false);
 
   return (
-    <nav className="sticky top-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/10">
-      <div className="mx-auto max-w-5xl px-4">
+    <nav className="sticky top-0 z-50 bg-[#0a0a0a] px-[max(80px,calc((100vw-1280px)/2))]">
+      <div className="mx-auto max-w-5xl">
         <div className="flex h-16 items-center justify-between">
           <a href="/" className="font-mono text-white hover:text-cyan-400 transition-colors text-sm mr-8">
             freecode
@@ -74,6 +75,7 @@ export function Navbar() {
           </div>
         )}
       </div>
+      <Divider />
     </nav>
   );
 }
