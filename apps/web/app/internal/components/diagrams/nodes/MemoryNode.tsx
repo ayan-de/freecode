@@ -17,7 +17,7 @@ export function MemoryNode({ selectedNode, onSelectNode }: MemoryNodeProps) {
     >
       {/* Database cylinders */}
       <g transform="translate(710, 440)">
-        <rect x="0" y="0" width="100" height="130" rx="8" fill="rgba(11, 11, 20, 0.7)" stroke="rgba(245,158,11,0.2)" />
+        <rect x="0" y="0" width="100" height="130" rx="8" fill="rgba(11, 11, 20, 0.7)" stroke="rgba(245,158,11,0.2)" className={styles.nodeBoxMemory} />
 
         <ellipse cx="50" cy="25" rx="35" ry="12" fill="rgba(245,158,11,0.2)" stroke="#f59e0b" strokeWidth="2" filter="url(#glow-amber)" />
 

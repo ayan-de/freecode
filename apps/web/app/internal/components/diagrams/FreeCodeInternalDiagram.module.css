@@ -177,6 +177,16 @@
   fill: rgba(28, 16, 42, 0.9);
 }
 
+/* Memory Box */
+.nodeBoxMemory {
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxMemory {
+  stroke: rgba(245, 158, 11, 0.8);
+  filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));
+}
+
 /* Hooks Circle */
 .hooksCircle {
   fill: rgba(16, 185, 129, 0.15);

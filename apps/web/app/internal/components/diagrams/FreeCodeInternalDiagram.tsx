@@ -42,7 +42,7 @@ export function FreeCodeInternalDiagram({
     <div className={styles.container}>
       <div className={styles.diagramHeader}>
         <span className={styles.pulseDot}></span>
-        <span className={styles.diagramLabel}>INTERACTIVE SYSTEM BLUEPRINT</span>
+        <span className={styles.diagramLabel}>INTERACTIVE FREECODE SYSTEM BLUEPRINT</span>
       </div>
 
       <div className={styles.diagramWrapper}>
@@ -54,6 +54,9 @@ export function FreeCodeInternalDiagram({
         >
           <DiagramDefinitions />
           <BackgroundGrid />
+
+          {/* ==================== SANDBOX / SYSTEM CONTAINER ==================== */}
+          <SandboxContainer />
 
           {/* ==================== CONNECTIONS / FLOWS ==================== */}
           <TaskFlow />
