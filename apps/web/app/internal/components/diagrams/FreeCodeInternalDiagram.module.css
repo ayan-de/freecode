@@ -88,9 +88,9 @@
 /* Outer Sandbox CLI Container style */
 .outerSandbox {
   fill: rgba(6, 6, 12, 0.4);
-  stroke: rgba(255, 255, 255, 0.05);
-  stroke-width: 1.5;
-  stroke-dasharray: 10 5;
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1;
+  stroke-dasharray: none;
 }
 
 .outerSandboxTitle {

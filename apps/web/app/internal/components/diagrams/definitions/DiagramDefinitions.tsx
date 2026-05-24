@@ -50,6 +50,13 @@ export function DiagramDefinitions() {
           <feMergeNode in="SourceGraphic" />
         </feMerge>
       </filter>
+      <filter id="glow-white" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="4" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
 
       {/* Line Gradients */}
       <linearGradient id="grad-task" x1="0%" y1="0%" x2="100%" y2="0%">
