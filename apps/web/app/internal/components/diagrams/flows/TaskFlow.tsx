@@ -6,14 +6,17 @@ export function TaskFlow() {
     <g className={styles.flowLineGroup}>
       <path
         id="flow-task"
-        d="M 150 300 H 400"
-        stroke="url(#grad-task)"
-        strokeWidth="2.5"
+        d="M 150 300 C 230 300 310 300 400 300"
+        stroke="rgba(249,115,22,0.85)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeDasharray="8 6"
         className={styles.flowLine}
+        fill="none"
       />
-      <polygon points="400,300 390,295 390,305" fill="#f97316" />
-      <rect x="235" y="278" width="80" height="18" rx="4" fill="#0b0b14" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-      <text x="275" y="291" className={styles.connectionLabel} fill="rgba(255,255,255,0.7)">JSON-RPC Task</text>
+      <polygon points="400,300 390,295 390,305" fill="rgba(249,115,22,0.85)" />
+      <rect x="226" y="278" width="98" height="18" rx="4" fill="#0b0b14" stroke="rgba(249,115,22,0.26)" strokeWidth="1" />
+      <text x="275" y="291" className={styles.connectionLabel} fill="rgba(255,255,255,0.76)" textAnchor="middle">JSON-RPC Task</text>
     </g>
   );
 }
