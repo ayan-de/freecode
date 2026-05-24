@@ -1,14 +1,18 @@
-import { create } from 'zustand';
-import type { Message, MessagePart } from '../lib/types.js';
+// =============================================================================
+// Chat Store — UI state management for VS Code extension
+// =============================================================================
+
+import { create } from "zustand";
+import type { Message, MessagePart } from "@freecode/shared";
 
 interface ChatStore {
   messages: Message[];
-  status: 'idle' | 'streaming' | 'error';
+  status: "idle" | "streaming" | "error";
   error: string | null;
-  addMessage: (role: 'user' | 'assistant', parts: MessagePart[]) => void;
+  addMessage: (role: "user" | "assistant", parts: MessagePart[]) => void;
   addPartToLastMessage: (part: MessagePart) => void;
   updateLastMessagePart: (index: number, part: MessagePart) => void;
-  setStatus: (status: 'idle' | 'streaming' | 'error') => void;
+  setStatus: (status: "idle" | "streaming" | "error") => void;
   setError: (error: string | null) => void;
   clearMessages: () => void;
 }
@@ -17,7 +21,7 @@ let messageCounter = 0;
 
 export const useChatStore = create<ChatStore>((set) => ({
   messages: [],
-  status: 'idle',
+  status: "idle",
   error: null,
 
   addMessage: (role, parts) =>
@@ -61,5 +65,5 @@ export const useChatStore = create<ChatStore>((set) => ({
 
   setStatus: (status) => set({ status }),
   setError: (error) => set({ error }),
-  clearMessages: () => set({ messages: [], status: 'idle', error: null }),
+  clearMessages: () => set({ messages: [], status: "idle", error: null }),
 }));

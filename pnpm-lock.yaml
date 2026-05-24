@@ -101,6 +101,9 @@ importers:
 
   apps/vscode:
     dependencies:
+      '@freecode/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       react:
         specifier: ^18.2.0
         version: 18.3.1
