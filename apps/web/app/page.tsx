@@ -2,12 +2,14 @@ import { logoLines, logoTagline } from "./assets/logo";
 import { Installation } from "./components/Installation";
 import { Button } from "./components/Button";
 import { Divider } from "./components/Divider";
+import { Navbar } from "./components/Navbar";
 
 const offset = "max(80px, calc((100vw - 1280px) / 2))";
 
 export default function Home() {
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-black via-[#0a0a0a] to-[#1a1a2e]">
+      <Navbar />
       <div className="fixed top-0 bottom-0 left-[max(80px,calc((100vw-1280px)/2))] w-px bg-white/15 z-50" />
       <div className="fixed top-0 bottom-0 right-[max(80px,calc((100vw-1280px)/2))] w-px bg-white/15 z-50" />
 
