@@ -38,12 +38,14 @@ export function OverviewContainer() {
 
   return (
     <div className={styles.container}>
+      {/* TODO: unused section - comment out
       <div className={styles.introSection}>
         <IntroSection
           title="Interactive Blueprint &amp; Execution Engine"
           description="FreeCode operates as a persistent CLI daemon coordinating a stateful Agent Loop, pluggable Safety Hooks, a local Context Engine, and parallelized Sub-Agents. Select any card or node in the interactive blueprint below to explore deep architectural insights, links to source code files, and simulated execution logs!"
         />
       </div>
+*/}
 
       <div className={styles.fullWidthDiagram}>
         <FreeCodeInternalDiagram
