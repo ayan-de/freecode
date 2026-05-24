@@ -1,24 +1,20 @@
 {
-  "name": "@freecode/tui",
+  "name": "@freecode/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "freecode": "./dist/index.js"
-  },
+  "main": "src/index.ts",
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.74.0",
     "@freecode/shared": "workspace:*",
-    "chalk": "^5.5.0"
+    "playwright": "^1.42.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
+    "@types/node": "^22.15.3",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   }

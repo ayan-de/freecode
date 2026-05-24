@@ -1,0 +1,79 @@
+.container {
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.layer {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid;
+  background: rgba(10, 10, 20, 0.5);
+}
+
+.layerHeader {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.layerName {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.components {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.component {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.component:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+  .layer {
+    padding: 12px;
+  }
+
+  .components {
+    flex-direction: column;
+  }
+
+  .component {
+    width: 100%;
+    text-align: center;
+  }
+}

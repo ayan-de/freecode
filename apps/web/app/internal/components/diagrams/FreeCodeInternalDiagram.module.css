@@ -1,0 +1,415 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 8, 16, 0.7);
+  backdrop-filter: blur(16px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.diagramHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 12px;
+}
+
+.pulseDot {
+  width: 8px;
+  height: 8px;
+  background-color: #f97316;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #f97316;
+  animation: pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+    box-shadow: 0 0 14px #f97316;
+  }
+}
+
+.diagramLabel {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: monospace;
+}
+
+.diagramWrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+
+.svg {
+  width: 100%;
+  height: auto;
+  min-width: 850px;
+  display: block;
+}
+
+/* Connection line effects */
+.flowLine {
+  stroke-dasharray: 8 6;
+  animation: dashFlow 15s linear infinite;
+}
+
+.flowLineSlow {
+  stroke-dasharray: 6 8;
+  animation: dashFlow 25s linear infinite;
+}
+
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -1000;
+  }
+}
+
+.connectionLabel {
+  font-size: 9px;
+  font-family: monospace;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* Outer Sandbox CLI Container style */
+.outerSandbox {
+  fill: rgba(6, 6, 12, 0.4);
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-width: 1.5;
+  stroke-dasharray: 10 5;
+}
+
+.outerSandboxTitle {
+  fill: rgba(255, 255, 255, 0.35);
+  font-size: 10px;
+  font-weight: 900;
+  font-family: monospace;
+  letter-spacing: 1.5px;
+}
+
+/* ==================== NODE STYLINGS ==================== */
+
+.nodeGroup {
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.nodeGroup:hover {
+  transform: translateY(-2px);
+}
+
+/* Clients Box */
+.nodeBoxClients {
+  fill: rgba(15, 17, 28, 0.85);
+  stroke: rgba(129, 140, 248, 0.3);
+  stroke-width: 1.5;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxClients {
+  stroke: rgba(129, 140, 248, 0.8);
+  fill: rgba(20, 23, 40, 0.9);
+}
+
+/* Agent Loop Box */
+.nodeBoxAgent {
+  fill: rgba(30, 16, 8, 0.85);
+  stroke: rgba(249, 115, 22, 0.4);
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxAgent {
+  stroke: rgba(249, 115, 22, 0.9);
+  fill: rgba(42, 20, 8, 0.9);
+}
+
+/* Sub-agents Box */
+.nodeBoxSubagents {
+  fill: rgba(20, 12, 22, 0.85);
+  stroke: rgba(236, 72, 153, 0.3);
+  stroke-width: 1.5;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxSubagents {
+  stroke: rgba(236, 72, 153, 0.8);
+  fill: rgba(30, 16, 32, 0.9);
+}
+
+/* Context Box */
+.nodeBoxContext {
+  fill: rgba(8, 22, 18, 0.85);
+  stroke: rgba(16, 185, 129, 0.3);
+  stroke-width: 1.5;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxContext {
+  stroke: rgba(16, 185, 129, 0.8);
+  fill: rgba(10, 32, 24, 0.9);
+}
+
+/* Tools Box */
+.nodeBoxTools {
+  fill: rgba(18, 12, 28, 0.85);
+  stroke: rgba(168, 85, 247, 0.3);
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxTools {
+  stroke: rgba(168, 85, 247, 0.8);
+  fill: rgba(28, 16, 42, 0.9);
+}
+
+/* Hooks Circle */
+.hooksCircle {
+  fill: rgba(16, 185, 129, 0.15);
+  stroke: rgba(16, 185, 129, 0.4);
+  stroke-width: 2;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .hooksCircle {
+  stroke: rgba(16, 185, 129, 0.9);
+  fill: rgba(16, 185, 129, 0.3);
+  transform: scale(1.1);
+  transform-origin: 635px 200px;
+}
+
+.hooksLightning {
+  transition: transform 0.3s ease;
+}
+
+.nodeGroup:hover .hooksLightning {
+  transform: scale(1.15);
+  transform-origin: 635px 200px;
+}
+
+.hooksLabel {
+  fill: #10b981;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: monospace;
+}
+
+.hooksSublabel {
+  fill: rgba(16, 185, 129, 0.6);
+  font-size: 8px;
+  font-family: monospace;
+}
+
+/* Selection State Rings */
+.activeNode .nodeBoxClients {
+  stroke: #818cf8;
+  stroke-width: 3;
+  fill: rgba(24, 28, 50, 0.95);
+  filter: drop-shadow(0 0 12px rgba(129, 140, 248, 0.4));
+}
+
+.activeNode .nodeBoxAgent {
+  stroke: #f97316;
+  stroke-width: 3.5;
+  fill: rgba(50, 24, 10, 0.95);
+  filter: drop-shadow(0 0 16px rgba(249, 115, 22, 0.5));
+}
+
+.activeNode .nodeBoxSubagents {
+  stroke: #ec4899;
+  stroke-width: 3;
+  fill: rgba(36, 18, 40, 0.95);
+  filter: drop-shadow(0 0 12px rgba(236, 72, 153, 0.4));
+}
+
+.activeNode .nodeBoxContext {
+  stroke: #10b981;
+  stroke-width: 3;
+  fill: rgba(12, 38, 28, 0.95);
+  filter: drop-shadow(0 0 12px rgba(16, 185, 129, 0.4));
+}
+
+.activeNode .nodeBoxTools {
+  stroke: #a855f7;
+  stroke-width: 3.5;
+  fill: rgba(34, 18, 52, 0.95);
+  filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.5));
+}
+
+.activeNode .hooksCircle {
+  stroke: #10b981;
+  stroke-width: 3.5;
+  fill: rgba(16, 185, 129, 0.35);
+  filter: drop-shadow(0 0 14px rgba(16, 185, 129, 0.6));
+}
+
+/* Headers & Labels */
+.nodeHeader {
+  fill: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  font-family: monospace;
+}
+
+.nodeHeaderTools {
+  fill: #d8b4fe;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  font-family: monospace;
+}
+
+.nodeInfoLabel {
+  fill: rgba(255, 255, 255, 0.3);
+  font-size: 9px;
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+
+/* Sub-card texts inside frontend/clients */
+.subCardText {
+  fill: rgba(255, 255, 255, 0.85);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.subCardDesc {
+  fill: rgba(255, 255, 255, 0.4);
+  font-size: 8px;
+  font-family: monospace;
+}
+
+/* Agent Loop Spinner animations */
+.gearGroup {
+  animation: spinGear 12s linear infinite;
+  transform-origin: 0px 0px;
+}
+
+@keyframes spinGear {
+  from {
+    transform: translate(480px, 270px) rotate(0deg);
+  }
+  to {
+    transform: translate(480px, 270px) rotate(360deg);
+  }
+}
+
+.pulsingCore {
+  animation: corePulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes corePulse {
+  0% {
+    r: 10px;
+    opacity: 0.7;
+    fill: #f97316;
+  }
+  100% {
+    r: 16px;
+    opacity: 1;
+    fill: #ff8838;
+    filter: drop-shadow(0 0 10px #ff8838);
+  }
+}
+
+.agentTag {
+  fill: #ffd8a8;
+  font-size: 9px;
+  font-weight: 900;
+  font-family: monospace;
+}
+
+.agentLoopLabel {
+  fill: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Sub-agent chip text */
+.miniCardTitle {
+  fill: #f472b6;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.miniCardSub {
+  fill: rgba(255, 255, 255, 0.5);
+  font-size: 7px;
+  font-family: monospace;
+}
+
+/* Context documents */
+.docLabel {
+  fill: rgba(255, 255, 255, 0.7);
+  font-size: 8px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+/* Memory database label */
+.dbLabel {
+  fill: #ffd43b;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: monospace;
+}
+
+.dbCompactLabel {
+  fill: rgba(245, 158, 11, 0.6);
+  font-size: 8px;
+  font-family: monospace;
+}
+
+/* Tool grids */
+.toolGridLabel {
+  fill: rgba(255, 255, 255, 0.85);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.toolGridDesc {
+  fill: rgba(255, 255, 255, 0.45);
+  font-size: 7.5px;
+  font-family: monospace;
+}
+
+.terminalIconPrompt {
+  fill: #a855f7;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: monospace;
+}
+
+/* Guide box under diagram */
+.interactiveGuide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+}
+
+.interactiveGuide span {
+  color: rgba(255, 255, 255, 0.8);
+}

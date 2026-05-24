@@ -12,6 +12,8 @@ The system uses a two-phase approach: the AI first returns which files it needs,
 
 ## Architecture
 
+**TUI and VSCode are pure presentation layers. All business logic lives in CLI.**
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                          TUI                                 │
@@ -31,35 +33,12 @@ The system uses a two-phase approach: the AI first returns which files it needs,
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     AI Provider (Browser)                    │
+│                      AI Provider (Browser)                   │
 │                    ChatGPT / Claude / Gemini                 │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      VS Code Extension                       │
-│              (apps/vscode) — pure UI shell                   │
-│         React webview + IPC client to CLI                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Key principle:** TUI and VSCode are pure presentation layers. All business logic lives in CLI.
-
----
-
-## Architectural Principles
-
-### Core Design Principles
-
-1. **SOLID** — Single responsibility, Open-closed, Liskov substitution, Interface segregation, Dependency inversion
-2. **YAGNI** — Only implement what's needed now; avoid speculative generalization
-3. **DRY** — Don't repeat yourself; extract shared logic to single sources of truth
-4. **Decomposition** — Each file/module does one thing well; avoid bloated files
-
-### Thin Client Principles
-
-1. **Zero business logic in frontends** — TUI and VSCode do only rendering and IPC. No browser automation, no file reading, no parsing.
-2. **IPC is the only bridge** — All communication between frontends and CLI goes through JSON-RPC. No shared state.
-3. **CLI owns everything** — Browser controller, providers, context engine, parser, tools, agent loop all live in CLI.
 
 ---
 
@@ -81,62 +60,25 @@ freecode/
 │   │   └── src/
 │   │       ├── server.ts            # JSON-RPC stdin/stdout server
 │   │       ├── agent/              # Agent loop + session management
-│   │       │   ├── loop.ts
-│   │       │   └── session.ts
 │   │       ├── browser/            # Playwright + CDP + provider adapters
-│   │       │   ├── controller.ts
-│   │       │   ├── providers/
-│   │       │   │   ├── index.ts
-│   │       │   │   ├── chatgpt.ts
-│   │       │   │   └── types.ts
-│   │       │   └── types.ts
 │   │       ├── context/            # File tree + context collection
-│   │       │   ├── collector.ts
-│   │       │   └── file-tree.ts
 │   │       ├── parser/             # Response parsing
-│   │       │   ├── registry.ts
-│   │       │   └── extractors/
-│   │       │       ├── structured.ts
-│   │       │       ├── markdown.ts
-│   │       │       └── json.ts
 │   │       ├── tools/              # Tool definitions + execution
-│   │       │   ├── index.ts
-│   │       │   ├── read.ts
-│   │       │   ├── write.ts
-│   │       │   ├── edit.ts
-│   │       │   ├── bash.ts
-│   │       │   ├── grep.ts
-│   │       │   ├── find.ts
-│   │       │   └── glob.ts
 │   │       └── applier/            # File diff + write
-│   │           ├── index.ts
-│   │           ├── differ.ts
-│   │           └── writer.ts
 │   │
 │   ├── tui/                        # Pure UI shell — no business logic
 │   │   └── src/
 │   │       ├── index.ts            # Entry point: mounts TUI, connects IPC
 │   │       ├── commands/           # TUI-specific commands (model select)
-│   │       │   ├── index.ts
-│   │       │   └── built-in.ts
 │   │       ├── ipc/
 │   │       │   └── client.ts       # JSON-RPC client to CLI
 │   │       └── assets/
-│   │           └── logo.ts
 │   │
 │   └── vscode/                     # Pure UI shell — no business logic
 │       └── src/
 │           ├── extension.ts        # VS Code extension entry point
-│           ├── chat/
-│           │   ├── ChatView.tsx    # Main webview panel
-│           │   ├── MessageList.tsx
-│           │   ├── MessageInput.tsx
-│           │   └── parts/          # Message part renderers
-│           │       ├── TextPart.tsx
-│           │       ├── CodePart.tsx
-│           │       └── ToolPart.tsx
-│           ├── stores/
-│           │   └── chat-store.ts   # UI state only (messages, status)
+│           ├── chat/               # React webview components
+│           ├── stores/             # Zustand stores (UI state only)
 │           └── ipc/
 │               └── client.ts       # JSON-RPC client to CLI
 │
@@ -187,8 +129,8 @@ interface StreamResponse {
   type: "text" | "code" | "tool" | "done" | "error";
   content: string;
   toolName?: string;      // when type === "tool"
-  toolArgs?: unknown;     // when type === "tool"
-  toolResult?: string;    // when type === "tool" (after execution)
+  toolArgs?: unknown;    // when type === "tool"
+  toolResult?: string;   // when type === "tool" (after execution)
 }
 ```
 
@@ -196,7 +138,7 @@ interface StreamResponse {
 
 ## Type Sharing
 
-Core domain types live in `packages/shared/src/types.ts`:
+Core domain types live in `packages/shared/src/types.ts`. No duplicate type definitions in frontends.
 
 ```typescript
 export interface Message {
@@ -210,26 +152,24 @@ export type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; language: string; content: string }
   | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string };
-
-export interface ToolDef {
-  id: string;
-  description: string;
-  parameters: JsonSchema;
-}
-
-export interface ToolResult {
-  title: string;
-  output: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface FileChange {
-  path: string;
-  action: "create" | "update" | "delete";
-  content?: string;
-  diff?: string;
-}
 ```
+
+---
+
+## Architectural Principles
+
+### Core Design Principles
+
+1. **SOLID** — Single responsibility, Open-closed, Liskov substitution, Interface segregation, Dependency inversion
+2. **YAGNI** — Only implement what's needed now; avoid speculative generalization
+3. **DRY** — Don't repeat yourself; extract shared logic to single sources of truth
+4. **Decomposition** — Each file/module does one thing well; avoid bloated files
+
+### Thin Client Principles
+
+1. **Zero business logic in frontends** — TUI and VSCode do only rendering and IPC. No browser automation, no file reading, no parsing.
+2. **IPC is the only bridge** — All communication between frontends and CLI goes through JSON-RPC. No shared state.
+3. **CLI owns everything** — Browser controller, providers, context engine, parser, tools, agent loop all live in CLI.
 
 ---
 
@@ -242,7 +182,6 @@ CLI stays alive between turns, maintaining browser connection and session state.
 ### 2. Two-Phase Context Collection
 
 Before sending a prompt, CLI first asks the LLM which files it needs, then reads only those files:
-
 1. Send prompt + file tree to LLM → LLM returns list of needed files
 2. CLI reads those files
 3. Send files + prompt to LLM → LLM returns structured response
@@ -266,6 +205,7 @@ File changes are shown as a diff to the user for approval before writing. Preven
 | IPC client | camelCase | `ipc/client.ts` |
 | Provider adapters | camelCase | `chatgpt.ts` |
 | Tool implementations | camelCase | `read.ts`, `write.ts` |
+| Parser extractors | camelCase | `structured.ts`, `markdown.ts` |
 
 ---
 

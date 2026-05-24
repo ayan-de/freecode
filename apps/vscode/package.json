@@ -1,0 +1,54 @@
+{
+  "name": "freecode-chat",
+  "displayName": "FreeCode",
+  "description": "AI coding assistant with chat interface",
+  "version": "0.1.0",
+  "publisher": "freecode",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "activationEvents": [
+    "onView:freecode.chat"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "freecode.sidebar",
+          "title": "FreeCode",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "views": {
+      "freecode.sidebar": [
+        {
+          "id": "freecode.chat",
+          "type": "webview",
+          "title": "Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc && npm run build:webview",
+    "build:webview": "esbuild src/webview/main.tsx --bundle --outfile=dist/webview/bundle.js --platform=browser --format=iife && cp src/webview/index.html dist/webview/",
+    "watch": "tsc -w",
+    "watch:webview": "esbuild src/webview/main.tsx --bundle --outfile=dist/webview/bundle.js --platform=browser --format=iife --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.88.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@freecode/shared": "workspace:*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^4.5.0"
+  }
+}

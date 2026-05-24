@@ -1,0 +1,77 @@
+.container {
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.diagram {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.svg {
+  width: 100%;
+  min-width: 600px;
+  height: 300px;
+}
+
+.nodeBox {
+  fill: rgba(30, 30, 40, 0.9);
+  stroke: rgba(99, 102, 241, 0.4);
+  stroke-width: 1;
+  transition: all 0.3s ease;
+}
+
+.nodeBox:hover {
+  stroke: rgba(99, 102, 241, 0.8);
+  filter: brightness(1.2);
+}
+
+.nodeLabel {
+  fill: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.nodeSublabel {
+  fill: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+.connectionLine {
+  stroke-dasharray: 8 4;
+  animation: flowAnimation 1s linear infinite;
+}
+
+.connectionLabel {
+  fill: rgba(168, 85, 247, 0.8);
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+@keyframes flowAnimation {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
