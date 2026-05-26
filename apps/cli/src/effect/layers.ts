@@ -1,43 +1,16 @@
 // =============================================================================
-// Effect Layers - Loop health evaluator + bus system
-// PRIMARY: Multi-heuristic loop detection and event distribution
-// INPUT: SessionState + LoopHeuristics (evaluate), BusEvent (publish)
-// OUTPUT: LoopAction { continue | warn | stop } (evaluate), void (publish/subscribe)
-// PURPOSE: Detects stuck patterns (repeated tools, stagnation, oscillation) and
-//          distributes events to TUI/VSCode subscribers
+// Effect Layers - Loop health evaluator
+// PRIMARY: Multi-heuristic loop detection
+// INPUT: SessionState + LoopHeuristics
+// OUTPUT: LoopAction { continue | warn | stop }
+// PURPOSE: Detects stuck patterns (repeated tools, stagnation, oscillation)
+//          NOTE: Bus moved to bus/index.ts - do not duplicate here
 // =============================================================================
+
+import type { SessionState, LoopHeuristics, LoopAction } from "../agent/types.js"
 
 export interface LoopHealthEvaluator {
   evaluate(state: SessionState, heuristics: LoopHeuristics): LoopAction
-}
-
-interface SessionState {
-  status: string
-  sessionId: string
-  turnCount: number
-  iterationCount: number
-  loopHealth: LoopHealth
-}
-
-interface LoopHealth {
-  repeatedTools: number
-  stagnantTurns: number
-  oscillationScore: number
-  repeatedReasoningScore: number
-}
-
-interface LoopHeuristics {
-  repeatedIdenticalThreshold: number
-  stagnantTurnsThreshold: number
-  oscillationScoreThreshold: number
-  reasoningSimilarityThreshold: number
-  reasoningSimilarityTurns: number
-  totalIterationLimit: number
-}
-
-interface LoopAction {
-  action: "continue" | "warn" | "stop"
-  reason?: string
 }
 
 export const createLoopHealthEvaluator = (): LoopHealthEvaluator => ({
@@ -61,19 +34,5 @@ export const createLoopHealthEvaluator = (): LoopHealthEvaluator => ({
     }
 
     return { action: "continue" }
-  },
-})
-
-export interface Bus {
-  publish(event: { type: string; payload: unknown; timestamp: number }): void
-  subscribe(handler: (event: { type: string; payload: unknown; timestamp: number }) => void): void
-}
-
-export const createBus = (): Bus => ({
-  publish(event) {
-    console.log(`[Bus] Event: ${event.type}`, event.payload)
-  },
-  subscribe(_handler) {
-    console.log("[Bus] Subscribed to events")
   },
 })
