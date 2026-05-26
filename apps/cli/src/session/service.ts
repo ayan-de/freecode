@@ -7,8 +7,8 @@
 // PURPOSE: Tracks session status, message history, and supports session forking for sub-agents
 // =============================================================================
 
-import type { Message, SessionState } from "../agent/types.js"
-import { createInitialSessionState } from "../agent/types.js"
+import type { Message, SessionState } from "./types.js"
+import { createInitialSessionState } from "./types.js"
 
 // =============================================================================
 // SessionService Interface
