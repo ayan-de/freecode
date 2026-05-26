@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@freecode/shared": "workspace:*",
+    "effect": "^3.21.2",
     "playwright": "^1.42.0"
   },
   "devDependencies": {

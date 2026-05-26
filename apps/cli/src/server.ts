@@ -4,15 +4,11 @@
 // =============================================================================
 
 import { getTool, listTools } from "./tools/index.js";
-import { executePromptCycle } from "./agent/loop.js";
+import { createAgentLoop } from "./agent/loop.js";
 import { createDefaultProviders, listProviders } from "./browser/providers/index.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
 import type { JsonRpcRequest, JsonRpcResponse, SessionConfig } from "@freecode/shared";
-
-// =============================================================================
-// Type Imports
-// =============================================================================
 
 interface ToolListItem {
   id: string;
@@ -35,10 +31,6 @@ interface SessionInfo {
   provider: string;
 }
 
-// =============================================================================
-// Session Management
-// =============================================================================
-
 const sessions: Map<string, SessionInfo> = new Map();
 let sessionCounter = 0;
 
@@ -57,10 +49,6 @@ function getSession(id: string): SessionInfo | undefined {
   return sessions.get(id);
 }
 
-// =============================================================================
-// Response Helpers
-// =============================================================================
-
 function createResponse(id: number | string, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
@@ -74,15 +62,10 @@ function createError(
   return { jsonrpc: "2.0", id, error: { code, message, data } };
 }
 
-// =============================================================================
-// Method Handlers
-// =============================================================================
-
 const methodHandlers: Record<
   string,
   (params: Record<string, unknown>) => Promise<unknown>
 > = {
-  // Tool methods
   "tools.list": async (): Promise<ToolListItem[]> => {
     return listTools();
   },
@@ -97,7 +80,6 @@ const methodHandlers: Record<
     return tool.execute(args, ctx);
   },
 
-  // Session methods
   "session.start": async (params: Record<string, unknown>): Promise<SessionStartResult> => {
     const config = params as unknown as SessionConfig;
     const session = createSession(config);
@@ -115,14 +97,13 @@ const methodHandlers: Record<
 
     logger.info("Session send", { sessionId, messageLength: message.length });
 
-    const result = await executePromptCycle(
-      {
-        prompt: message,
-        provider: session.provider,
-        projectPath: session.projectPath,
-      },
-      undefined // TODO: wire up streaming in future
-    );
+    const loop = createAgentLoop(sessionId, { maxIterations: 100 })
+    const result = await loop.run({
+      prompt: message,
+      sessionId,
+      provider: session.provider,
+      projectPath: session.projectPath,
+    })
 
     return result;
   },
@@ -136,7 +117,6 @@ const methodHandlers: Record<
     }
   },
 
-  // Provider methods
   "providers.list": async (): Promise<unknown[]> => {
     return listProviders().map((p) => ({
       id: p.id,
@@ -145,10 +125,6 @@ const methodHandlers: Record<
     }));
   },
 };
-
-// =============================================================================
-// Request Handler
-// =============================================================================
 
 async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
   try {
@@ -164,12 +140,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> 
   }
 }
 
-// =============================================================================
-// Main Server Loop
-// =============================================================================
-
 async function main() {
-  // Initialize providers
   createDefaultProviders();
 
   let buffer = "";

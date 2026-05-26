@@ -1,26 +1,26 @@
 # FreeCode Agent Loop Architecture
 
 **Date:** 2026-05-25
-**Status:** Draft
+**Status:** Phase 1 Complete (see Implementation Priority for details)
 **Supersedes:** Partial implementation in `apps/cli/src/agent/loop.ts`
 
 ---
 
 ## Design Decisions Summary
 
-| Question | Decision | Reference |
-|----------|----------|-----------|
-| Why loop? | Complex tasks need multi-step | Claude Code / codex |
-| Loop style | Continuous (Claude Code style) | Cycles until no tool calls |
-| Streaming | Full page parse on each turn | Browser Playwright limitation |
-| Tool execution | Mixed (safe=inproc, risky=sandbox) | Best balance |
-| DI framework | Effect/Layer (like opencode) | Testability + composition |
-| Hooks | Full 10-type system upfront | Claude Code pattern |
-| Skills | Markdown + plugin (extended) | Auto-discovered via glob |
-| MCP | Client first, server later | Matches codex/claude-code |
-| Sub-agents | Full implementation upfront | codex multi_agent pattern |
-| Persistence | SQLite + JSON upfront | Enables resume |
-| Build scope | Full v3 spec all at once | Complete architecture |
+| Question | Decision | Reference | Status |
+|----------|----------|-----------|--------|
+| Why loop? | Complex tasks need multi-step | Claude Code / codex | ✅ Done |
+| Loop style | Continuous (Claude Code style) | Cycles until no tool calls | ✅ Done |
+| Streaming | Full page parse on each turn | Browser Playwright limitation | Pending |
+| Tool execution | Mixed (safe=inproc, risky=sandbox) | Best balance | Pending |
+| DI framework | Effect/Layer (like opencode) | Testability + composition | ⚠️ Simplified |
+| Hooks | Full 10-type system upfront | Claude Code pattern | ✅ Done |
+| Skills | Markdown + plugin (extended) | Auto-discovered via glob | Pending |
+| MCP | Client first, server later | Matches codex/claude-code | Pending |
+| Sub-agents | Full implementation upfront | codex multi_agent pattern | Pending |
+| Persistence | SQLite + JSON upfront | Enables resume | Pending |
+| Build scope | Full v3 spec all at once | Complete architecture | ⚠️ Phase 1 only |
 
 ---
 
@@ -925,24 +925,24 @@ apps/cli/src/
 
 ## Implementation Priority
 
-### Phase 1: Core Loop (Foundation)
+### Phase 1: Core Loop (Foundation) ✅
 
-1. **Effect/Layer setup** — Context, layers, runtime
-2. **Canonical types** — ModelTurn, ToolCall, ToolResult, RecoveryPolicy, LoopHealth
-3. **Rewrite loop.ts** — Continuous loop replacing single-pass
-4. **ProviderResponseNormalizer** — Separate layer, factory pattern
-5. **Session service** — State machine, history management
+1. **Effect/Layer setup** ✅ — Context, layers, runtime
+2. **Canonical types** ✅ — ModelTurn, ToolCall, ToolResult, RecoveryPolicy, LoopHealth
+3. **Rewrite loop.ts** ✅ — Continuous loop replacing single-pass
+4. **ProviderResponseNormalizer** ✅ — Separate layer, factory pattern
+5. **Session service** ✅ — State machine, history management
 
 ### Phase 2: Tool Execution
 
 6. **Tool orchestrator** — Safe/risky split, parallel batching
-7. **Loop health monitoring** — Heuristics evaluation
+7. **Loop health monitoring** ✅ — Heuristics evaluation
 8. **Recovery manager** — RecoveryPolicy + Effect retry
 
 ### Phase 3: Hooks + Events
 
-9. **Hook runtime** — All 10 event types
-10. **Bus system** — PubSub for session events
+9. **Hook runtime** ✅ — All 10 event types
+10. **Bus system** ✅ — PubSub for session events
 11. **Rollout recorder** — JSONL event sourcing
 
 ### Phase 4: Extended Features
@@ -960,21 +960,21 @@ apps/cli/src/
 
 ## Key Differences from Current Implementation
 
-| Current | Target |
-|---------|--------|
-| Single-pass (one prompt → one response) | Continuous loop (cycles until no tools) |
-| No canonical runtime types | ModelTurn, ToolCall, ToolResult, RecoveryPolicy, LoopHealth |
-| Provider → parser directly | Provider → Normalizer → ModelTurn → Parser |
-| No hooks | 10 hook event types |
-| No Effect/Layer DI | Effect/Layer architecture |
-| No session persistence | SQLite + JSON storage |
-| No sub-agents | Full agent tool with spawn |
-| No skills system | Markdown + plugin skills |
-| No MCP | MCP client first |
-| In-process bash | Sandboxed bash (bubblewrap) |
-| No loop detection | Multi-heuristic LoopHealth |
-| No error recovery | RecoveryPolicy + Effect retry |
-| No turn-aware compaction | Compaction respects activeToolChain |
+| Current | Target | Status |
+|---------|--------|--------|
+| Single-pass (one prompt → one response) | Continuous loop (cycles until no tools) | ✅ Done |
+| No canonical runtime types | ModelTurn, ToolCall, ToolResult, RecoveryPolicy, LoopHealth | ✅ Done |
+| Provider → parser directly | Provider → Normalizer → ModelTurn → Parser | ✅ Done |
+| No hooks | 10 hook event types | ✅ Done |
+| No Effect/Layer DI | Effect/Layer architecture | ⚠️ Simplified |
+| No session persistence | SQLite + JSON storage | Pending |
+| No sub-agents | Full agent tool with spawn | Pending |
+| No skills system | Markdown + plugin skills | Pending |
+| No MCP | MCP client first | Pending |
+| In-process bash | Sandboxed bash (bubblewrap) | Pending |
+| No loop detection | Multi-heuristic LoopHealth | ✅ Done |
+| No error recovery | RecoveryPolicy + Effect retry | Pending |
+| No turn-aware compaction | Compaction respects activeToolChain | Pending
 
 ---
 
