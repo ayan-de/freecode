@@ -1,6 +1,26 @@
 // =============================================================================
-// Agent Module
+// Agent Module - v3 Architecture
 // =============================================================================
 
-export { executePromptCycle } from './loop.js';
-export type { AgentResult, StreamCallback, StreamEvent, ExecutorOptions } from './types.js';
+export { AgentLoop, createAgentLoop } from './loop.js'
+export type {
+  SessionState,
+  ToolCall,
+  ToolResult,
+  Message,
+  LoopHeuristics,
+  LoopAction,
+  UserInput,
+  LoopResult,
+  HookContext,
+  HookResult,
+  ExecutionMode,
+  ModelTurn,
+  AssistantContent,
+  StopReason,
+  RecoveryPolicy,
+  LoopHealth,
+  MessagePart,
+  Artifact,
+  ProviderID,
+} from './types.js'

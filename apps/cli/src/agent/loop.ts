@@ -1,138 +1,417 @@
 // =============================================================================
-// Agent Loop
-// Orchestrates a single agent turn: context → prompt → parse → apply
+// Agent Loop - Continuous Loop (Claude Code style)
+// PRIMARY: Main execution engine for the agent
+// INPUT: UserInput { prompt, sessionId, provider, projectPath }
+// OUTPUT: LoopResult { success, message, turnCount, iterationCount, finalState }
+// FLOW: Build Prompt → Send to AI → Normalize → Parse → Execute Tool → Loop
 // =============================================================================
 
-import { PlaywrightBrowserController } from '../browser/controller.js';
-import { createDefaultProviders, getProvider } from '../browser/providers/index.js';
-import { collectContext } from '../context/collector.js';
-import { createDefaultStrategies } from '../context/strategies/index.js';
-import { parse } from '../parser/index.js';
-import { applyChanges } from '../applier/index.js';
-import { logger } from '../utils/logger.js';
-import type { StreamCallback, AgentResult, StreamEvent } from './types.js';
+import type {
+  SessionState,
+  ToolCall,
+  ToolResult,
+  Message,
+  LoopHeuristics,
+  UserInput,
+  LoopResult,
+  AssistantContent,
+} from "./types.js"
+import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 
-createDefaultProviders();
-createDefaultStrategies();
+// =============================================================================
+// AgentLoop Class
+// Main entry point for continuous agent execution
+// =============================================================================
 
-export interface ExecutorOptions {
-  prompt: string;
-  provider: string;
-  projectPath: string;
-  contextOptions?: {
-    maxDepth?: number;
-    ignorePatterns?: string[];
-  };
-}
+export class AgentLoop {
+  // ---------------------------------------------------------------------------
+  // Private State
+  // ---------------------------------------------------------------------------
+  private state: SessionState
+  private history: Message[] = []
+  private config: { maxIterations: number; heuristics: LoopHeuristics }
 
-export async function executePromptCycle(
-  options: ExecutorOptions,
-  onStream?: StreamCallback
-): Promise<AgentResult> {
-  const { prompt, provider, projectPath, contextOptions } = options;
-  const errors: string[] = [];
-
-  const providerDef = getProvider(provider);
-  if (!providerDef) {
-    return { success: false, filesCreated: 0, errors: [`Unknown provider: ${provider}`] };
+  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics> }) {
+    this.state = createInitialSessionState(sessionId)
+    this.config = {
+      maxIterations: config?.maxIterations ?? 100,
+      heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
+    }
   }
 
-  const controller = new PlaywrightBrowserController();
+  // ===========================================================================
+  // PUBLIC: run()
+  // Main execution entry point - runs the continuous loop until completion
+  // ===========================================================================
+  async run(input: UserInput): Promise<LoopResult> {
+    this.state = { ...this.state, status: "starting" }
 
-  const emit = (event: StreamEvent) => {
-    onStream?.(event);
-  };
+    try {
+      this.state = { ...this.state, status: "running" }
 
-  try {
-    emit({ type: 'status', content: 'Connecting to browser...' });
-    await controller.connect();
-    emit({ type: 'status', content: 'Browser connected' });
+      // Step 1: Collect project context (file tree, etc.)
+      const contextResult = await this.collectContext(input.projectPath)
+      if (!contextResult.success || !contextResult.value) {
+        return this.fail("Context collection failed", contextResult.error)
+      }
 
-    emit({ type: 'status', content: `Loading ${providerDef.name}...` });
-    await controller.navigate(providerDef);
-    emit({ type: 'status', content: `${providerDef.name} loaded` });
+      let prompt = input.prompt
 
-    emit({ type: 'status', content: 'Collecting project context...' });
-    const contextResult = await collectContext(projectPath, 'file-tree', contextOptions);
+      // =======================================================================
+      // CONTINUOUS LOOP - Core agent cycle
+      // =======================================================================
+      while (this.state.status === "running") {
 
-    if (!contextResult.success) {
-      errors.push(`Context collection failed: ${contextResult.error}`);
-      return { success: false, filesCreated: 0, errors };
+        // Check: Have we hit max iterations?
+        if (this.state.iterationCount >= this.config.maxIterations) {
+          await this.stop("max_iterations_reached")
+          return this.complete("Max iterations reached")
+        }
+
+        // Check: Loop health (detect stuck patterns)
+        const healthAction = this.evaluateLoopHealth()
+        if (healthAction.action === "stop") {
+          await this.stop(healthAction.reason || "loop_health_stop")
+          return this.complete(`Loop stopped: ${healthAction.reason}`)
+        }
+        if (healthAction.action === "warn") {
+          console.warn(`[AgentLoop] Warning: ${healthAction.reason}`)
+        }
+
+        // Execute one turn: send prompt, get response, parse tools, execute
+        const turnResult = await this.executeTurn(prompt, contextResult.value)
+        if (!turnResult.success) {
+          return this.fail("Turn execution failed", turnResult.error)
+        }
+
+        // No tool calls means we're done
+        if (turnResult.toolResults.length === 0) {
+          return this.complete("No more tool calls")
+        }
+
+        // Build continuation prompt for next iteration
+        prompt = this.buildContinuationPrompt(turnResult.toolResults)
+        this.state = {
+          ...this.state,
+          iterationCount: this.state.iterationCount + 1,
+          turnCount: this.state.turnCount + 1,
+        }
+      }
+
+      return this.complete("Loop stopped")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      return this.fail("Loop error", message)
     }
+  }
 
-    const context = contextResult.value;
-
-    const fullPrompt = `Project: ${context.name}
+  // ===========================================================================
+  // PRIVATE: executeTurn()
+  // One iteration: build prompt → send to provider → normalize → parse → execute
+  // ===========================================================================
+  private async executeTurn(
+    prompt: string,
+    context: { name: string; projectPath: string; tree: string }
+  ): Promise<{ success: boolean; toolResults: ToolResult[]; error?: string }> {
+    try {
+      // Build full prompt with project context
+      const fullPrompt = `Project: ${context.name}
 Path: ${context.projectPath}
 
 File tree:
 ${context.tree}
 
-Task: ${prompt}
+Task: ${prompt}`
 
-IMPORTANT: Respond with file operations in this EXACT format:
-FILE: <relative-path>
-\`\`\`
-<file-content>
-\`\`\`
+      console.log("[AgentLoop] Sending prompt to provider...")
+      const responseText = await this.sendToProvider(fullPrompt)
 
-Create or modify files as needed to complete the task.`;
+      // Normalize provider response to canonical format
+      const normalized = this.normalizeResponse(responseText)
 
-    emit({ type: 'status', content: 'Sending to AI...' });
-    await controller.sendPrompt(fullPrompt);
-    emit({ type: 'status', content: 'Waiting for response...' });
+      // Parse normalized response into tool calls
+      const toolCalls = this.parseResponse(normalized)
 
-    const response = await controller.waitForResponse();
-    emit({ type: 'status', content: 'Response received' });
+      // No tools? Return early
+      if (toolCalls.length === 0) {
+        return { success: true, toolResults: [] }
+      }
 
-    logger.info('Raw response length', { length: response.length });
+      // Execute each tool sequentially (as per spec: sequential tools run one at a time)
+      const toolResults: ToolResult[] = []
+      for (const toolCall of toolCalls) {
+        const result = await this.executeTool(toolCall)
+        toolResults.push(result)
+      }
 
-    if (response.length < 50) {
-      errors.push(`Response too short (${response.length} chars): ${response}`);
-      emit({ type: 'error', content: `Response too short: ${response}` });
-      return { success: false, filesCreated: 0, errors };
+      return { success: true, toolResults }
+    } catch (error) {
+      return { success: false, toolResults: [], error: String(error) }
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: sendToProvider()
+  // Placeholder - needs integration with BrowserController for real AI calls
+  // ===========================================================================
+  private async sendToProvider(prompt: string): Promise<string> {
+    console.log("[AgentLoop] sendToProvider - needs BrowserController integration")
+    await new Promise(resolve => setTimeout(resolve, 100))
+    // TODO: Replace with real BrowserController.sendPrompt() + waitForResponse()
+    return "[TOOL_CALLS]\nwrite:/test.txt\n```\nHello World\n```\n[/TOOL_CALLS]"
+  }
+
+  // ===========================================================================
+  // PRIVATE: normalizeResponse()
+  // Transform raw provider text to canonical AssistantContent[]
+  // Handles [TOOL_CALLS]...[/TOOL_CALLS] format from mock provider
+  // ===========================================================================
+  private normalizeResponse(raw: string): { content: AssistantContent[]; stopReason: string } {
+    const content: AssistantContent[] = []
+    const toolCallRegex = /\[TOOL_CALLS\]([\s\S]*?)\[\/TOOL_CALLS\]/g
+    let match
+    let lastIndex = 0
+    let hasTools = false
+
+    // Parse text content and tool calls from raw response
+    while ((match = toolCallRegex.exec(raw)) !== null) {
+      // Text before tool block
+      if (match.index > lastIndex) {
+        const text = raw.slice(lastIndex, match.index).trim()
+        if (text) {
+          content.push({ type: "text", text })
+        }
+      }
+
+      // Parse tool block content
+      const toolsStr = match[1]
+      const toolLines = toolsStr.split("\n").filter(line => line.trim())
+
+      for (const line of toolLines) {
+        const toolMatch = line.match(/^(\w+):(.+)$/)
+        if (toolMatch) {
+          const [, toolName, args] = toolMatch
+          content.push({
+            type: "tool_use",
+            id: `tool-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: toolName,
+            input: this.parseArgs(args.trim()),
+          })
+          hasTools = true
+        }
+      }
+
+      lastIndex = toolCallRegex.lastIndex
     }
 
-    const parseResult = parse(response);
-
-    if (!parseResult.success) {
-      errors.push(`Parse failed: ${parseResult.error}`);
-      emit({ type: 'error', content: 'Could not parse response' });
-      emit({ type: 'text', content: response.slice(0, 500) + '...' });
-      return { success: false, filesCreated: 0, errors };
+    // Text after last tool block
+    if (lastIndex < raw.length) {
+      const remaining = raw.slice(lastIndex).trim()
+      if (remaining) {
+        content.push({ type: "text", text: remaining })
+      }
     }
-
-    const parsedResponse = parseResult.response!;
-    emit({ type: 'status', content: `Summary: ${parsedResponse.summary}` });
-
-    const fileChanges = parsedResponse.changes;
-    emit({ type: 'status', content: `Applying ${fileChanges.length} file(s)...` });
-
-    const applyResults = await applyChanges(fileChanges, projectPath);
-    const succeeded = applyResults.filter(r => r.success).length;
-    const failed = applyResults.filter(r => !r.success);
-
-    if (failed.length > 0) {
-      failed.forEach(f => {
-        if (f.error) errors.push(f.error);
-      });
-    }
-
-    emit({ type: 'done', content: `Done! Created ${succeeded}/${fileChanges.length} files` });
 
     return {
-      success: errors.length === 0,
-      summary: parsedResponse.summary,
-      filesCreated: succeeded,
-      errors,
-    };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Executor failed', { error: errorMessage });
-    errors.push(errorMessage);
-    emit({ type: 'error', content: errorMessage });
-    return { success: false, filesCreated: 0, errors };
-  } finally {
-    await controller.disconnect();
+      content,
+      stopReason: hasTools ? "tool_use" : "completed",
+    }
   }
+
+  // ===========================================================================
+  // PRIVATE: parseResponse()
+  // Extract ToolCall[] from normalized response content
+  // ===========================================================================
+  private parseResponse(normalized: { content: AssistantContent[]; stopReason: string }): ToolCall[] {
+    const toolCalls: ToolCall[] = []
+
+    for (const item of normalized.content) {
+      if (item.type === "tool_use") {
+        toolCalls.push({
+          id: item.id,
+          tool: item.name,
+          args: item.input,
+          execution: "sequential", // Default - parallel-safe tools batched separately
+        })
+      }
+    }
+
+    return toolCalls
+  }
+
+  // ===========================================================================
+  // PRIVATE: executeTool()
+  // Execute a single tool and return ToolResult
+  // TODO: Wire up to ToolOrchestrator for proper sandbox/execution
+  // ===========================================================================
+  private async executeTool(toolCall: ToolCall): Promise<ToolResult> {
+    console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`)
+    const startTime = Date.now()
+
+    try {
+      // Built-in tool execution (simplified - needs ToolOrchestrator integration)
+      if (toolCall.tool === "write" && typeof toolCall.args === "object") {
+        const args = toolCall.args as Record<string, unknown>
+        if (args.path && args.content) {
+          const fs = await import("fs")
+          fs.writeFileSync(args.path as string, args.content as string, "utf-8")
+          return {
+            id: `result-${Date.now()}`,
+            toolCallId: toolCall.id,
+            tool: toolCall.tool,
+            title: `Write ${args.path}`,
+            stdout: `Wrote ${(args.content as string).length} bytes to ${args.path}`,
+            duration_ms: Date.now() - startTime,
+          }
+        }
+      }
+
+      // Fallback: generic tool result
+      return {
+        id: `result-${Date.now()}`,
+        toolCallId: toolCall.id,
+        tool: toolCall.tool,
+        title: `Tool ${toolCall.tool}`,
+        stdout: `Executed ${toolCall.tool}`,
+        duration_ms: Date.now() - startTime,
+      }
+    } catch (error) {
+      return {
+        id: `result-${Date.now()}`,
+        toolCallId: toolCall.id,
+        tool: toolCall.tool,
+        title: `Tool ${toolCall.tool} failed`,
+        error: String(error),
+        duration_ms: Date.now() - startTime,
+      }
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: collectContext()
+  // Gather project context (name, path, file tree)
+  // TODO: Replace with proper ContextCollector integration
+  // ===========================================================================
+  private async collectContext(projectPath: string): Promise<{ success: boolean; value?: { name: string; projectPath: string; tree: string }; error?: string }> {
+    try {
+      const fs = await import("fs")
+      const path = await import("path")
+
+      const name = path.basename(projectPath)
+      let tree = ""
+
+      if (fs.existsSync(projectPath)) {
+        const entries = fs.readdirSync(projectPath, { withFileTypes: true })
+        tree = entries.map(e => `  ${e.isDirectory() ? "📁" : "📄"} ${e.name}`).join("\n")
+      }
+
+      return { success: true, value: { name, projectPath, tree } }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: evaluateLoopHealth()
+  // Multi-heuristic check for stuck patterns
+  // Detects: repeated tools, stagnant turns, oscillation, max iterations
+  // ===========================================================================
+  private evaluateLoopHealth(): { action: "continue" | "warn" | "stop"; reason?: string } {
+    const health = this.state.loopHealth
+    const heuristics = this.config.heuristics
+
+    // A. Repeated identical tool call - likely infinite loop
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+      return { action: "stop", reason: "repeated_identical_tool" }
+    }
+
+    // B. No state change for N turns - likely stuck
+    if (health.stagnantTurns >= heuristics.stagnantTurnsThreshold) {
+      return { action: "warn", reason: "no_progress" }
+    }
+
+    // C. Oscillation detected - edit/revert/edit pattern
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+      return { action: "stop", reason: "oscillation_detected" }
+    }
+
+    // D. Hard cap on iterations
+    if (this.state.iterationCount >= heuristics.totalIterationLimit) {
+      return { action: "stop", reason: "max_iterations_reached" }
+    }
+
+    return { action: "continue" }
+  }
+
+  // ===========================================================================
+  // PRIVATE: buildContinuationPrompt()
+  // Format tool results into prompt for next iteration
+  // ===========================================================================
+  private buildContinuationPrompt(results: ToolResult[]): string {
+    const lines = results.map(r => `Tool ${r.tool}: ${r.error || r.stdout}`)
+    return `Previous tool results:\n${lines.join("\n")}\n\nContinue task:`
+  }
+
+  // ===========================================================================
+  // PRIVATE: parseArgs()
+  // Parse tool argument string to object
+  // ===========================================================================
+  private parseArgs(argsStr: string): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(argsStr)
+      return typeof parsed === "object" && parsed !== null ? parsed : { args: argsStr }
+    } catch {
+      return { args: argsStr }
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: stop() / fail() / complete()
+  // State transition helpers
+  // ===========================================================================
+  private async stop(reason: string): Promise<void> {
+    this.state = { ...this.state, status: "stopped" }
+  }
+
+  private fail(message: string, error?: string): LoopResult {
+    return {
+      success: false,
+      message: error || message,
+      turnCount: this.state.turnCount,
+      iterationCount: this.state.iterationCount,
+      finalState: { ...this.state, status: "error" },
+    }
+  }
+
+  private complete(message: string): LoopResult {
+    return {
+      success: true,
+      message,
+      turnCount: this.state.turnCount,
+      iterationCount: this.state.iterationCount,
+      finalState: this.state,
+    }
+  }
+
+  // ===========================================================================
+  // PUBLIC: getState() / interrupt()
+  // Accessors for external monitoring/control
+  // ===========================================================================
+  getState(): SessionState {
+    return this.state
+  }
+
+  interrupt(): void {
+    this.state = { ...this.state, status: "stopped" }
+  }
+}
+
+// =============================================================================
+// Factory Function
+// =============================================================================
+export const createAgentLoop = (
+  sessionId: string,
+  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics> }
+): AgentLoop => {
+  return new AgentLoop(sessionId, config)
 }
