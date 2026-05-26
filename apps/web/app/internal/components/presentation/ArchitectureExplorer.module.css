@@ -555,7 +555,7 @@
 .flowContainer {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -564,10 +564,10 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 20px 16px;
-  background: rgba(249, 115, 22, 0.05);
+  padding: 16px 16px;
+  background: rgba(249, 115, 22, 0.1);
   border-radius: 12px;
-  border: 1px solid rgba(249, 115, 22, 0.2);
+  border: 1px solid rgba(249, 115, 22, 0.5);
   width: 100%;
   max-width: 400px;
 }
@@ -581,7 +581,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   color: white;
 }
@@ -593,7 +593,7 @@
 }
 
 .flowTitle {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   color: white;
   margin-bottom: 4px;
@@ -601,7 +601,7 @@
 }
 
 .flowDescription {
-  font-size: 13px;
+  font-size: 15px;
   color: rgba(255, 255, 255, 0.7);
   margin-bottom: 8px;
   text-align: center;

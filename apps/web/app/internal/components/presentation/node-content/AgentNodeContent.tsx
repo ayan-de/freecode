@@ -8,40 +8,49 @@ import { BoundaryDiagram } from '../../diagrams';
 
 const FLOW_STEPS = [
   {
+    number: 10,
+    title:'User types message',
+    description: 'keyboard input or piped stdin'
+  },
+  {
     number: 1,
-    title: 'User Input',
-    description: 'run() receives UserInput with prompt, sessionId, provider, projectPath',
-    details: ['Session started with createInitialSessionState()', 'Status transitions: idle → starting → running'],
+    title: 'run() receives UserInput',
+    description: 'prompt, sessionId, provider, projectPath',
   },
   {
     number: 2,
-    title: 'Collect Context',
-    description: 'Gather project metadata and file tree',
-    details: ['collectContext() reads project directory', 'Returns: { name, projectPath, tree }'],
+    title: 'collectContext()',
+    description: 'reads project directory → { name, path, tree }',
   },
   {
     number: 3,
-    title: 'Execute Turn',
-    description: 'One iteration: build prompt → send → normalize → parse → execute',
-    details: ['sendToProvider() sends prompt to AI via BrowserController', 'normalizeResponse() transforms provider output to AssistantContent[]', 'parseResponse() extracts ToolCall[] from normalized content'],
+    title: 'while running',
+    description: 'evaluateLoopHealth() checks stuck patterns',
   },
   {
     number: 4,
-    title: 'Continuous Loop',
-    description: 'Cycle executes until goal is accomplished',
-    details: ['evaluateLoopHealth() checks for stuck patterns', 'Checks: repeatedTools, stagnantTurns, oscillationScore, totalIterationLimit'],
+    title: 'sendToProvider()',
+    description: 'build prompt → stream to AI provider',
   },
   {
     number: 5,
-    title: 'Execute Tools',
-    description: 'Run each tool sequentially, collect results',
-    details: ['executeTool() runs each ToolCall', 'buildContinuationPrompt() formats results for next iteration', 'Loop back to step 3 with updated prompt'],
+    title: 'normalizeResponse()',
+    description: 'transform raw → AssistantContent[]',
   },
   {
     number: 6,
-    title: 'Loop Result',
-    description: 'Exit when no more tools or health threshold reached',
-    details: ['fail() returns on error', 'complete() returns success with turnCount, iterationCount', 'Post-sampling hooks: auto-compact, memory extract'],
+    title: 'parseResponse()',
+    description: 'extract ToolCall[] from content',
+  },
+  {
+    number: 7,
+    title: 'executeTool()',
+    description: 'run each tool sequentially, collect results',
+  },
+  {
+    number: 8,
+    title: 'buildContinuationPrompt()',
+    description: 'format results → next iteration',
   },
 ];
 
@@ -65,15 +74,9 @@ export function AgentNodeContent() {
             {FLOW_STEPS.map((step, idx) => (
               <React.Fragment key={step.number}>
                 <div className={styles.flowStep}>
-                  <div className={styles.flowNumber}>{step.number}</div>
                   <div className={styles.flowContent}>
                     <h4 className={styles.flowTitle}>{step.title}</h4>
                     <p className={styles.flowDescription}>{step.description}</p>
-                    <ul className={styles.flowDetails}>
-                      {step.details.map((detail, i) => (
-                        <li key={i}>{detail}</li>
-                      ))}
-                    </ul>
                   </div>
                 </div>
                 {idx < FLOW_STEPS.length - 1 && <div className={styles.flowArrow}>↓</div>}
