@@ -3,11 +3,13 @@ import { Divider } from "./components/Divider";
 import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
 import { PageWrapper } from "./components/PageWrapper";
+import { Announcement } from "./components/Announcement";
 
 export default function Home() {
   return (
     <PageWrapper>
       <Navbar />
+      <Announcement />
 
       <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
