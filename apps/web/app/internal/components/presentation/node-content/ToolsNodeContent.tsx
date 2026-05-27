@@ -1,5 +1,6 @@
 'use client';
 
+import { Wrench } from 'lucide-react';
 import styles from '../ArchitectureExplorer.module.css';
 import { NodeHeader } from './NodeHeader';
 
@@ -32,7 +33,7 @@ export function ToolsNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<span>🛠️</span>}
+        icon={<Wrench size={20} color="#a855f7" />}
         title="Tool System"
         subtext="5 Built-in Tools"
       />
