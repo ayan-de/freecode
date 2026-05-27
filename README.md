@@ -30,6 +30,23 @@
 - **Diff preview before apply** — Review changes before writing
 - **Persistent CLI daemon** — Reuses browser connection across turns
 
+## Supported Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `read` | Read file or directory contents | `filePath`, `offset?`, `limit?` |
+| `write` | Create or overwrite files | `filePath`, `content` |
+| `edit` | Edit files in-place with smart matching | `filePath`, `oldString`, `newString`, `replaceAll?` |
+| `glob` | Find files matching glob patterns | `pattern`, `path?` |
+| `grep` | Search file contents via regex | `pattern`, `path?`, `include?`, `-n?`, `-i?`, `-C?` |
+
+### Tool Execution Modes
+
+| Mode | Tools | Behavior |
+|------|-------|----------|
+| **Sequential** | `edit`, `write` | One at a time, in order |
+| **Parallel-safe** | `read`, `glob`, `grep` | Batch concurrently |
+
 ## Quick Start
 
 ```bash
