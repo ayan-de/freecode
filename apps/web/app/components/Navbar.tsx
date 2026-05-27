@@ -22,7 +22,7 @@ export function Navbar() {
         <div className="flex h-16 items-center justify-between overflow-x-auto">
           <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
             <div className="relative h-16 w-36">
-              <Image src="/logo.png" alt="freecode" fill sizes="144px" className="object-contain" />
+              <Image src="/logo.png" alt="freecode" fill sizes="144px" className="object-contain" loading="eager" />
             </div>
           </Link>
           <div className="flex items-center gap-8 flex-1 justify-end">
