@@ -18,8 +18,8 @@ export function Navbar() {
     <nav className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1280px)/2))]">
       <div className="mx-auto max-w-5xl">
         <div className="flex h-16 items-center justify-between overflow-x-auto">
-          <a href="/" className="font-mono text-white hover:text-cyan-400 transition-colors text-sm mr-8">
-            freecode
+          <a href="/" className="flex items-center hover:opacity-80 transition-opacity mr-8">
+            <img src="/logo.png" alt="freecode" className="h-8 w-auto" />
           </a>
           <div className="flex items-center gap-6 flex-1 text-left">
             {navLinks.map((link) => (
