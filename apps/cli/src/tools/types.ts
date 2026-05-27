@@ -20,6 +20,6 @@ export type ToolRegistry = Record<string, ToolDef>
 
 export interface JsonSchema {
   type: string
-  properties?: Record<string, { description?: string; type?: string }>
+  properties?: Record<string, { description?: string; type?: string; enum?: string[] }>
   required?: string[]
 }
