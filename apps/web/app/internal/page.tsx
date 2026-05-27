@@ -1,7 +1,7 @@
 'use client';
 
-import { PageHeader } from './components/presentation/PageHeader';
 import { TabNavigation } from './components/presentation/TabNavigation';
+import { Navbar } from '../components/Navbar';
 import {
   OverviewContainer,
   CLIContainer,
@@ -31,6 +31,7 @@ export default function InternalPage() {
 
   return (
     <div className={styles.page}>
+      <Navbar />
       <TabNavigation
         tabs={tabs}
         activeTab={activeTab}
