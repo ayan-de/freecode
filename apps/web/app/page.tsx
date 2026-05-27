@@ -9,7 +9,7 @@ export default function Home() {
     <PageWrapper>
       <Navbar />
 
-      <main className="flex flex-col items-center py-20 text-center px-[max(80px,calc((100vw-1280px)/2))]">
+      <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
 
         <Divider />
