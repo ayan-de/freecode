@@ -1,32 +1,34 @@
 'use client';
 
-import { Wrench } from 'lucide-react';
+import { Wrench, FileText, FileEdit, FilePlus, Search, FolderOpen } from 'lucide-react';
 import styles from '../ArchitectureExplorer.module.css';
 import { NodeHeader } from './NodeHeader';
 
-const tools = [
+const toolCategories = [
   {
     category: 'File Operations',
-    items: [
-      { name: 'Read', description: 'Read files or directories', params: ['filePath', 'offset?', 'limit?'] },
-      { name: 'Write', description: 'Create or overwrite files', params: ['filePath', 'content'] },
-      { name: 'Edit', description: 'In-place editing with 9 strategies', params: ['filePath', 'oldString', 'newString', 'replaceAll?'] },
-      { name: 'Glob', description: 'Find files by glob patterns', params: ['pattern', 'path?'] },
-    ],
+    icon: FileText,
     color: '#a855f7',
+    tools: [
+      { name: 'Read', icon: FileText, description: 'Read files or directories' },
+      { name: 'Write', icon: FilePlus, description: 'Create or overwrite files' },
+      { name: 'Edit', icon: FileEdit, description: 'In-place editing with 9 strategies' },
+      { name: 'Glob', icon: FolderOpen, description: 'Find files by glob patterns' },
+    ],
   },
   {
     category: 'Search',
-    items: [
-      { name: 'Grep', description: 'Search file contents via regex', params: ['pattern', 'path?', 'include?', '-i?'] },
+    icon: Search,
+    color: '#10b981',
+    tools: [
+      { name: 'Grep', icon: Search, description: 'Search file contents via regex' },
     ],
-    color: '#7c3aed',
   },
 ];
 
 const executionModes = [
-  { mode: 'Sequential', tools: 'Edit, Write', color: '#f97316' },
-  { mode: 'Parallel-safe', tools: 'Read, Glob, Grep', color: '#10b981' },
+  { mode: 'Sequential', tools: 'Write, Edit', color: '#f97316' },
+  { mode: 'Parallel', tools: 'Read, Glob, Grep', color: '#10b981' },
 ];
 
 export function ToolsNodeContent() {
@@ -38,27 +40,31 @@ export function ToolsNodeContent() {
         subtext="5 Built-in Tools"
       />
       <p className={styles.description}>
-        Tools extend the AI model's capabilities by exposing file operations, search, and execution primitives.
+        Tools extend the AI model with file operations, search, and execution primitives.
       </p>
 
       {/* Tool Categories */}
-      <div className={styles.toolsGrid}>
-        {tools.map((category) => (
-          <div key={category.category} className={styles.toolCategory}>
-            <h5 className={styles.toolCatTitle} style={{ color: category.color }}>
-              {category.category}
-            </h5>
-            <div className={styles.toolList}>
-              {category.items.map((tool) => (
-                <div key={tool.name} className={styles.toolItem}>
-                  <span className={styles.toolName} style={{ color: category.color }}>{tool.name}</span>
-                  <span className={styles.toolDesc}>{tool.description}</span>
-                </div>
-              ))}
-            </div>
+      {toolCategories.map((cat) => (
+        <div
+          key={cat.category}
+          className={styles.toolCategory}
+          style={{ borderColor: `${cat.color}33`, background: `${cat.color}08` }}
+        >
+          <div className={styles.toolCategoryHeader}>
+            <cat.icon size={14} color={cat.color} />
+            <span style={{ color: cat.color }}>{cat.category}</span>
           </div>
-        ))}
-      </div>
+          <div className={styles.toolCategoryRow}>
+            {cat.tools.map((tool) => (
+              <div key={tool.name} className={styles.toolCard}>
+                <tool.icon size={16} color={cat.color} />
+                <span className={styles.toolCardName} style={{ color: cat.color }}>{tool.name}</span>
+                <span className={styles.toolCardDesc}>{tool.description}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
 
       {/* Execution Modes */}
       <div className={styles.execModes}>
