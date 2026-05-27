@@ -17,6 +17,9 @@ import type {
   AssistantContent,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
+import { createToolOrchestrator } from "../tools/orchestrator.js"
+
+const orchestrator = createToolOrchestrator()
 
 // =============================================================================
 // AgentLoop Class
@@ -241,50 +244,12 @@ Task: ${prompt}`
 
   // ===========================================================================
   // PRIVATE: executeTool()
-  // Execute a single tool and return ToolResult
-  // TODO: Wire up to ToolOrchestrator for proper sandbox/execution
+  // Execute a single tool via orchestrator, return ToolResult
   // ===========================================================================
   private async executeTool(toolCall: ToolCall): Promise<ToolResult> {
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`)
-    const startTime = Date.now()
-
-    try {
-      // Built-in tool execution (simplified - needs ToolOrchestrator integration)
-      if (toolCall.tool === "write" && typeof toolCall.args === "object") {
-        const args = toolCall.args as Record<string, unknown>
-        if (args.path && args.content) {
-          const fs = await import("fs")
-          fs.writeFileSync(args.path as string, args.content as string, "utf-8")
-          return {
-            id: `result-${Date.now()}`,
-            toolCallId: toolCall.id,
-            tool: toolCall.tool,
-            title: `Write ${args.path}`,
-            stdout: `Wrote ${(args.content as string).length} bytes to ${args.path}`,
-            duration_ms: Date.now() - startTime,
-          }
-        }
-      }
-
-      // Fallback: generic tool result
-      return {
-        id: `result-${Date.now()}`,
-        toolCallId: toolCall.id,
-        tool: toolCall.tool,
-        title: `Tool ${toolCall.tool}`,
-        stdout: `Executed ${toolCall.tool}`,
-        duration_ms: Date.now() - startTime,
-      }
-    } catch (error) {
-      return {
-        id: `result-${Date.now()}`,
-        toolCallId: toolCall.id,
-        tool: toolCall.tool,
-        title: `Tool ${toolCall.tool} failed`,
-        error: String(error),
-        duration_ms: Date.now() - startTime,
-      }
-    }
+    const context = { cwd: process.cwd() }
+    return orchestrator.execute(toolCall, context)
   }
 
   // ===========================================================================

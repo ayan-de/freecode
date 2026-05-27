@@ -1,9 +1,11 @@
 import { ReadTool } from "./read"
 import { WriteTool } from "./write"
+import { createToolOrchestrator, type ToolOrchestrator } from "./orchestrator"
 import type { ToolDef } from "./types"
 
 export type { ToolContext, ToolResult, JsonSchema } from "./types"
 export type { ToolDef }
+export type { ToolOrchestrator }
 
 export const tools = {
   read: ReadTool,
@@ -19,3 +21,5 @@ export function getTool(id: string): ToolDef | undefined {
 export function listTools(): { id: string; description: string }[] {
   return Object.values(tools).map((t) => ({ id: t.id, description: t.description }))
 }
+
+export { createToolOrchestrator }
