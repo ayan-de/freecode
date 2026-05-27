@@ -2,6 +2,7 @@
 
 import { TabNavigation } from './components/presentation/TabNavigation';
 import { Navbar } from '../components/Navbar';
+import { PageWrapper } from '../components/PageWrapper';
 import {
   OverviewContainer,
   CLIContainer,
@@ -30,30 +31,32 @@ export default function InternalPage() {
   };
 
   return (
-    <div className={styles.page}>
-      <Navbar />
-      <TabNavigation
-        tabs={tabs}
-        activeTab={activeTab}
-        onTabChange={(id) => onTabChange(id as TabId)}
-      />
+    <PageWrapper>
+      <div className={styles.page}>
+        <Navbar />
+        <TabNavigation
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={(id) => onTabChange(id as TabId)}
+        />
 
-      {/* <PageHeader
-        title="Internal Architecture"
-        subtitle="Explore how FreeCode's thin-client architecture enables scalable AI-assisted coding"
-      /> */}
+        {/* <PageHeader
+          title="Internal Architecture"
+          subtitle="Explore how FreeCode's thin-client architecture enables scalable AI-assisted coding"
+        /> */}
 
-      <main className={styles.content}>
-        {renderContent()}
-      </main>
+        <main className={styles.content}>
+          {renderContent()}
+        </main>
 
-      <footer className={styles.footer}>
-        <div className={styles.footerContent}>
-          <span className={styles.footerLabel}>FreeCode Architecture</span>
-          <span className={styles.footerDot}>·</span>
-          <span className={styles.footerVersion}>CLI-driven thin clients</span>
-        </div>
-      </footer>
-    </div>
+        <footer className={styles.footer}>
+          <div className={styles.footerContent}>
+            <span className={styles.footerLabel}>FreeCode Architecture</span>
+            <span className={styles.footerDot}>·</span>
+            <span className={styles.footerVersion}>CLI-driven thin clients</span>
+          </div>
+        </footer>
+      </div>
+    </PageWrapper>
   );
 }

@@ -2,15 +2,12 @@ import { Installation } from "./components/Installation";
 import { Divider } from "./components/Divider";
 import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
-
-const offset = "max(80px, calc((100vw - 1280px) / 2))";
+import { PageWrapper } from "./components/PageWrapper";
 
 export default function Home() {
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-black via-[#0a0a0a] to-[#1a1a2e]">
+    <PageWrapper>
       <Navbar />
-      <div className="fixed top-0 bottom-0 left-[max(80px,calc((100vw-1280px)/2))] w-px bg-white/15 z-50" />
-      <div className="fixed top-0 bottom-0 right-[max(80px,calc((100vw-1280px)/2))] w-px bg-white/15 z-50" />
 
       <main className="flex flex-col items-center py-20 text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
@@ -32,6 +29,6 @@ export default function Home() {
           GitHub
         </a>
       </footer>
-    </div>
+    </PageWrapper>
   );
 }
