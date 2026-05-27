@@ -1,4 +1,5 @@
 {
+  "projects": [{ "path": "apps/web" }],
   "buildCommand": "pnpm run build",
   "devCommand": "pnpm --filter=web dev",
   "installCommand": "pnpm install"
