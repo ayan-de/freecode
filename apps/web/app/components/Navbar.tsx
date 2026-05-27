@@ -20,7 +20,7 @@ export function Navbar() {
     <nav className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1280px)/2))]">
       <div className="mx-auto max-w-5xl">
         <div className="flex h-16 items-center justify-between overflow-x-auto">
-          <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
+          <Link href="/" className="flex items-center hover:opacity-80 transition-opacity ml-10">
             <div className="relative h-16 w-36">
               <Image src="/logo.png" alt="freecode" fill sizes="144px" className="object-contain" loading="eager" />
             </div>
