@@ -14,7 +14,6 @@ interface TabNavigationProps {
 
 export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationProps) {
   return (
-    <>
     <nav className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1280px)/2))]" role="tablist">
       <div className="flex items-stretch h-20 max-w-7xl mx-auto">
         {tabs.map((tab) => {
@@ -36,7 +35,5 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
         })}
       </div>
     </nav>
-    <Divider />
-    </>
   );
 }
