@@ -1,5 +1,6 @@
 import { Button } from "./Button";
 import { HeroGrid } from "./HeroGrid";
+import { FaGithub } from "react-icons/fa";
 
 export function Hero() {
   return (
@@ -27,6 +28,7 @@ export function Hero() {
             target="_blank"
             rel="noopener noreferrer"
           >
+            <FaGithub className="brand-gradient-text mr-2 h-4 w-4" />
             GitHub
           </Button>
         </div>
