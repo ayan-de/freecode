@@ -13,7 +13,7 @@ export function Hero() {
           Your <span className="brand-gradient-text">AI</span> Coding Assistant
         </h1>
         <p className="text-lg lg:text-xl text-white/60 leading-relaxed max-w-xl">
-          Drive AI coding assistants via browser automation. No API costs. Works with <span className="text-white font-medium">ChatGPT</span>, <span className="text-white font-medium">Claude</span>, and <span className="text-white font-medium">Gemini</span>.
+          Drive AI coding assistants via browser automation. No API costs. Works with <span className="text-white font-medium">ChatGPT</span>, <span className="text-white font-medium">Claude</span>, <span className="text-white font-medium">Gemini</span>, and <span className="text-white font-medium brand-gradient-text">Browser</span>.
         </p>
 
         <div className="flex flex-wrap items-center gap-4 mt-4 mb-2">
