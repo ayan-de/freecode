@@ -98,13 +98,18 @@ export function MemoryNodeContent() {
 
       {/* Memory Flow */}
       <div className={`${styles.flowContainer} ${styles.memoryFlow}`}>
-        {MEMORY_FLOW_STEPS.map((step) => (
-          <div key={step.number} className={styles.flowStep}>
-            <div className={styles.flowContent}>
-              <h4 className={styles.flowTitle}>{step.title}</h4>
-              <p className={styles.flowDescription}>{step.description}</p>
+        {MEMORY_FLOW_STEPS.map((step, idx) => (
+          <React.Fragment key={step.number}>
+            <div className={styles.flowStep}>
+              <div className={styles.flowContent}>
+                <h4 className={styles.flowTitle}>{step.title}</h4>
+                <p className={styles.flowDescription}>{step.description}</p>
+              </div>
             </div>
-          </div>
+            {idx < MEMORY_FLOW_STEPS.length - 1 && (
+              <div className={styles.flowArrow}>↓</div>
+            )}
+          </React.Fragment>
         ))}
       </div>
 

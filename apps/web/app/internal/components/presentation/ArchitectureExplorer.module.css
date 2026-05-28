@@ -671,6 +671,10 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
+.memoryFlow .flowArrow {
+  color: rgba(245, 158, 11, 0.6);
+}
+
 /* ==================== TOOL CATEGORIES ==================== */
 
 .toolCategory {
