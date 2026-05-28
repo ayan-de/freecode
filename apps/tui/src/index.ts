@@ -118,10 +118,10 @@ editor.onSubmit = (value: string) => {
 	}
 
 	messageCount++;
-	showMessage(`**You:** ${trimmed}`);
+	showMessage(`**${chalk.red("You")}:** ${trimmed}`);
 
 	setTimeout(() => {
-		showMessage(`**FreeCode:** Message ${messageCount} received!`);
+		showMessage(`**${chalk.cyan("FreeCode")}:** Message ${messageCount} received!`);
 	}, 500);
 };
 
