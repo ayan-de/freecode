@@ -1,88 +1,135 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { Brain, FileText, Zap, Database } from 'lucide-react';
 import styles from '../ArchitectureExplorer.module.css';
 import { NodeHeader } from './NodeHeader';
 
+const MEMORY_FLOW_STEPS = [
+  {
+    number: 1,
+    title: 'addMessage(role, content)',
+    description: 'Record each turn in MemoryService',
+  },
+  {
+    number: 2,
+    title: 'shouldCompact(provider)',
+    description: 'Check if token count exceeds threshold',
+  },
+  {
+    number: 3,
+    title: 'runPreCompact()',
+    description: 'HookRuntime PreCompact hook — can block',
+  },
+  {
+    number: 4,
+    title: 'selectForCompaction()',
+    description: 'Preserve recent turns, select older for summary',
+  },
+  {
+    number: 5,
+    title: 'summarizeMessages()',
+    description: 'Generate anchored continuation summary',
+  },
+  {
+    number: 6,
+    title: 'runPostCompact()',
+    description: 'HookRuntime PostCompact hook — notify',
+  },
+];
+
+const memoryComponents = [
+  {
+    name: 'MemoryService',
+    file: 'apps/core/src/memory/service.ts',
+    description: 'Orchestrates compaction, recording, persistence',
+    icon: Brain,
+    color: '#f97316',
+  },
+  {
+    name: 'FileMemoryStorage',
+    file: 'apps/core/src/memory/storage.ts',
+    description: 'JSON persistence under .freecode/sessions/',
+    icon: Database,
+    color: '#10b981',
+  },
+  {
+    name: 'tokens.ts',
+    file: 'apps/core/src/memory/tokens.ts',
+    description: 'Token estimation and context budgets',
+    icon: Zap,
+    color: '#a855f7',
+  },
+  {
+    name: 'selector.ts',
+    file: 'apps/core/src/memory/selector.ts',
+    description: 'selectForCompaction + renderPromptMemoryContext',
+    icon: FileText,
+    color: '#60a5fa',
+  },
+  {
+    name: 'summarizer.ts',
+    file: 'apps/core/src/memory/summarizer.ts',
+    description: 'Anchored summary with Goal, Progress, Files',
+    icon: FileText,
+    color: '#ec4899',
+  },
+];
+
+const compactionStats = [
+  { label: 'preserveRecentTurns', value: '2' },
+  { label: 'autoCompactBuffer', value: '13,000 tokens' },
+  { label: 'maxPreserveRecent', value: '8,000 tokens' },
+  { label: 'maxToolOutputChars', value: '2,000 chars' },
+];
+
 export function MemoryNodeContent() {
-  const [memoryCapacity, setMemoryCapacity] = useState(35);
-  const [isCompacting, setIsCompacting] = useState(false);
-  const timersRef = useRef<NodeJS.Timeout[]>([]);
-
-  const clearAllTimers = () => {
-    timersRef.current.forEach(clearTimeout);
-    timersRef.current = [];
-  };
-
-  useEffect(() => {
-    clearAllTimers();
-    setIsCompacting(false);
-    setMemoryCapacity(35);
-
-    const runMemoryCycle = () => {
-      let currentVal = 35;
-      const interval = setInterval(() => {
-        currentVal += 15;
-        if (currentVal >= 95) {
-          clearInterval(interval);
-          setMemoryCapacity(98);
-          setIsCompacting(true);
-          const compactTimer = setTimeout(() => {
-            setIsCompacting(false);
-            setMemoryCapacity(15);
-            const loopAgainTimer = setTimeout(runMemoryCycle, 2000);
-            timersRef.current.push(loopAgainTimer);
-          }, 3000);
-          timersRef.current.push(compactTimer);
-        } else {
-          setMemoryCapacity(currentVal);
-        }
-      }, 1000);
-      timersRef.current.push(setTimeout(() => clearInterval(interval), 10000));
-    };
-
-    runMemoryCycle();
-    return () => clearAllTimers();
-  }, []);
-
   return (
     <>
       <NodeHeader
-        icon={<span>💾</span>}
+        icon={<Brain size={24} color="#f97316" />}
         title="Memory & Log Compaction"
-        subtext="Handling Long-Running Sessions"
+        subtext="Session Context Compaction"
       />
       <p className={styles.description}>
-        When agent cycles run for dozens of turns, LLM context windows overflow. To prevent crashes, FreeCode accumulates session logs, and dynamically runs <strong>Memory Compaction</strong>.
+        The <strong>Memory System</strong> prevents context window overflow during long sessions
+        by compacting old messages into anchored summaries while preserving recent turns.
       </p>
+
+      {/* Memory Flow */}
+      <div className={styles.flowContainer}>
+        {MEMORY_FLOW_STEPS.map((step) => (
+          <div key={step.number} className={styles.flowStep}>
+            <div className={styles.flowContent}>
+              <h4 className={styles.flowTitle}>{step.title}</h4>
+              <p className={styles.flowDescription}>{step.description}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Key Files */}
       <div className={styles.filesBox}>
-        <h5 className={styles.filesTitle}>🔑 Key Codebase Implementations:</h5>
+        <h5 className={styles.filesTitle}>🔑 Memory Components</h5>
         <ul className={styles.filesList}>
-          <li>
-            <span className={styles.fileBadge}>Session History</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/agent/session.ts" className={styles.fileLink}>apps/core/src/agent/session.ts</a>
-          </li>
+          {memoryComponents.map((comp) => (
+            <li key={comp.name}>
+              <span className={styles.fileBadge}>{comp.name}</span>
+              <span style={{ color: comp.color, fontSize: '12px' }}>{comp.description}</span>
+            </li>
+          ))}
         </ul>
       </div>
-      <div className={styles.simContainer}>
-        <div className={styles.simHeader}>
-          <span>History Buffer Status</span>
-          <span className={isCompacting ? styles.yellowPulse : styles.amberPulse}></span>
-        </div>
-        <div className={styles.memoryBarContainer}>
-          <div className={styles.memoryBarLabel}>
-            <span>Context window capacity:</span>
-            <span><strong>{memoryCapacity}%</strong> ({memoryCapacity * 100} / 10000 tokens)</span>
-          </div>
-          <div className={styles.memoryProgressBar}>
-            <div
-              className={`${styles.memoryFill} ${isCompacting ? styles.memoryFillCompacting : ''} ${memoryCapacity > 80 ? styles.memoryHigh : ''}`}
-              style={{ width: `${memoryCapacity}%` }}
-            />
-          </div>
-          {isCompacting && <div className={styles.compactAlert}>⚠️ BUFFER FULL! RUNNING BACKGROUND SUMMARIZATION DEAMON...</div>}
-          {!isCompacting && memoryCapacity > 80 && <div className={styles.warningAlert}>🚨 CRITICAL LIMIT NEARING! PREPARING FOR COMPACTION CYCLE...</div>}
-          {!isCompacting && memoryCapacity <= 35 && <div className={styles.successAlert}>✅ HISTORY COMPRESSED! Synced context window cleared.</div>}
+
+      {/* Compaction Stats */}
+      <div className={styles.execModes}>
+        <h5 className={styles.execTitle}>Compaction Config</h5>
+        <div className={styles.execList}>
+          {compactionStats.map((stat) => (
+            <div key={stat.label} className={styles.execItem}>
+              <span className={styles.execMode} style={{ background: '#f97316' }}>{stat.label}</span>
+              <span className={styles.execTools}>{stat.value}</span>
+            </div>
+          ))}
         </div>
       </div>
     </>
