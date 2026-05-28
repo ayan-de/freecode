@@ -11,7 +11,11 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.80",
+    "@ai-sdk/google": "^3.0.80",
+    "@ai-sdk/openai": "^3.0.66",
     "@freecode/shared": "workspace:*",
+    "ai": "^6.0.191",
     "effect": "^3.21.2",
     "fast-glob": "^3.3.3",
     "playwright": "^1.42.0"
