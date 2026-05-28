@@ -1,5 +1,6 @@
 import { Installation } from "./components/Installation";
 import { Divider } from "./components/Divider";
+import { Footer } from "./components/Footer";
 import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
 import { PageWrapper } from "./components/PageWrapper";
@@ -27,14 +28,9 @@ export default function Home() {
         <Divider />
       </main>
 
-      <footer className="flex items-center justify-center gap-6 py-4 px-[max(80px,calc((100vw-1280px)/2))] text-sm text-white/40">
-        <a href="https://freecode.ayande.xyz/" target="_blank" rel="noopener noreferrer">
-          freecode.ayande.xyz
-        </a>
-        <a href="https://github.com/ayan-de/freecode" target="_blank" rel="noopener noreferrer">
-          GitHub
-        </a>
-      </footer>
+      <div className="px-[max(80px,calc((100vw-1280px)/2))]">
+        <Footer />
+      </div>
     </PageWrapper>
   );
 }
