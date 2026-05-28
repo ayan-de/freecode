@@ -44,13 +44,13 @@ export function OverviewContainer() {
           />
         </div>
       )}
-
+      {/* 
       <div className={styles.grid} style={{ marginTop: '32px' }}>
         <div className={styles.section} style={{ gridColumn: '1 / -1' }}>
           <h3 className={styles.sectionTitle}>System Domain Boundaries</h3>
           <BoundaryDiagram layers={BOUNDARY_LAYERS} />
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }
