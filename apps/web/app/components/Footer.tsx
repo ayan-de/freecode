@@ -1,4 +1,5 @@
 import React from 'react';
+import ASCIIText from './ASCIIText';
 
 const footerLinks = [
   'Login',
@@ -60,6 +61,15 @@ export function Footer() {
             </div>
           );
         })}
+      </div>
+
+      {/* Logo on right 50% */}
+      <div className="absolute inset-y-0 right-0 w-1/2 flex items-center justify-center">
+        <ASCIIText
+          text="FreeCode"
+          enableWaves
+          asciiFontSize={6}
+        />
       </div>
     </div>
   );

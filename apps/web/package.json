@@ -12,11 +12,13 @@
   },
   "dependencies": {
     "@repo/ui": "workspace:*",
+    "@types/three": "^0.184.1",
     "lucide-react": "^1.16.0",
     "next": "16.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-icons": "^5.6.0"
+    "react-icons": "^5.6.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
