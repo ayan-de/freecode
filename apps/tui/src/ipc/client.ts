@@ -3,7 +3,9 @@
 // =============================================================================
 
 import { spawn, type ChildProcess } from "child_process";
-import { resolve as pathResolve } from "path";
+import { resolve as pathResolve, dirname } from "path";
+import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -46,8 +48,13 @@ function parseResponse(data: string): JsonRpcResponse[] {
 export function startCli(): void {
   if (cliProcess) return;
 
-  // Project root is the monorepo root (where package.json lives)
-  const projectRoot = process.env.FREECODE_ROOT || process.cwd();
+  // Project root is the monorepo root (where pnpm-workspace.yaml lives)
+  // When running `pnpm dev` from apps/tui, cwd is apps/tui, so go up two levels.
+  let projectRoot = process.env.FREECODE_ROOT || process.cwd();
+  const rootMarker = `${projectRoot}/pnpm-workspace.yaml`;
+  if (!existsSync(rootMarker)) {
+    projectRoot = pathResolve(projectRoot, "..", "..");
+  }
 
   // Resolve path to CLI server relative to project root
   const cliPath = pathResolve(projectRoot, "apps/core/src/server.ts");
