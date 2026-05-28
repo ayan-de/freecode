@@ -17,7 +17,7 @@ import type {
   AssistantContent,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
-import { createToolOrchestrator } from "../tools/orchestrator.js"
+import { createToolOrchestrator, listTools } from "../tools/index.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
 
@@ -36,6 +36,11 @@ export class AgentLoop {
   private history: Message[] = []
   private config: { maxIterations: number; heuristics: LoopHeuristics }
   private memory: MemoryService
+  // Loop health tracking state
+  private recentToolCalls: Array<{ tool: string; args: string }> = []
+  private recentReasoning: string[] = []
+  private lastFileStates: string[] = []
+  private fileStateHash: string = ""
 
   constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics> }) {
     this.state = createInitialSessionState(sessionId)
@@ -63,6 +68,7 @@ export class AgentLoop {
       }
 
       let prompt = input.prompt
+      let previousToolResults: ToolResult[] | undefined
 
       // =======================================================================
       // CONTINUOUS LOOP - Core agent cycle
@@ -86,7 +92,7 @@ export class AgentLoop {
         }
 
         // Execute one turn: send prompt, get response, parse tools, execute
-        const turnResult = await this.executeTurn(prompt, input.provider, contextResult.value)
+        const turnResult = await this.executeTurn(prompt, input.provider, contextResult.value, previousToolResults)
         if (!turnResult.success) {
           return this.fail("Turn execution failed", turnResult.error)
         }
@@ -98,6 +104,7 @@ export class AgentLoop {
 
         // Build continuation prompt for next iteration
         prompt = this.buildContinuationPrompt(turnResult.toolResults)
+        previousToolResults = turnResult.toolResults
         this.state = {
           ...this.state,
           iterationCount: this.state.iterationCount + 1,
@@ -119,7 +126,8 @@ export class AgentLoop {
   private async executeTurn(
     prompt: string,
     provider: string,
-    context: { name: string; projectPath: string; tree: string }
+    context: { name: string; projectPath: string; tree: string },
+    previousToolResults?: ToolResult[]
   ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string }> {
     try {
       // Build full prompt with project context and memory
@@ -133,25 +141,32 @@ ${context.tree}
 ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
       console.log("[AgentLoop] Sending prompt to provider...")
-      const responseText = await this.sendToProvider(fullPrompt, provider)
+      const providerResult = await this.sendToProvider(fullPrompt, provider, previousToolResults)
 
-      // Normalize provider response to canonical format
-      const normalized = this.normalizeResponse(responseText)
+      // Get tool calls from provider (native tool calling) or from text parsing
+      let toolCalls: ToolCall[] = providerResult.toolCalls?.map(tc => ({
+        id: tc.id,
+        tool: tc.name,
+        args: tc.args as Record<string, unknown>,
+        execution: "sequential" as const,
+      })) ?? []
 
-      // Parse normalized response into tool calls
-      const toolCalls = this.parseResponse(normalized)
+      // If no native tool calls, try parsing [TOOL_CALLS] format from text
+      if (toolCalls.length === 0) {
+        toolCalls = this.parseResponse(this.normalizeResponse(providerResult.content))
+      }
 
       // No tools? Return early
       if (toolCalls.length === 0) {
         this.memory.addMessage("user", prompt)
-        this.memory.addMessage("assistant", responseText)
+        this.memory.addMessage("assistant", providerResult.content)
         if (this.memory.shouldCompact(provider)) {
           const result = await this.memory.compact()
           if (!result.success) {
             console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
           }
         }
-        return { success: true, toolResults: [], responseText }
+        return { success: true, toolResults: [], responseText: providerResult.content }
       }
 
       // Execute each tool sequentially (as per spec: sequential tools run one at a time)
@@ -159,11 +174,13 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       for (const toolCall of toolCalls) {
         const result = await this.executeTool(toolCall)
         toolResults.push(result)
+        // Update loop health tracking after each tool execution
+        this.updateLoopHealth(toolCall, result)
       }
 
       // Record messages and check for compaction after tool execution
       this.memory.addMessage("user", prompt)
-      this.memory.addMessage("assistant", responseText)
+      this.memory.addMessage("assistant", providerResult.content)
 
       if (this.memory.shouldCompact(provider)) {
         const result = await this.memory.compact()
@@ -172,7 +189,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         }
       }
 
-      return { success: true, toolResults, responseText }
+      return { success: true, toolResults, responseText: providerResult.content }
     } catch (error) {
       return { success: false, toolResults: [], error: String(error) }
     }
@@ -184,16 +201,27 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   // ===========================================================================
   private async sendToProvider(
     prompt: string,
-    provider: string
-  ): Promise<string> {
+    provider: string,
+    toolResults?: ToolResult[]
+  ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }> }> {
     const aiProvider = getProvider(provider as any)
+    const tools = listTools().map(t => ({
+      name: t.id,
+      description: t.description,
+      parameters: { type: "object", properties: {} as Record<string, unknown> }
+    }))
     const result = await aiProvider.execute({
       prompt,
       system: undefined,
-      tools: undefined,
+      tools,
+      toolResults: toolResults?.map(tr => ({
+        toolCallId: tr.toolCallId,
+        result: tr.stdout || tr.error || "",
+        name: tr.tool,
+      })),
       model: undefined,
     })
-    return result.content
+    return { content: result.content, toolCalls: result.toolCalls }
   }
 
   // ===========================================================================
@@ -265,7 +293,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         toolCalls.push({
           id: item.id,
           tool: item.name,
-          args: item.input,
+          args: item.input as unknown,
           execution: "sequential", // Default - parallel-safe tools batched separately
         })
       }
@@ -305,6 +333,69 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       return { success: true, value: { name, projectPath, tree } }
     } catch (error) {
       return { success: false, error: String(error) }
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: updateLoopHealth()
+  // Track tool calls and state changes to detect stuck patterns
+  // ===========================================================================
+  private updateLoopHealth(toolCall: ToolCall, result: ToolResult): void {
+    const argsHash = JSON.stringify(toolCall.args)
+    const toolSignature = `${toolCall.tool}:${argsHash}`
+
+    // A. Track repeated identical tool calls
+    this.recentToolCalls.push({ tool: toolCall.tool, args: argsHash })
+    if (this.recentToolCalls.length > 10) {
+      this.recentToolCalls.shift()
+    }
+
+    // Count how many times the same tool+args has been called recently
+    const identicalCount = this.recentToolCalls.filter(
+      tc => tc.tool === toolCall.tool && tc.args === argsHash
+    ).length
+    this.state.loopHealth = {
+      ...this.state.loopHealth,
+      repeatedTools: identicalCount - 1, // -1 because current call is in the array
+    }
+
+    // B. Track stagnant turns (no file changes)
+    const madeFileChange = result.stdout && (
+      result.stdout.includes("Written") ||
+      result.stdout.includes("Created") ||
+      result.stdout.includes("Modified") ||
+      result.stdout.includes("Deleted")
+    )
+    if (!madeFileChange) {
+      this.state.loopHealth = {
+        ...this.state.loopHealth,
+        stagnantTurns: this.state.loopHealth.stagnantTurns + 1,
+      }
+    } else {
+      this.state.loopHealth = {
+        ...this.state.loopHealth,
+        stagnantTurns: 0,
+      }
+    }
+
+    // C. Track oscillation (edit same file repeatedly)
+    if (toolCall.tool === "edit" && toolCall.args && typeof toolCall.args === "object") {
+      const args = toolCall.args as Record<string, unknown>
+      const filePath = args.path as string
+      if (filePath) {
+        this.lastFileStates.push(filePath)
+        if (this.lastFileStates.length > 10) {
+          this.lastFileStates.shift()
+        }
+        // Detect edit/revert/edit pattern on same file
+        const sameFileEdits = this.lastFileStates.filter(f => f === filePath).length
+        if (sameFileEdits >= 3) {
+          this.state.loopHealth = {
+            ...this.state.loopHealth,
+            oscillationScore: this.state.loopHealth.oscillationScore + 1,
+          }
+        }
+      }
     }
   }
 
