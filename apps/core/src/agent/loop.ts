@@ -99,7 +99,7 @@ export class AgentLoop {
 
         // No tool calls means we're done
         if (turnResult.toolResults.length === 0) {
-          return this.complete("No more tool calls")
+          return this.complete("Done", turnResult.responseText)
         }
 
         // Build continuation prompt for next iteration
@@ -471,10 +471,11 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
     }
   }
 
-  private complete(message: string): LoopResult {
+  private complete(message: string, content?: string): LoopResult {
     return {
       success: true,
       message,
+      content,
       turnCount: this.state.turnCount,
       iterationCount: this.state.iterationCount,
       finalState: this.state,

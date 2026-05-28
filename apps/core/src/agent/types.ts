@@ -181,6 +181,7 @@ export interface UserInput {
 export interface LoopResult {
   success: boolean
   message?: string
+  content?: string
   turnCount: number
   iterationCount: number
   finalState: SessionState
