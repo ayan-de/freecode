@@ -17,10 +17,39 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     const model = opts.model || PROVIDER_INFO.defaultModel
     const apiKey = getApiKey("minimax" as ProviderId)
 
-    const messages: Array<{ role: "user" | "assistant"; content: string }> = []
+    const messages: Array<{ role: "user" | "assistant"; content: string | Array<{ type: string; [key: string]: unknown }> }> = []
     if (opts.system) {
       messages.push({ role: "user", content: opts.system })
     }
+
+    // If there are previous tool results, they come AFTER an assistant message with tool_use
+    // (following Anthropic message protocol pattern from opencode)
+    if (opts.toolResults && opts.toolResults.length > 0) {
+      // First, an assistant message with tool_use blocks referencing the calls
+      const assistantContent: Array<{ type: string; [key: string]: unknown }> = []
+      for (const tr of opts.toolResults) {
+        assistantContent.push({
+          type: "tool_use",
+          id: tr.toolCallId,
+          name: tr.name || "unknown",
+          input: tr.input || {},
+        })
+      }
+      messages.push({ role: "assistant", content: assistantContent })
+
+      // Then a user message with tool_result blocks
+      const userContent: Array<{ type: string; [key: string]: unknown }> = []
+      for (const tr of opts.toolResults) {
+        userContent.push({
+          type: "tool_result",
+          tool_use_id: tr.toolCallId,
+          content: tr.result || "",
+        })
+      }
+      messages.push({ role: "user", content: userContent })
+    }
+
+    // Finally, the new user prompt
     messages.push({ role: "user", content: opts.prompt })
 
     const body: Record<string, unknown> = {
@@ -28,6 +57,20 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
       max_tokens: opts.maxTokens || 4096,
       messages,
     }
+
+    // Pass tools to API if provider supports them and tools are provided
+    if (opts.tools && opts.tools.length > 0) {
+      body.tools = opts.tools.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: {
+          type: "object",
+          properties: tool.parameters.properties || {},
+          required: tool.parameters.required || [],
+        },
+      }))
+    }
+
     if (opts.temperature !== undefined) body.temperature = opts.temperature
 
     const response = await fetch(BASE_URL, {
@@ -47,7 +90,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     }
 
     const data = await response.json() as {
-      content: Array<{ type: string; text?: string; thinking?: string }>
+      content: Array<{ type: string; text?: string; thinking?: string; id?: string; name?: string; input?: Record<string, unknown> }>
       usage: { input_tokens: number; output_tokens: number }
       stop_reason: string
     }
@@ -56,12 +99,27 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     const textParts = data.content?.filter(c => c.type === "text" || c.type === "thinking")
     const content = textParts?.map(c => c.text || c.thinking || "").join("\n").trim() || ""
 
+    // Extract tool calls from tool_use content blocks
+    const toolCalls = data.content
+      ?.filter(c => c.type === "tool_use")
+      .map(c => ({
+        id: c.id || `tool-${Date.now()}`,
+        name: c.name || "unknown",
+        args: c.input || {},
+      })) ?? []
+
     let stopReason: ExecuteResult["stopReason"] = "unknown"
-    if (data.stop_reason === "end_turn" || data.stop_reason === "stop") stopReason = "stop"
-    else if (data.stop_reason === "max_tokens") stopReason = "max_tokens"
+    if (data.stop_reason === "end_turn" || data.stop_reason === "stop") {
+      stopReason = toolCalls.length > 0 ? "tool_use" : "stop"
+    } else if (data.stop_reason === "max_tokens") {
+      stopReason = "max_tokens"
+    } else if (data.stop_reason === "tool_use") {
+      stopReason = "tool_use"
+    }
 
     return {
       content,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage: data.usage ? {
         inputTokens: data.usage.input_tokens,
         outputTokens: data.usage.output_tokens,
