@@ -1,4 +1,4 @@
-import { createGoogle } from '@ai-sdk/google'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateText } from 'ai'
 import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
 import { getApiKey, ProviderId } from './config'
@@ -13,40 +13,36 @@ const PROVIDER_INFO = {
 }
 
 function createGeminiProvider(_apiKey: string): AIProvider {
-  const google = createGoogle({ apiKey: getApiKey("gemini" as ProviderId) })
+  const gemini = createGoogleGenerativeAI({ apiKey: getApiKey("gemini" as ProviderId) })
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = opts.model || PROVIDER_INFO.defaultModel
 
-    const tools = opts.tools?.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    })) || []
-
     const result = await generateText({
-      model: google(model),
+      model: gemini.languageModel(model),
       system: opts.system,
       prompt: opts.prompt,
       temperature: opts.temperature,
-      maxTokens: opts.maxTokens || 4096,
-      tools: tools.length > 0 ? tools : undefined,
+      maxOutputTokens: opts.maxTokens || 4096,
     })
 
-    const toolCalls = result.toolCalls?.map(tc => ({
-      name: tc.toolName,
-      args: tc.args as Record<string, unknown>,
-      id: tc.toolCallId,
-    }))
+    const toolCalls = result.toolCalls?.map((tc): { name: string; args: Record<string, unknown>; id: string } => {
+      const input = (tc as unknown as { input: Record<string, unknown> }).input
+      return {
+        name: tc.toolName,
+        args: input,
+        id: tc.toolCallId,
+      }
+    })
 
     return {
       content: result.text || "",
       toolCalls: toolCalls?.length ? toolCalls : undefined,
       usage: result.usage ? {
-        inputTokens: result.usage.promptTokens,
-        outputTokens: result.usage.completionTokens,
+        inputTokens: result.usage.inputTokens ?? 0,
+        outputTokens: result.usage.outputTokens ?? 0,
       } : undefined,
-      stopReason: result.finishReason === "tool-use" ? "tool_use"
+      stopReason: result.finishReason === "tool-calls" ? "tool_use"
         : result.finishReason === "length" ? "max_tokens"
         : "stop",
       provider: PROVIDER_INFO.id,

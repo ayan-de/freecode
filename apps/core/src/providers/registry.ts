@@ -25,12 +25,14 @@ export function listProviders(): ProviderInfo[] {
   return Array.from(registry.values()).map(def => def.info)
 }
 
-export function initProviders(): void {
-  // Providers self-register
+export async function initProviders(): Promise<void> {
+  // Providers self-register via side effect when imported
   // Import each to trigger registerProvider() call
-  // Lazy import to avoid circular deps
-  void import('./anthropic')
-  void import('./openai')
-  void import('./gemini')
-  void import('./minimax')
+  // Use Promise.all to wait for all registrations to complete
+  await Promise.all([
+    import('./anthropic'),
+    import('./openai'),
+    import('./gemini'),
+    import('./minimax'),
+  ])
 }
