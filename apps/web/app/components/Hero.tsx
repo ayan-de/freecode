@@ -23,7 +23,7 @@ export function Hero() {
           </Button>
           <Button
             variant="outline"
-            className="px-6 py-3 hover:border-white/20 hover:bg-white/5 h-[46px]"
+            className="bg-black px-6 py-3 hover:border-white/20 hover:bg-black h-[46px]"
             href="https://github.com/ayan-de/freecode"
             target="_blank"
             rel="noopener noreferrer"
