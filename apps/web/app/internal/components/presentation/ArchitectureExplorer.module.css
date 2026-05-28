@@ -660,6 +660,17 @@
   padding: 4px 0;
 }
 
+/* Memory flow overrides - amber color */
+.memoryFlow .flowStep {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.memoryFlow .flowStep .flowTitle,
+.memoryFlow .flowStep .flowDescription {
+  color: rgba(255, 255, 255, 0.9);
+}
+
 /* ==================== TOOL CATEGORIES ==================== */
 
 .toolCategory {

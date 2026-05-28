@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { Brain, FileText, Zap, Database } from 'lucide-react';
 import styles from '../ArchitectureExplorer.module.css';
 import { NodeHeader } from './NodeHeader';
@@ -96,7 +97,7 @@ export function MemoryNodeContent() {
       </p>
 
       {/* Memory Flow */}
-      <div className={styles.flowContainer}>
+      <div className={`${styles.flowContainer} ${styles.memoryFlow}`}>
         {MEMORY_FLOW_STEPS.map((step) => (
           <div key={step.number} className={styles.flowStep}>
             <div className={styles.flowContent}>
