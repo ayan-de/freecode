@@ -4,7 +4,7 @@ export function Announcement() {
   return (
     <a
       href="#"
-      className="flex items-center justify-center mx-auto px-[max(80px,calc((100vw-1280px)/2))] bg-gradient-to-r from-indigo-600 to-purple-600 py-2 text-sm text-white hover:opacity-90 transition-opacity"
+      className="flex items-center justify-center bg-gradient-to-r from-indigo-600 to-purple-600 py-2 text-sm text-white hover:opacity-90 transition-opacity w-full"
     >
       <span className="font-medium">Command Code raises $5M</span>
       <span className="text-white/60">•</span>

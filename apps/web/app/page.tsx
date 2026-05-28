@@ -9,7 +9,9 @@ export default function Home() {
   return (
     <PageWrapper>
       <Navbar />
-      <Announcement />
+      <div className="px-[max(80px,calc((100vw-1280px)/2))]">
+        <Announcement />
+      </div>
 
       <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
