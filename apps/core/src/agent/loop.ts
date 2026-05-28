@@ -18,6 +18,7 @@ import type {
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 import { createToolOrchestrator } from "../tools/orchestrator.js"
+import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -33,6 +34,7 @@ export class AgentLoop {
   private state: SessionState
   private history: Message[] = []
   private config: { maxIterations: number; heuristics: LoopHeuristics }
+  private memory: MemoryService
 
   constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics> }) {
     this.state = createInitialSessionState(sessionId)
@@ -40,6 +42,7 @@ export class AgentLoop {
       maxIterations: config?.maxIterations ?? 100,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
     }
+    this.memory = new MemoryService(sessionId)
   }
 
   // ===========================================================================
@@ -82,7 +85,7 @@ export class AgentLoop {
         }
 
         // Execute one turn: send prompt, get response, parse tools, execute
-        const turnResult = await this.executeTurn(prompt, contextResult.value)
+        const turnResult = await this.executeTurn(prompt, input.provider, contextResult.value)
         if (!turnResult.success) {
           return this.fail("Turn execution failed", turnResult.error)
         }
@@ -114,17 +117,19 @@ export class AgentLoop {
   // ===========================================================================
   private async executeTurn(
     prompt: string,
+    provider: string,
     context: { name: string; projectPath: string; tree: string }
-  ): Promise<{ success: boolean; toolResults: ToolResult[]; error?: string }> {
+  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string }> {
     try {
-      // Build full prompt with project context
+      // Build full prompt with project context and memory
+      const memoryContext = renderPromptMemoryContext(this.memory.getPromptContext())
       const fullPrompt = `Project: ${context.name}
 Path: ${context.projectPath}
 
 File tree:
 ${context.tree}
 
-Task: ${prompt}`
+${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
       console.log("[AgentLoop] Sending prompt to provider...")
       const responseText = await this.sendToProvider(fullPrompt)
@@ -137,7 +142,15 @@ Task: ${prompt}`
 
       // No tools? Return early
       if (toolCalls.length === 0) {
-        return { success: true, toolResults: [] }
+        this.memory.addMessage("user", prompt)
+        this.memory.addMessage("assistant", responseText)
+        if (this.memory.shouldCompact(provider)) {
+          const result = await this.memory.compact()
+          if (!result.success) {
+            console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+          }
+        }
+        return { success: true, toolResults: [], responseText }
       }
 
       // Execute each tool sequentially (as per spec: sequential tools run one at a time)
@@ -147,7 +160,18 @@ Task: ${prompt}`
         toolResults.push(result)
       }
 
-      return { success: true, toolResults }
+      // Record messages and check for compaction after tool execution
+      this.memory.addMessage("user", prompt)
+      this.memory.addMessage("assistant", responseText)
+
+      if (this.memory.shouldCompact(provider)) {
+        const result = await this.memory.compact()
+        if (!result.success) {
+          console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+        }
+      }
+
+      return { success: true, toolResults, responseText }
     } catch (error) {
       return { success: false, toolResults: [], error: String(error) }
     }
