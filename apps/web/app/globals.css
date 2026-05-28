@@ -4,10 +4,24 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .brand-gradient {
+    background: linear-gradient(to right, var(--gradient-start), var(--gradient-end));
+  }
+  .brand-gradient-text {
+    background: linear-gradient(to right, var(--gradient-start), var(--gradient-end));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
 :root {
   --background: #000000;
   --foreground: #ffffff;
   --muted: #9A9595;
+  --gradient-start: #6366f1;
+  --gradient-end: #a855f7;
 }
 
 .dark {

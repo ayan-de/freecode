@@ -1,7 +1,7 @@
 export function LogoSection() {
   return (
     <div className="flex flex-col items-center gap-6 py-16 min-h-[300px]">
-      <pre className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-600 text-xs sm:text-sm leading-tight font-mono">
+      <pre className="brand-gradient-text text-xs sm:text-sm leading-tight font-mono">
         {" "}
         ██████╗ ██████╗ ███████╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗{"\n"}
         ██╔════╝ ██╔══██╗██╔════╝██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝{"\n"}
