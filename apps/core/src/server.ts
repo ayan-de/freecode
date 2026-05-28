@@ -5,7 +5,7 @@
 
 import { getTool, listTools } from "./tools/index.js";
 import { createAgentLoop } from "./agent/loop.js";
-import { createDefaultProviders, listProviders } from "./browser/providers/index.js";
+import { initProviders, listProviders } from "./providers/index.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
 import type { JsonRpcRequest, JsonRpcResponse, SessionConfig } from "@freecode/shared";
@@ -141,7 +141,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> 
 }
 
 async function main() {
-  createDefaultProviders();
+  await initProviders();
 
   let buffer = "";
 
