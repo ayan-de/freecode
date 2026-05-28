@@ -16,5 +16,8 @@
   "packageManager": "pnpm@10.0.0",
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "postprocessing": "^6.39.1"
   }
 }

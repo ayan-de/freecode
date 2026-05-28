@@ -1,12 +1,32 @@
 import { Button } from "./Button";
-import { HeroGrid } from "./HeroGrid";
+import PixelBlast from "./PixelBlast";
 import { FaGithub } from "react-icons/fa";
 
 export function Hero() {
   return (
     <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[80vh] flex items-center justify-start isolate">
       {/* Background Grid */}
-      <HeroGrid />
+      <div className="absolute inset-0 w-full h-full">
+        <PixelBlast
+          variant="square"
+          pixelSize={5}
+          color="#7462f2"
+          patternScale={3.5}
+          patternDensity={1.15}
+          pixelSizeJitter={0.85}
+          enableRipples
+          rippleSpeed={0.4}
+          rippleThickness={0.12}
+          rippleIntensityScale={1.5}
+          liquid={false}
+          liquidStrength={0.12}
+          liquidRadius={1.2}
+          liquidWobbleSpeed={5}
+          speed={1.05}
+          edgeFade={0.36}
+          transparent
+        />
+      </div>
 
       {/* Foreground Content */}
       <div className="relative z-10 flex flex-col items-start text-left gap-6 w-full max-w-6xl mx-auto mt-0 py-12 ml-8">
