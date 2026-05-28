@@ -1,10 +1,11 @@
 import { Button } from "./Button";
 import PixelBlast from "./PixelBlast";
 import { FaGithub } from "react-icons/fa";
+import { Divider } from "./Divider";
 
 export function Hero() {
   return (
-    <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[80vh] flex items-center justify-start isolate">
+    <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[80vh] flex flex-col justify-between isolate">
       {/* Background Grid */}
       <div className="absolute inset-0 w-full h-full">
         <PixelBlast
@@ -53,6 +54,8 @@ export function Hero() {
           </Button>
         </div>
       </div>
+
+      <Divider />
     </div>
   );
 }
