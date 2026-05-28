@@ -62,7 +62,7 @@ export function Installation() {
                 className={`px-6 py-4 text-base font-medium transition-colors border-b-2 ${
                   active === tab
                     ? "brand-gradient-text border-current"
-                    : "text-white/50 border-transparent hover:text-white/80"
+                    : "text-white/50 border-transparent hover:brand-gradient-text"
                 }`}
               >
                 {installers[tab].label}
