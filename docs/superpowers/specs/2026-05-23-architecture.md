@@ -40,7 +40,7 @@ The design is inspired by the agent patterns popularized by Anthropic's Claude C
                   │ stdin/stdout
                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLI Backend (apps/cli)                         │
+│                              CLI Backend (apps/core)                         │
 │                                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
 │  │    Agent    │  │   Browser   │  │   Context   │  │      Tools          │ │

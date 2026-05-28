@@ -50,7 +50,7 @@ export function ClientsNodeContent() {
           </li>
           <li>
             <span className={styles.fileBadge}>Types/IPC</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/ipc/protocol.ts" className={styles.fileLink}>packages/shared/src/ipc/protocol.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/ipc/protocol.ts" className={styles.fileLink}>packages/shared/src/ipc/protocol.ts</a>
           </li>
         </ul>
       </div>

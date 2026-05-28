@@ -56,11 +56,11 @@ export function SubagentsNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Sub-Agent Spawner</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/tools/index.ts" className={styles.fileLink}>apps/cli/src/tools/index.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/tools/index.ts" className={styles.fileLink}>apps/core/src/tools/index.ts</a>
           </li>
           <li>
             <span className={styles.fileBadge}>Agent Router</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/agent/loop.ts" className={styles.fileLink}>apps/cli/src/agent/loop.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/agent/loop.ts" className={styles.fileLink}>apps/core/src/agent/loop.ts</a>
           </li>
         </ul>
       </div>

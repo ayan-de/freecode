@@ -45,7 +45,7 @@ function parseResponse(data: string): JsonRpcResponse[] {
 export function startCli(cwd?: string): void {
   if (cliProcess) return;
 
-  cliProcess = spawn("node", ["apps/cli/src/server.ts"], {
+  cliProcess = spawn("node", ["apps/core/src/server.ts"], {
     cwd: cwd || process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
   });

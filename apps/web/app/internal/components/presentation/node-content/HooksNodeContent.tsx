@@ -22,7 +22,7 @@ export function HooksNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Middleware Loop</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/agent/loop.ts" className={styles.fileLink}>apps/cli/src/agent/loop.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/agent/loop.ts" className={styles.fileLink}>apps/core/src/agent/loop.ts</a>
           </li>
         </ul>
       </div>

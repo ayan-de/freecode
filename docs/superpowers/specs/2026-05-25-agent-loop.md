@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-25
 **Status:** Phase 1 Complete (see Implementation Priority for details)
-**Supersedes:** Partial implementation in `apps/cli/src/agent/loop.ts`
+**Supersedes:** Partial implementation in `apps/core/src/agent/loop.ts`
 
 ---
 
@@ -31,7 +31,7 @@ These are the **most important** abstractions. Once shipping begins, changing th
 ### Core Types
 
 ```typescript
-// apps/cli/src/session/types.ts
+// apps/core/src/session/types.ts
 
 interface ModelTurn {
   id: string
@@ -218,7 +218,7 @@ interface SessionState {
 ### Layer Composition
 
 ```typescript
-// apps/cli/src/effect/layers.ts
+// apps/core/src/effect/layers.ts
 
 import { Context, Effect, Layer } from "effect"
 
@@ -812,7 +812,7 @@ export type RolloutEvent =
 ## File Structure (Target)
 
 ```
-apps/cli/src/
+apps/core/src/
 ├── agent/
 │   ├── loop.ts              # Main continuous loop
 │   ├── session.ts           # Session state machine

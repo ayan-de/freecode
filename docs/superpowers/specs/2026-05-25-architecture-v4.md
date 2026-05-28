@@ -18,7 +18,7 @@ FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini
 4. Adding **multi-agent orchestration** patterns observed in codex-rs
 5. Refining the **skills system** with better implicit detection
 6. Adding **Observability** section for logging/tracing/debugging
-7. Clarifying the **package boundary** between `packages/shared` and `apps/cli`
+7. Clarifying the **package boundary** between `packages/shared` and `apps/core`
 
 ---
 
@@ -47,7 +47,7 @@ FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLI Backend (apps/cli)                         │
+│                              CLI Backend (apps/core)                         │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │                    Effect Runtime + Layer System                        ││
@@ -127,7 +127,7 @@ The web app (`apps/web`) is a **pure UI shell** like TUI and VSCode, not a diffe
 ### Structured Logging
 
 ```typescript
-// apps/cli/src/observability/logger.ts
+// apps/core/src/observability/logger.ts
 
 interface LogEntry {
   timestamp: number
@@ -150,7 +150,7 @@ const logger = {
 ### Span Tracing
 
 ```typescript
-// apps/cli/src/observability/tracer.ts
+// apps/core/src/observability/tracer.ts
 
 interface Span {
   name: string
@@ -226,7 +226,7 @@ Primary: orchestration mode
 ### Agent Communication
 
 ```typescript
-// apps/cli/src/agent/orchestration.ts
+// apps/core/src/agent/orchestration.ts
 
 interface OrchestrationMessage {
   type: "invoke" | "result" | "error" | "progress"
@@ -249,7 +249,7 @@ const receiveFromAgent = (source: AgentRef) => Effect<OrchestrationMessage>
 Skills can be implicitly triggered by command patterns or file patterns:
 
 ```typescript
-// apps/cli/src/skills/detection.ts
+// apps/core/src/skills/detection.ts
 
 interface ImplicitTrigger {
   pattern: RegExp           // e.g., /\b(commit|git commit)\b/i
@@ -320,7 +320,7 @@ The core of FreeCode is an **agent loop**: instead of a single request-response,
 Agents are formally defined with modes and permission profiles:
 
 ```typescript
-// apps/cli/src/agent/definitions.ts
+// apps/core/src/agent/definitions.ts
 
 export type AgentMode = "primary" | "subagent" | "orchestration"
 
@@ -427,7 +427,7 @@ interface Hook {
 ### Hook Runtime
 
 ```typescript
-// apps/cli/src/hooks/runtime.ts
+// apps/core/src/hooks/runtime.ts
 
 export const runPreToolUseHooks = Effect.fn("Hooks.runPreToolUse")(function* (
   toolCall: ToolCall,
@@ -481,7 +481,7 @@ export const runPostToolUseHooks = Effect.fn("Hooks.runPostToolUse")(function* (
 ### Core Hook Modules
 
 ```
-apps/cli/src/hooks/
+apps/core/src/hooks/
 ├── runtime.ts           # runPreToolUseHooks, runPostToolUseHooks, etc.
 ├── registry.ts          # Hook registration and discovery
 ├── PermissionRequest.ts # Approval gates before dangerous operations
@@ -503,7 +503,7 @@ apps/cli/src/hooks/
 The Bus is a decoupled event system separate from Hooks. It publishes session events to subscribers (TUI, web, external consumers).
 
 ```typescript
-// apps/cli/src/bus/index.ts
+// apps/core/src/bus/index.ts
 
 export interface Bus {
   readonly publish: <E extends BusEvent>(
@@ -642,7 +642,7 @@ Types: feat, fix, docs, style, refactor, test, chore
 ### Skills Manager + Plugin Registry
 
 ```typescript
-// apps/cli/src/skills/
+// apps/core/src/skills/
 ├── manager.ts         # SkillsManager — load, cache, render skills
 ├── loader.ts          # Load skills from filesystem (glob discovery)
 ├── registry.ts        # Skill registry with scope-based visibility
@@ -656,7 +656,7 @@ Types: feat, fix, docs, style, refactor, test, chore
 ### Skill Discovery (Auto-Glob)
 
 ```typescript
-// apps/cli/src/skills/loader.ts
+// apps/core/src/skills/loader.ts
 
 const discoverSkills = Effect.fnUntraced(function* () {
   const config = yield* ConfigService
@@ -693,7 +693,7 @@ Every session action is written to an append-only JSONL log for debugging, repla
 ### Event Schema
 
 ```typescript
-// apps/cli/src/rollout/types.ts
+// apps/core/src/rollout/types.ts
 
 // Base event with aggregate + sequence
 interface BaseEvent {
@@ -793,7 +793,7 @@ Sessions persist across restarts using **dual storage**: SQLite as primary with 
 ### Storage Architecture
 
 ```
-apps/cli/src/store/
+apps/core/src/store/
 ├── thread-store.ts    # ThreadStore interface + implementations
 ├── sqlite-store.ts    # SQLite implementation
 ├── json-store.ts       # JSON file fallback implementation
@@ -879,7 +879,7 @@ CREATE INDEX idx_events_aggregate ON events(aggregate_id, seq);
 ### JSON Fallback
 
 ```typescript
-// apps/cli/src/store/json-store.ts
+// apps/core/src/store/json-store.ts
 // When SQLite unavailable, use JSON files
 
 const sessionPath = (sessionId: string) =>
@@ -898,7 +898,7 @@ Complex tasks spawn focused sub-agents that run their own mini-loop. Inspired by
 ### Sub-Agent Tool
 
 ```typescript
-// apps/cli/src/tools/agent.ts
+// apps/core/src/tools/agent.ts
 
 interface AgentTool {
   name: "agent";
@@ -986,7 +986,7 @@ interface PreLoopContext {
 ### Project Bootstrap
 
 ```typescript
-// apps/cli/src/project/bootstrap.ts
+// apps/core/src/project/bootstrap.ts
 
 export interface VCSInfo {
   root: string           // Git root directory
@@ -1020,7 +1020,7 @@ Tasks can run for hundreds of steps. To avoid hitting context limits:
 ### Compaction Process
 
 ```typescript
-// apps/cli/src/agent/compact.ts
+// apps/core/src/agent/compact.ts
 
 interface CompactionResult {
   success: boolean
@@ -1182,7 +1182,7 @@ freecode mcp --connect https://server.example.com/mcp
 ### MCP OAuth (Remote Servers)
 
 ```typescript
-// apps/cli/src/mcp/oauth-provider.ts
+// apps/core/src/mcp/oauth-provider.ts
 
 interface OAuthConfig {
   clientId: string
@@ -1202,7 +1202,7 @@ const createOAuthProvider = (config: OAuthConfig) => Effect.gen(function* () {
 ### MCP Tool Conversion
 
 ```typescript
-// apps/cli/src/mcp/index.ts
+// apps/core/src/mcp/index.ts
 
 function convertMcpTool(
   mcpTool: MCPToolDef,
@@ -1230,7 +1230,7 @@ function convertMcpTool(
 When MCP server tools change, Bus publishes event:
 
 ```typescript
-// apps/cli/src/mcp/index.ts
+// apps/core/src/mcp/index.ts
 
 // Periodically poll MCP servers for tool changes
 const pollMcpTools = Effect.gen(function* () {
@@ -1259,7 +1259,7 @@ const pollMcpTools = Effect.gen(function* () {
 Messages are stored with typed parts for rich representation:
 
 ```typescript
-// apps/cli/src/session/message-v2.ts
+// apps/core/src/session/message-v2.ts
 
 export const MessagePart = Schema.Union({
   TextPart: Schema.Struct({
@@ -1313,7 +1313,7 @@ export const MessagePart = Schema.Union({
 ### Structured Error Types
 
 ```typescript
-// apps/cli/src/errors/named-error.ts
+// apps/core/src/errors/named-error.ts
 
 export const NamedError = {
   create: <Name extends string, const Data extends Schema.Schema.Type<any>>(
@@ -1383,7 +1383,7 @@ export const MCPToolError = NamedError.create(
 LLM prompts are provider-specific because different models have different capabilities and formats:
 
 ```
-apps/cli/src/session/prompt/
+apps/core/src/session/prompt/
 ├── default.txt         # Fallback prompt
 ├── anthropic.txt      # Claude-specific formatting (XML tags, etc.)
 ├── openai.txt          # OpenAI-specific formatting
@@ -1398,7 +1398,7 @@ apps/cli/src/session/prompt/
 ### Provider Prompt Selection
 
 ```typescript
-// apps/cli/src/session/prompt/loader.ts
+// apps/core/src/session/prompt/loader.ts
 
 const loadProviderPrompt = Effect.fn("Prompt.loadProvider")(function* (
   provider: ProviderID,
@@ -1431,7 +1431,7 @@ const loadProviderPrompt = Effect.fn("Prompt.loadProvider")(function* (
 Config files are validated at runtime using Zod:
 
 ```typescript
-// apps/cli/src/config/config.ts
+// apps/core/src/config/config.ts
 
 import { z } from "zod"
 
@@ -1507,7 +1507,7 @@ export type Config = z.infer<typeof ConfigSchema>
 Cross-platform support including Windows:
 
 ```typescript
-// apps/cli/src/platform/win32.ts
+// apps/core/src/platform/win32.ts
 
 export const win32DisableProcessedInput = Effect.fn("Platform.win32.disableProcessedInput")(function* () {
   if (process.platform !== "win32") return
@@ -1892,13 +1892,13 @@ interface StreamResponse {
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| **Agent loop** | ⚠️ Partial | `apps/cli/src/agent/loop.ts` exists but basic, no Effect/Layer |
+| **Agent loop** | ⚠️ Partial | `apps/core/src/agent/loop.ts` exists but basic, no Effect/Layer |
 | **Tools** | ⚠️ Partial | Only `read`, `write` implemented; missing `bash`, `edit`, `grep`, `find`, `glob`, `agent`, `skill` |
-| **Browser controller** | ⚠️ Partial | `apps/cli/src/browser/` exists with providers |
-| **Parser** | ⚠️ Partial | `apps/cli/src/parser/` with extractors |
-| **Context collector** | ⚠️ Partial | `apps/cli/src/context/` exists |
-| **Applier** | ⚠️ Partial | `apps/cli/src/applier/` exists |
-| **Server (JSON-RPC)** | ⚠️ Partial | `apps/cli/src/server.ts` exists but limited methods |
+| **Browser controller** | ⚠️ Partial | `apps/core/src/browser/` exists with providers |
+| **Parser** | ⚠️ Partial | `apps/core/src/parser/` with extractors |
+| **Context collector** | ⚠️ Partial | `apps/core/src/context/` exists |
+| **Applier** | ⚠️ Partial | `apps/core/src/applier/` exists |
+| **Server (JSON-RPC)** | ⚠️ Partial | `apps/core/src/server.ts` exists but limited methods |
 
 ### What's NOT in spec but exists:
 
@@ -2096,7 +2096,7 @@ Every pattern in FreeCode v4 has roots in familiar systems:
 
 Given the gap between spec and implementation, recommend this priority:
 
-1. **Phase 1: Foundation** — `packages/shared`, `apps/cli/src/server.ts` expand methods, basic IPC
+1. **Phase 1: Foundation** — `packages/shared`, `apps/core/src/server.ts` expand methods, basic IPC
 2. **Phase 2: Core missing** — Effect/Layer, Hooks, Bus, Tools (bash, edit, grep, etc.)
 3. **Phase 3: Storage** — Thread Store, Rollout/Event sourcing
 4. **Phase 4: Advanced** — Skills system, MCP, Sub-agents, Multi-agent orchestration

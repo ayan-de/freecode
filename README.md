@@ -71,7 +71,7 @@ cd apps/tui && npm run dev
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                          CLI Backend                        │
-│              (apps/cli) — ALL intelligence                  │
+│              (apps/core) — ALL intelligence                  │
 │   Browser controller, parser, tools, context engine,        │
 │   agent loop, file applier                                  │
 └──────────────────────────┬──────────────────────────────────┘

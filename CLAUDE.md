@@ -26,7 +26,7 @@ The system uses a two-phase approach: the AI first returns which files it needs,
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                          CLI Backend                        │
-│              (apps/cli) — ALL intelligence                  │
+│              (apps/core) — ALL intelligence                  │
 │   Browser controller, parser, tools, context engine,        │
 │   agent loop, file applier                                  │
 └──────────────────────────┬──────────────────────────────────┘
@@ -213,11 +213,11 @@ File changes are shown as a diff to the user for approval before writing. Preven
 
 ### 1. Identify the domain
 
-- **Browser layer** (`apps/cli/src/browser/`) — Playwright/CDP, DOM adapters
-- **Context layer** (`apps/cli/src/context/`) — File tree, context compilation
-- **Parser layer** (`apps/cli/src/parser/`) — Response parsing (JSON/markdown/tool)
-- **Applier layer** (`apps/cli/src/applier/`) — File writing, diff generation
-- **Tools layer** (`apps/cli/src/tools/`) — Tool definitions and execution
+- **Browser layer** (`apps/core/src/browser/`) — Playwright/CDP, DOM adapters
+- **Context layer** (`apps/core/src/context/`) — File tree, context compilation
+- **Parser layer** (`apps/core/src/parser/`) — Response parsing (JSON/markdown/tool)
+- **Applier layer** (`apps/core/src/applier/`) — File writing, diff generation
+- **Tools layer** (`apps/core/src/tools/`) — Tool definitions and execution
 - **UI components** (`apps/tui/src/`, `apps/vscode/src/`) — Rendering only
 
 ### 2. Check existing patterns

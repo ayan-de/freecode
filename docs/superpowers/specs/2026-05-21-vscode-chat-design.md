@@ -3,7 +3,7 @@
 ## Context
 
 FreeCode has two apps:
-- **CLI** (`apps/cli/`) — JSON-RPC server over stdin/stdout exposing `tools.list` and `tools.call`
+- **CLI** (`apps/core/`) — JSON-RPC server over stdin/stdout exposing `tools.list` and `tools.call`
 - **TUI** (`apps/tui/`) — React terminal UI that spawns CLI as child process and communicates via JSON-RPC
 
 The CLI backend handles browser automation (Playwright), context collection, response parsing, and file application. TUI delegates all AI interaction to CLI via IPC.

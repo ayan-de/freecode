@@ -85,11 +85,11 @@ export function ToolsNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Registry</span>
-            <a href="file:///home/ayande/Project/freecode/apps/cli/src/tools/index.ts" className={styles.fileLink}>apps/cli/src/tools/index.ts</a>
+            <a href="file:///home/ayande/Project/freecode/apps/core/src/tools/index.ts" className={styles.fileLink}>apps/core/src/tools/index.ts</a>
           </li>
           <li>
             <span className={styles.fileBadge}>Orchestrator</span>
-            <a href="file:///home/ayande/Project/freecode/apps/cli/src/tools/orchestrator.ts" className={styles.fileLink}>apps/cli/src/tools/orchestrator.ts</a>
+            <a href="file:///home/ayande/Project/freecode/apps/core/src/tools/orchestrator.ts" className={styles.fileLink}>apps/core/src/tools/orchestrator.ts</a>
           </li>
         </ul>
       </div>

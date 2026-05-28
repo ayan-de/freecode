@@ -49,9 +49,9 @@ packages/
 ## Task 1: Project Scaffolding
 
 **Files:**
-- Create: `apps/cli/package.json`
-- Create: `apps/cli/tsconfig.json`
-- Create: `apps/cli/src/index.ts`
+- Create: `apps/core/package.json`
+- Create: `apps/core/tsconfig.json`
+- Create: `apps/core/src/index.ts`
 - Create: `packages/shared/package.json`
 - Create: `packages/shared/src/types.ts`
 - Modify: `pnpm-workspace.yaml` (add packages)
@@ -112,7 +112,7 @@ export interface PromptContext {
 - [ ] **Step 2: Create CLI package**
 
 ```json
-// apps/cli/package.json
+// apps/core/package.json
 {
   "name": "@freecode/cli",
   "version": "0.0.1",
@@ -136,7 +136,7 @@ export interface PromptContext {
 ```
 
 ```json
-// apps/cli/tsconfig.json
+// apps/core/tsconfig.json
 {
   "extends": "@repo/typescript-config/base.json",
   "compilerOptions": {
@@ -148,7 +148,7 @@ export interface PromptContext {
 ```
 
 ```typescript
-// apps/cli/src/index.ts
+// apps/core/src/index.ts
 import { runCLI } from './cli';
 
 runCLI();
@@ -179,12 +179,12 @@ git add -A && git commit -m "feat: scaffold freecode CLI project structure"
 ## Task 2: REPL CLI
 
 **Files:**
-- Create: `apps/cli/src/cli.ts`
+- Create: `apps/core/src/cli.ts`
 
 - [ ] **Step 1: Write REPL interface**
 
 ```typescript
-// apps/cli/src/cli.ts
+// apps/core/src/cli.ts
 import * as readline from 'readline';
 
 export interface CLIConfig {
@@ -229,7 +229,7 @@ export async function runCLI(config: CLIConfig): Promise<void> {
 - [ ] **Step 2: Update index.ts to read project path**
 
 ```typescript
-// apps/cli/src/index.ts
+// apps/core/src/index.ts
 import { runCLI } from './cli';
 import * as path from 'path';
 
@@ -239,7 +239,7 @@ runCLI({ projectPath });
 
 - [ ] **Step 3: Test it runs**
 
-Run: `cd apps/cli && pnpm dev`
+Run: `cd apps/core && pnpm dev`
 Expected: REPL starts, accepts input, exits on "exit"
 
 - [ ] **Step 4: Commit**
@@ -253,14 +253,14 @@ git add -A && git commit -m "feat(cli): add REPL interface"
 ## Task 3: Browser Controller (Playwright + CDP)
 
 **Files:**
-- Create: `apps/cli/src/browser/types.ts`
-- Create: `apps/cli/src/browser/controller.ts`
-- Create: `apps/cli/src/browser/chatgpt-adapter.ts`
+- Create: `apps/core/src/browser/types.ts`
+- Create: `apps/core/src/browser/controller.ts`
+- Create: `apps/core/src/browser/chatgpt-adapter.ts`
 
 - [ ] **Step 1: Define browser controller types**
 
 ```typescript
-// apps/cli/src/browser/types.ts
+// apps/core/src/browser/types.ts
 export interface BrowserController {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
@@ -282,7 +282,7 @@ export interface ProviderAdapter {
 - [ ] **Step 2: Write ChatGPT adapter**
 
 ```typescript
-// apps/cli/src/browser/chatgpt-adapter.ts
+// apps/core/src/browser/chatgpt-adapter.ts
 import type { ProviderAdapter } from './types';
 
 export const chatgptAdapter: ProviderAdapter = {
@@ -310,7 +310,7 @@ export const chatgptAdapter: ProviderAdapter = {
 - [ ] **Step 3: Write browser controller**
 
 ```typescript
-// apps/cli/src/browser/controller.ts
+// apps/core/src/browser/controller.ts
 import { chromium, Browser, Page } from 'playwright';
 import type { BrowserController, ProviderAdapter } from './types';
 import { chatgptAdapter } from './chatgpt-adapter';
@@ -395,13 +395,13 @@ git add -A && git commit -m "feat(browser): add Playwright CDP controller with C
 ## Task 4: Context Engine (Two-Phase)
 
 **Files:**
-- Create: `apps/cli/src/context/file-tree.ts`
-- Create: `apps/cli/src/context/engine.ts`
+- Create: `apps/core/src/context/file-tree.ts`
+- Create: `apps/core/src/context/engine.ts`
 
 - [ ] **Step 1: Write file tree generator**
 
 ```typescript
-// apps/cli/src/context/file-tree.ts
+// apps/core/src/context/file-tree.ts
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -480,7 +480,7 @@ export function readFiles(filePaths: string[]): Record<string, string> {
 - [ ] **Step 2: Write context engine**
 
 ```typescript
-// apps/cli/src/context/engine.ts
+// apps/core/src/context/engine.ts
 import * as path from 'path';
 import { generateFileTree, readFiles } from './file-tree';
 import type { PromptContext } from '@freecode/shared';
@@ -564,7 +564,7 @@ Respond ONLY with the file changes in this exact JSON format:
 
 - [ ] **Step 3: Test file tree generation**
 
-Run: `cd apps/cli && node -e "const {generateFileTree} = require('./dist/context/file-tree'); console.log(generateFileTree(process.cwd()));`
+Run: `cd apps/core && node -e "const {generateFileTree} = require('./dist/context/file-tree'); console.log(generateFileTree(process.cwd()));`
 Expected: Prints file tree of current directory
 
 - [ ] **Step 4: Commit**
@@ -578,15 +578,15 @@ git add -A && git commit -m "feat(context): add two-phase context engine"
 ## Task 5: Response Parser (Format-Agnostic)
 
 **Files:**
-- Create: `apps/cli/src/parser/types.ts`
-- Create: `apps/cli/src/parser/json-parser.ts`
-- Create: `apps/cli/src/parser/markdown-parser.ts`
-- Create: `apps/cli/src/parser/index.ts`
+- Create: `apps/core/src/parser/types.ts`
+- Create: `apps/core/src/parser/json-parser.ts`
+- Create: `apps/core/src/parser/markdown-parser.ts`
+- Create: `apps/core/src/parser/index.ts`
 
 - [ ] **Step 1: Define parser types**
 
 ```typescript
-// apps/cli/src/parser/types.ts
+// apps/core/src/parser/types.ts
 import type { FileChange, ParsedResponse } from '@freecode/shared';
 
 export interface ParserResult {
@@ -599,7 +599,7 @@ export interface ParserResult {
 - [ ] **Step 2: Write JSON parser**
 
 ```typescript
-// apps/cli/src/parser/json-parser.ts
+// apps/core/src/parser/json-parser.ts
 import type { FileChange, ParsedResponse } from '@freecode/shared';
 import type { ParserResult } from './types';
 
@@ -636,7 +636,7 @@ export function parseJSONResponse(raw: string): ParserResult {
 - [ ] **Step 3: Write markdown parser**
 
 ```typescript
-// apps/cli/src/parser/markdown-parser.ts
+// apps/core/src/parser/markdown-parser.ts
 import type { FileChange, ParsedResponse } from '@freecode/shared';
 import type { ParserResult } from './types';
 
@@ -699,7 +699,7 @@ export function parseMarkdownResponse(raw: string): ParserResult {
 - [ ] **Step 4: Write parser orchestrator**
 
 ```typescript
-// apps/cli/src/parser/index.ts
+// apps/core/src/parser/index.ts
 import type { ParsedResponse } from '@freecode/shared';
 import type { ParserResult } from './types';
 import { parseJSONResponse } from './json-parser';
@@ -729,7 +729,7 @@ export function extractSummary(raw: string): string {
 
 - [ ] **Step 5: Test parser**
 
-Run: `cd apps/cli && node -e "const {parseResponse} = require('./dist/parser'); const r = parseResponse('FILE: test.ts\n\\\`\\\`\\\`\nhello world\n\\\`\\\`\\\`'); console.log(JSON.stringify(r, null, 2));`
+Run: `cd apps/core && node -e "const {parseResponse} = require('./dist/parser'); const r = parseResponse('FILE: test.ts\n\\\`\\\`\\\`\nhello world\n\\\`\\\`\\\`'); console.log(JSON.stringify(r, null, 2));`
 Expected: Parses markdown FILE block correctly
 
 - [ ] **Step 6: Commit**
@@ -743,14 +743,14 @@ git add -A && git commit -m "feat(parser): add format-agnostic response parser"
 ## Task 6: File Applicator (With Diff Preview)
 
 **Files:**
-- Create: `apps/cli/src/applier/differ.ts`
-- Create: `apps/cli/src/applier/writer.ts`
-- Create: `apps/cli/src/applier/index.ts`
+- Create: `apps/core/src/applier/differ.ts`
+- Create: `apps/core/src/applier/writer.ts`
+- Create: `apps/core/src/applier/index.ts`
 
 - [ ] **Step 1: Write diff generator**
 
 ```typescript
-// apps/cli/src/applier/differ.ts
+// apps/core/src/applier/differ.ts
 import * as fs from 'fs';
 import type { FileChange } from '@freecode/shared';
 
@@ -824,7 +824,7 @@ export function formatDiff(diff: Diff): string {
 - [ ] **Step 2: Write file writer**
 
 ```typescript
-// apps/cli/src/applier/writer.ts
+// apps/core/src/applier/writer.ts
 import * as fs from 'fs';
 import * as path from 'path';
 import type { FileChange } from '@freecode/shared';
@@ -880,7 +880,7 @@ export async function applyChanges(
 - [ ] **Step 3: Write applier orchestrator**
 
 ```typescript
-// apps/cli/src/applier/index.ts
+// apps/core/src/applier/index.ts
 import * as readline from 'readline';
 import type { FileChange } from '@freecode/shared';
 import { generateDiff, formatDiff, type Diff } from './differ';
@@ -948,7 +948,7 @@ export class FileApplier {
 
 - [ ] **Step 4: Test diff generation**
 
-Run: `cd apps/cli && node -e "const {generateDiff} = require('./dist/applier/differ'); const d = generateDiff('test.txt', {path:'test.txt',action:'replace',content:'hello'}); console.log(require('util').inspect(d, {depth:5}));`
+Run: `cd apps/core && node -e "const {generateDiff} = require('./dist/applier/differ'); const d = generateDiff('test.txt', {path:'test.txt',action:'replace',content:'hello'}); console.log(require('util').inspect(d, {depth:5}));`
 Expected: Generates diff object
 
 - [ ] **Step 5: Commit**
@@ -962,13 +962,13 @@ git add -A && git commit -m "feat(applier): add file applicator with diff previe
 ## Task 7: Wire Everything Together
 
 **Files:**
-- Modify: `apps/cli/src/cli.ts`
-- Modify: `apps/cli/src/index.ts`
+- Modify: `apps/core/src/cli.ts`
+- Modify: `apps/core/src/index.ts`
 
 - [ ] **Step 1: Update CLI to orchestrate all components**
 
 ```typescript
-// apps/cli/src/cli.ts
+// apps/core/src/cli.ts
 import * as readline from 'readline';
 import { PlaywrightBrowserController } from './browser/controller';
 import { ContextEngine } from './context/engine';
@@ -1079,7 +1079,7 @@ async function runPromptCycle(
 
 - [ ] **Step 2: Test full flow (with mock CDP if needed)**
 
-Run: `cd apps/cli && pnpm dev`
+Run: `cd apps/core && pnpm dev`
 Expected: CLI starts, prompts for Chrome connection
 
 - [ ] **Step 3: Commit**

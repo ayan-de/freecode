@@ -19,15 +19,15 @@ export function ProviderNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Prompt Cycle</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/agent/loop.ts" className={styles.fileLink}>apps/cli/src/agent/loop.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/agent/loop.ts" className={styles.fileLink}>apps/core/src/agent/loop.ts</a>
           </li>
           <li>
             <span className={styles.fileBadge}>Browser Driver</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/browser/controller.ts" className={styles.fileLink}>apps/cli/src/browser/controller.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/browser/controller.ts" className={styles.fileLink}>apps/core/src/browser/controller.ts</a>
           </li>
           <li>
             <span className={styles.fileBadge}>Provider Adapter</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/browser/providers/chatgpt.ts" className={styles.fileLink}>apps/cli/src/browser/providers/chatgpt.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/browser/providers/chatgpt.ts" className={styles.fileLink}>apps/core/src/browser/providers/chatgpt.ts</a>
           </li>
         </ul>
       </div>

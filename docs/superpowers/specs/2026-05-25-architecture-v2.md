@@ -51,7 +51,7 @@ This v2 incorporates lessons from analyzing Claude Code's codebase (codex-rs):
                   │ stdin/stdout
                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLI Backend (apps/cli)                         │
+│                              CLI Backend (apps/core)                         │
 │                                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
 │  │    Agent    │  │   Browser   │  │   Context   │  │      Tools          │ │
@@ -158,7 +158,7 @@ interface Hook {
 ### Core Hook Runtimes
 
 ```
-apps/cli/src/hooks/
+apps/core/src/hooks/
 ├── runtime.ts           # runPreToolUseHooks, runPostToolUseHooks, etc.
 ├── registry.ts          # Hook registration and discovery
 ├── PermissionRequest    # Approval gates before dangerous operations
@@ -217,7 +217,7 @@ Types: feat, fix, docs, style, refactor, test, chore
 ### Skills Manager
 
 ```typescript
-// apps/cli/src/skills/
+// apps/core/src/skills/
 ├── manager.ts         # SkillsManager — load, cache, render skills
 ├── loader.ts          # Load skills from .system, .user, .repo directories
 ├── registry.ts        # Skill registry with scope-based visibility
@@ -286,7 +286,7 @@ type RolloutEvent =
 Sessions persist across restarts. Inspired by Claude Code's `thread-store` crate.
 
 ```typescript
-// apps/cli/src/store/
+// apps/core/src/store/
 ├── thread-store.ts    # ThreadStore interface + LocalThreadStore implementation
 ├── types.ts          # StoredThread, StoredTurn, StoredTurnItemsView
 └── migrations/       # Schema migrations for SQLite
@@ -327,7 +327,7 @@ Complex tasks spawn focused sub-agents that run their own mini-loop. Inspired by
 ### Sub-Agent Tool
 
 ```typescript
-// apps/cli/src/tools/agent.ts
+// apps/core/src/tools/agent.ts
 
 interface AgentTool {
   name: "agent";

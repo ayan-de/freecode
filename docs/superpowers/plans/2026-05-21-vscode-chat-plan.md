@@ -235,7 +235,7 @@ function parseResponse(data: string): JsonRpcResponse[] {
 export function startCli(): void {
   if (cliProcess) return;
 
-  cliProcess = spawn('node', ['apps/cli/src/server.ts'], {
+  cliProcess = spawn('node', ['apps/core/src/server.ts'], {
     cwd: '/home/ayande/Project/freecode',
     stdio: ['pipe', 'pipe', 'pipe'],
   });

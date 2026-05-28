@@ -60,7 +60,7 @@ export function MemoryNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Session History</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/agent/session.ts" className={styles.fileLink}>apps/cli/src/agent/session.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/agent/session.ts" className={styles.fileLink}>apps/core/src/agent/session.ts</a>
           </li>
         </ul>
       </div>

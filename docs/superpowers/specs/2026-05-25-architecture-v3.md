@@ -46,7 +46,7 @@ This v3 incorporates lessons from analyzing both Claude Code's codebase (codex-r
                   │ stdin/stdout
                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              CLI Backend (apps/cli)                         │
+│                              CLI Backend (apps/core)                         │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────┐│
 │  │                    Effect Runtime + Layer System                        ││
@@ -103,7 +103,7 @@ This v3 incorporates lessons from analyzing both Claude Code's codebase (codex-r
 FreeCode v3 uses the **Effect** framework for dependency injection and async operations. Services are organized into composable `Layer`s.
 
 ```typescript
-// apps/cli/src/effect/
+// apps/core/src/effect/
 import { Context, Effect, Layer } from "effect"
 
 // Service interface
@@ -173,7 +173,7 @@ The core of FreeCode is an **agent loop**: instead of a single request-response,
 Agents are formally defined with modes and permission profiles:
 
 ```typescript
-// apps/cli/src/agent/definitions.ts
+// apps/core/src/agent/definitions.ts
 
 export type AgentMode = "primary" | "subagent" | "orchestration"
 
@@ -280,7 +280,7 @@ interface Hook {
 ### Hook Runtime
 
 ```typescript
-// apps/cli/src/hooks/runtime.ts
+// apps/core/src/hooks/runtime.ts
 
 export const runPreToolUseHooks = Effect.fn("Hooks.runPreToolUse")(function* (
   toolCall: ToolCall,
@@ -334,7 +334,7 @@ export const runPostToolUseHooks = Effect.fn("Hooks.runPostToolUse")(function* (
 ### Core Hook Modules
 
 ```
-apps/cli/src/hooks/
+apps/core/src/hooks/
 ├── runtime.ts           # runPreToolUseHooks, runPostToolUseHooks, etc.
 ├── registry.ts          # Hook registration and discovery
 ├── PermissionRequest.ts # Approval gates before dangerous operations
@@ -356,7 +356,7 @@ apps/cli/src/hooks/
 The Bus is a decoupled event system separate from Hooks. It publishes session events to subscribers (TUI, web, external consumers).
 
 ```typescript
-// apps/cli/src/bus/index.ts
+// apps/core/src/bus/index.ts
 
 export interface Bus {
   readonly publish: <E extends BusEvent>(
@@ -495,7 +495,7 @@ Types: feat, fix, docs, style, refactor, test, chore
 ### Skills Manager + Plugin Registry
 
 ```typescript
-// apps/cli/src/skills/
+// apps/core/src/skills/
 ├── manager.ts         # SkillsManager — load, cache, render skills
 ├── loader.ts          # Load skills from filesystem (glob discovery)
 ├── registry.ts        # Skill registry with scope-based visibility
@@ -509,7 +509,7 @@ Types: feat, fix, docs, style, refactor, test, chore
 ### Skill Discovery (Auto-Glob)
 
 ```typescript
-// apps/cli/src/skills/loader.ts
+// apps/core/src/skills/loader.ts
 
 const discoverSkills = Effect.fnUntraced(function* () {
   const config = yield* ConfigService
@@ -546,7 +546,7 @@ Every session action is written to an append-only JSONL log for debugging, repla
 ### Event Schema
 
 ```typescript
-// apps/cli/src/rollout/types.ts
+// apps/core/src/rollout/types.ts
 
 // Base event with aggregate + sequence
 interface BaseEvent {
@@ -646,7 +646,7 @@ Sessions persist across restarts using **dual storage**: SQLite as primary with 
 ### Storage Architecture
 
 ```
-apps/cli/src/store/
+apps/core/src/store/
 ├── thread-store.ts    # ThreadStore interface + implementations
 ├── sqlite-store.ts    # SQLite implementation
 ├── json-store.ts       # JSON file fallback implementation
@@ -732,7 +732,7 @@ CREATE INDEX idx_events_aggregate ON events(aggregate_id, seq);
 ### JSON Fallback
 
 ```typescript
-// apps/cli/src/store/json-store.ts
+// apps/core/src/store/json-store.ts
 // When SQLite unavailable, use JSON files
 
 const sessionPath = (sessionId: string) =>
@@ -751,7 +751,7 @@ Complex tasks spawn focused sub-agents that run their own mini-loop. Inspired by
 ### Sub-Agent Tool
 
 ```typescript
-// apps/cli/src/tools/agent.ts
+// apps/core/src/tools/agent.ts
 
 interface AgentTool {
   name: "agent";
@@ -839,7 +839,7 @@ interface PreLoopContext {
 ### Project Bootstrap
 
 ```typescript
-// apps/cli/src/project/bootstrap.ts
+// apps/core/src/project/bootstrap.ts
 
 export interface VCSInfo {
   root: string           // Git root directory
@@ -873,7 +873,7 @@ Tasks can run for hundreds of steps. To avoid hitting context limits:
 ### Compaction Process
 
 ```typescript
-// apps/cli/src/agent/compact.ts
+// apps/core/src/agent/compact.ts
 
 interface CompactionResult {
   success: boolean
@@ -1035,7 +1035,7 @@ freecode mcp --connect https://server.example.com/mcp
 ### MCP OAuth (Remote Servers)
 
 ```typescript
-// apps/cli/src/mcp/oauth-provider.ts
+// apps/core/src/mcp/oauth-provider.ts
 
 interface OAuthConfig {
   clientId: string
@@ -1055,7 +1055,7 @@ const createOAuthProvider = (config: OAuthConfig) => Effect.gen(function* () {
 ### MCP Tool Conversion
 
 ```typescript
-// apps/cli/src/mcp/index.ts
+// apps/core/src/mcp/index.ts
 
 function convertMcpTool(
   mcpTool: MCPToolDef,
@@ -1083,7 +1083,7 @@ function convertMcpTool(
 When MCP server tools change, Bus publishes event:
 
 ```typescript
-// apps/cli/src/mcp/index.ts
+// apps/core/src/mcp/index.ts
 
 // Periodically poll MCP servers for tool changes
 const pollMcpTools = Effect.gen(function* () {
@@ -1112,7 +1112,7 @@ const pollMcpTools = Effect.gen(function* () {
 Messages are stored with typed parts for rich representation:
 
 ```typescript
-// apps/cli/src/session/message-v2.ts
+// apps/core/src/session/message-v2.ts
 
 export const MessagePart = Schema.Union({
   TextPart: Schema.Struct({
@@ -1166,7 +1166,7 @@ export const MessagePart = Schema.Union({
 ### Structured Error Types
 
 ```typescript
-// apps/cli/src/errors/named-error.ts
+// apps/core/src/errors/named-error.ts
 
 export const NamedError = {
   create: <Name extends string, const Data extends Schema.Schema.Type<any>>(
@@ -1236,7 +1236,7 @@ export const MCPToolError = NamedError.create(
 LLM prompts are provider-specific because different models have different capabilities and formats:
 
 ```
-apps/cli/src/session/prompt/
+apps/core/src/session/prompt/
 ├── default.txt         # Fallback prompt
 ├── anthropic.txt      # Claude-specific formatting (XML tags, etc.)
 ├── openai.txt          # OpenAI-specific formatting
@@ -1251,7 +1251,7 @@ apps/cli/src/session/prompt/
 ### Provider Prompt Selection
 
 ```typescript
-// apps/cli/src/session/prompt/loader.ts
+// apps/core/src/session/prompt/loader.ts
 
 const loadProviderPrompt = Effect.fn("Prompt.loadProvider")(function* (
   provider: ProviderID,
@@ -1284,7 +1284,7 @@ const loadProviderPrompt = Effect.fn("Prompt.loadProvider")(function* (
 Config files are validated at runtime using Zod:
 
 ```typescript
-// apps/cli/src/config/config.ts
+// apps/core/src/config/config.ts
 
 import { z } from "zod"
 
@@ -1360,7 +1360,7 @@ export type Config = z.infer<typeof ConfigSchema>
 Cross-platform support including Windows:
 
 ```typescript
-// apps/cli/src/platform/win32.ts
+// apps/core/src/platform/win32.ts
 
 export const win32DisableProcessedInput = Effect.fn("Platform.win32.disableProcessedInput")(function* () {
   if (process.platform !== "win32") return

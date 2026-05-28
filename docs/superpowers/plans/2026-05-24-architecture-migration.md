@@ -10,7 +10,7 @@
 
 Migrate business logic from TUI into CLI, establishing the thin-client architecture. TUI and VSCode become pure UI shells. CLI becomes the single source of truth for all intelligence.
 
-**Order:** `packages/shared` → `apps/cli` → `apps/tui` → `apps/vscode`
+**Order:** `packages/shared` → `apps/core` → `apps/tui` → `apps/vscode`
 
 Each step is independent and can be tested in isolation.
 
@@ -74,14 +74,14 @@ export const METHODS = {
 
 ---
 
-## Step 2: Build out `apps/cli`
+## Step 2: Build out `apps/core`
 
 **Goal:** CLI becomes the full backend. Move browser, parser, context, tools, applier from TUI.
 
 ### 2.1 Create directory structure
 
 ```
-apps/cli/src/
+apps/core/src/
 ├── server.ts                # (exists — may need updates)
 ├── agent/                   # NEW
 │   ├── loop.ts              # Main agent turn loop
@@ -124,14 +124,14 @@ apps/cli/src/
 
 ### 2.2 Copy/move code from TUI
 
-**From `apps/tui/src/lib/browser/` → `apps/cli/src/browser/`**
+**From `apps/tui/src/lib/browser/` → `apps/core/src/browser/`**
 - `controller.ts`
 - `providers/index.ts`
 - `providers/chatgpt.ts`
 - `providers/types.ts`
 - `types.ts`
 
-**From `apps/tui/src/lib/parser/` → `apps/cli/src/parser/`**
+**From `apps/tui/src/lib/parser/` → `apps/core/src/parser/`**
 - `registry.ts`
 - `extractors/index.ts`
 - `extractors/structured.ts`
@@ -139,12 +139,12 @@ apps/cli/src/
 - `extractors/json.ts`
 - `types.ts`
 
-**From `apps/tui/src/lib/context/` → `apps/cli/src/context/`**
+**From `apps/tui/src/lib/context/` → `apps/core/src/context/`**
 - `collector.ts`
 - `strategies/index.ts`
 - `types.ts`
 
-**From `apps/tui/src/commands/freecode/` → `apps/cli/src/agent/`**
+**From `apps/tui/src/commands/freecode/` → `apps/core/src/agent/`**
 - Move `executor.ts` logic to `agent/loop.ts`
 - Move `file-applier.ts` logic to `applier/`
 
@@ -178,8 +178,8 @@ const methodHandlers: Record<string, (params: Record<string, unknown>) => Promis
 
 ### Verification
 
-- [ ] `apps/cli/src/server.ts` handles all IPC methods
-- [ ] Can run `node apps/cli/src/server.ts` and communicate via JSON-RPC
+- [ ] `apps/core/src/server.ts` handles all IPC methods
+- [ ] Can run `node apps/core/src/server.ts` and communicate via JSON-RPC
 - [ ] Browser controller connects to Chrome via CDP
 - [ ] Parser handles structured, markdown, json formats
 - [ ] Tools execute correctly (read, write, bash, etc.)
@@ -212,7 +212,7 @@ Target: spawns CLI → sends IPC messages → renders responses
 
 ```typescript
 // Target behavior
-startCli();  // spawn node apps/cli/src/server.ts
+startCli();  // spawn node apps/core/src/server.ts
 
 editor.onSubmit = async (value) => {
   const response = await sendMessage(sessionId, value);
@@ -303,7 +303,7 @@ Week 1:
   └─ Step 1: packages/shared (types + protocol)
 
 Week 2-3:
-  └─ Step 2: apps/cli (full backend)
+  └─ Step 2: apps/core (full backend)
 
 Week 4:
   └─ Step 3: apps/tui (refactor to thin client)
@@ -335,26 +335,26 @@ This way you always have a working version at each milestone.
 
 ```
 packages/shared/全部
-apps/cli/src/agent/全部
-apps/cli/src/browser/全部 (from TUI)
-apps/cli/src/context/全部 (from TUI)
-apps/cli/src/parser/全部 (from TUI)
-apps/cli/src/applier/全部
-apps/cli/src/tools/bash.ts (new)
-apps/cli/src/tools/edit.ts (new)
-apps/cli/src/tools/grep.ts (new)
-apps/cli/src/tools/find.ts (new)
-apps/cli/src/tools/glob.ts (new)
+apps/core/src/agent/全部
+apps/core/src/browser/全部 (from TUI)
+apps/core/src/context/全部 (from TUI)
+apps/core/src/parser/全部 (from TUI)
+apps/core/src/applier/全部
+apps/core/src/tools/bash.ts (new)
+apps/core/src/tools/edit.ts (new)
+apps/core/src/tools/grep.ts (new)
+apps/core/src/tools/find.ts (new)
+apps/core/src/tools/glob.ts (new)
 ```
 
 ### Move (copy + delete source)
 
 ```
-apps/tui/src/lib/browser/ → apps/cli/src/browser/
-apps/tui/src/lib/parser/ → apps/cli/src/parser/
-apps/tui/src/lib/context/ → apps/cli/src/context/
-apps/tui/src/commands/freecode/executor.ts → apps/cli/src/agent/loop.ts
-apps/tui/src/commands/freecode/file-applier.ts → apps/cli/src/applier/
+apps/tui/src/lib/browser/ → apps/core/src/browser/
+apps/tui/src/lib/parser/ → apps/core/src/parser/
+apps/tui/src/lib/context/ → apps/core/src/context/
+apps/tui/src/commands/freecode/executor.ts → apps/core/src/agent/loop.ts
+apps/tui/src/commands/freecode/file-applier.ts → apps/core/src/applier/
 ```
 
 ### Delete from TUI

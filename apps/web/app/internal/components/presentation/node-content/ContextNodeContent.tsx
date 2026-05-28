@@ -29,11 +29,11 @@ export function ContextNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Context Collector</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/context/collector.ts" className={styles.fileLink}>apps/cli/src/context/collector.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/context/collector.ts" className={styles.fileLink}>apps/core/src/context/collector.ts</a>
           </li>
           <li>
             <span className={styles.fileBadge}>File Tree generator</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/cli/src/context/file-tree.ts" className={styles.fileLink}>apps/cli/src/context/file-tree.ts</a>
+            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/context/file-tree.ts" className={styles.fileLink}>apps/core/src/context/file-tree.ts</a>
           </li>
         </ul>
       </div>
