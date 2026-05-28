@@ -19,6 +19,7 @@ import type {
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 import { createToolOrchestrator } from "../tools/orchestrator.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
+import { getProvider } from "../providers/index.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -132,7 +133,7 @@ ${context.tree}
 ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
       console.log("[AgentLoop] Sending prompt to provider...")
-      const responseText = await this.sendToProvider(fullPrompt)
+      const responseText = await this.sendToProvider(fullPrompt, provider)
 
       // Normalize provider response to canonical format
       const normalized = this.normalizeResponse(responseText)
@@ -179,13 +180,20 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
   // ===========================================================================
   // PRIVATE: sendToProvider()
-  // Placeholder - needs integration with BrowserController for real AI calls
+  // Send prompt to AI provider via provider adapter
   // ===========================================================================
-  private async sendToProvider(prompt: string): Promise<string> {
-    console.log("[AgentLoop] sendToProvider - needs BrowserController integration")
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // TODO: Replace with real BrowserController.sendPrompt() + waitForResponse()
-    return "[TOOL_CALLS]\nwrite:/test.txt\n```\nHello World\n```\n[/TOOL_CALLS]"
+  private async sendToProvider(
+    prompt: string,
+    provider: string
+  ): Promise<string> {
+    const aiProvider = getProvider(provider as any)
+    const result = await aiProvider.execute({
+      prompt,
+      system: undefined,
+      tools: undefined,
+      model: undefined,
+    })
+    return result.content
   }
 
   // ===========================================================================
