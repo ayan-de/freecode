@@ -1,26 +1,37 @@
 import React from 'react';
 
 export function HeroGrid() {
-  // A 12x8 grid for the background (added 1 row above and 1 below)
+  // Generate 12 columns x 8 rows = 96 cells
   const cells = Array.from({ length: 96 });
 
   return (
-    <div className="relative w-full h-full min-h-full">
-      {/* Grid with borders */}
-      <div className="grid grid-cols-12 border-l border-t border-white/20 w-full h-full">
-        {cells.map((_, i) => (
-          <div key={i} className="aspect-square border-r border-b border-white/20" />
-        ))}
+    <div className="absolute inset-0 overflow-hidden">
+      {/* Grid - uses CSS grid with fr units, parent provides 100% dimensions */}
+      <div
+        className="w-full h-full"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(12, 1fr)',
+          gridTemplateRows: 'repeat(8, 1fr)',
+        }}
+      >
+        {cells.map((_, i) => {
+          const col = i % 12;
+          const row = Math.floor(i / 12);
+          return (
+            <div
+              key={i}
+              className="border-r border-b border-white/20"
+              style={{
+                borderLeft: col === 0 ? '1px solid rgba(255,255,255,0.2)' : undefined,
+                borderTop: row === 0 ? '1px solid rgba(255,255,255,0.2)' : undefined,
+              }}
+            />
+          );
+        })}
       </div>
 
-      {/* Noise filter SVG def */}
-      <svg className="hidden">
-        <filter id="noise">
-          <feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="3" stitchTiles="stitch"/>
-          <feColorMatrix type="matrix" values="1 0 0 0 0, 0 1 0 0 0, 0 0 1 0 0, 0 0 0 0.15 0" />
-        </filter>
-      </svg>
-
+      {/* Hero decorative blocks */}
       <div className="absolute inset-0 pointer-events-none">
         <style>{`
           .hero-block {
@@ -39,27 +50,14 @@ export function HeroGrid() {
           }
         `}</style>
 
-        {/* Scattered blocks using % based on 12 cols (8.33% width per col) and 8 rows (12.5% height per row) */}
-        {/* Blocks span 2 rows (25% height), positioned in middle rows 2-7 */}
-
-        {/* Row 2-3 */}
+        {/* Blocks positioned based on 12x8 grid using fr-like percentages */}
         <div className="hero-block top-[12.5%] left-[83.33%] w-[8.33%] h-[25%]" />
-
-        {/* Row 3-4 */}
         <div className="hero-block top-[25%] left-[66.66%] w-[8.33%] h-[25%]" />
         <div className="hero-block top-[25%] left-[83.33%] w-[16.66%] h-[25%]" />
-
-        {/* Row 4-5 */}
         <div className="hero-block top-[37.5%] left-[75%] w-[8.33%] h-[25%]" />
         <div className="hero-block top-[37.5%] left-[91.66%] w-[8.33%] h-[25%]" />
-
-        {/* Row 5-6 */}
         <div className="hero-block top-[50%] left-[58.33%] w-[16.66%] h-[25%]" />
-
-        {/* Row 6-7 */}
         <div className="hero-block top-[62.5%] left-[75%] w-[16.66%] h-[25%]" />
-
-        {/* Row 7-8 */}
         <div className="hero-block top-[75%] left-[50%] w-[8.33%] h-[25%]" />
         <div className="hero-block top-[75%] left-[66.66%] w-[16.66%] h-[25%]" />
       </div>

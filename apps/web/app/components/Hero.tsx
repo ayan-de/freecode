@@ -3,11 +3,9 @@ import { HeroGrid } from "./HeroGrid";
 
 export function Hero() {
   return (
-    <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[100vh] flex items-center justify-start isolate">
+    <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[80vh] flex items-center justify-start isolate">
       {/* Background Grid */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-        <HeroGrid />
-      </div>
+      <HeroGrid />
 
       {/* Foreground Content */}
       <div className="relative z-10 flex flex-col items-start text-left gap-6 w-full max-w-6xl mx-auto mt-0 py-12 ml-8">
