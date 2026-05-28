@@ -26,10 +26,10 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
               onClick={() => onTabChange(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center gap-1 border-r border-white/20 transition-all duration-200 last:border-r-0 bg-transparent`}
             >
-              <span className={`text-sm font-semibold ${isActive ? 'bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent' : 'text-white'}`}>
+              <span className={`text-xl font-semibold ${isActive ? 'brand-gradient-text' : 'text-white'}`}>
                 {tab.label}
               </span>
-              <span className="text-xs text-white/40">{tab.description}</span>
+              {/* <span className="text-xs text-white/40">{tab.description}</span> */}
             </button>
           );
         })}
