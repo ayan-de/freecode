@@ -31,13 +31,21 @@ export class MemoryService {
     }
   }
 
+  private normalizeContent(role: MemoryRole, content: string): string {
+    if (role !== "assistant") return content
+    if (!content.startsWith("Tool ")) return content
+    if (content.length <= this.config.maxToolOutputChars) return content
+    return `${content.slice(0, this.config.maxToolOutputChars)}\n[tool output truncated for memory]`
+  }
+
   addMessage(role: MemoryRole, content: string): MemoryMessage {
+    const normalizedContent = this.normalizeContent(role, content)
     const message: MemoryMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       role,
-      content,
+      content: normalizedContent,
       timestamp: Date.now(),
-      tokenCount: estimateTokenCount(content),
+      tokenCount: estimateTokenCount(normalizedContent),
     }
     this.state.messages.push(message)
     this.state.tokenCount += message.tokenCount
