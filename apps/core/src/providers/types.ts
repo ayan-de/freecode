@@ -19,6 +19,7 @@ export interface ExecuteOptions {
   temperature?: number
   maxTokens?: number
   tools?: ToolDef[]
+  toolResults?: Array<{ toolCallId: string; result: string; name?: string; input?: Record<string, unknown> }>
   stream?: boolean
 }
 
