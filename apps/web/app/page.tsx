@@ -17,7 +17,9 @@ export default function Home() {
       <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
 
-        {/* <LogoSection /> */}
+        <div className="h-20 flex items-center justify-center">
+          <span className="text-white/30 text-sm font-mono">#Installation</span>
+        </div>
 
         <Divider />
 
@@ -28,9 +30,21 @@ export default function Home() {
         <Divider />
       </main>
 
-      <div className="px-[max(80px,calc((100vw-1280px)/2))]">
-        <Footer />
+      <div className="h-20 flex items-center justify-center">
+        <span className="text-white/30 text-sm font-mono">#Footer</span>
       </div>
+
+
+      <div className="px-[max(80px,calc((100vw-1280px)/2))]">
+        <Divider />
+        <Footer />
+        <Divider />
+      </div>
+
+      <div className="h-20 flex items-center justify-center">
+        <span className="text-white/30 text-sm font-mono">#Freecode</span>
+      </div>
+
     </PageWrapper>
   );
 }
