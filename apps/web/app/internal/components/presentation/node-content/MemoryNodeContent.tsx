@@ -44,35 +44,35 @@ const memoryComponents = [
     file: 'apps/core/src/memory/service.ts',
     description: 'Orchestrates compaction, recording, persistence',
     icon: Brain,
-    color: '#f97316',
+    color: '#f59e0b',
   },
   {
     name: 'FileMemoryStorage',
     file: 'apps/core/src/memory/storage.ts',
     description: 'JSON persistence under .freecode/sessions/',
     icon: Database,
-    color: '#10b981',
+    color: '#f59e0b',
   },
   {
     name: 'tokens.ts',
     file: 'apps/core/src/memory/tokens.ts',
     description: 'Token estimation and context budgets',
     icon: Zap,
-    color: '#a855f7',
+    color: '#f59e0b',
   },
   {
     name: 'selector.ts',
     file: 'apps/core/src/memory/selector.ts',
     description: 'selectForCompaction + renderPromptMemoryContext',
     icon: FileText,
-    color: '#60a5fa',
+    color: '#f59e0b',
   },
   {
     name: 'summarizer.ts',
     file: 'apps/core/src/memory/summarizer.ts',
     description: 'Anchored summary with Goal, Progress, Files',
     icon: FileText,
-    color: '#ec4899',
+    color: '#f59e0b',
   },
 ];
 
@@ -87,7 +87,7 @@ export function MemoryNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<Brain size={24} color="#f97316" />}
+        icon={<Brain size={24} color="#f59e0b" />}
         title="Memory & Log Compaction"
         subtext="Session Context Compaction"
       />
@@ -127,7 +127,7 @@ export function MemoryNodeContent() {
         <div className={styles.execList}>
           {compactionStats.map((stat) => (
             <div key={stat.label} className={styles.execItem}>
-              <span className={styles.execMode} style={{ background: '#f97316' }}>{stat.label}</span>
+              <span className={styles.execMode} style={{ background: '#f59e0b' }}>{stat.label}</span>
               <span className={styles.execTools}>{stat.value}</span>
             </div>
           ))}
