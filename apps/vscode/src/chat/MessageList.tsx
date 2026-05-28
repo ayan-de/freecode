@@ -4,6 +4,7 @@ import { ChatMessage } from './Message.js';
 
 export const MessageList: React.FC = () => {
   const messages = useChatStore((state) => state.messages);
+  const status = useChatStore((state) => state.status);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,6 +22,15 @@ export const MessageList: React.FC = () => {
       {messages.map((msg) => (
         <ChatMessage key={msg.id} message={msg} />
       ))}
+      {status === 'streaming' && (
+        <div style={{
+          color: '#888',
+          fontStyle: 'italic',
+          padding: '8px 0'
+        }}>
+          🔄 Processing...
+        </div>
+      )}
       <div ref={bottomRef} />
     </div>
   );
