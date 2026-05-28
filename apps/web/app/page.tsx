@@ -16,6 +16,8 @@ export default function Home() {
       <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
 
+        {/* <LogoSection /> */}
+
         <Divider />
 
         <div className="mt-12 mb-12">
