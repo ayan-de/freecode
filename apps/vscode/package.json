@@ -4,6 +4,7 @@
   "description": "AI coding assistant with chat interface",
   "version": "0.1.0",
   "publisher": "freecode",
+  "id": "freecode.freecode-chat",
   "engines": {
     "vscode": "^1.88.0"
   },
@@ -15,16 +16,17 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "freecode.sidebar",
+          "id": "freecode-sidebar",
           "title": "FreeCode",
           "icon": "$(terminal)"
         }
       ]
     },
     "views": {
-      "freecode.sidebar": [
+      "freecode-sidebar": [
         {
-          "id": "freecode.chat",
+          "id": "freecode-chat",
+          "name": "Chat",
           "type": "webview",
           "title": "Chat"
         }
