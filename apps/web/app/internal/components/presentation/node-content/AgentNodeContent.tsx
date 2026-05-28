@@ -29,8 +29,8 @@ const FLOW_STEPS = [
   },
   {
     number: 4,
-    title: 'sendToProvider()',
-    description: 'build prompt → stream to AI provider',
+    title: 'sendToProvider() → getProvider()',
+    description: 'provider registry → AI provider execute()',
   },
   {
     number: 5,

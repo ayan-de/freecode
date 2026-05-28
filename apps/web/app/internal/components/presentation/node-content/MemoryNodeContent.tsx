@@ -94,6 +94,7 @@ export function MemoryNodeContent() {
       <p className={styles.description}>
         The <strong>Memory System</strong> prevents context window overflow during long sessions
         by compacting old messages into anchored summaries while preserving recent turns.
+        Results flow back to the <strong>LLM / Browser Call Boundary</strong> for the next iteration.
       </p>
 
       {/* Memory Flow */}

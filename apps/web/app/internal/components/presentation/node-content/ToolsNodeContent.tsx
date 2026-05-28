@@ -41,6 +41,7 @@ export function ToolsNodeContent() {
       />
       <p className={styles.description}>
         Tools extend the AI model with file operations, search, and execution primitives.
+        Results are returned to the <strong>LLM / Browser Call Boundary</strong> for the next iteration.
       </p>
 
       {/* Tool Categories */}
