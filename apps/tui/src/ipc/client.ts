@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { spawn, type ChildProcess } from "child_process";
+import { resolve as pathResolve } from "path";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -45,10 +46,13 @@ function parseResponse(data: string): JsonRpcResponse[] {
 export function startCli(): void {
   if (cliProcess) return;
 
-  // Project root is the monorepo root
-  const projectRoot = process.env.FREECODE_ROOT || "/home/ayande/Project/freecode";
+  // Project root is the monorepo root (where package.json lives)
+  const projectRoot = process.env.FREECODE_ROOT || process.cwd();
 
-  cliProcess = spawn("npx", ["tsx", "apps/core/src/server.ts"], {
+  // Resolve path to CLI server relative to project root
+  const cliPath = pathResolve(projectRoot, "apps/core/src/server.ts");
+
+  cliProcess = spawn("npx", ["tsx", cliPath], {
     cwd: projectRoot,
     stdio: ["pipe", "pipe", "pipe"],
   });
