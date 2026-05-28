@@ -8,7 +8,7 @@ import {
   stopCli,
   sessionStart,
   sessionStop,
-  sessionStart as startSession,
+  sessionSend,
   listProviders,
   type SessionInfo,
 } from "../../ipc/client.js";
@@ -17,6 +17,7 @@ import {
 let currentSession: SessionInfo | null = null;
 let providersLoaded = false;
 let cachedProviders: Array<{ id: string; name: string }> = [];
+let currentProvider = "minimax"; // Default to minimax
 
 async function ensureProviders(): Promise<void> {
   if (!providersLoaded) {
@@ -27,7 +28,7 @@ async function ensureProviders(): Promise<void> {
         name: p.name,
       }));
     } catch {
-      cachedProviders = [{ id: "chatgpt", name: "ChatGPT" }];
+      cachedProviders = [{ id: "minimax", name: "MiniMax" }];
     }
     providersLoaded = true;
   }
@@ -35,7 +36,7 @@ async function ensureProviders(): Promise<void> {
 
 function formatProviderList(): string {
   return cachedProviders
-    .map((p) => `- **${p.name}** (${p.id})`)
+    .map((p) => `- **${p.name}** (${p.id})${p.id === currentProvider ? " *(current)*" : ""}`)
     .join("\n");
 }
 
@@ -50,7 +51,7 @@ async function ensureSession(ctx: CommandContext): Promise<boolean> {
   try {
     currentSession = await sessionStart({
       projectPath: process.cwd(),
-      provider: "chatgpt",
+      provider: currentProvider,
     });
     return true;
   } catch (error) {
@@ -71,7 +72,7 @@ const freecodeCommand: Command = {
       await ensureProviders();
       ctx.showMessage(`**Usage:** /freecode <your prompt>
 
-**Example:** /freecode summarize this project and write at project.md
+**Example:** /freecode say hello
 
 **Available providers:**
 ${formatProviderList()}`);
@@ -86,11 +87,20 @@ ${formatProviderList()}`);
     if (!ready) return;
 
     try {
-      // TODO: Wire up session.send when CLI supports streaming
-      // For now, just show a placeholder
-      ctx.showMessage(
-        "⏳ **AI processing...**\n\n(Full CLI integration coming in next step)"
-      );
+      const result = await sessionSend(currentSession!.sessionId, userPrompt) as {
+        success: boolean;
+        message?: string;
+        content?: string;
+        turnCount?: number;
+        iterationCount?: number;
+      };
+
+      if (result.success) {
+        const response = result.content || result.message;
+        ctx.showMessage(`**FreeCode:** ${response || "Done!"}`);
+      } else {
+        ctx.showMessage(`**FreeCode:** ❌ ${result.message || "Unknown error"}`);
+      }
     } catch (error) {
       ctx.showMessage(
         `❌ **Error:** ${error instanceof Error ? error.message : String(error)}`

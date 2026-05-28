@@ -42,11 +42,14 @@ function parseResponse(data: string): JsonRpcResponse[] {
   return responses;
 }
 
-export function startCli(cwd?: string): void {
+export function startCli(): void {
   if (cliProcess) return;
 
-  cliProcess = spawn("node", ["apps/core/src/server.ts"], {
-    cwd: cwd || process.cwd(),
+  // Project root is the monorepo root
+  const projectRoot = process.env.FREECODE_ROOT || "/home/ayande/Project/freecode";
+
+  cliProcess = spawn("npx", ["tsx", "apps/core/src/server.ts"], {
+    cwd: projectRoot,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -133,6 +136,10 @@ export async function sessionStart(config: SessionConfig): Promise<SessionInfo> 
 
 export async function sessionStop(sessionId: string): Promise<void> {
   await sendRequest("session.stop", { sessionId });
+}
+
+export async function sessionSend(sessionId: string, message: string): Promise<unknown> {
+  return await sendRequest("session.send", { sessionId, message });
 }
 
 // =============================================================================
