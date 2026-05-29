@@ -3,10 +3,12 @@
 // PRIMARY: Gather requirements, preferences, or decisions from user
 // INPUT: { questions: Question[] }
 // OUTPUT: User's answers
-// NOTE: This is a simpler version that works with freecode's IPC architecture
+// NOTE: Uses Bus system for async question/answer flow
 // =============================================================================
 
+import { randomUUID } from "crypto"
 import type { ToolDef, ToolContext, ToolResult } from "./types"
+import { askQuestion, type QuestionAskedEvent } from "../bus"
 
 export interface QuestionOption {
   label: string        // Display text (1-5 words)
@@ -23,11 +25,6 @@ export interface Question {
 
 export interface QuestionParams {
   questions: Question[]
-}
-
-export type QuestionResult = {
-  question: string
-  answer: string | string[]  // Single answer or array if multiple
 }
 
 // ============================================================================
@@ -99,36 +96,37 @@ export const QuestionTool: ToolDef<QuestionParams> = {
       }
     }
 
+    const requestId = randomUUID()
+
     // Format questions for display
     const formatted = formatQuestions({ questions })
 
-    // In a full implementation, this would:
-    // 1. Signal the frontend to display questions
-    // 2. Wait for user answers via IPC
-    // 3. Return the answers
-    //
-    // For now, return the formatted questions and instructions
-    // for how the frontend should handle them.
-    return {
-      title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
-      output: [
-        formatted,
-        "",
-        "<instructions>",
-        "Present these questions to the user and collect their answers.",
-        "Return the answers using the session.answer() method.",
-        "</instructions>",
-      ].join("\n"),
-      metadata: {
-        questionCount: params.questions.length,
-        questions: params.questions.map((q) => ({
-          question: q.question,
-          header: q.header,
-          optionCount: q.options.length,
-          multiple: q.multiple ?? false,
-          custom: q.custom ?? true,
-        })),
-      },
+    // Ask question via Bus - this waits for user answer
+    try {
+      const answers = await askQuestion(requestId, questions)
+
+      const formattedAnswers = questions
+        .map((q, i) => `"${q.question}"="${answers[i] ?? "Unanswered"}"`)
+        .join(", ")
+
+      return {
+        title: `Asked ${questions.length} question${questions.length > 1 ? "s" : ""}`,
+        output: `User has answered your questions: ${formattedAnswers}. You can now continue with the user's answers in mind.`,
+        metadata: {
+          requestId,
+          answers,
+          questionCount: questions.length,
+        },
+      }
+    } catch (error) {
+      return {
+        title: `Question ${requestId}`,
+        output: `Question was not answered: ${error instanceof Error ? error.message : "Unknown error"}. You can continue without this information or ask again.`,
+        metadata: {
+          requestId,
+          answered: false,
+        },
+      }
     }
   },
 }
