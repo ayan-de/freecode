@@ -18,8 +18,16 @@ export interface ToolDef<P = unknown, R extends ToolResult = ToolResult> {
 
 export type ToolRegistry = Record<string, ToolDef>
 
+export interface JsonSchemaProperty {
+  description?: string
+  type?: string
+  enum?: string[]
+  items?: JsonSchemaProperty | JsonSchemaProperty[]  // For array items
+}
+
 export interface JsonSchema {
   type: string
-  properties?: Record<string, { description?: string; type?: string; enum?: string[] }>
+  properties?: Record<string, JsonSchemaProperty>
   required?: string[]
+  items?: JsonSchemaProperty | JsonSchemaProperty[]  // For array types
 }

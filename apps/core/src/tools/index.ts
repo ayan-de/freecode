@@ -5,6 +5,7 @@ import { GrepTool } from "./grep"
 import { EditTool } from "./edit"
 import { BashTool } from "./bash"
 import { SkillTool } from "./skill"
+import { QuestionTool } from "./question"
 import { createToolOrchestrator, type ToolOrchestrator } from "./orchestrator"
 import type { ToolDef } from "./types"
 
@@ -20,6 +21,7 @@ export const tools = {
   edit: EditTool,
   bash: BashTool,
   skill: SkillTool,
+  question: QuestionTool,
 } as const
 
 export type ToolId = keyof typeof tools

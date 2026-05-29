@@ -41,6 +41,7 @@
 | `grep` | Search file contents via regex | `pattern`, `path?`, `include?`, `-n?`, `-i?`, `-C?` |
 | `bash` | Execute shell commands | `command`, `timeout?`, `workdir?` |
 | `skill` | Load specialized skills from SKILL.md | `name` |
+| `question` | Ask user clarifying questions | `questions` (JSON array) |
 
 ### Tool Execution Modes
 
