@@ -8,27 +8,42 @@
 - [x] 10 Hook Types (8 fully wired, 2 stubbed)
 - [x] Provider-specific prompts (session/prompt/*.txt files)
 - [x] Subagent Lifecycle (agent tool with hooks + Bus events)
+- [x] Thread Store (SQLite + JSON persistence)
 
 ## Pending
 
-### Thread Store (Medium Priority)
+### Effect/Layer DI (Complex - Skipped for now)
 
-SQLite + JSON persistence for session data.
+**Status:** Skipped - significant architectural change requiring Effect framework rewrite
 
-**Files to create:**
-- `store/thread-store.ts` - Main store interface
-- `store/sqlite-store.ts` - SQLite implementation
-- `store/json-store.ts` - JSON file fallback
-- `store/migrations/` - Schema migrations
+**What it would involve:**
+- Create `effect/context.ts` - Service descriptors using Effect.Context.Service pattern
+- Create `effect/runtime.ts` - `makeRuntime<I, S, E>()` factory (see opencode's bootstrap-runtime.ts)
+- Rewrite AgentLoop to use Effect.gen + Layer composition
+- Convert providers, bus, hooks to Effect service pattern
+- Create AppLayer composition (Layer.mergeAll of 50+ services)
 
-### Effect/Layer DI (Low Priority - Complex)
+**Reference:** opencode's `packages/opencode/src/effect/` directory
 
-Opencode-style runtime with Effect framework.
+**Pattern to follow:**
+```typescript
+// Service definition
+export class Service extends Context.Service<Service, Interface>()("@opencode/Bus") {}
 
-**Patterns to follow from opencode:**
-- `effect/context.ts` - Effect context definitions
-- `effect/runtime.ts` - `makeRuntime<I, S, E>()` factory
-- Layer composition for services
+// Layer creation
+export const layer = Layer.effect(Service, Effect.gen(function* () {
+  return Service.of({ /* methods */ })
+}))
+
+// Runtime factory
+export function makeRuntime<I, S, E>(service, layer) {
+  return {
+    runSync: (fn) => runtime.runSync(service.use(fn)),
+    runPromise: (fn) => runtime.runPromise(service.use(fn)),
+    // ...
+  }
+}
+```
 
 ### Permission Profiles (Low Priority)
 
