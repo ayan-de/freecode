@@ -25,6 +25,7 @@ import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js"
 import type { HookResult } from "../agent/types.js"
 import { bus, BusEvents } from "../bus/index.js"
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js"
+import { loadProviderPrompt } from "../session/prompt.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -379,7 +380,7 @@ Based on this task, which files do you need to read to understand the codebase a
     }))
     const result = await aiProvider.execute({
       prompt,
-      system: undefined,
+      system: loadProviderPrompt(provider),
       tools,
       toolResults: toolResults?.map(tr => ({
         toolCallId: tr.toolCallId,
