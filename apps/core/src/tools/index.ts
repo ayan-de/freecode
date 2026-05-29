@@ -4,6 +4,7 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { EditTool } from "./edit"
 import { BashTool } from "./bash"
+import { SkillTool } from "./skill"
 import { createToolOrchestrator, type ToolOrchestrator } from "./orchestrator"
 import type { ToolDef } from "./types"
 
@@ -18,6 +19,7 @@ export const tools = {
   grep: GrepTool,
   edit: EditTool,
   bash: BashTool,
+  skill: SkillTool,
 } as const
 
 export type ToolId = keyof typeof tools
