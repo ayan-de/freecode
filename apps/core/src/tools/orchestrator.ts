@@ -5,6 +5,7 @@
 // OUTPUT: ToolResult (agent/types.ts format)
 // RESPONSIBILITIES:
 //   - Tool lookup via getTool()
+//   - Permission checking against profile
 //   - Param validation against JSON schema
 //   - Execution via tool.execute()
 //   - Error mapping (not found, validation, runtime)
@@ -13,6 +14,7 @@
 
 import type { ToolCall, ToolResult } from "../agent/types.js"
 import { getTool, type ToolContext } from "./index.js"
+import { isToolAllowed, type PermissionProfile } from "../permission/index.js"
 
 // =============================================================================
 // Orchestrator Interface
@@ -21,6 +23,14 @@ import { getTool, type ToolContext } from "./index.js"
 export interface ToolOrchestrator {
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult>
   canExecute(tool: string): boolean
+}
+
+// =============================================================================
+// Orchestrator Options
+// =============================================================================
+
+export interface OrchestratorOptions {
+  permissionProfile?: PermissionProfile
 }
 
 // =============================================================================
@@ -93,10 +103,12 @@ const defaultToolContext: ToolContext = {
 
 // =============================================================================
 // createToolOrchestrator()
-// Factory function
+// Factory function with optional permission profile
 // =============================================================================
 
-export function createToolOrchestrator(): ToolOrchestrator {
+export function createToolOrchestrator(opts: OrchestratorOptions = {}): ToolOrchestrator {
+  const { permissionProfile } = opts
+
   return {
     // ===========================================================================
     // execute()
@@ -104,6 +116,20 @@ export function createToolOrchestrator(): ToolOrchestrator {
     // ===========================================================================
     async execute(call: ToolCall, ctx: ToolContext = defaultToolContext): Promise<ToolResult> {
       const { id: toolId, tool, args } = call
+
+      // 0. Permission check
+      if (permissionProfile) {
+        const permCheck = isToolAllowed(tool, permissionProfile)
+        if (!permCheck.allowed) {
+          return {
+            id: `result-${Date.now()}`,
+            toolCallId: toolId,
+            tool,
+            title: `Tool ${tool}`,
+            error: `Permission denied: ${permCheck.reason}`,
+          }
+        }
+      }
 
       // 1. Look up tool
       const toolDef = getTool(tool)
@@ -152,6 +178,9 @@ export function createToolOrchestrator(): ToolOrchestrator {
     // Quick check if tool is registered
     // ===========================================================================
     canExecute(tool: string): boolean {
+      if (permissionProfile) {
+        return isToolAllowed(tool, permissionProfile).allowed && getTool(tool) !== undefined
+      }
       return getTool(tool) !== undefined
     },
   }
