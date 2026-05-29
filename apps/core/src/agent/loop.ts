@@ -23,6 +23,7 @@ import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js"
 import type { HookResult } from "../agent/types.js"
+import { bus, BusEvents } from "../bus/index.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -74,6 +75,9 @@ export class AgentLoop {
 
       // Step 2: Run SessionStart hook
       await this.hooks.runSessionStart({ status: this.state.status, sessionId: this.state.sessionId })
+
+      // Step 3: Emit session.created event
+      BusEvents.sessionCreated(this.state.sessionId, input.projectPath)
 
       let prompt = input.prompt
       let previousToolResults: ToolResult[] | undefined
@@ -317,8 +321,11 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   // PRIVATE: executeTool()
   // Execute a single tool via orchestrator, return ToolResult
   // Integrates PreToolUse and PostToolUse hooks for interception
+  // Emits tool.called and tool.completed Bus events
   // ===========================================================================
   private async executeTool(toolCall: ToolCall): Promise<ToolResult> {
+    const startTime = Date.now()
+
     // Build hook context
     const hookContext: HookContext = {
       sessionId: this.state.sessionId,
@@ -330,13 +337,16 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
     const preResult = await this.hooks.runPreToolUse(toolCall, hookContext)
     if (preResult.action === "block") {
       console.warn(`[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.reason ?? "no reason"}`)
-      return {
+      const blockedResult = {
         id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         toolCallId: toolCall.id,
         tool: toolCall.tool,
         title: `Tool ${toolCall.tool}`,
         error: `Blocked by hook: ${preResult.reason ?? "no reason"}`,
       }
+      // Emit tool.completed for blocked tool
+      BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
+      return blockedResult
     }
 
     // Inject context if hook requested injection
@@ -347,12 +357,20 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       }
     }
 
+    // Emit tool.called event before execution
+    BusEvents.toolCalled(this.state.sessionId, toolCall.tool, toolCall.id, toolCall.args as Record<string, unknown>)
+
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`)
     const context = { cwd: process.cwd() }
     const result = await orchestrator.execute(toolCall, context)
 
     // PostToolUse Hook — can modify result
     const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
+
+    // Emit tool.completed event with duration
+    const duration_ms = Date.now() - startTime
+    const success = !postResult.error
+    BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, success, duration_ms)
 
     return postResult
   }
@@ -506,9 +524,13 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
     this.state = { ...this.state, status: "stopped" }
     // Run Stop hook on termination
     await this.hooks.runStop(reason)
+    // Emit session.updated event
+    BusEvents.sessionUpdated(this.state.sessionId)
   }
 
   private fail(message: string, error?: string): LoopResult {
+    // Emit session.error event
+    BusEvents.sessionError(this.state.sessionId, error || message)
     return {
       success: false,
       message: error || message,
@@ -519,6 +541,8 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   }
 
   private complete(message: string, content?: string): LoopResult {
+    // Emit session.updated event
+    BusEvents.sessionUpdated(this.state.sessionId)
     return {
       success: true,
       message,

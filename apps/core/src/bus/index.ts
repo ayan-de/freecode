@@ -15,6 +15,91 @@ export interface BusEventDef<T extends string = string> {
   type: T
 }
 
+// ============================================================================
+// FileDiff for SessionDiff events
+// ============================================================================
+
+export interface FileDiff {
+  path: string
+  action: "create" | "update" | "delete"
+  content?: string
+  diff?: string
+}
+
+// ============================================================================
+// Full Bus Events (per architecture spec)
+// ============================================================================
+
+export interface SessionCreatedEvent {
+  type: "session.created"
+  sessionId: string
+  projectPath: string
+}
+
+export interface SessionUpdatedEvent {
+  type: "session.updated"
+  sessionId: string
+}
+
+export interface SessionErrorEvent {
+  type: "session.error"
+  sessionId: string
+  error: string
+  tool?: string
+}
+
+export interface SessionDiffEvent {
+  type: "session.diff"
+  sessionId: string
+  diff: FileDiff[]
+}
+
+export interface ToolsChangedEvent {
+  type: "tools.changed"
+  added: Array<{ id: string; description: string }>
+  removed: string[]
+}
+
+export interface MCPToolsChangedEvent {
+  type: "mcp.tools.changed"
+  server: string
+}
+
+export interface SubagentStartedEvent {
+  type: "subagent.started"
+  subagentId: string
+  parentId: string
+  task: string
+}
+
+export interface SubagentCompletedEvent {
+  type: "subagent.completed"
+  subagentId: string
+  parentId: string
+  result: string
+}
+
+export interface ToolCalledEvent {
+  type: "tool.called"
+  sessionId: string
+  tool: string
+  toolCallId: string
+  args?: Record<string, unknown>
+}
+
+export interface ToolCompletedEvent {
+  type: "tool.completed"
+  sessionId: string
+  tool: string
+  toolCallId: string
+  success: boolean
+  duration_ms?: number
+}
+
+// ============================================================================
+// Question Events (existing)
+// ============================================================================
+
 export interface QuestionAskedEvent {
   type: "question.asked"
   requestId: string
@@ -39,7 +124,21 @@ export interface QuestionRejectedEvent {
   requestId: string
 }
 
+// ============================================================================
+// Union of all Bus Events
+// ============================================================================
+
 export type BusEvent =
+  | SessionCreatedEvent
+  | SessionUpdatedEvent
+  | SessionErrorEvent
+  | SessionDiffEvent
+  | ToolsChangedEvent
+  | MCPToolsChangedEvent
+  | SubagentStartedEvent
+  | SubagentCompletedEvent
+  | ToolCalledEvent
+  | ToolCompletedEvent
   | QuestionAskedEvent
   | QuestionAnsweredEvent
   | QuestionRejectedEvent
@@ -150,6 +249,42 @@ export function rejectQuestion(requestId: string): void {
     pending.reject(new Error("Question rejected by user"))
     pendingQuestions.delete(requestId)
   }
+}
+
+// ============================================================================
+// Convenience helpers for publishing common events
+// ============================================================================
+
+export const BusEvents = {
+  sessionCreated: (sessionId: string, projectPath: string) =>
+    bus.publish({ type: "session.created", sessionId, projectPath } as SessionCreatedEvent),
+
+  sessionUpdated: (sessionId: string) =>
+    bus.publish({ type: "session.updated", sessionId } as SessionUpdatedEvent),
+
+  sessionError: (sessionId: string, error: string, tool?: string) =>
+    bus.publish({ type: "session.error", sessionId, error, tool } as SessionErrorEvent),
+
+  sessionDiff: (sessionId: string, diff: FileDiff[]) =>
+    bus.publish({ type: "session.diff", sessionId, diff } as SessionDiffEvent),
+
+  toolsChanged: (added: Array<{ id: string; description: string }>, removed: string[]) =>
+    bus.publish({ type: "tools.changed", added, removed } as ToolsChangedEvent),
+
+  mcpToolsChanged: (server: string) =>
+    bus.publish({ type: "mcp.tools.changed", server } as MCPToolsChangedEvent),
+
+  subagentStarted: (subagentId: string, parentId: string, task: string) =>
+    bus.publish({ type: "subagent.started", subagentId, parentId, task } as SubagentStartedEvent),
+
+  subagentCompleted: (subagentId: string, parentId: string, result: string) =>
+    bus.publish({ type: "subagent.completed", subagentId, parentId, result } as SubagentCompletedEvent),
+
+  toolCalled: (sessionId: string, tool: string, toolCallId: string, args?: Record<string, unknown>) =>
+    bus.publish({ type: "tool.called", sessionId, tool, toolCallId, args } as ToolCalledEvent),
+
+  toolCompleted: (sessionId: string, tool: string, toolCallId: string, success: boolean, duration_ms?: number) =>
+    bus.publish({ type: "tool.completed", sessionId, tool, toolCallId, success, duration_ms } as ToolCompletedEvent),
 }
 
 // Types already exported at top of file
