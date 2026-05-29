@@ -15,11 +15,14 @@ import type {
   UserInput,
   LoopResult,
   AssistantContent,
+  HookContext,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 import { createToolOrchestrator, listTools } from "../tools/index.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
+import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js"
+import type { HookResult } from "../agent/types.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -36,19 +39,21 @@ export class AgentLoop {
   private history: Message[] = []
   private config: { maxIterations: number; heuristics: LoopHeuristics }
   private memory: MemoryService
+  private hooks: HookRuntime
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
   private recentReasoning: string[] = []
   private lastFileStates: string[] = []
   private fileStateHash: string = ""
 
-  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics> }) {
+  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime }) {
     this.state = createInitialSessionState(sessionId)
     this.config = {
       maxIterations: config?.maxIterations ?? 100,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
     }
     this.memory = new MemoryService(sessionId)
+    this.hooks = config?.hooks ?? createHookRuntime()
   }
 
   // ===========================================================================
@@ -66,6 +71,9 @@ export class AgentLoop {
       if (!contextResult.success || !contextResult.value) {
         return this.fail("Context collection failed", contextResult.error)
       }
+
+      // Step 2: Run SessionStart hook
+      await this.hooks.runSessionStart({ status: this.state.status, sessionId: this.state.sessionId })
 
       let prompt = input.prompt
       let previousToolResults: ToolResult[] | undefined
@@ -140,8 +148,11 @@ ${context.tree}
 
 ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
+      // UserPromptSubmit Hook — can modify prompt before sending to model
+      const modifiedPrompt = await this.hooks.runUserPromptSubmit(fullPrompt)
+
       console.log("[AgentLoop] Sending prompt to provider...")
-      const providerResult = await this.sendToProvider(fullPrompt, provider, previousToolResults)
+      const providerResult = await this.sendToProvider(modifiedPrompt, provider, previousToolResults)
 
       // Get tool calls from provider (native tool calling) or from text parsing
       let toolCalls: ToolCall[] = providerResult.toolCalls?.map(tc => ({
@@ -305,11 +316,45 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   // ===========================================================================
   // PRIVATE: executeTool()
   // Execute a single tool via orchestrator, return ToolResult
+  // Integrates PreToolUse and PostToolUse hooks for interception
   // ===========================================================================
   private async executeTool(toolCall: ToolCall): Promise<ToolResult> {
+    // Build hook context
+    const hookContext: HookContext = {
+      sessionId: this.state.sessionId,
+      turnCount: this.state.turnCount,
+      toolName: toolCall.tool,
+    }
+
+    // PreToolUse Hook — can block or modify tool call
+    const preResult = await this.hooks.runPreToolUse(toolCall, hookContext)
+    if (preResult.action === "block") {
+      console.warn(`[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.reason ?? "no reason"}`)
+      return {
+        id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        toolCallId: toolCall.id,
+        tool: toolCall.tool,
+        title: `Tool ${toolCall.tool}`,
+        error: `Blocked by hook: ${preResult.reason ?? "no reason"}`,
+      }
+    }
+
+    // Inject context if hook requested injection
+    if (preResult.action === "inject" && preResult.injectContext) {
+      toolCall = {
+        ...toolCall,
+        args: { ...(toolCall.args as Record<string, unknown>), ...preResult.injectContext },
+      }
+    }
+
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`)
     const context = { cwd: process.cwd() }
-    return orchestrator.execute(toolCall, context)
+    const result = await orchestrator.execute(toolCall, context)
+
+    // PostToolUse Hook — can modify result
+    const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
+
+    return postResult
   }
 
   // ===========================================================================
@@ -459,6 +504,8 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   // ===========================================================================
   private async stop(reason: string): Promise<void> {
     this.state = { ...this.state, status: "stopped" }
+    // Run Stop hook on termination
+    await this.hooks.runStop(reason)
   }
 
   private fail(message: string, error?: string): LoopResult {
