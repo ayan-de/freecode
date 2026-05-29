@@ -2,6 +2,35 @@
 
 > How to work on this codebase — architectural principles, patterns, and practices.
 
+**IMPORTANT: Architecture Spec Compliance**
+This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v3.md`. Before implementing features, read that spec. If implementation deviates from it, the spec takes precedence unless explicitly overridden.
+
+## Architecture Spec Details
+
+The full v3 architecture spec defines these systems that must be properly implemented:
+
+| System | Required Components |
+|--------|-------------------|
+| **Effect/Layer DI** | `effect/context.ts`, `effect/layers.ts`, `effect/runtime.ts` using Effect framework |
+| **Bus (PubSub)** | `bus/index.ts`, `bus/events.ts`, `bus/subscriber.ts`, `bus/global-bus.ts` — SessionDiff, SessionError, MCPToolsChanged, ToolsChanged, SubagentStarted, SubagentCompleted events |
+| **Hooks (10 types)** | `hooks/runtime.ts`, `hooks/registry.ts`, `hooks/PreToolUse.ts`, `hooks/PostToolUse.ts`, `hooks/PermissionRequest.ts`, `hooks/PreCompact.ts`, `hooks/PostCompact.ts`, `hooks/SessionStart.ts`, `hooks/UserPromptSubmit.ts`, `hooks/SubagentStart.ts`, `hooks/SubagentStop.ts`, `hooks/Stop.ts` |
+| **Skills System** | `skills/manager.ts`, `skills/loader.ts`, `skills/registry.ts`, `skills/injection.ts`, `skills/detection.ts`, `skills/plugin.ts`, `skills/plugin-registry.ts`, `skills/types.ts` |
+| **Rollout/Event Sourcing** | `rollout/recorder.ts`, `rollout/types.ts`, `rollout/history.ts`, `rollout/replay.ts` with aggregateID + seq |
+| **Thread Store** | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/migrations/` |
+| **MCP Server** | `mcp/server.ts`, `mcp/client.ts`, `mcp/oauth-provider.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts` |
+| **Config** | `config/config.ts`, `config/loader.ts`, `config/defaults.ts` with Zod validation |
+| **Errors** | `errors/named-error.ts` with NamedError factory |
+| **Project Bootstrap** | `project/bootstrap.ts`, `project/vcs.ts`, `project/conventions.ts` |
+
+**Current known deviations from spec:**
+- Bus only has question events, not full SessionDiff/SessionError/etc.
+- Hooks only implement PreToolUse/PostToolUse, missing PermissionRequest, SubagentStart, SubagentStop, Stop
+- No skills system (only a basic skill tool)
+- No rollout/event sourcing
+- No thread store
+- No MCP server
+- Effect/layers.ts is loop health evaluator, not full DI
+
 ## Project Overview
 
 FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini) via browser automation to assist with coding tasks. The architecture uses a **thin-client model**: multiple frontends (TUI, VS Code extension) delegate all intelligence to a shared CLI backend via JSON-RPC over stdin/stdout.
