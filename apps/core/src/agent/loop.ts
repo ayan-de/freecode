@@ -24,6 +24,7 @@ import { getProvider } from "../providers/index.js"
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js"
 import type { HookResult } from "../agent/types.js"
 import { bus, BusEvents } from "../bus/index.js"
+import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -41,13 +42,14 @@ export class AgentLoop {
   private config: { maxIterations: number; heuristics: LoopHeuristics }
   private memory: MemoryService
   private hooks: HookRuntime
+  private recorder: RolloutRecorder
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
   private recentReasoning: string[] = []
   private lastFileStates: string[] = []
   private fileStateHash: string = ""
 
-  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime }) {
+  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder }) {
     this.state = createInitialSessionState(sessionId)
     this.config = {
       maxIterations: config?.maxIterations ?? 100,
@@ -55,6 +57,7 @@ export class AgentLoop {
     }
     this.memory = new MemoryService(sessionId)
     this.hooks = config?.hooks ?? createHookRuntime()
+    this.recorder = config?.recorder ?? createRecorder(sessionId)
   }
 
   // ===========================================================================
@@ -157,6 +160,9 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
       console.log("[AgentLoop] Sending prompt to provider...")
       const providerResult = await this.sendToProvider(modifiedPrompt, provider, previousToolResults)
+
+      // Record turn.started event
+      this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`)
 
       // Get tool calls from provider (native tool calling) or from text parsing
       let toolCalls: ToolCall[] = providerResult.toolCalls?.map(tc => ({
@@ -322,6 +328,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   // Execute a single tool via orchestrator, return ToolResult
   // Integrates PreToolUse and PostToolUse hooks for interception
   // Emits tool.called and tool.completed Bus events
+  // Records function.call and function.output to rollout
   // ===========================================================================
   private async executeTool(toolCall: ToolCall): Promise<ToolResult> {
     const startTime = Date.now()
@@ -344,6 +351,8 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         title: `Tool ${toolCall.tool}`,
         error: `Blocked by hook: ${preResult.reason ?? "no reason"}`,
       }
+      // Record function.call blocked event
+      this.recorder.recordHookBlocked(hookContext.toolName ?? toolCall.tool, preResult.reason ?? "no reason")
       // Emit tool.completed for blocked tool
       BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
       return blockedResult
@@ -360,12 +369,18 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
     // Emit tool.called event before execution
     BusEvents.toolCalled(this.state.sessionId, toolCall.tool, toolCall.id, toolCall.args as Record<string, unknown>)
 
+    // Record function.call event
+    this.recorder.recordFunctionCall(toolCall.tool, toolCall.args as Record<string, unknown>, `turn-${this.state.turnCount}`)
+
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`)
     const context = { cwd: process.cwd() }
     const result = await orchestrator.execute(toolCall, context)
 
     // PostToolUse Hook — can modify result
     const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
+
+    // Record function.output event
+    this.recorder.recordFunctionOutput(toolCall.tool, postResult.stdout || postResult.error || "", Date.now() - startTime)
 
     // Emit tool.completed event with duration
     const duration_ms = Date.now() - startTime
@@ -571,7 +586,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 // =============================================================================
 export const createAgentLoop = (
   sessionId: string,
-  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics> }
+  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder }
 ): AgentLoop => {
   return new AgentLoop(sessionId, config)
 }
