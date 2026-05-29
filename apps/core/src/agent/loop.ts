@@ -137,6 +137,9 @@ export class AgentLoop {
   // ===========================================================================
   // PRIVATE: executeTurn()
   // One iteration: build prompt → send to provider → normalize → parse → execute
+  // Implements TWO-PHASE CONTEXT COLLECTION:
+  //   Phase 1: Ask model which files it needs
+  //   Phase 2: Read those files + execute actual task
   // ===========================================================================
   private async executeTurn(
     prompt: string,
@@ -145,13 +148,27 @@ export class AgentLoop {
     previousToolResults?: ToolResult[]
   ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string }> {
     try {
-      // Build full prompt with project context and memory
+      // TWO-PHASE CONTEXT COLLECTION
+      // Phase 1: Ask model which files it needs to complete the task
+      const neededFiles = await this.askWhichFiles(prompt, context)
+      if (!neededFiles.success) {
+        return { success: false, toolResults: [], error: neededFiles.error }
+      }
+
+      // Phase 2: Read the files the model requested, then execute task
+      const fileContents = await this.readFiles(neededFiles.files || [], context.projectPath)
+      const fileContext = fileContents.length > 0
+        ? `\n\nRequested file contents:\n${fileContents.map(f => `--- ${f.path} ---\n${f.content}`).join("\n\n")}`
+        : ""
+
+      // Build full prompt with project context, file contents, and memory
       const memoryContext = renderPromptMemoryContext(this.memory.getPromptContext())
       const fullPrompt = `Project: ${context.name}
 Path: ${context.projectPath}
 
 File tree:
 ${context.tree}
+${fileContext}
 
 ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
@@ -214,6 +231,117 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
     } catch (error) {
       return { success: false, toolResults: [], error: String(error) }
     }
+  }
+
+  // ===========================================================================
+  // PRIVATE: askWhichFiles()
+  // PHASE 1 of two-phase context collection
+  // Send prompt + file tree to model, ask which files it needs to read
+  // ===========================================================================
+  private async askWhichFiles(
+    prompt: string,
+    context: { name: string; projectPath: string; tree: string }
+  ): Promise<{ success: boolean; files?: string[]; error?: string }> {
+    try {
+      // Build a prompt asking the model which files it needs
+      const filePrompt = `Project: ${context.name}
+Path: ${context.projectPath}
+
+File tree:
+${context.tree}
+
+Task: ${prompt}
+
+Based on this task, which files do you need to read to understand the codebase and complete this task? Respond with a list of file paths, one per line. Only list files that are relevant to the task. If no files are needed, respond with "NONE".`
+
+      console.log("[AgentLoop] Phase 1: Asking model which files it needs...")
+      const aiProvider = getProvider("chatgpt" as any)
+      const result = await aiProvider.execute({
+        prompt: filePrompt,
+        system: undefined,
+        tools: [],
+        toolResults: undefined,
+        model: undefined,
+      })
+
+      // Parse the response to extract file paths
+      const content = result.content.trim()
+      const lines = content.split("\n").map(l => l.trim()).filter(l => l.length > 0)
+
+      // Filter to valid file paths (non-empty, not "NONE")
+      if (lines.length === 0 || (lines.length === 1 && lines[0].toUpperCase() === "NONE")) {
+        console.log("[AgentLoop] Phase 1: Model requested no files")
+        return { success: true, files: [] }
+      }
+
+      // Filter out non-path lines (comments, descriptions)
+      const filePaths = lines.filter(line => {
+        // Skip lines that look like descriptions or comments
+        if (line.startsWith("//") || line.startsWith("#") || line.startsWith("--")) return false
+        // Skip lines with too many words (not just a path)
+        if (line.split(/\s+/).length > 3) return false
+        // Accept lines that look like paths (contain / or .)
+        return line.includes("/") || line.includes(".")
+      })
+
+      console.log(`[AgentLoop] Phase 1: Model requested ${filePaths.length} files: ${filePaths.join(", ")}`)
+      return { success: true, files: filePaths }
+    } catch (error) {
+      console.warn(`[AgentLoop] Phase 1 failed: ${error}, continuing without file context`)
+      return { success: true, files: [] } // Continue without file context on error
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: readFiles()
+  // PHASE 2 of two-phase context collection
+  // Read the requested files and return their contents
+  // ===========================================================================
+  private async readFiles(
+    filePaths: string[],
+    projectPath: string
+  ): Promise<Array<{ path: string; content: string }>> {
+    if (filePaths.length === 0) return []
+
+    const results: Array<{ path: string; content: string }> = []
+    const fs = await import("fs")
+    const path = await import("path")
+
+    for (const filePath of filePaths) {
+      try {
+        // Resolve relative paths against projectPath
+        const resolvedPath = path.isAbsolute(filePath)
+          ? filePath
+          : path.resolve(projectPath, filePath)
+
+        if (!fs.existsSync(resolvedPath)) {
+          console.log(`[AgentLoop] Phase 2: File not found, skipping: ${resolvedPath}`)
+          continue
+        }
+
+        const stat = fs.statSync(resolvedPath)
+        if (stat.isDirectory()) {
+          console.log(`[AgentLoop] Phase 2: Skipping directory: ${resolvedPath}`)
+          continue
+        }
+
+        // Read file with line numbers for context
+        const content = fs.readFileSync(resolvedPath, "utf-8")
+        const lines = content.split("\n")
+        const numberedLines = lines.map((line, i) => `${i + 1}: ${line}`).join("\n")
+
+        results.push({
+          path: resolvedPath,
+          content: `File: ${resolvedPath}\nTotal lines: ${lines.length}\n\n${numberedLines}`,
+        })
+        console.log(`[AgentLoop] Phase 2: Read ${resolvedPath} (${lines.length} lines)`)
+      } catch (error) {
+        console.warn(`[AgentLoop] Phase 2: Failed to read ${filePath}: ${error}`)
+        // Skip files that can't be read
+      }
+    }
+
+    return results
   }
 
   // ===========================================================================
