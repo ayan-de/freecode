@@ -31,6 +31,7 @@ function discoverSkills(cwd: string): SkillInfo[] {
     path.join(homedir, ".claude", "skills"),
     path.join(homedir, ".agents", "skills"),
     path.join(cwd, ".claude", "skills"),
+    path.join(cwd, ".freecode", "skills"),
   ]
 
   for (const searchPath of searchPaths) {
