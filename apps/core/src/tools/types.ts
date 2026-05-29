@@ -1,6 +1,8 @@
 export interface ToolContext {
   cwd: string
   abort?: AbortSignal
+  sessionId?: string
+  hooks?: unknown
 }
 
 export interface ToolResult {

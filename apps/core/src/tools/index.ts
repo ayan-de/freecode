@@ -5,6 +5,7 @@ import { GrepTool } from "./grep"
 import { EditTool } from "./edit"
 import { BashTool } from "./bash"
 import { SkillTool } from "./skill"
+import { AgentTool } from "./agent"
 import { QuestionTool } from "./question"
 import { createToolOrchestrator, type ToolOrchestrator } from "./orchestrator"
 import type { ToolDef } from "./types"
@@ -21,6 +22,7 @@ export const tools = {
   edit: EditTool,
   bash: BashTool,
   skill: SkillTool,
+  agent: AgentTool,
   question: QuestionTool,
 } as const
 
