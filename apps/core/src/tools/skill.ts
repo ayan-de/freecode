@@ -1,118 +1,36 @@
 // =============================================================================
 // skill Tool - Load and invoke specialized skills
-// PRIMARY: Allow AI to load skill instructions from SKILL.md files
+// PRIMARY: Allow AI to load skill instructions from .skill.md files
 // INPUT: { name: string }
 // OUTPUT: Skill content with available files
-// NOTE: Skills are discovered from ~/.claude/skills/ and project .claude/skills/
+// NOTE: Uses the skills/ manager system for loading, caching, and rendering
 // =============================================================================
 
 import * as fs from "fs"
 import * as path from "path"
 import fg from "fast-glob"
 import type { ToolDef, ToolContext, ToolResult } from "./types"
+import type { SkillsManager } from "../skills/manager"
+import { renderSkillForPrompt, renderSkillsList } from "../skills/index"
 
-export interface SkillParams {
-  name: string
+// Module-level skills manager (initialized lazily)
+let skillsManager: SkillsManager | null = null
+
+/**
+ * Get or create the skills manager for this tool context.
+ * Uses project path from context.
+ */
+function getSkillsManager(ctx: ToolContext): SkillsManager {
+  if (!skillsManager) {
+    // Lazy import to avoid circular dependencies
+    const { SkillsManager } = require("../skills/manager")
+    skillsManager = new SkillsManager(ctx.cwd)
+  }
+  return skillsManager as SkillsManager
 }
 
-interface SkillInfo {
-  name: string
-  description?: string
-  location: string
-  content: string
-}
-
-// Scan for skill files in standard locations
-function discoverSkills(cwd: string): SkillInfo[] {
-  const skills: SkillInfo[] = []
-  const homedir = require("os").homedir()
-
-  const searchPaths = [
-    path.join(homedir, ".claude", "skills"),
-    path.join(homedir, ".agents", "skills"),
-    path.join(cwd, ".claude", "skills"),
-    path.join(cwd, ".freecode", "skills"),
-  ]
-
-  for (const searchPath of searchPaths) {
-    if (!fs.existsSync(searchPath)) continue
-
-    const files = fg.sync("**/SKILL.md", {
-      cwd: searchPath,
-      onlyFiles: true,
-      absolute: true,
-    })
-
-    for (const file of files) {
-      try {
-        const content = fs.readFileSync(file, "utf-8")
-        const info = parseSkillMarkdown(content, file)
-        if (info) {
-          skills.push(info)
-        }
-      } catch {
-        // Skip files that can't be read
-      }
-    }
-  }
-
-  return skills
-}
-
-// Parse SKILL.md with optional frontmatter
-function parseSkillMarkdown(content: string, location: string): SkillInfo | null {
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/)
-  let name: string
-  let description: string | undefined
-  let body: string
-
-  if (frontmatterMatch) {
-    const frontmatter = frontmatterMatch[1]
-    const bodyCandidate = frontmatterMatch[2]
-
-    const nameMatch = frontmatter.match(/^name:\s*(.+)$/m)
-    const descMatch = frontmatter.match(/^description:\s*(.+)$/m)
-
-    if (!nameMatch) return null
-    name = nameMatch[1].trim()
-    description = descMatch?.[1].trim()
-    body = bodyCandidate.trim()
-  } else {
-    // No frontmatter - use filename as name
-    const basename = path.basename(path.dirname(location))
-    name = basename
-    body = content.trim()
-  }
-
-  return {
-    name,
-    description,
-    location,
-    content: body,
-  }
-}
-
-// List all available skills
-function listSkills(skills: SkillInfo[]): string {
-  const described = skills.filter((s) => s.description)
-  if (described.length === 0) {
-    return "No skills are currently available."
-  }
-
-  const lines = ["<available_skills>"]
-  for (const skill of described.sort((a, b) => a.name.localeCompare(b.name))) {
-    lines.push("  <skill>")
-    lines.push(`    <name>${skill.name}</name>`)
-    if (skill.description) {
-      lines.push(`    <description>${skill.description}</description>`)
-    }
-    lines.push(`    <location>${path.dirname(skill.location)}</location>`)
-    lines.push("  </skill>")
-  }
-  lines.push("</available_skills>")
-
-  return lines.join("\n")
-}
+// Re-export for external use
+export { getSkillsManager }
 
 // List files in skill directory (sampled)
 function listSkillFiles(skillDir: string, limit: number = 10): string {
@@ -122,7 +40,7 @@ function listSkillFiles(skillDir: string, limit: number = 10): string {
     const files = fg.sync("**/*", {
       cwd: skillDir,
       onlyFiles: true,
-      ignore: ["**/SKILL.md"],
+      ignore: ["**/*.skill.md", "**/SKILL.md"],
     })
 
     const sampled = files.slice(0, limit)
@@ -132,6 +50,35 @@ function listSkillFiles(skillDir: string, limit: number = 10): string {
   } catch {
     return ""
   }
+}
+
+// List all available skills
+async function listSkills(ctx: ToolContext): Promise<string> {
+  const manager = getSkillsManager(ctx)
+  const skills = await manager.listSkills()
+
+  if (skills.length === 0) {
+    return "No skills are currently available."
+  }
+
+  // Format as XML-like structure
+  const lines = ["<available_skills>"]
+  for (const skill of skills.sort((a, b) => a.name.localeCompare(b.name))) {
+    lines.push("  <skill>")
+    lines.push(`    <name>${skill.name}</name>`)
+    if (skill.description) {
+      lines.push(`    <description>${skill.description}</description>`)
+    }
+    lines.push(`    <scope>${skill.scope}</scope>`)
+    lines.push("  </skill>")
+  }
+  lines.push("</available_skills>")
+
+  return lines.join("\n")
+}
+
+export interface SkillParams {
+  name: string
 }
 
 export const SkillTool: ToolDef<SkillParams> = {
@@ -146,29 +93,33 @@ export const SkillTool: ToolDef<SkillParams> = {
     required: ["name"],
   },
   execute: async (params: SkillParams, ctx: ToolContext): Promise<ToolResult> => {
-    const skills = discoverSkills(ctx.cwd)
-    const skill = skills.find((s) => s.name === params.name)
+    const manager = getSkillsManager(ctx)
+
+    // Try to get the skill
+    const skill = await manager.getSkill(params.name)
 
     if (!skill) {
-      const available = listSkills(skills)
+      const available = await listSkills(ctx)
       return {
         title: `Skill not found: ${params.name}`,
         output: `Skill "${params.name}" not found.\n\n${available}`,
         metadata: {
-          available: skills.map((s) => s.name),
+          available: (await manager.listSkills()).map((s) => s.name),
         },
       }
     }
 
+    // Get skill directory for file listing
     const skillDir = path.dirname(skill.location)
     const baseUrl = `file://${skillDir}`
     const files = listSkillFiles(skillDir)
 
+    // Render skill content for prompt
+    const skillContent = renderSkillForPrompt(skill)
+
     const output = [
       `<skill_content name="${skill.name}">`,
-      `# Skill: ${skill.name}`,
-      "",
-      skill.content,
+      skillContent,
       "",
       `Base directory: ${baseUrl}`,
       "Relative paths in this skill are relative to this base directory.",
@@ -184,6 +135,7 @@ export const SkillTool: ToolDef<SkillParams> = {
       output,
       metadata: {
         name: skill.name,
+        scope: skill.scope,
         dir: skillDir,
       },
     }
@@ -191,4 +143,4 @@ export const SkillTool: ToolDef<SkillParams> = {
 }
 
 // Export for listing all available skills
-export { listSkills, discoverSkills }
+export { listSkills }
