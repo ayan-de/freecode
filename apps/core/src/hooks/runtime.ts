@@ -3,7 +3,8 @@
 // PRIMARY: Interception points for modifying agent behavior
 // INPUT: ToolCall, ToolResult, HookContext at various lifecycle points
 // OUTPUT: HookResult (can block/modify), modified ToolResult, or void
-// HOOKS: PreToolUse, PostToolUse, PreCompact, PostCompact, SessionStart, UserPromptSubmit, SubagentStart, SubagentStop, Stop
+// HOOKS: PreToolUse, PostToolUse, PermissionRequest, PreCompact, PostCompact,
+//        SessionStart, UserPromptSubmit, SubagentStart, SubagentStop, Stop
 // PURPOSE: Allows plugins and custom behavior without modifying core loop
 // =============================================================================
 
@@ -15,15 +16,19 @@ import type { ToolCall, ToolResult, HookContext, HookResult } from "../agent/typ
 export interface HookRuntime {
   runPreToolUse(tool: ToolCall, ctx: HookContext): Promise<HookResult>
   runPostToolUse(tool: ToolCall, result: ToolResult, ctx: HookContext): Promise<ToolResult>
+  runPermissionRequest(tool: ToolCall, ctx: HookContext): Promise<HookResult>
   runPreCompact(context: HookContext): Promise<HookResult>
   runPostCompact(context: HookContext): Promise<void>
   runSessionStart(session: { status: string; sessionId: string }): Promise<void>
   runUserPromptSubmit(prompt: string): Promise<string>
+  runSubagentStart(tool: ToolCall, ctx: HookContext): Promise<HookResult>
+  runSubagentStop(result: string, ctx: HookContext): Promise<void>
   runStop(reason: string): Promise<void>
 }
 
 // =============================================================================
-// 10 Hook Event Types
+// 10 Hook Event Types (documented)
+// =============================================================================
 // const HOOK_EVENT_NAMES = [
 //   "PreToolUse",       // Before tool execution — modify input or block
 //   "PostToolUse",      // After tool execution — modify output, log
@@ -61,6 +66,15 @@ export const createHookRuntime = (): HookRuntime => ({
   },
 
   // ===========================================================================
+  // PermissionRequest Hook - Called before executing risky tools
+  // Can: request user approval, block execution
+  // ===========================================================================
+  async runPermissionRequest(_tool: ToolCall, _ctx: HookContext): Promise<HookResult> {
+    // Default: continue without requiring permission
+    return { action: "continue" }
+  },
+
+  // ===========================================================================
   // PreCompact Hook - Called before memory compaction
   // Can: inspect context, modify what gets compacted
   // ===========================================================================
@@ -90,6 +104,22 @@ export const createHookRuntime = (): HookRuntime => ({
   // ===========================================================================
   async runUserPromptSubmit(prompt: string): Promise<string> {
     return prompt
+  },
+
+  // ===========================================================================
+  // SubagentStart Hook - Called when a sub-agent is spawned
+  // Can: modify sub-agent config, block spawning
+  // ===========================================================================
+  async runSubagentStart(_tool: ToolCall, _ctx: HookContext): Promise<HookResult> {
+    return { action: "continue" }
+  },
+
+  // ===========================================================================
+  // SubagentStop Hook - Called when a sub-agent completes
+  // Can: process sub-agent result, log
+  // ===========================================================================
+  async runSubagentStop(_result: string, _ctx: HookContext): Promise<void> {
+    // no-op by default
   },
 
   // ===========================================================================

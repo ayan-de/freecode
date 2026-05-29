@@ -199,9 +199,18 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         this.memory.addMessage("user", prompt)
         this.memory.addMessage("assistant", providerResult.content)
         if (this.memory.shouldCompact(provider)) {
-          const result = await this.memory.compact()
-          if (!result.success) {
-            console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+          // PreCompact Hook — can inspect/modify context before compaction
+          const preHookCtx: HookContext = { sessionId: this.state.sessionId, turnCount: this.state.turnCount }
+          const preResult = await this.hooks.runPreCompact(preHookCtx)
+          if (preResult.action === "block") {
+            console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.reason ?? "no reason"}`)
+          } else {
+            const result = await this.memory.compact()
+            // PostCompact Hook — verify/log compaction result
+            await this.hooks.runPostCompact(preHookCtx)
+            if (!result.success) {
+              console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+            }
           }
         }
         return { success: true, toolResults: [], responseText: providerResult.content }
@@ -221,9 +230,18 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       this.memory.addMessage("assistant", providerResult.content)
 
       if (this.memory.shouldCompact(provider)) {
-        const result = await this.memory.compact()
-        if (!result.success) {
-          console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+        // PreCompact Hook — can inspect/modify context before compaction
+        const preHookCtx: HookContext = { sessionId: this.state.sessionId, turnCount: this.state.turnCount }
+        const preResult = await this.hooks.runPreCompact(preHookCtx)
+        if (preResult.action === "block") {
+          console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.reason ?? "no reason"}`)
+        } else {
+          const result = await this.memory.compact()
+          // PostCompact Hook — verify/log compaction result
+          await this.hooks.runPostCompact(preHookCtx)
+          if (!result.success) {
+            console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+          }
         }
       }
 
@@ -492,6 +510,21 @@ Based on this task, which files do you need to read to understand the codebase a
         ...toolCall,
         args: { ...(toolCall.args as Record<string, unknown>), ...preResult.injectContext },
       }
+    }
+
+    // PermissionRequest Hook — can block dangerous operations requiring user approval
+    const permResult = await this.hooks.runPermissionRequest(toolCall, hookContext)
+    if (permResult.action === "block") {
+      console.warn(`[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`)
+      const blockedResult = {
+        id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        toolCallId: toolCall.id,
+        tool: toolCall.tool,
+        title: `Tool ${toolCall.tool}`,
+        error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
+      }
+      BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
+      return blockedResult
     }
 
     // Emit tool.called event before execution
