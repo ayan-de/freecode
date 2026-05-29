@@ -39,6 +39,8 @@
 | `edit` | Edit files in-place with smart matching | `filePath`, `oldString`, `newString`, `replaceAll?` |
 | `glob` | Find files matching glob patterns | `pattern`, `path?` |
 | `grep` | Search file contents via regex | `pattern`, `path?`, `include?`, `-n?`, `-i?`, `-C?` |
+| `bash` | Execute shell commands | `command`, `timeout?`, `workdir?` |
+| `skill` | Load specialized skills from SKILL.md | `name` |
 
 ### Tool Execution Modes
 
@@ -46,6 +48,31 @@
 |------|-------|----------|
 | **Sequential** | `edit`, `write` | One at a time, in order |
 | **Parallel-safe** | `read`, `glob`, `grep` | Batch concurrently |
+
+## Skills
+
+Skills are specialized instruction sets loaded from `SKILL.md` files. They provide structured workflows for specific tasks.
+
+**Skill locations:**
+- `~/.claude/skills/` — Global skills
+- `~/.agents/skills/` — Agent skills
+- `.claude/skills/` — Project skills
+- `.freecode/skills/` — Project skills
+
+**Example skill structure:**
+```markdown
+# .freecode/skills/brainstorming/SKILL.md
+---
+name: brainstorming
+description: Explore requirements before building features
+---
+# Brainstorming Skill
+
+1. Clarify the goal - what problem are we solving?
+2. Identify constraints - what must/must not happen?
+3. Explore alternatives - what approaches exist?
+4. Define success - how do we know it's done?
+```
 
 ## Quick Start
 
