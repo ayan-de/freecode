@@ -1,0 +1,6 @@
+/home/ayan-de/Projects/freecode/apps/core/src/session/prompt/anthropic.txt
+/home/ayan-de/Projects/freecode/apps/core/src/session/prompt/chatgpt.txt
+/home/ayan-de/Projects/freecode/apps/core/src/session/prompt/default.txt
+/home/ayan-de/Projects/freecode/apps/core/src/session/prompt/gemini.txt
+/home/ayan-de/Projects/freecode/apps/core/src/session/prompt/gpt.txt
+/home/ayan-de/Projects/freecode/apps/core/src/session/prompt/openai.txt
