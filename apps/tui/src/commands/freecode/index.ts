@@ -2,6 +2,7 @@
 // Freecode Command — sends prompt to CLI via IPC
 // =============================================================================
 
+import chalk from "chalk";
 import { registerCommand, type Command, type CommandContext } from "../index.js";
 import {
   startCli,
@@ -56,7 +57,7 @@ async function ensureSession(ctx: CommandContext): Promise<boolean> {
     return true;
   } catch (error) {
     ctx.showMessage(
-      `❌ **Failed to start session:** ${error instanceof Error ? error.message : String(error)}`
+      `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
     );
     return false;
   }
@@ -80,7 +81,10 @@ ${formatProviderList()}`);
     }
 
     ctx.showMessage(`**You:** ${userPrompt}`);
-    ctx.showMessage("🔄 **Processing...**");
+    ctx.showMessage("Processing...");
+
+    // Track start time for elapsed display
+    const startTime = Date.now();
 
     // Ensure CLI is running and we have a session
     const ready = await ensureSession(ctx);
@@ -95,15 +99,23 @@ ${formatProviderList()}`);
         iterationCount?: number;
       };
 
+      // Calculate elapsed time
+      const elapsed = Date.now() - startTime;
+      const seconds = Math.floor(elapsed / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+
       if (result.success) {
         const response = result.content || result.message;
         ctx.showMessage(`**FreeCode:** ${response || "Done!"}`);
+        ctx.showMessage(chalk.dim(`Baked for ${timeStr}`));
       } else {
-        ctx.showMessage(`**FreeCode:** ❌ ${result.message || "Unknown error"}`);
+        ctx.showMessage(`**FreeCode:** ${result.message || "Unknown error"}`);
       }
     } catch (error) {
       ctx.showMessage(
-        `❌ **Error:** ${error instanceof Error ? error.message : String(error)}`
+        `Error: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   },

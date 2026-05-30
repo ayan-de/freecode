@@ -52,7 +52,7 @@ tui.addChild(modelDisplay);
 tui.setFocus(editor);
 
 const defaultSelectListTheme: SelectListTheme = {
-	selectedPrefix: (text) => `❯ ${text}`,
+	selectedPrefix: (text) => `> ${text}`,
 	selectedText: (text) => chalk.cyanBright(text),
 	description: (text) => chalk.dim(text),
 	scrollInfo: (text) => chalk.dim(text),
@@ -313,9 +313,26 @@ editor.onSubmit = (value: string) => {
 	messageCount++;
 	showMessage(`**${chalk.red("You")}:** ${trimmed}`);
 
+	// Track start time for elapsed display
+	const startTime = Date.now();
+	showMessage("Processing...");
+
+	// Store cleanup function to call when real response arrives
+	const cleanupProcessing = () => {
+		// Calculate elapsed time
+		const elapsed = Date.now() - startTime;
+		const seconds = Math.floor(elapsed / 1000);
+		const minutes = Math.floor(seconds / 60);
+		const secs = seconds % 60;
+		const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+		showMessage(`Baked for ${timeStr}`);
+	};
+
+	// For now, simulate response after 2 seconds
+	// In real implementation, this would be called when IPC response arrives
 	setTimeout(() => {
-		showMessage(`**${chalk.cyan("FreeCode")}:** Message ${messageCount} received!`);
-	}, 500);
+		cleanupProcessing();
+	}, 2000);
 };
 
 // Handle Ctrl+C for clean exit from keyboard
