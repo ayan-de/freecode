@@ -6,6 +6,8 @@
 import { getTool, listTools } from "./tools/index.js";
 import { createAgentLoop } from "./agent/loop.js";
 import { initProviders, listProviders } from "./providers/index.js";
+import { getProviders, getProviderModels } from "./models-dev.js";
+import { readConfig, writeConfig, setApiKey, setCurrentModel, hasApiKey, getCurrentModel, type ProviderId } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
 import type { JsonRpcRequest, JsonRpcResponse, SessionConfig } from "@freecode/shared";
@@ -29,6 +31,7 @@ interface SessionInfo {
   id: string;
   projectPath: string;
   provider: string;
+  model?: string;
 }
 
 const sessions: Map<string, SessionInfo> = new Map();
@@ -88,20 +91,30 @@ const methodHandlers: Record<
   },
 
   "session.send": async (params: Record<string, unknown>): Promise<unknown> => {
-    const { sessionId, message } = params as { sessionId: string; message: string };
+    const { sessionId, message, model } = params as { sessionId: string; message: string; model?: string };
     const session = getSession(sessionId);
 
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    logger.info("Session send", { sessionId, messageLength: message.length });
+    // Get current provider from config, fallback to session.provider
+    const config = readConfig()
+    const currentProvider = config.current?.provider || session.provider
+
+    // Update session with model if provided
+    if (model) {
+      session.model = model;
+    }
+
+    logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider });
 
     const loop = createAgentLoop(sessionId, { maxIterations: 100 })
     const result = await loop.run({
       prompt: message,
       sessionId,
-      provider: session.provider,
+      provider: currentProvider,
+      model: session.model,
       projectPath: session.projectPath,
     })
 
@@ -118,11 +131,37 @@ const methodHandlers: Record<
   },
 
   "providers.list": async (): Promise<unknown[]> => {
-    return listProviders().map((p) => ({
+    const providers = await getProviders()
+    return providers.map((p) => ({
       id: p.id,
       name: p.name,
-      description: `AI provider via ${p.name}`,
-    }));
+      description: p.description,
+      hasApiKey: hasApiKey(p.id as ProviderId),
+    }))
+  },
+
+  "models.list": async (params: Record<string, unknown>): Promise<unknown[]> => {
+    const { providerId } = params as { providerId: string }
+    const models = await getProviderModels(providerId)
+    return models
+  },
+
+  "config.get": async (): Promise<unknown> => {
+    return readConfig()
+  },
+
+  "config.setApiKey": async (params: Record<string, unknown>): Promise<void> => {
+    const { provider, apiKey, model } = params as { provider: string; apiKey: string; model?: string }
+    setApiKey(provider as ProviderId, apiKey, model)
+  },
+
+  "config.setCurrentModel": async (params: Record<string, unknown>): Promise<void> => {
+    const { provider, model } = params as { provider: string; model: string }
+    setCurrentModel(provider, model)
+  },
+
+  "config.getCurrentModel": async (): Promise<unknown> => {
+    return getCurrentModel()
   },
 };
 

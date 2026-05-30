@@ -108,7 +108,7 @@ export class AgentLoop {
         }
 
         // Execute one turn: send prompt, get response, parse tools, execute
-        const turnResult = await this.executeTurn(prompt, input.provider, contextResult.value, previousToolResults)
+        const turnResult = await this.executeTurn(prompt, input.provider, input.model, contextResult.value, previousToolResults)
         if (!turnResult.success) {
           return this.fail("Turn execution failed", turnResult.error)
         }
@@ -145,13 +145,14 @@ export class AgentLoop {
   private async executeTurn(
     prompt: string,
     provider: string,
+    model: string | undefined,
     context: { name: string; projectPath: string; tree: string },
     previousToolResults?: ToolResult[]
   ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string }> {
     try {
       // TWO-PHASE CONTEXT COLLECTION
       // Phase 1: Ask model which files it needs to complete the task
-      const neededFiles = await this.askWhichFiles(prompt, context, provider)
+      const neededFiles = await this.askWhichFiles(prompt, context, provider, model)
       if (!neededFiles.success) {
         return { success: false, toolResults: [], error: neededFiles.error }
       }
@@ -177,7 +178,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       const modifiedPrompt = await this.hooks.runUserPromptSubmit(fullPrompt)
 
       console.log("[AgentLoop] Sending prompt to provider...")
-      const providerResult = await this.sendToProvider(modifiedPrompt, provider, previousToolResults)
+      const providerResult = await this.sendToProvider(modifiedPrompt, provider, model, previousToolResults)
 
       // Record turn.started event
       this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`)
@@ -260,7 +261,8 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   private async askWhichFiles(
     prompt: string,
     context: { name: string; projectPath: string; tree: string },
-    provider: string
+    provider: string,
+    model: string | undefined
   ): Promise<{ success: boolean; files?: string[]; error?: string }> {
     try {
       // Build a prompt asking the model which files it needs
@@ -281,7 +283,7 @@ Based on this task, which files do you need to read to understand the codebase a
         system: undefined,
         tools: [],
         toolResults: undefined,
-        model: undefined,
+        model,
       })
 
       // Parse the response to extract file paths
@@ -371,6 +373,7 @@ Based on this task, which files do you need to read to understand the codebase a
   private async sendToProvider(
     prompt: string,
     provider: string,
+    model: string | undefined,
     toolResults?: ToolResult[]
   ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }> }> {
     const aiProvider = getProvider(provider as any)
@@ -388,7 +391,7 @@ Based on this task, which files do you need to read to understand the codebase a
         result: tr.stdout || tr.error || "",
         name: tr.tool,
       })),
-      model: undefined,
+      model,
     })
     return { content: result.content, toolCalls: result.toolCalls }
   }
