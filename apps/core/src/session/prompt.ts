@@ -6,6 +6,10 @@
 
 import * as fs from "fs"
 import * as path from "path"
+import { fileURLToPath } from "url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // Provider prompt file mappings
 const PROMPT_FILES: Record<string, string> = {

@@ -39,7 +39,7 @@ function createSession(config: SessionConfig): SessionInfo {
   const session: SessionInfo = {
     id,
     projectPath: config.projectPath,
-    provider: config.provider || "chatgpt",
+    provider: config.provider || "anthropic",
   };
   sessions.set(id, session);
   return session;

@@ -151,7 +151,7 @@ export class AgentLoop {
     try {
       // TWO-PHASE CONTEXT COLLECTION
       // Phase 1: Ask model which files it needs to complete the task
-      const neededFiles = await this.askWhichFiles(prompt, context)
+      const neededFiles = await this.askWhichFiles(prompt, context, provider)
       if (!neededFiles.success) {
         return { success: false, toolResults: [], error: neededFiles.error }
       }
@@ -259,7 +259,8 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
   // ===========================================================================
   private async askWhichFiles(
     prompt: string,
-    context: { name: string; projectPath: string; tree: string }
+    context: { name: string; projectPath: string; tree: string },
+    provider: string
   ): Promise<{ success: boolean; files?: string[]; error?: string }> {
     try {
       // Build a prompt asking the model which files it needs
@@ -274,7 +275,7 @@ Task: ${prompt}
 Based on this task, which files do you need to read to understand the codebase and complete this task? Respond with a list of file paths, one per line. Only list files that are relevant to the task. If no files are needed, respond with "NONE".`
 
       console.log("[AgentLoop] Phase 1: Asking model which files it needs...")
-      const aiProvider = getProvider("chatgpt" as any)
+      const aiProvider = getProvider(provider as any)
       const result = await aiProvider.execute({
         prompt: filePrompt,
         system: undefined,

@@ -10,8 +10,12 @@
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
+import { fileURLToPath } from "url"
 import fg from "fast-glob"
 import type { Skill, SkillScope, LoaderOptions, SkillLoadResult } from "./types"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // ============================================================================
 // Constants
