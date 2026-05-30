@@ -1,7 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { generateText } from 'ai'
 import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
-import { getApiKey, ProviderId } from './config'
+import { getApiKey } from './config'
 import { registerProvider } from './registry'
 
 const PROVIDER_INFO = {
@@ -13,7 +13,7 @@ const PROVIDER_INFO = {
 }
 
 function createAnthropicProvider(_apiKey: string): AIProvider {
-  const anthropic = createAnthropic({ apiKey: getApiKey("anthropic" as ProviderId) })
+  const anthropic = createAnthropic({ apiKey: getApiKey("anthropic") })
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = opts.model || PROVIDER_INFO.defaultModel
@@ -57,7 +57,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
 }
 
 // Register on module load
-registerProvider("anthropic" as ProviderId, {
+registerProvider("anthropic", {
   info: PROVIDER_INFO,
   create: createAnthropicProvider,
 })

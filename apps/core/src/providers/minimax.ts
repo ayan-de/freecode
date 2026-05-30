@@ -1,5 +1,5 @@
 import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
-import { getApiKey, ProviderId } from './config'
+import { getApiKey } from './config'
 import { registerProvider } from './registry'
 
 const PROVIDER_INFO = {
@@ -15,7 +15,7 @@ const BASE_URL = "https://api.minimax.io/anthropic/v1/messages"
 function createMiniMaxProvider(_apiKey: string): AIProvider {
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = opts.model || PROVIDER_INFO.defaultModel
-    const apiKey = getApiKey("minimax" as ProviderId)
+    const apiKey = getApiKey("minimax")
 
     const messages: Array<{ role: "user" | "assistant"; content: string | Array<{ type: string; [key: string]: unknown }> }> = []
     if (opts.system) {
@@ -133,7 +133,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
   return { info: PROVIDER_INFO, execute }
 }
 
-registerProvider("minimax" as ProviderId, {
+registerProvider("minimax", {
   info: PROVIDER_INFO,
   create: createMiniMaxProvider,
 })

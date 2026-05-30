@@ -1,7 +1,7 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateText } from 'ai'
 import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
-import { getApiKey, ProviderId } from './config'
+import { getApiKey } from './config'
 import { registerProvider } from './registry'
 
 const PROVIDER_INFO = {
@@ -13,7 +13,7 @@ const PROVIDER_INFO = {
 }
 
 function createGeminiProvider(_apiKey: string): AIProvider {
-  const gemini = createGoogleGenerativeAI({ apiKey: getApiKey("gemini" as ProviderId) })
+  const gemini = createGoogleGenerativeAI({ apiKey: getApiKey("gemini") })
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = opts.model || PROVIDER_INFO.defaultModel
@@ -53,7 +53,7 @@ function createGeminiProvider(_apiKey: string): AIProvider {
   return { info: PROVIDER_INFO, execute }
 }
 
-registerProvider("gemini" as ProviderId, {
+registerProvider("gemini", {
   info: PROVIDER_INFO,
   create: createGeminiProvider,
 })

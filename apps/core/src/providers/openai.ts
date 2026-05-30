@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateText } from 'ai'
 import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
-import { getApiKey, ProviderId } from './config'
+import { getApiKey } from './config'
 import { registerProvider } from './registry'
 
 const PROVIDER_INFO = {
@@ -13,7 +13,7 @@ const PROVIDER_INFO = {
 }
 
 function createOpenAIProvider(_apiKey: string): AIProvider {
-  const openai = createOpenAI({ apiKey: getApiKey("openai" as ProviderId) })
+  const openai = createOpenAI({ apiKey: getApiKey("openai") })
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = opts.model || PROVIDER_INFO.defaultModel
@@ -53,7 +53,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
   return { info: PROVIDER_INFO, execute }
 }
 
-registerProvider("openai" as ProviderId, {
+registerProvider("openai", {
   info: PROVIDER_INFO,
   create: createOpenAIProvider,
 })
