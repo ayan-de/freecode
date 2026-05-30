@@ -15,6 +15,7 @@ registerBuiltInCommands();
 let tui: TUI;
 let messageCount = 0;
 let currentModel = "claude-sonnet-4-6";
+let modelDisplay: Text;
 let modelSelector: SelectList | null = null;
 
 const terminal = new ProcessTerminal();
@@ -38,6 +39,10 @@ const autocompleteProvider = new CombinedAutocompleteProvider(
 editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
+
+modelDisplay = new Text(chalk.dim(`Model: ${AVAILABLE_MODELS.find(m => m.id === currentModel)?.name ?? currentModel}`));
+tui.addChild(modelDisplay);
+
 tui.setFocus(editor);
 
 const defaultSelectListTheme: SelectListTheme = {
@@ -51,7 +56,9 @@ const defaultSelectListTheme: SelectListTheme = {
 function showMessage(content: string): void {
 	const msg = new Markdown(content, 1, 1, defaultMarkdownTheme);
 	const children = tui.children;
-	children.splice(children.length - 1, 0, msg);
+	// Insert after welcome (index 0), before editor and model display
+	const editorIdx = children.indexOf(editor);
+	children.splice(editorIdx, 0, msg);
 	tui.requestRender();
 }
 
@@ -79,12 +86,24 @@ function showModelSelector(): void {
 	const maxVisible = Math.min(modelItems.length, 5);
 	modelSelector = new SelectList(modelItems, maxVisible, defaultSelectListTheme);
 
-	modelSelector.onSelect = (item: SelectItem) => {
-		currentModel = item.value;
-		const model = AVAILABLE_MODELS.find((m) => m.id === item.value);
-		showMessage(`**Model changed to:** ${model?.name ?? item.value}`);
-		hideModelSelector();
-	};
+	function updateModelDisplay(): void {
+	const editorIdx = tui.children.indexOf(editor);
+	const displayIdx = editorIdx - 1;
+	if (displayIdx >= 0 && displayIdx < tui.children.length) {
+		const newDisplay = new Text(chalk.dim(`Model: ${AVAILABLE_MODELS.find(m => m.id === currentModel)?.name ?? currentModel}`));
+		tui.children[displayIdx] = newDisplay;
+		modelDisplay = newDisplay;
+	}
+}
+
+modelSelector.onSelect = (item: SelectItem) => {
+	currentModel = item.value;
+	const model = AVAILABLE_MODELS.find((m) => m.id === item.value);
+	updateModelDisplay();
+	tui.requestRender();
+	showMessage(`**Model changed to:** ${model?.name ?? item.value}`);
+	hideModelSelector();
+};
 
 	modelSelector.onCancel = () => {
 		hideModelSelector();
