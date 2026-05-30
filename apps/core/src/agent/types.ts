@@ -175,6 +175,7 @@ export interface UserInput {
   prompt: string
   sessionId: string
   provider: string
+  model?: string
   projectPath: string
 }
 
