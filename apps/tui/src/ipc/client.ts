@@ -149,8 +149,8 @@ export async function sessionStop(sessionId: string): Promise<void> {
   await sendRequest("session.stop", { sessionId });
 }
 
-export async function sessionSend(sessionId: string, message: string): Promise<unknown> {
-  return await sendRequest("session.send", { sessionId, message });
+export async function sessionSend(sessionId: string, message: string, model?: string): Promise<unknown> {
+  return await sendRequest("session.send", { sessionId, message, model });
 }
 
 // =============================================================================
@@ -159,4 +159,35 @@ export async function sessionSend(sessionId: string, message: string): Promise<u
 
 export async function listProviders(): Promise<ProviderInfo[]> {
   return (await sendRequest("providers.list")) as ProviderInfo[];
+}
+
+export interface ModelInfo {
+  id: string
+  name: string
+  description?: string
+}
+
+export async function listModels(providerId: string): Promise<ModelInfo[]> {
+  return (await sendRequest("models.list", { providerId })) as ModelInfo[];
+}
+
+export interface ConfigInfo {
+  providers?: Record<string, { apiKey?: string }>
+  current?: { provider: string; model: string }
+}
+
+export async function getConfig(): Promise<ConfigInfo> {
+  return (await sendRequest("config.get")) as ConfigInfo;
+}
+
+export async function setApiKey(provider: string, apiKey: string, model?: string): Promise<void> {
+  await sendRequest("config.setApiKey", { provider, apiKey, model })
+}
+
+export async function setCurrentModel(provider: string, model: string): Promise<void> {
+  await sendRequest("config.setCurrentModel", { provider, model })
+}
+
+export async function getCurrentModel(): Promise<{ provider: string; model: string } | undefined> {
+  return (await sendRequest("config.getCurrentModel")) as { provider: string; model: string } | undefined
 }
