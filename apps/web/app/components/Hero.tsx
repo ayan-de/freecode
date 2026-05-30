@@ -30,7 +30,7 @@ export function Hero() {
       </div>
 
       {/* Foreground Content */}
-      <div className="relative z-10 flex flex-col items-start text-left gap-6 w-full max-w-6xl mx-auto mt-0 py-12 ml-8">
+      <div className="relative z-10 flex flex-col items-center text-center gap-6 w-full max-w-6xl mx-auto mt-0 py-12">
         <h1 className="text-5xl lg:text-[4.5rem] font-bold text-white tracking-tight leading-[1.1] max-w-3xl">
           Your <span className="brand-gradient-text">AI</span> Coding Assistant
         </h1>
