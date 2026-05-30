@@ -349,4 +349,8 @@ tui.addInputListener((data) => {
 // Load current model from config on startup
 loadCurrentModel();
 
+// Stop sound on exit
+const freecodeModule = await import("./commands/freecode/index.js");
+process.on("exit", () => freecodeModule.stopSound?.());
+
 tui.start();

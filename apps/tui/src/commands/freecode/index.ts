@@ -6,13 +6,13 @@ import chalk from "chalk";
 import { registerCommand, type Command, type CommandContext } from "../index.js";
 import {
   startCli,
-  stopCli,
   sessionStart,
-  sessionStop,
   sessionSend,
   listProviders,
   type SessionInfo,
 } from "../../ipc/client.js";
+import { playSound } from "./sound.js";
+import { playAlert } from "./alert.js";
 
 // State
 let currentSession: SessionInfo | null = null;
@@ -83,6 +83,9 @@ ${formatProviderList()}`);
     ctx.showMessage(`**You:** ${userPrompt}`);
     ctx.showMessage("Processing...");
 
+    // Play sound while processing
+    // playSound();
+
     // Track start time for elapsed display
     const startTime = Date.now();
 
@@ -110,13 +113,19 @@ ${formatProviderList()}`);
         const response = result.content || result.message;
         ctx.showMessage(`**FreeCode:** ${response || "Done!"}`);
         ctx.showMessage(chalk.dim(`Baked for ${timeStr}`));
+        // stopSound();
+        playAlert();
       } else {
         ctx.showMessage(`**FreeCode:** ${result.message || "Unknown error"}`);
+        // stopSound();
+        playAlert();
       }
     } catch (error) {
       ctx.showMessage(
         `Error: ${error instanceof Error ? error.message : String(error)}`
       );
+    //   stopSound();
+      playAlert();
     }
   },
 };

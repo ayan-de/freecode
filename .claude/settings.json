@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm --filter @freecode/core build)"
+      "Bash(pnpm --filter @freecode/core build)",
+      "Bash(pnpm add *)",
+      "Bash(mpg123 -q \"/home/ayan-de/Projects/freecode/apps/tui/src/assets/Pee Loon Once Upon A Time In Mumbaai 128 Kbps.mp3\")",
+      "Bash(mpg123 -q \"/home/ayan-de/Projects/freecode/apps/tui/src/assets/alert.mp3\")"
     ]
   }
 }
