@@ -80,7 +80,11 @@ const methodHandlers: Record<
       throw new Error(`Tool not found: ${name}`);
     }
     const ctx: ToolContext = { cwd: process.cwd() };
-    return tool.execute(args, ctx);
+    const result = await tool.execute(args, ctx);
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+    return result.result as ToolCallResult;
   },
 
   "session.start": async (params: Record<string, unknown>): Promise<SessionStartResult> => {
