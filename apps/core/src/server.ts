@@ -11,6 +11,11 @@ import { readConfig, writeConfig, setApiKey, setCurrentModel, hasApiKey, getCurr
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
 import type { JsonRpcRequest, JsonRpcResponse, SessionConfig } from "@freecode/shared";
+import { getMemoryStore, type MemoryEntry, type MemoryType } from "./memory/index.js";
+import { findRelevantMemories } from "./memory/mem-query.js";
+import { buildMemoryPrompt } from "./memory/mem-prompt.js";
+import { getSessionManager, type SessionContext } from "./session/index.js";
+import { getRemoteSync, type ExportedSession, type RemoteSessionConfig } from "./store/index.js";
 
 interface ToolListItem {
   id: string;
@@ -166,6 +171,102 @@ const methodHandlers: Record<
 
   "config.getCurrentModel": async (): Promise<unknown> => {
     return getCurrentModel()
+  },
+
+  // ========== Memory Methods ==========
+
+  "memory.list": async (params: Record<string, unknown>): Promise<MemoryEntry[]> => {
+    const { projectPath, type } = params as { projectPath?: string; type?: MemoryType }
+    const store = getMemoryStore(projectPath || process.cwd())
+    return store.list(type)
+  },
+
+  "memory.get": async (params: Record<string, unknown>): Promise<MemoryEntry | null> => {
+    const { name, type, projectPath } = params as { name: string; type: MemoryType; projectPath?: string }
+    const store = getMemoryStore(projectPath || process.cwd())
+    return store.load(name, type) || null
+  },
+
+  "memory.save": async (params: Record<string, unknown>): Promise<void> => {
+    const { entry, projectPath } = params as { entry: MemoryEntry; projectPath?: string }
+    const store = getMemoryStore(projectPath || process.cwd())
+    store.save(entry)
+  },
+
+  "memory.delete": async (params: Record<string, unknown>): Promise<boolean> => {
+    const { name, type, projectPath } = params as { name: string; type: MemoryType; projectPath?: string }
+    const store = getMemoryStore(projectPath || process.cwd())
+    return store.delete(name, type)
+  },
+
+  "memory.query": async (params: Record<string, unknown>): Promise<MemoryEntry[]> => {
+    const { query, projectPath, limit, types } = params as { query: string; projectPath?: string; limit?: number; types?: MemoryType[] }
+    const store = getMemoryStore(projectPath || process.cwd())
+    return findRelevantMemories(query, store, { limit, types })
+  },
+
+  "memory.buildPrompt": async (params: Record<string, unknown>): Promise<string> => {
+    const { projectPath, includeAll, types, limit } = params as { projectPath?: string; includeAll?: boolean; types?: MemoryType[]; limit?: number }
+    const store = getMemoryStore(projectPath || process.cwd())
+    return buildMemoryPrompt(store, { includeAll, types, limit })
+  },
+
+  // ========== Session Methods ==========
+
+  "session.list": async (params: Record<string, unknown>): Promise<SessionContext[]> => {
+    const { projectPath, status } = params as { projectPath?: string; status?: "active" | "archived" | "deleted" }
+    const manager = await getSessionManager()
+    return manager.list({ projectPath, status })
+  },
+
+  "session.resume": async (params: Record<string, unknown>): Promise<SessionContext> => {
+    const { sessionId } = params as { sessionId: string }
+    const manager = await getSessionManager()
+    return manager.resume(sessionId)
+  },
+
+  "session.switch": async (params: Record<string, unknown>): Promise<void> => {
+    const { sessionId } = params as { sessionId: string }
+    const manager = await getSessionManager()
+    await manager.switch(sessionId)
+  },
+
+  "session.fork": async (params: Record<string, unknown>): Promise<string> => {
+    const { sessionId, point } = params as { sessionId: string; point?: string }
+    const manager = await getSessionManager()
+    return manager.fork(sessionId, point)
+  },
+
+  "session.archive": async (params: Record<string, unknown>): Promise<void> => {
+    const { sessionId } = params as { sessionId: string }
+    const manager = await getSessionManager()
+    await manager.archive(sessionId)
+  },
+
+  "session.delete": async (params: Record<string, unknown>): Promise<void> => {
+    const { sessionId } = params as { sessionId: string }
+    const manager = await getSessionManager()
+    await manager.delete(sessionId)
+  },
+
+  // ========== Remote Sync Methods ==========
+
+  "session.export": async (params: Record<string, unknown>): Promise<ExportedSession> => {
+    const { sessionId } = params as { sessionId: string }
+    const remoteSync = await getRemoteSync()
+    return remoteSync.exportSession(sessionId)
+  },
+
+  "session.upload": async (params: Record<string, unknown>): Promise<string> => {
+    const { sessionId, endpoint, apiKey } = params as { sessionId: string; endpoint: string; apiKey?: string }
+    const remoteSync = await getRemoteSync()
+    return remoteSync.upload(sessionId, { endpoint, apiKey })
+  },
+
+  "session.download": async (params: Record<string, unknown>): Promise<string> => {
+    const { url, endpoint, apiKey } = params as { url: string; endpoint?: string; apiKey?: string }
+    const remoteSync = await getRemoteSync()
+    return remoteSync.download(url, { endpoint: endpoint || url, apiKey })
   },
 };
 
