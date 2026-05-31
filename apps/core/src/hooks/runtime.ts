@@ -1,5 +1,5 @@
 // =============================================================================
-// Hook Runtime - 10 hook event types for extensibility
+// Hook Runtime - Hook execution engine for FreeCode
 // PRIMARY: Interception points for modifying agent behavior
 // INPUT: ToolCall, ToolResult, HookContext at various lifecycle points
 // OUTPUT: HookResult (can block/modify), modified ToolResult, or void
@@ -8,125 +8,315 @@
 // PURPOSE: Allows plugins and custom behavior without modifying core loop
 // =============================================================================
 
-import type { ToolCall, ToolResult, HookContext, HookResult } from "../agent/types.js"
+import type { ToolCall, ToolResult } from "../agent/types.js"
+import type {
+  HookContext,
+  HookEventName,
+  ToolCallInput,
+  HookCommand,
+  HookMatcher,
+  RegisteredHook,
+  HookExecutionResult,
+  CommandHook,
+  PromptHook,
+  CallbackHook,
+  HookResult,
+} from "./types.js"
+import { HOOK_EVENT_NAMES } from "./types.js"
+import { runPreToolUseHooks } from "./PreToolUse.js"
+import { runPostToolUseHooks } from "./PostToolUse.js"
+import { runPermissionRequestHooks } from "./PermissionRequest.js"
+import { runSessionStartHooks } from "./SessionStart.js"
+import { runStopHooks } from "./Stop.js"
+import { runPreCompactHooks } from "./PreCompact.js"
+import { runPostCompactHooks } from "./PostCompact.js"
+import { runUserPromptSubmitHooks } from "./UserPromptSubmit.js"
+import { runSubagentStartHooks } from "./SubagentStart.js"
+import { runSubagentStopHooks } from "./SubagentStop.js"
+import {
+  registerHook,
+  unregisterHook,
+  unregisterAllHooks,
+  getHooksForEvent,
+  getMatchingHooks,
+  listRegisteredHooks,
+} from "./registry.js"
+import { bus } from "../bus/index.js"
 
 // =============================================================================
 // HookRuntime Interface
 // =============================================================================
+
 export interface HookRuntime {
-  runPreToolUse(tool: ToolCall, ctx: HookContext): Promise<HookResult>
-  runPostToolUse(tool: ToolCall, result: ToolResult, ctx: HookContext): Promise<ToolResult>
-  runPermissionRequest(tool: ToolCall, ctx: HookContext): Promise<HookResult>
-  runPreCompact(context: HookContext): Promise<HookResult>
-  runPostCompact(context: HookContext): Promise<void>
-  runSessionStart(session: { status: string; sessionId: string }): Promise<void>
-  runUserPromptSubmit(prompt: string): Promise<string>
-  runSubagentStart(tool: ToolCall, ctx: HookContext): Promise<HookResult>
-  runSubagentStop(result: string, ctx: HookContext): Promise<void>
-  runStop(reason: string): Promise<void>
+  // Tool hooks
+  runPreToolUse(tool: ToolCall, ctx: HookContext): Promise<{
+    allowed: boolean
+    modifiedInput?: Record<string, unknown>
+    additionalContext?: string
+    blockReason?: string
+  }>
+  runPostToolUse(
+    tool: ToolCall,
+    result: ToolResult,
+    ctx: HookContext
+  ): Promise<{
+    modifiedOutput?: unknown
+    additionalContext?: string
+  }>
+  runPermissionRequest(
+    tool: ToolCall,
+    ctx: HookContext
+  ): Promise<{
+    decision: "allow" | "deny" | "ask"
+    modifiedInput?: Record<string, unknown>
+    reason?: string
+  }>
+
+  // Session hooks
+  runSessionStart(ctx: HookContext): Promise<{
+    additionalContext?: string
+    initialUserMessage?: string
+  }>
+  runStop(reason: string, ctx: HookContext): Promise<{
+    blocked?: boolean
+    blockReason?: string
+  }>
+
+  // Compact hooks
+  runPreCompact(ctx: HookContext): Promise<{
+    allowed: boolean
+    blockReason?: string
+  }>
+  runPostCompact(ctx: HookContext, success: boolean): Promise<{
+    additionalContext?: string
+  }>
+
+  // Prompt hooks
+  runUserPromptSubmit(prompt: string, ctx: HookContext): Promise<{
+    modifiedPrompt?: string
+    additionalContext?: string
+  }>
+
+  // Subagent hooks
+  runSubagentStart(name: string, ctx: HookContext): Promise<{
+    additionalContext?: string
+  }>
+  runSubagentStop(name: string, ctx: HookContext): Promise<{
+    additionalContext?: string
+  }>
+
+  // Utility
+  getHooksForEvent(event: HookEventName): ReturnType<typeof getHooksForEvent>
+  listHooks(): string
 }
 
 // =============================================================================
-// 10 Hook Event Types (documented)
-// =============================================================================
-// const HOOK_EVENT_NAMES = [
-//   "PreToolUse",       // Before tool execution — modify input or block
-//   "PostToolUse",      // After tool execution — modify output, log
-//   "PermissionRequest", // When tool requires user approval
-//   "PreCompact",       // Before memory compaction — inspect/modify context
-//   "PostCompact",      // After memory compaction — verify result
-//   "SessionStart",     // When session begins — initialize session state
-//   "UserPromptSubmit",  // Before user prompt goes to model
-//   "SubagentStart",    // When a sub-agent is spawned
-//   "SubagentStop",     // When a sub-agent completes
-//   "Stop",             // When agent loop terminates
-// ] as const;
+// Default Hook Runtime Implementation
 // =============================================================================
 
+export function createHookRuntime(): HookRuntime {
+  return {
+    // =========================================================================
+    // PreToolUse Hook - Called before each tool execution
+    // Can: modify tool input, block execution, inject context
+    // =========================================================================
+    async runPreToolUse(
+      tool: ToolCall,
+      ctx: HookContext
+    ): Promise<{
+      allowed: boolean
+      modifiedInput?: Record<string, unknown>
+      additionalContext?: string
+      blockReason?: string
+    }> {
+      return runPreToolUseHooks(tool, ctx)
+    },
+
+    // =========================================================================
+    // PostToolUse Hook - Called after each tool execution
+    // Can: modify result, log, inject additional context
+    // =========================================================================
+    async runPostToolUse(
+      tool: ToolCall,
+      result: ToolResult,
+      ctx: HookContext
+    ): Promise<{
+      modifiedOutput?: unknown
+      additionalContext?: string
+    }> {
+      return runPostToolUseHooks(tool, result, ctx)
+    },
+
+    // =========================================================================
+    // PermissionRequest Hook - Called before executing risky tools
+    // Can: request user approval, block execution
+    // =========================================================================
+    async runPermissionRequest(
+      tool: ToolCall,
+      ctx: HookContext
+    ): Promise<{
+      decision: "allow" | "deny" | "ask"
+      modifiedInput?: Record<string, unknown>
+      reason?: string
+    }> {
+      return runPermissionRequestHooks(tool, ctx)
+    },
+
+    // =========================================================================
+    // SessionStart Hook - Called when session begins
+    // Can: initialize session state, load context
+    // =========================================================================
+    async runSessionStart(
+      ctx: HookContext
+    ): Promise<{
+      additionalContext?: string
+      initialUserMessage?: string
+    }> {
+      return runSessionStartHooks(ctx)
+    },
+
+    // =========================================================================
+    // Stop Hook - Called when agent loop terminates
+    // Can: cleanup, final logging, notification
+    // =========================================================================
+    async runStop(
+      reason: string,
+      ctx: HookContext
+    ): Promise<{
+      blocked?: boolean
+      blockReason?: string
+    }> {
+      return runStopHooks(reason, ctx)
+    },
+
+    // =========================================================================
+    // PreCompact Hook - Called before memory compaction
+    // Can: inspect context, modify before compaction
+    // =========================================================================
+    async runPreCompact(
+      ctx: HookContext
+    ): Promise<{
+      allowed: boolean
+      blockReason?: string
+    }> {
+      return runPreCompactHooks(ctx)
+    },
+
+    // =========================================================================
+    // PostCompact Hook - Called after memory compaction
+    // Can: verify result, inject additional context
+    // =========================================================================
+    async runPostCompact(
+      ctx: HookContext,
+      success: boolean
+    ): Promise<{
+      additionalContext?: string
+    }> {
+      return runPostCompactHooks(ctx, success)
+    },
+
+    // =========================================================================
+    // UserPromptSubmit Hook - Called before user prompt goes to model
+    // Can: modify prompt, inject context
+    // =========================================================================
+    async runUserPromptSubmit(
+      prompt: string,
+      ctx: HookContext
+    ): Promise<{
+      modifiedPrompt?: string
+      additionalContext?: string
+    }> {
+      return runUserPromptSubmitHooks(prompt, ctx)
+    },
+
+    // =========================================================================
+    // SubagentStart Hook - Called when a subagent is spawned
+    // Can: initialize subagent context
+    // =========================================================================
+    async runSubagentStart(
+      name: string,
+      ctx: HookContext
+    ): Promise<{
+      additionalContext?: string
+    }> {
+      return runSubagentStartHooks(name, ctx)
+    },
+
+    // =========================================================================
+    // SubagentStop Hook - Called when a subagent completes
+    // Can: collect results, cleanup
+    // =========================================================================
+    async runSubagentStop(
+      name: string,
+      ctx: HookContext
+    ): Promise<{
+      additionalContext?: string
+    }> {
+      return runSubagentStopHooks(name, ctx)
+    },
+
+    // =========================================================================
+    // Utility Methods
+    // =========================================================================
+    getHooksForEvent(event: HookEventName) {
+      return getHooksForEvent(event)
+    },
+
+    listHooks() {
+      return listRegisteredHooks()
+    },
+  }
+}
+
 // =============================================================================
-// createHookRuntime - Factory function
-// Returns default hook runtime (no-ops for all hooks)
-// Replace with actual implementations for custom behavior
+// Global Hook Runtime Instance
 // =============================================================================
-export const createHookRuntime = (): HookRuntime => ({
-  // ===========================================================================
-  // PreToolUse Hook - Called before each tool execution
-  // Can: modify tool input, block execution, inject context
-  // ===========================================================================
-  async runPreToolUse(_tool: ToolCall, _ctx: HookContext): Promise<HookResult> {
-    return { action: "continue" }
-  },
 
-  // ===========================================================================
-  // PostToolUse Hook - Called after each tool execution
-  // Can: modify result, log, inject additional context
-  // ===========================================================================
-  async runPostToolUse(_tool: ToolCall, result: ToolResult, _ctx: HookContext): Promise<ToolResult> {
-    return result
-  },
+let hookRuntime: HookRuntime | null = null
 
-  // ===========================================================================
-  // PermissionRequest Hook - Called before executing risky tools
-  // Can: request user approval, block execution
-  // ===========================================================================
-  async runPermissionRequest(_tool: ToolCall, _ctx: HookContext): Promise<HookResult> {
-    // Default: continue without requiring permission
-    return { action: "continue" }
-  },
+export function getHookRuntime(): HookRuntime {
+  if (!hookRuntime) {
+    hookRuntime = createHookRuntime()
+  }
+  return hookRuntime
+}
 
-  // ===========================================================================
-  // PreCompact Hook - Called before memory compaction
-  // Can: inspect context, modify what gets compacted
-  // ===========================================================================
-  async runPreCompact(_context: HookContext): Promise<HookResult> {
-    return { action: "continue" }
-  },
+export function resetHookRuntime(): void {
+  hookRuntime = null
+}
 
-  // ===========================================================================
-  // PostCompact Hook - Called after memory compaction completes
-  // Can: verify compaction result, log summary
-  // ===========================================================================
-  async runPostCompact(_context: HookContext): Promise<void> {
-    // no-op by default
-  },
+// =============================================================================
+// Export types and registry for external use
+// =============================================================================
 
-  // ===========================================================================
-  // SessionStart Hook - Called when session begins
-  // Can: initialize session state, load context
-  // ===========================================================================
-  async runSessionStart(_session: { status: string; sessionId: string }): Promise<void> {
-    // no-op by default
-  },
-
-  // ===========================================================================
-  // UserPromptSubmit Hook - Called before user prompt goes to model
-  // Can: modify prompt, add context, filter content
-  // ===========================================================================
-  async runUserPromptSubmit(prompt: string): Promise<string> {
-    return prompt
-  },
-
-  // ===========================================================================
-  // SubagentStart Hook - Called when a sub-agent is spawned
-  // Can: modify sub-agent config, block spawning
-  // ===========================================================================
-  async runSubagentStart(_tool: ToolCall, _ctx: HookContext): Promise<HookResult> {
-    return { action: "continue" }
-  },
-
-  // ===========================================================================
-  // SubagentStop Hook - Called when a sub-agent completes
-  // Can: process sub-agent result, log
-  // ===========================================================================
-  async runSubagentStop(_result: string, _ctx: HookContext): Promise<void> {
-    // no-op by default
-  },
-
-  // ===========================================================================
-  // Stop Hook - Called when agent loop terminates
-  // Can: cleanup, final logging, notification
-  // ===========================================================================
-  async runStop(_reason: string): Promise<void> {
-    // no-op by default
-  },
-})
+export {
+  HOOK_EVENT_NAMES,
+  type HookEventName,
+  type ToolCallInput,
+  type HookContext,
+  type HookCommand,
+  type HookMatcher,
+  type RegisteredHook,
+  type HookExecutionResult,
+  type CommandHook,
+  type PromptHook,
+  type CallbackHook,
+  type HookResult,
+  registerHook,
+  unregisterHook,
+  unregisterAllHooks,
+  getMatchingHooks,
+  getHooksForEvent,
+  listRegisteredHooks,
+  // Individual hook handlers
+  runPreToolUseHooks,
+  runPostToolUseHooks,
+  runPermissionRequestHooks,
+  runPreCompactHooks,
+  runPostCompactHooks,
+  runSessionStartHooks,
+  runUserPromptSubmitHooks,
+  runSubagentStartHooks,
+  runSubagentStopHooks,
+  runStopHooks,
+}

@@ -78,7 +78,7 @@ export class AgentLoop {
       }
 
       // Step 2: Run SessionStart hook
-      await this.hooks.runSessionStart({ status: this.state.status, sessionId: this.state.sessionId })
+      await this.hooks.runSessionStart({ sessionId: this.state.sessionId, turnCount: this.state.turnCount })
 
       // Step 3: Emit session.created event
       BusEvents.sessionCreated(this.state.sessionId, input.projectPath)
@@ -175,7 +175,11 @@ ${fileContext}
 ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
-      const modifiedPrompt = await this.hooks.runUserPromptSubmit(fullPrompt)
+      const hookResult = await this.hooks.runUserPromptSubmit(fullPrompt, { sessionId: this.state.sessionId, turnCount: this.state.turnCount })
+      const modifiedPrompt = hookResult.modifiedPrompt ?? fullPrompt
+      if (hookResult.additionalContext) {
+        console.log(`[AgentLoop] UserPromptSubmit hook added context`)
+      }
 
       console.log("[AgentLoop] Sending prompt to provider...")
       const providerResult = await this.sendToProvider(modifiedPrompt, provider, model, previousToolResults)
@@ -203,13 +207,13 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         if (this.memory.shouldCompact(provider)) {
           // PreCompact Hook — can inspect/modify context before compaction
           const preHookCtx: HookContext = { sessionId: this.state.sessionId, turnCount: this.state.turnCount }
-          const preResult = await this.hooks.runPreCompact(preHookCtx)
-          if (preResult.action === "block") {
-            console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.reason ?? "no reason"}`)
+          const preResult = await this.hooks.runPreCompact({ sessionId: this.state.sessionId, turnCount: this.state.turnCount })
+          if (!preResult.allowed) {
+            console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`)
           } else {
             const result = await this.memory.compact()
             // PostCompact Hook — verify/log compaction result
-            await this.hooks.runPostCompact(preHookCtx)
+            await this.hooks.runPostCompact({ sessionId: this.state.sessionId, turnCount: this.state.turnCount }, result.success)
             if (!result.success) {
               console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
             }
@@ -235,12 +239,12 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         // PreCompact Hook — can inspect/modify context before compaction
         const preHookCtx: HookContext = { sessionId: this.state.sessionId, turnCount: this.state.turnCount }
         const preResult = await this.hooks.runPreCompact(preHookCtx)
-        if (preResult.action === "block") {
-          console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.reason ?? "no reason"}`)
+        if (!preResult.allowed) {
+          console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`)
         } else {
           const result = await this.memory.compact()
           // PostCompact Hook — verify/log compaction result
-          await this.hooks.runPostCompact(preHookCtx)
+          await this.hooks.runPostCompact(preHookCtx, result.success)
           if (!result.success) {
             console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
           }
@@ -496,33 +500,33 @@ Based on this task, which files do you need to read to understand the codebase a
 
     // PreToolUse Hook — can block or modify tool call
     const preResult = await this.hooks.runPreToolUse(toolCall, hookContext)
-    if (preResult.action === "block") {
-      console.warn(`[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.reason ?? "no reason"}`)
+    if (!preResult.allowed) {
+      console.warn(`[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.blockReason ?? "no reason"}`)
       const blockedResult = {
         id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         toolCallId: toolCall.id,
         tool: toolCall.tool,
         title: `Tool ${toolCall.tool}`,
-        error: `Blocked by hook: ${preResult.reason ?? "no reason"}`,
+        error: `Blocked by hook: ${preResult.blockReason ?? "no reason"}`,
       }
       // Record function.call blocked event
-      this.recorder.recordHookBlocked(hookContext.toolName ?? toolCall.tool, preResult.reason ?? "no reason")
+      this.recorder.recordHookBlocked(hookContext.toolName ?? toolCall.tool, preResult.blockReason ?? "no reason")
       // Emit tool.completed for blocked tool
       BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
       return blockedResult
     }
 
-    // Inject context if hook requested injection
-    if (preResult.action === "inject" && preResult.injectContext) {
+    // Apply input modifications from hook if any
+    if (preResult.modifiedInput) {
       toolCall = {
         ...toolCall,
-        args: { ...(toolCall.args as Record<string, unknown>), ...preResult.injectContext },
+        args: { ...(toolCall.args as Record<string, unknown>), ...preResult.modifiedInput },
       }
     }
 
     // PermissionRequest Hook — can block dangerous operations requiring user approval
     const permResult = await this.hooks.runPermissionRequest(toolCall, hookContext)
-    if (permResult.action === "block") {
+    if (permResult.decision === "deny") {
       console.warn(`[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`)
       const blockedResult = {
         id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -533,6 +537,14 @@ Based on this task, which files do you need to read to understand the codebase a
       }
       BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
       return blockedResult
+    }
+
+    // Apply input modifications from permission hook if any
+    if (permResult.modifiedInput) {
+      toolCall = {
+        ...toolCall,
+        args: { ...(toolCall.args as Record<string, unknown>), ...permResult.modifiedInput },
+      }
     }
 
     // Emit tool.called event before execution
@@ -707,7 +719,7 @@ Based on this task, which files do you need to read to understand the codebase a
   private async stop(reason: string): Promise<void> {
     this.state = { ...this.state, status: "stopped" }
     // Run Stop hook on termination
-    await this.hooks.runStop(reason)
+    await this.hooks.runStop(reason, { sessionId: this.state.sessionId, turnCount: this.state.turnCount })
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId)
   }
