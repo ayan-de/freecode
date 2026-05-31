@@ -8,6 +8,8 @@ import chalk from "chalk";
 import { defaultEditorTheme } from "./themes.js";
 import { logoLines, logoTagline } from "./assets/logo.js";
 import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "./utils/elapsed-phrases.js";
+import { getModelContextLimit } from "./utils/model-limits.js";
+import { formatTokenCount } from "./utils/format-tokens.js";
 import {
   startCli,
   sessionStart,
@@ -26,6 +28,7 @@ import {
   createSystemMessage,
   createInProgressMessage,
   removeMessageById,
+  updateInProgressMessage,
   subscribeToMessages,
   onMessagesChange,
   type MessageInstance,
@@ -301,7 +304,8 @@ editor.onSubmit = async (value: string) => {
 					createUserMessage: (content: string) => createUserMessage(content),
 					createAssistantMessage: (content: string) => createAssistantMessage(content),
 					createSystemMessage: (content: string) => createSystemMessage(content),
-					createInProgressMessage: (phrase: string) => createInProgressMessage(phrase),
+					createInProgressMessage: (phrase: string, inputTokens = 0, outputTokens = 0, contextLimit = 0) => createInProgressMessage(phrase, inputTokens, outputTokens, contextLimit),
+					updateInProgressMessage: (id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number) => updateInProgressMessage(id, phrase, inputTokens, outputTokens, contextLimit, startTime),
 					insertBeforeEditor: () => { /* no-op - messages go through store now */ },
 					removeMessageById: (id: number) => removeMessageById(id),
 				});
@@ -350,16 +354,25 @@ editor.onSubmit = async (value: string) => {
 	}
 
 	try {
-		const result = await sessionSend(currentSession.sessionId, trimmed) as {
-			success: boolean;
-			message?: string;
-			content?: string;
-			turnCount?: number;
-			iterationCount?: number;
-		};
+		const result = await sessionSend(currentSession.sessionId, trimmed);
 
-		// Remove in-progress message
+		// Update in-progress message with token counts from result
+		const contextLimit = getModelContextLimit(`${currentProvider}/${currentModel}`);
+		updateInProgressMessage(
+			inProgressMsg.id,
+			getRandomInProgressPhrase(),
+			result.usage?.inputTokens ?? 0,
+			result.usage?.outputTokens ?? 0,
+			contextLimit,
+			inProgressMsg.timestamp
+		);
+
+		// Brief pause so user can see final token state before it disappears
+		await new Promise(resolve => setTimeout(resolve, 500));
+
+		// Remove in-progress message now that response has arrived
 		removeMessageById(inProgressMsg.id);
+
 
 		const elapsed = Date.now() - inProgressMsg.timestamp;
 		const seconds = Math.floor(elapsed / 1000);
@@ -370,7 +383,14 @@ editor.onSubmit = async (value: string) => {
 		if (result.success) {
 			const response = result.content || result.message;
 			createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
-			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
+			const inTokens = result.usage?.inputTokens ?? 0;
+			const outTokens = result.usage?.outputTokens ?? 0;
+			const contextLimit = getModelContextLimit(`${currentProvider}/${currentModel}`);
+			let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
+			if (contextLimit > 0) {
+				tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
+			}
+			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo}`);
 		} else {
 			createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
 			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
