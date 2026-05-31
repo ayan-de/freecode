@@ -18,7 +18,7 @@ import type {
   HookContext,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
-import { createToolOrchestrator, listTools } from "../tools/index.js"
+import { createToolOrchestrator, listTools, getTool } from "../tools/index.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js"
@@ -377,11 +377,14 @@ Based on this task, which files do you need to read to understand the codebase a
     toolResults?: ToolResult[]
   ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }> }> {
     const aiProvider = getProvider(provider as any)
-    const tools = listTools().map(t => ({
-      name: t.id,
-      description: t.description,
-      parameters: { type: "object", properties: {} as Record<string, unknown> }
-    }))
+    const tools = listTools().map(t => {
+      const toolDef = getTool(t.id)
+      return {
+        name: t.id,
+        description: t.description,
+        parameters: (toolDef?.schemas.parameters ?? { type: "object", properties: {} }) as unknown as Record<string, unknown>
+      }
+    })
     const result = await aiProvider.execute({
       prompt,
       system: loadProviderPrompt(provider),
@@ -546,14 +549,14 @@ Based on this task, which files do you need to read to understand the codebase a
     const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
 
     // Record function.output event
-    this.recorder.recordFunctionOutput(toolCall.tool, postResult.stdout || postResult.error || "", Date.now() - startTime)
+    this.recorder.recordFunctionOutput(toolCall.tool, result.stdout || result.error || "", Date.now() - startTime)
 
     // Emit tool.completed event with duration
     const duration_ms = Date.now() - startTime
-    const success = !postResult.error
+    const success = !result.error
     BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, success, duration_ms)
 
-    return postResult
+    return result
   }
 
   // ===========================================================================
