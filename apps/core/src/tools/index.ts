@@ -8,11 +8,15 @@ import { SkillTool } from "./skill"
 import { AgentTool } from "./agent"
 import { QuestionTool } from "./question"
 import { createToolOrchestrator, type ToolOrchestrator } from "./orchestrator"
-import type { ToolDef } from "./types"
+import type { ToolContext, ToolResult, JsonSchema, FileCache, FileCacheEntry, PermissionProfile } from "./types"
+import type { Tool, ToolUseMessage, ToolUI, ToolBehavior, ToolPermissions, ToolExecutionResult, ValidationResult, PermissionCheckResult } from "./tool.types"
+import { buildTool, defaultToolUI, defaultBehavior, executeTool } from "./factory"
+import { createToolRenderer, type ToolRenderer, formatToolUseMessage, formatToolUseTag } from "./renderer"
 
-export type { ToolContext, ToolResult, JsonSchema } from "./types"
-export type { ToolDef }
+export type { ToolContext, ToolResult, JsonSchema, FileCache, FileCacheEntry, PermissionProfile }
+export type { Tool, ToolUseMessage, ToolUI, ToolBehavior, ToolPermissions, ToolExecutionResult, ValidationResult, PermissionCheckResult }
 export type { ToolOrchestrator }
+export type { ToolRenderer }
 
 export const tools = {
   read: ReadTool,
@@ -28,12 +32,18 @@ export const tools = {
 
 export type ToolId = keyof typeof tools
 
-export function getTool(id: string): ToolDef | undefined {
-  return tools[id as ToolId] as ToolDef | undefined
+export function getTool(id: string): Tool | undefined {
+  return tools[id as ToolId] as Tool | undefined
 }
 
-export function listTools(): { id: string; description: string }[] {
-  return Object.values(tools).map((t) => ({ id: t.id, description: t.description }))
+export function listTools(): { id: string; description: string; parameters: JsonSchema }[] {
+  return Object.values(tools).map((t) => ({
+    id: t.id,
+    description: t.description,
+    parameters: t.schemas.parameters,
+  }))
 }
 
 export { createToolOrchestrator }
+export { buildTool, defaultToolUI, defaultBehavior, executeTool }
+export { createToolRenderer, formatToolUseMessage, formatToolUseTag }

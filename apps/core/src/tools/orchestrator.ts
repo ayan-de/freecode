@@ -15,6 +15,7 @@
 import type { ToolCall, ToolResult } from "../agent/types.js"
 import { getTool, type ToolContext } from "./index.js"
 import { isToolAllowed, type PermissionProfile } from "../permission/index.js"
+import type { Tool } from "./tool.types.js"
 
 // =============================================================================
 // Orchestrator Interface
@@ -80,7 +81,7 @@ function validateParams(
 // =============================================================================
 
 function mapToolResult(
-  toolResult: { title: string; output: string; metadata?: Record<string, unknown> },
+  toolResult: { title: string; output: string; metadata?: Record<string, unknown>; error?: string },
   call: ToolCall
 ): ToolResult {
   return {
@@ -89,8 +90,40 @@ function mapToolResult(
     tool: call.tool,
     title: toolResult.title,
     stdout: toolResult.output,
+    stderr: toolResult.error,
     structuredData: toolResult.metadata ?? undefined,
   }
+}
+
+// =============================================================================
+// validateToolInput()
+// Call per-tool validateInput hook if present
+// =============================================================================
+
+function validateToolInput(
+  tool: Tool,
+  params: unknown
+): { valid: true } | { valid: false; error: string } | null {
+  if (tool.validateInput) {
+    return tool.validateInput(params)
+  }
+  return null
+}
+
+// =============================================================================
+// checkToolPermissions()
+// Call per-tool checkPermissions hook if present
+// =============================================================================
+
+async function checkToolPermissions(
+  tool: Tool,
+  params: unknown,
+  ctx: ToolContext
+): Promise<{ allowed: boolean; reason?: string } | null> {
+  if (tool.checkPermissions) {
+    return await tool.checkPermissions(params as any, ctx)
+  }
+  return null
 }
 
 // =============================================================================
@@ -99,6 +132,7 @@ function mapToolResult(
 
 const defaultToolContext: ToolContext = {
   cwd: process.cwd(),
+  sessionId: "",
 }
 
 // =============================================================================
@@ -117,7 +151,7 @@ export function createToolOrchestrator(opts: OrchestratorOptions = {}): ToolOrch
     async execute(call: ToolCall, ctx: ToolContext = defaultToolContext): Promise<ToolResult> {
       const { id: toolId, tool, args } = call
 
-      // 0. Permission check
+      // 0. Permission check (orchestrator level)
       if (permissionProfile) {
         const permCheck = isToolAllowed(tool, permissionProfile)
         if (!permCheck.allowed) {
@@ -132,7 +166,7 @@ export function createToolOrchestrator(opts: OrchestratorOptions = {}): ToolOrch
       }
 
       // 1. Look up tool
-      const toolDef = getTool(tool)
+      const toolDef = getTool(tool) as Tool | undefined
       if (!toolDef) {
         return {
           id: `result-${Date.now()}`,
@@ -143,25 +177,54 @@ export function createToolOrchestrator(opts: OrchestratorOptions = {}): ToolOrch
         }
       }
 
-      // 2. Validate params
-      const schema = toolDef.parameters
-      const required = schema.required ?? []
-      const properties = schema.properties ?? {}
-      const validationError = validateParams(args, required, properties)
-      if (validationError) {
+      // 2. Per-tool input validation
+      const validationResult = validateToolInput(toolDef, args)
+      if (validationResult && !validationResult.valid) {
         return {
           id: `result-${Date.now()}`,
           toolCallId: toolId,
           tool,
           title: toolDef.description,
-          error: validationError.message,
+          error: validationResult.error,
         }
       }
 
-      // 3. Execute
+      // 3. Per-tool permission check
+      const permResult = await checkToolPermissions(toolDef, args, ctx)
+      if (permResult && !permResult.allowed) {
+        return {
+          id: `result-${Date.now()}`,
+          toolCallId: toolId,
+          tool,
+          title: toolDef.description,
+          error: `Permission denied: ${permResult.reason ?? "check failed"}`,
+        }
+      }
+
+      // 4. Execute
       try {
-        const result = await toolDef.execute(args as Record<string, unknown>, ctx)
-        return mapToolResult(result, call)
+        const execResult = await toolDef.execute(args as Record<string, unknown>, ctx)
+        // Handle ToolExecutionResult discriminated union
+        if (!execResult.success) {
+          return {
+            id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            toolCallId: toolId,
+            tool,
+            title: toolDef.description,
+            error: execResult.error,
+          }
+        }
+        // Success case - result.result is the tool output
+        const output = typeof execResult.result === "string"
+          ? execResult.result
+          : JSON.stringify(execResult.result)
+        return {
+          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          toolCallId: toolId,
+          tool,
+          title: toolDef.description,
+          stdout: output,
+        }
       } catch (err) {
         return {
           id: `result-${Date.now()}`,
