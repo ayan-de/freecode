@@ -7,35 +7,38 @@ import { formatTokenCount } from "../utils/format-tokens.js";
 /**
  * In-progress message component with live timer and token counts.
  * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
+ * Input tokens are estimated live based on elapsed time (~1k tokens per second).
  */
 class InProgressMessage implements Component {
   private phrase: string;
   private startTime: number;
-  private inputTokens: number;
+  private baseInputTokens: number;
   private outputTokens: number;
   private contextLimit: number;
 
-  constructor(phrase: string, startTime: number, inputTokens: number, outputTokens: number, contextLimit: number) {
+  constructor(phrase: string, startTime: number, baseInputTokens: number, outputTokens: number, contextLimit: number) {
     this.phrase = phrase;
     this.startTime = startTime;
-    this.inputTokens = inputTokens;
+    this.baseInputTokens = baseInputTokens;
     this.outputTokens = outputTokens;
     this.contextLimit = contextLimit;
   }
 
   render(_width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-    const inStr = formatTokenCount(this.inputTokens);
+    // Estimate: ~1k tokens per second of processing (rough approximation)
+    const estimatedInputTokens = this.baseInputTokens + (elapsed * 1000);
+    const inStr = formatTokenCount(estimatedInputTokens);
     const outStr = formatTokenCount(this.outputTokens);
     let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
 
     if (this.contextLimit > 0) {
-      const pct = Math.min(this.inputTokens / this.contextLimit, 1);
+      const pct = Math.min(estimatedInputTokens / this.contextLimit, 1);
       const barWidth = 10;
       const filled = Math.round(pct * barWidth);
       const empty = barWidth - filled;
       const bar = '█'.repeat(filled) + '░'.repeat(empty);
-      const current = formatTokenCount(this.inputTokens);
+      const current = formatTokenCount(estimatedInputTokens);
       const limit = formatTokenCount(this.contextLimit);
       display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
     }
