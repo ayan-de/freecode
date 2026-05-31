@@ -25,6 +25,7 @@ import type {
 import { HOOK_EVENT_NAMES } from "./types.js"
 import { runPreToolUseHooks } from "./PreToolUse.js"
 import { runPostToolUseHooks } from "./PostToolUse.js"
+import { runPostToolUseFailureHooks } from "./PostToolUseFailure.js"
 import { runPermissionRequestHooks } from "./PermissionRequest.js"
 import { runSessionStartHooks } from "./SessionStart.js"
 import { runStopHooks } from "./Stop.js"
@@ -62,6 +63,15 @@ export interface HookRuntime {
   ): Promise<{
     modifiedOutput?: unknown
     additionalContext?: string
+  }>
+  runPostToolUseFailure(
+    tool: ToolCall,
+    error: string,
+    ctx: HookContext
+  ): Promise<{
+    additionalContext?: string
+    shouldRetry?: boolean
+    recoveryAction?: "retry" | "skip" | "abort"
   }>
   runPermissionRequest(
     tool: ToolCall,
@@ -145,6 +155,22 @@ export function createHookRuntime(): HookRuntime {
       additionalContext?: string
     }> {
       return runPostToolUseHooks(tool, result, ctx)
+    },
+
+    // =========================================================================
+    // PostToolUseFailure Hook - Called after tool execution fails
+    // Can: log error, trigger recovery, inject context
+    // =========================================================================
+    async runPostToolUseFailure(
+      tool: ToolCall,
+      error: string,
+      ctx: HookContext
+    ): Promise<{
+      additionalContext?: string
+      shouldRetry?: boolean
+      recoveryAction?: "retry" | "skip" | "abort"
+    }> {
+      return runPostToolUseFailureHooks(tool, error, ctx)
     },
 
     // =========================================================================
@@ -311,6 +337,7 @@ export {
   // Individual hook handlers
   runPreToolUseHooks,
   runPostToolUseHooks,
+  runPostToolUseFailureHooks,
   runPermissionRequestHooks,
   runPreCompactHooks,
   runPostCompactHooks,

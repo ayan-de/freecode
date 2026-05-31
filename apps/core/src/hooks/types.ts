@@ -15,6 +15,7 @@ export type { ToolCall, ToolResult, HookContext }
 export const HOOK_EVENT_NAMES = [
   "PreToolUse",       // Before tool execution — modify input or block
   "PostToolUse",      // After tool execution — modify output, log
+  "PostToolUseFailure", // After tool execution fails — error handling
   "PermissionRequest", // When tool requires user approval
   "PreCompact",       // Before memory compaction — inspect/modify context
   "PostCompact",      // After memory compaction — verify result
