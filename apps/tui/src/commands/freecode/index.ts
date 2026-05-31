@@ -11,15 +11,15 @@ import {
   listProviders,
   type SessionInfo,
 } from "../../ipc/client.js";
-import { playSound } from "./sound.js";
 import { playAlert } from "./alert.js";
+import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "../../utils/elapsed-phrases.js";
 export { stopSound } from "./sound.js";
 
 // State
 let currentSession: SessionInfo | null = null;
 let providersLoaded = false;
 let cachedProviders: Array<{ id: string; name: string }> = [];
-let currentProvider = "minimax"; // Default to minimax
+let currentProvider = "minimax";
 
 async function ensureProviders(): Promise<void> {
   if (!providersLoaded) {
@@ -46,8 +46,6 @@ async function ensureSession(ctx: CommandContext): Promise<boolean> {
   if (currentSession) return true;
 
   startCli();
-
-  // Small delay to let CLI start
   await new Promise((resolve) => setTimeout(resolve, 500));
 
   try {
@@ -81,16 +79,15 @@ ${formatProviderList()}`);
       return;
     }
 
-    ctx.showMessage(`**You:** ${userPrompt}`);
-    ctx.showMessage("Processing...");
+    // Show user message with gray background
+    ctx.createUserMessage(`**You:** ${userPrompt}`);
 
-    // Play sound while processing
-    // playSound();
+    // Show in-progress message and track it for later removal
+    const inProgressMsg = ctx.createInProgressMessage(getRandomInProgressPhrase());
+    const inProgressId = inProgressMsg.id;
 
-    // Track start time for elapsed display
     const startTime = Date.now();
 
-    // Ensure CLI is running and we have a session
     const ready = await ensureSession(ctx);
     if (!ready) return;
 
@@ -103,7 +100,9 @@ ${formatProviderList()}`);
         iterationCount?: number;
       };
 
-      // Calculate elapsed time
+      // Remove in-progress message
+      ctx.removeMessageById(inProgressId);
+
       const elapsed = Date.now() - startTime;
       const seconds = Math.floor(elapsed / 1000);
       const minutes = Math.floor(seconds / 60);
@@ -112,20 +111,19 @@ ${formatProviderList()}`);
 
       if (result.success) {
         const response = result.content || result.message;
-        ctx.showMessage(`**FreeCode:** ${response || "Done!"}`);
-        ctx.showMessage(chalk.dim(`Baked for ${timeStr}`));
-        // stopSound();
+        ctx.createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
         playAlert();
       } else {
-        ctx.showMessage(`**FreeCode:** ${result.message || "Unknown error"}`);
-        // stopSound();
+        ctx.createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
+        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
         playAlert();
       }
     } catch (error) {
+      ctx.removeMessageById(inProgressId);
       ctx.showMessage(
         `Error: ${error instanceof Error ? error.message : String(error)}`
       );
-    //   stopSound();
       playAlert();
     }
   },
