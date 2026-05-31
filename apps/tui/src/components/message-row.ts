@@ -2,23 +2,45 @@ import { Box, Markdown, Text, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
+import { formatTokenCount } from "../utils/format-tokens.js";
 
 /**
- * In-progress message component with live timer.
- * Renders "phrase (Xs)" where X increments each render.
+ * In-progress message component with live timer and token counts.
+ * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
  */
 class InProgressMessage implements Component {
   private phrase: string;
   private startTime: number;
+  private inputTokens: number;
+  private outputTokens: number;
+  private contextLimit: number;
 
-  constructor(phrase: string, startTime: number) {
+  constructor(phrase: string, startTime: number, inputTokens: number, outputTokens: number, contextLimit: number) {
     this.phrase = phrase;
     this.startTime = startTime;
+    this.inputTokens = inputTokens;
+    this.outputTokens = outputTokens;
+    this.contextLimit = contextLimit;
   }
 
   render(_width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-    return [chalk.yellow(this.phrase) + chalk.dim(` (${elapsed}s)`)];
+    const inStr = formatTokenCount(this.inputTokens);
+    const outStr = formatTokenCount(this.outputTokens);
+    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+
+    if (this.contextLimit > 0) {
+      const pct = Math.min(this.inputTokens / this.contextLimit, 1);
+      const barWidth = 10;
+      const filled = Math.round(pct * barWidth);
+      const empty = barWidth - filled;
+      const bar = '█'.repeat(filled) + '░'.repeat(empty);
+      const current = formatTokenCount(this.inputTokens);
+      const limit = formatTokenCount(this.contextLimit);
+      display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
+    }
+
+    return [display];
   }
 
   invalidate(): void {}
@@ -91,14 +113,21 @@ export function createSystemMessageComponent(content: string): Component {
 /**
  * Create an in-progress message component — dimmed yellow text (for "Simmering...", etc.)
  */
-export function createInProgressMessageComponent(phrase: string, startTime: number): Component {
-  return new InProgressMessage(phrase, startTime);
+export function createInProgressMessageComponent(phrase: string, startTime: number, inputTokens: number, outputTokens: number, contextLimit: number): Component {
+  return new InProgressMessage(phrase, startTime, inputTokens, outputTokens, contextLimit);
 }
 
 /**
  * Factory function to create the appropriate component based on message type
  */
-export function createMessageComponent(type: MessageType, content: string, startTime?: number): Component {
+export function createMessageComponent(
+  type: MessageType,
+  content: string,
+  startTime?: number,
+  inputTokens?: number,
+  outputTokens?: number,
+  contextLimit?: number
+): Component {
   switch (type) {
     case "user":
       return createUserMessageComponent(content);
@@ -107,7 +136,13 @@ export function createMessageComponent(type: MessageType, content: string, start
     case "system":
       return createSystemMessageComponent(content);
     case "in_progress":
-      return createInProgressMessageComponent(content, startTime ?? Date.now());
+      return createInProgressMessageComponent(
+        content,
+        startTime ?? Date.now(),
+        inputTokens ?? 0,
+        outputTokens ?? 0,
+        contextLimit ?? 0
+      );
     default:
       return createSystemMessageComponent(content);
   }
