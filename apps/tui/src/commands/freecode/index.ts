@@ -13,6 +13,7 @@ import {
 } from "../../ipc/client.js";
 import { playSound } from "./sound.js";
 import { playAlert } from "./alert.js";
+export { stopSound } from "./sound.js";
 
 // State
 let currentSession: SessionInfo | null = null;
