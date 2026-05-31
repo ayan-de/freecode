@@ -186,6 +186,7 @@ export interface LoopResult {
   turnCount: number
   iterationCount: number
   finalState: SessionState
+  usage?: { inputTokens: number; outputTokens: number }
 }
 
 // =============================================================================

@@ -85,6 +85,8 @@ export class AgentLoop {
 
       let prompt = input.prompt
       let previousToolResults: ToolResult[] | undefined
+      let totalInputTokens = 0
+      let totalOutputTokens = 0
 
       // =======================================================================
       // CONTINUOUS LOOP - Core agent cycle
@@ -113,9 +115,15 @@ export class AgentLoop {
           return this.fail("Turn execution failed", turnResult.error)
         }
 
+        // Accumulate usage across turns
+        if (turnResult.usage) {
+          totalInputTokens += turnResult.usage.inputTokens ?? 0
+          totalOutputTokens += turnResult.usage.outputTokens ?? 0
+        }
+
         // No tool calls means we're done
         if (turnResult.toolResults.length === 0) {
-          return this.complete("Done", turnResult.responseText)
+          return this.complete("Done", turnResult.responseText, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })
         }
 
         // Build continuation prompt for next iteration
@@ -148,7 +156,7 @@ export class AgentLoop {
     model: string | undefined,
     context: { name: string; projectPath: string; tree: string },
     previousToolResults?: ToolResult[]
-  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string }> {
+  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string; usage?: { inputTokens: number; outputTokens: number } }> {
     try {
       // TWO-PHASE CONTEXT COLLECTION
       // Phase 1: Ask model which files it needs to complete the task
@@ -219,7 +227,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
             }
           }
         }
-        return { success: true, toolResults: [], responseText: providerResult.content }
+        return { success: true, toolResults: [], responseText: providerResult.content, usage: providerResult.usage }
       }
 
       // Execute each tool sequentially (as per spec: sequential tools run one at a time)
@@ -251,7 +259,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         }
       }
 
-      return { success: true, toolResults, responseText: providerResult.content }
+      return { success: true, toolResults, responseText: providerResult.content, usage: providerResult.usage }
     } catch (error) {
       return { success: false, toolResults: [], error: String(error) }
     }
@@ -379,7 +387,7 @@ Based on this task, which files do you need to read to understand the codebase a
     provider: string,
     model: string | undefined,
     toolResults?: ToolResult[]
-  ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }> }> {
+  ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>; usage?: { inputTokens: number; outputTokens: number } }> {
     const aiProvider = getProvider(provider as any)
     const tools = listTools().map(t => {
       const toolDef = getTool(t.id)
@@ -400,7 +408,7 @@ Based on this task, which files do you need to read to understand the codebase a
       })),
       model,
     })
-    return { content: result.content, toolCalls: result.toolCalls }
+    return { content: result.content, toolCalls: result.toolCalls, usage: result.usage }
   }
 
   // ===========================================================================
@@ -757,7 +765,7 @@ Based on this task, which files do you need to read to understand the codebase a
     }
   }
 
-  private complete(message: string, content?: string): LoopResult {
+  private complete(message: string, content?: string, usage?: { inputTokens: number; outputTokens: number }): LoopResult {
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId)
     return {
@@ -767,6 +775,7 @@ Based on this task, which files do you need to read to understand the codebase a
       turnCount: this.state.turnCount,
       iterationCount: this.state.iterationCount,
       finalState: this.state,
+      usage,
     }
   }
 
