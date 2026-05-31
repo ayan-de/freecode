@@ -1,77 +1,98 @@
 // =============================================================================
-// agent Tool - Spawn a sub-agent to handle independent tasks
-// PRIMARY: Allow main agent to fork parallel sub-sessions
-// INPUT: { task: string, prompt: string, agentType?: string }
-// OUTPUT: Subagent result with stdout, success status
-// LIFECYCLE: runSubagentStart hook → spawn → run → runSubagentStop hook
+// Agent Tool - Spawn a sub-agent with UI rendering
 // =============================================================================
 
-import type { ToolDef, ToolContext, ToolResult } from "./types"
+import type { ToolContext } from "./types"
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
+import { buildTool, defaultToolUI } from "./factory"
+import { agentToolUI } from "./agent/ui"
 import { AgentLoop } from "../agent/loop.js"
-import { createInitialSessionState } from "../agent/types.js"
 import { bus, BusEvents } from "../bus/index.js"
 import type { HookContext } from "../agent/types.js"
 import type { HookRuntime } from "../hooks/runtime.js"
 
-export interface AgentParams {
+interface AgentParams {
   task: string
   prompt: string
   agentType?: string
 }
 
-/**
- * Execute a subagent task in a forked session
- */
+// =============================================================================
+// Agent Schema
+// =============================================================================
+
+const agentSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    task: { description: "Brief description of the task for the sub-agent" },
+    prompt: { description: "The actual prompt/instruction for the sub-agent" },
+    agentType: { description: "Optional: AI provider to use (e.g., 'chatgpt', 'claude')" },
+  },
+  required: ["task", "prompt"],
+}
+
+// =============================================================================
+// Input validation
+// =============================================================================
+
+function validateAgentInput(params: unknown): { valid: true } | { valid: false; error: string } {
+  if (!params || typeof params !== "object") {
+    return { valid: false, error: "Expected object parameters" }
+  }
+  const p = params as Record<string, unknown>
+  if (typeof p.task !== "string" || p.task.length === 0) {
+    return { valid: false, error: "task is required" }
+  }
+  if (typeof p.prompt !== "string" || p.prompt.length === 0) {
+    return { valid: false, error: "prompt is required" }
+  }
+  return { valid: true }
+}
+
+// =============================================================================
+// Execute subagent
+// =============================================================================
+
 async function executeSubagent(
   params: AgentParams,
   ctx: ToolContext,
   hooks: HookRuntime
-): Promise<ToolResult> {
+): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
   const subagentId = `subagent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   const parentSessionId = ctx.sessionId || "unknown"
 
-  // Build hook context for subagent lifecycle
   const hookCtx: HookContext = {
     sessionId: subagentId,
     turnCount: 0,
     toolName: "agent",
   }
 
-  // Record start time for duration calculation
   const startTime = Date.now()
 
   try {
-    // Run SubagentStart hook — can modify params or block spawning
     const startResult = await hooks.runSubagentStart(
       { id: subagentId, tool: "agent", args: params, execution: "sequential" },
       hookCtx
     )
 
     if (startResult.action === "block") {
-      console.warn(`[agent] Subagent blocked: ${startResult.reason ?? "no reason"}`)
       return {
-        title: `Agent: ${params.task}`,
-        output: `Blocked by hook: ${startResult.reason ?? "no reason"}`,
+        success: false,
+        error: `Blocked by hook: ${startResult.reason ?? "no reason"}`,
       }
     }
 
-    // Inject context if hook requested
     if (startResult.action === "inject" && startResult.injectContext) {
       params = { ...params, ...startResult.injectContext } as AgentParams
     }
 
-    // Emit subagent.started Bus event
     BusEvents.subagentStarted(subagentId, parentSessionId, params.task)
 
-    console.log(`[agent] Spawning subagent ${subagentId} for task: ${params.task}`)
-
-    // Create a new AgentLoop for the subagent
     const subAgentLoop = new AgentLoop(subagentId, {
       maxIterations: 50,
       hooks,
     })
 
-    // Run the subagent with the provided prompt
     const result = await subAgentLoop.run({
       prompt: params.prompt,
       sessionId: subagentId,
@@ -79,19 +100,15 @@ async function executeSubagent(
       projectPath: ctx.cwd,
     })
 
-    // Calculate duration
     const duration_ms = Date.now() - startTime
 
-    // Emit subagent.completed Bus event
     BusEvents.subagentCompleted(subagentId, parentSessionId, result.message || "completed")
 
-    // Run SubagentStop hook — can process result, log
     await hooks.runSubagentStop(
       JSON.stringify({ success: result.success, message: result.message }),
       hookCtx
     )
 
-    // Format result for main agent
     const output = [
       `Subagent: ${params.task}`,
       `Status: ${result.success ? "SUCCESS" : "FAILED"}`,
@@ -101,64 +118,75 @@ async function executeSubagent(
     ].filter(Boolean).join("\n")
 
     return {
-      title: `Agent: ${params.task}`,
-      output: output,
-      metadata: { subagentId, success: result.success, turns: result.turnCount },
+      success: true,
+      result: {
+        title: `Agent: ${params.task}`,
+        output,
+        metadata: { subagentId, success: result.success, turns: result.turnCount },
+      },
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
     console.error(`[agent] Subagent ${subagentId} failed: ${errorMsg}`)
 
-    // Emit error event
     BusEvents.subagentCompleted(subagentId, parentSessionId, `ERROR: ${errorMsg}`)
 
-    // Run SubagentStop hook with error
     await hooks.runSubagentStop(
       JSON.stringify({ success: false, error: errorMsg }),
       hookCtx
     )
 
     return {
-      title: `Agent: ${params.task}`,
-      output: `ERROR: ${errorMsg}`,
-      metadata: { subagentId, success: false, error: errorMsg },
+      success: false,
+      error: errorMsg,
     }
   }
 }
 
-export const AgentTool: ToolDef<AgentParams> = {
-  id: "agent",
-  description:
-    "Spawn a sub-agent to handle an independent task in parallel. Use when a task can be delegated while the main agent works on something else. The sub-agent runs independently and returns its result.",
-  parameters: {
-    type: "object",
-    properties: {
-      task: {
-        type: "string",
-        description: "Brief description of the task for the sub-agent",
-      },
-      prompt: {
-        type: "string",
-        description: "The actual prompt/instruction for the sub-agent to execute",
-      },
-      agentType: {
-        type: "string",
-        description: "Optional: AI provider to use (e.g., 'chatgpt', 'claude'). Defaults to 'chatgpt'",
-      },
-    },
-    required: ["task", "prompt"],
-  },
-  execute: async (params: AgentParams, ctx: ToolContext): Promise<ToolResult> => {
-    // Get the hook runtime from context if available
-    const hooks = (ctx as any).hooks as HookRuntime | undefined
+// =============================================================================
+// Execute function
+// =============================================================================
 
-    if (!hooks) {
-      // Fallback: create a default hook runtime
-      const { createHookRuntime } = await import("../hooks/runtime.js")
-      const defaultHooks = createHookRuntime()
-      return executeSubagent(params, ctx, defaultHooks)
-    }
+async function executeAgent(
+  params: AgentParams,
+  ctx: ToolContext
+): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
+  const hooks = (ctx as any).hooks as HookRuntime | undefined
 
-    return executeSubagent(params, ctx, hooks)
-  },
+  if (!hooks) {
+    const { createHookRuntime } = await import("../hooks/runtime.js")
+    const defaultHooks = createHookRuntime()
+    return executeSubagent(params, ctx, defaultHooks)
+  }
+
+  return executeSubagent(params, ctx, hooks)
 }
+
+// =============================================================================
+// AgentTool - Built with buildTool() factory
+// =============================================================================
+
+export const AgentTool: Tool<AgentParams> = buildTool({
+  id: "agent",
+  description: "Spawn a sub-agent to handle an independent task in parallel",
+  schemas: {
+    parameters: agentSchema,
+  },
+  permissions: {
+    operations: ["agent.spawn"],
+    requiresApproval: true,
+  },
+  behavior: {
+    isConcurrencySafe: false,
+    isDestructive: false,
+    interruptBehavior: "await",
+    userFacingName: "Agent",
+  },
+  ui: {
+    ...defaultToolUI,
+    ...agentToolUI,
+  },
+  execute: executeAgent,
+  validateInput: validateAgentInput,
+  isSearchOrReadCommand: () => ({ isSearch: false, isRead: false }),
+})

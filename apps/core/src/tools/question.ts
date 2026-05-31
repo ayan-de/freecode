@@ -1,35 +1,63 @@
 // =============================================================================
-// question Tool - Ask user clarifying questions
-// PRIMARY: Gather requirements, preferences, or decisions from user
-// INPUT: { questions: Question[] }
-// OUTPUT: User's answers
-// NOTE: Uses Bus system for async question/answer flow
+// Question Tool - Ask user clarifying questions with UI rendering
 // =============================================================================
 
 import { randomUUID } from "crypto"
-import type { ToolDef, ToolContext, ToolResult } from "./types"
-import { askQuestion, type QuestionAskedEvent } from "../bus"
+import type { ToolContext } from "./types"
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
+import { buildTool, defaultToolUI } from "./factory"
+import { questionToolUI } from "./question/ui"
+import { askQuestion } from "../bus"
 
-export interface QuestionOption {
-  label: string        // Display text (1-5 words)
-  description: string  // Explanation of choice
+interface QuestionOption {
+  label: string
+  description: string
 }
 
-export interface Question {
-  question: string      // Complete question
-  header?: string      // Short label (max 30 chars)
+interface Question {
+  question: string
+  header?: string
   options: QuestionOption[]
-  multiple?: boolean   // Allow multiple selections
-  custom?: boolean     // Allow custom answer (default: true)
+  multiple?: boolean
+  custom?: boolean
 }
 
-export interface QuestionParams {
+interface QuestionParams {
   questions: Question[]
 }
 
-// ============================================================================
+// =============================================================================
+// Question Schema
+// =============================================================================
+
+const questionSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    questions: {
+      description: "Array of questions to ask",
+ },
+  },
+  required: ["questions"],
+}
+
+// =============================================================================
+// Input validation
+// =============================================================================
+
+function validateQuestionInput(params: unknown): { valid: true } | { valid: false; error: string } {
+  if (!params || typeof params !== "object") {
+    return { valid: false, error: "Expected object parameters" }
+  }
+  const p = params as Record<string, unknown>
+  if (!p.questions) {
+    return { valid: false, error: "questions is required" }
+  }
+  return { valid: true }
+}
+
+// =============================================================================
 // Format questions for display
-// ============================================================================
+// =============================================================================
 
 function formatQuestions(params: QuestionParams): string {
   const lines: string[] = ["<questions>"]
@@ -58,58 +86,47 @@ function formatQuestions(params: QuestionParams): string {
   return lines.join("\n")
 }
 
-// ============================================================================
-// Question Tool
-// ============================================================================
+// =============================================================================
+// Execute function
+// =============================================================================
 
-export const QuestionTool: ToolDef<QuestionParams> = {
-  id: "question",
-  description:
-    "Ask the user clarifying questions during execution. Use to gather requirements, preferences, or get decisions on implementation choices. Questions are presented to the user with options to choose from.",
-  parameters: {
-    type: "object",
-    properties: {
-      questions: {
-        description: "Array of questions to ask, each with: question (text), header (short label), options (array of {label, description}), multiple (allow multi-select), custom (allow custom answer)",
-        type: "string",  // JSON stringified array for flexibility
-      },
-    },
-    required: ["questions"],
-  },
-  execute: async (params: QuestionParams, _ctx: ToolContext): Promise<ToolResult> => {
-    let questions: Question[]
-    try {
-      questions = typeof params.questions === "string"
-        ? JSON.parse(params.questions)
-        : params.questions
-    } catch {
-      return {
-        title: "question",
-        output: "Error: questions must be a valid JSON array",
-      }
+async function executeQuestion(
+  params: QuestionParams,
+  _ctx: ToolContext
+): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
+  let questions: Question[]
+  try {
+    questions = typeof params.questions === "string"
+      ? JSON.parse(params.questions)
+      : params.questions
+  } catch {
+    return {
+      success: false,
+      error: "questions must be a valid JSON array",
     }
+  }
 
-    if (!Array.isArray(questions) || questions.length === 0) {
-      return {
-        title: "question",
-        output: "No questions provided",
-      }
+  if (!Array.isArray(questions) || questions.length === 0) {
+    return {
+      success: false,
+      error: "No questions provided",
     }
+  }
 
-    const requestId = randomUUID()
+  const requestId = randomUUID()
 
-    // Format questions for display
-    const formatted = formatQuestions({ questions })
+  const formatted = formatQuestions({ questions })
 
-    // Ask question via Bus - this waits for user answer
-    try {
-      const answers = await askQuestion(requestId, questions)
+  try {
+    const answers = await askQuestion(requestId, questions)
 
-      const formattedAnswers = questions
-        .map((q, i) => `"${q.question}"="${answers[i] ?? "Unanswered"}"`)
-        .join(", ")
+    const formattedAnswers = questions
+      .map((q, i) => `"${q.question}"="${answers[i] ?? "Unanswered"}"`)
+      .join(", ")
 
-      return {
+    return {
+      success: true,
+      result: {
         title: `Asked ${questions.length} question${questions.length > 1 ? "s" : ""}`,
         output: `User has answered your questions: ${formattedAnswers}. You can now continue with the user's answers in mind.`,
         metadata: {
@@ -117,16 +134,41 @@ export const QuestionTool: ToolDef<QuestionParams> = {
           answers,
           questionCount: questions.length,
         },
-      }
-    } catch (error) {
-      return {
-        title: `Question ${requestId}`,
-        output: `Question was not answered: ${error instanceof Error ? error.message : "Unknown error"}. You can continue without this information or ask again.`,
-        metadata: {
-          requestId,
-          answered: false,
-        },
-      }
+      },
     }
-  },
+  } catch (error) {
+    return {
+      success: false,
+      error: `Question was not answered: ${error instanceof Error ? error.message : "Unknown error"}. You can continue without this information or ask again.`,
+    }
+  }
 }
+
+// =============================================================================
+// QuestionTool - Built with buildTool() factory
+// =============================================================================
+
+export const QuestionTool: Tool<QuestionParams> = buildTool({
+  id: "question",
+  description: "Ask the user clarifying questions during execution",
+  schemas: {
+    parameters: questionSchema,
+  },
+  permissions: {
+    operations: [],
+    requiresApproval: false,
+  },
+  behavior: {
+    isConcurrencySafe: false,
+    isDestructive: false,
+    interruptBehavior: "await",
+    userFacingName: "Ask Question",
+  },
+  ui: {
+    ...defaultToolUI,
+    ...questionToolUI,
+  },
+  execute: executeQuestion,
+  validateInput: validateQuestionInput,
+  isSearchOrReadCommand: () => ({ isSearch: false, isRead: false }),
+})

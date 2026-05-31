@@ -1,38 +1,63 @@
 // =============================================================================
-// skill Tool - Load and invoke specialized skills
-// PRIMARY: Allow AI to load skill instructions from .skill.md files
-// INPUT: { name: string }
-// OUTPUT: Skill content with available files
-// NOTE: Uses the skills/ manager system for loading, caching, and rendering
+// Skill Tool - Load and invoke specialized skills with UI rendering
 // =============================================================================
 
 import * as fs from "fs"
 import * as path from "path"
 import fg from "fast-glob"
-import type { ToolDef, ToolContext, ToolResult } from "./types"
+import type { ToolContext } from "./types"
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
+import { buildTool, defaultToolUI } from "./factory"
+import { skillToolUI } from "./skill/ui"
 import type { SkillsManager } from "../skills/manager"
-import { renderSkillForPrompt, renderSkillsList } from "../skills/index"
+import { renderSkillForPrompt } from "../skills/index"
+
+interface SkillParams {
+  name: string
+}
 
 // Module-level skills manager (initialized lazily)
 let skillsManager: SkillsManager | null = null
 
-/**
- * Get or create the skills manager for this tool context.
- * Uses project path from context.
- */
 function getSkillsManager(ctx: ToolContext): SkillsManager {
   if (!skillsManager) {
-    // Lazy import to avoid circular dependencies
     const { SkillsManager } = require("../skills/manager")
     skillsManager = new SkillsManager(ctx.cwd)
   }
   return skillsManager as SkillsManager
 }
 
-// Re-export for external use
-export { getSkillsManager }
+// =============================================================================
+// Skill Schema
+// =============================================================================
 
-// List files in skill directory (sampled)
+const skillSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    name: { description: "The name of the skill to load" },
+  },
+  required: ["name"],
+}
+
+// =============================================================================
+// Input validation
+// =============================================================================
+
+function validateSkillInput(params: unknown): { valid: true } | { valid: false; error: string } {
+  if (!params || typeof params !== "object") {
+    return { valid: false, error: "Expected object parameters" }
+  }
+  const p = params as Record<string, unknown>
+  if (typeof p.name !== "string" || p.name.length === 0) {
+    return { valid: false, error: "name is required" }
+  }
+  return { valid: true }
+}
+
+// =============================================================================
+// List skill files
+// =============================================================================
+
 function listSkillFiles(skillDir: string, limit: number = 10): string {
   if (!fs.existsSync(skillDir)) return ""
 
@@ -52,7 +77,10 @@ function listSkillFiles(skillDir: string, limit: number = 10): string {
   }
 }
 
+// =============================================================================
 // List all available skills
+// =============================================================================
+
 async function listSkills(ctx: ToolContext): Promise<string> {
   const manager = getSkillsManager(ctx)
   const skills = await manager.listSkills()
@@ -61,7 +89,6 @@ async function listSkills(ctx: ToolContext): Promise<string> {
     return "No skills are currently available."
   }
 
-  // Format as XML-like structure
   const lines = ["<available_skills>"]
   for (const skill of skills.sort((a, b) => a.name.localeCompare(b.name))) {
     lines.push("  <skill>")
@@ -77,44 +104,31 @@ async function listSkills(ctx: ToolContext): Promise<string> {
   return lines.join("\n")
 }
 
-export interface SkillParams {
-  name: string
-}
+// =============================================================================
+// Execute function
+// =============================================================================
 
-export const SkillTool: ToolDef<SkillParams> = {
-  id: "skill",
-  description:
-    "Load a specialized skill by name. Use when the task matches a known skill workflow. Skills provide structured guidance for specific tasks like brainstorming, TDD, debugging, etc.",
-  parameters: {
-    type: "object",
-    properties: {
-      name: { description: "The name of the skill to load" },
-    },
-    required: ["name"],
-  },
-  execute: async (params: SkillParams, ctx: ToolContext): Promise<ToolResult> => {
+async function executeSkill(
+  params: SkillParams,
+  ctx: ToolContext
+): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
+  try {
     const manager = getSkillsManager(ctx)
 
-    // Try to get the skill
     const skill = await manager.getSkill(params.name)
 
     if (!skill) {
       const available = await listSkills(ctx)
       return {
-        title: `Skill not found: ${params.name}`,
-        output: `Skill "${params.name}" not found.\n\n${available}`,
-        metadata: {
-          available: (await manager.listSkills()).map((s) => s.name),
-        },
+        success: false,
+        error: `Skill "${params.name}" not found.\n\n${available}`,
       }
     }
 
-    // Get skill directory for file listing
     const skillDir = path.dirname(skill.location)
     const baseUrl = `file://${skillDir}`
     const files = listSkillFiles(skillDir)
 
-    // Render skill content for prompt
     const skillContent = renderSkillForPrompt(skill)
 
     const output = [
@@ -131,16 +145,48 @@ export const SkillTool: ToolDef<SkillParams> = {
     ].join("\n")
 
     return {
-      title: `Loaded skill: ${skill.name}`,
-      output,
-      metadata: {
-        name: skill.name,
-        scope: skill.scope,
-        dir: skillDir,
+      success: true,
+      result: {
+        title: `Loaded skill: ${skill.name}`,
+        output,
+        metadata: {
+          name: skill.name,
+          scope: skill.scope,
+          dir: skillDir,
+        },
       },
     }
-  },
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
 }
 
-// Export for listing all available skills
-export { listSkills }
+// =============================================================================
+// SkillTool - Built with buildTool() factory
+// =============================================================================
+
+export const SkillTool: Tool<SkillParams> = buildTool({
+  id: "skill",
+  description: "Load a specialized skill by name",
+  schemas: {
+    parameters: skillSchema,
+  },
+  permissions: {
+    operations: ["file.read"],
+  },
+  behavior: {
+    isConcurrencySafe: true,
+    isDestructive: false,
+    userFacingName: "Skill",
+  },
+  ui: {
+    ...defaultToolUI,
+    ...skillToolUI,
+  },
+  execute: executeSkill,
+  validateInput: validateSkillInput,
+  isSearchOrReadCommand: () => ({ isSearch: false, isRead: false }),
+})
