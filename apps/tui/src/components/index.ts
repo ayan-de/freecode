@@ -37,7 +37,8 @@ export function createSystemMessage(content: string): MessageInstance {
  * Add an in-progress message to the store and return the message instance
  */
 export function createInProgressMessage(phrase: string): MessageInstance {
-  const component = createMessageComponent("in_progress", phrase);
+  const startTime = Date.now();
+  const component = createMessageComponent("in_progress", phrase, startTime);
   return addMessage("in_progress", phrase, component);
 }
 
