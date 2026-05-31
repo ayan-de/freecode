@@ -80,13 +80,12 @@ export class MemoryService {
     const pre = await this.hooks.runPreCompact({
       sessionId: this.state.sessionId,
       turnCount: this.state.totalCompactions,
-      tokenCount: this.state.tokenCount,
     })
-    if (pre.action === "block") {
+    if (!pre.allowed) {
       return {
         success: false,
         blocked: true,
-        reason: pre.reason,
+        reason: pre.blockReason,
         preservedMessageIds: this.state.messages.map((message) => message.id),
         compactedMessageIds: [],
         tokenCountBefore: this.state.tokenCount,
@@ -123,9 +122,7 @@ export class MemoryService {
     await this.hooks.runPostCompact({
       sessionId: this.state.sessionId,
       turnCount: this.state.totalCompactions,
-      tokenCount: this.state.tokenCount,
-      compactedMessageIds: result.compactedMessageIds,
-    })
+    }, result.success)
 
     return result
   }

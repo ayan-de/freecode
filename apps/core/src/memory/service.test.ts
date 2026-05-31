@@ -42,7 +42,7 @@ test("MemoryService respects PreCompact block", async () => {
   const hooks = {
     ...createHookRuntime(),
     async runPreCompact() {
-      return { action: "block" as const, reason: "blocked by test" }
+      return { allowed: false, blockReason: "blocked by test" }
     },
   }
 
