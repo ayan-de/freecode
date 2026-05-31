@@ -14,6 +14,7 @@ export class VirtualMessageList implements Component {
   private unsubscribe: (() => void) | null = null;
   private invalidated = false;
   private tui: TUI | null = null;
+  private tickInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(maxVisible = 100) {
     this.maxVisible = maxVisible;
@@ -21,6 +22,7 @@ export class VirtualMessageList implements Component {
     this.unsubscribe = subscribeToMessages((msgs) => {
       this.messages = msgs;
       this.invalidate();
+      this.scheduleTick();
     });
     // Initialize with current messages
     this.messages = getMessages();
@@ -41,6 +43,26 @@ export class VirtualMessageList implements Component {
     if (this.tui) {
       this.tui.requestRender();
     }
+  }
+
+  /**
+   * Schedule a tick interval if an in-progress message exists
+   */
+  private scheduleTick(): void {
+    const hasInProgress = this.messages.some((m) => m.type === "in_progress");
+    if (!hasInProgress) return;
+
+    if (this.tickInterval) return;
+
+    this.tickInterval = setInterval(() => {
+      if (this.tickInterval) {
+        clearInterval(this.tickInterval);
+        this.tickInterval = null;
+      }
+      this.invalidate();
+      // Reschedule if in-progress message still exists
+      this.scheduleTick();
+    }, 1000);
   }
 
   /**
@@ -66,12 +88,16 @@ export class VirtualMessageList implements Component {
   }
 
   /**
-   * Cleanup subscription when component is destroyed
+   * Cleanup subscription and tick interval when component is destroyed
    */
   destroy(): void {
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;
+    }
+    if (this.tickInterval) {
+      clearInterval(this.tickInterval);
+      this.tickInterval = null;
     }
   }
 }
