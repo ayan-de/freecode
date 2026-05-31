@@ -3,6 +3,39 @@ import chalk from "chalk";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
 
+/**
+ * In-progress message component with live timer.
+ * Renders "phrase (Xs)" where X increments each render.
+ */
+class InProgressMessage implements Component {
+  private phrase: string;
+  private startTime: number;
+
+  constructor(phrase: string, startTime: number) {
+    this.phrase = phrase;
+    this.startTime = startTime;
+  }
+
+  render(_width: number): string[] {
+    const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+    return [chalk.yellow(this.phrase) + chalk.dim(` (${elapsed}s)`)];
+  }
+
+  invalidate(): void {}
+
+  getMinWidth(): number {
+    return 10;
+  }
+
+  getMinHeight(): number {
+    return 1;
+  }
+
+  addChild(_component: Component): void {}
+
+  destroy(): void {}
+}
+
 // Regex to strip message prefixes (e.g., **You:** or **FreeCode:**)
 const MESSAGE_PREFIX_RE = /^\*\*.*?:\*\*\s*/;
 
@@ -58,18 +91,14 @@ export function createSystemMessageComponent(content: string): Component {
 /**
  * Create an in-progress message component — dimmed yellow text (for "Simmering...", etc.)
  */
-export function createInProgressMessageComponent(phrase: string): Component {
-  const box = new Box(1, 1);
-  const text = new Text(chalk.yellow(phrase), 1, 1);
-  box.addChild(text);
-
-  return box;
+export function createInProgressMessageComponent(phrase: string, startTime: number): Component {
+  return new InProgressMessage(phrase, startTime);
 }
 
 /**
  * Factory function to create the appropriate component based on message type
  */
-export function createMessageComponent(type: MessageType, content: string): Component {
+export function createMessageComponent(type: MessageType, content: string, startTime?: number): Component {
   switch (type) {
     case "user":
       return createUserMessageComponent(content);
@@ -78,7 +107,7 @@ export function createMessageComponent(type: MessageType, content: string): Comp
     case "system":
       return createSystemMessageComponent(content);
     case "in_progress":
-      return createInProgressMessageComponent(content);
+      return createInProgressMessageComponent(content, startTime ?? Date.now());
     default:
       return createSystemMessageComponent(content);
   }
