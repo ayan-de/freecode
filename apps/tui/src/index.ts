@@ -8,14 +8,29 @@ import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultEditorTheme, defaultMarkdownTheme } from "./themes.js";
 import { logoLines, logoTagline } from "./assets/logo.js";
-import { startCli, listProviders, listModels, getCurrentModel, setCurrentModel, setApiKey, type ModelInfo } from "./ipc/client.js";
+import {
+  startCli,
+  sessionStart,
+  sessionSend,
+  listProviders,
+  listModels,
+  getCurrentModel,
+  setCurrentModel,
+  setApiKey,
+  type SessionInfo,
+  type ModelInfo
+} from "./ipc/client.js";
 
 registerBuiltInCommands();
 
 let tui: TUI;
 let messageCount = 0;
+
+// Session state (used across editor.onSubmit and model selectors)
+let currentSession: SessionInfo | null = null;
 let currentProvider = "";
 let currentModel = "";
+
 let modelDisplay: Text;
 let modelSelector: SelectList | null = null;
 let providerSelector: SelectList | null = null;
@@ -289,7 +304,7 @@ async function loadCurrentModel(): Promise<void> {
 	}
 }
 
-editor.onSubmit = (value: string) => {
+editor.onSubmit = async (value: string) => {
 	const trimmed = value.trim();
 	if (!trimmed) return;
 
@@ -312,27 +327,70 @@ editor.onSubmit = (value: string) => {
 
 	messageCount++;
 	showMessage(`**${chalk.red("You")}:** ${trimmed}`);
+	showMessage("Processing...");
 
 	// Track start time for elapsed display
 	const startTime = Date.now();
-	showMessage("Processing...");
 
-	// Store cleanup function to call when real response arrives
-	const cleanupProcessing = () => {
+	// Ensure CLI is running
+	startCli();
+
+	// Wait for CLI to start if needed
+	await new Promise(resolve => setTimeout(resolve, 500));
+
+	// Get or create session
+	if (!currentSession) {
+		try {
+			// Get current model from config if not set
+			if (!currentProvider) {
+				try {
+					const current = await getCurrentModel();
+					if (current) {
+						currentProvider = current.provider;
+						currentModel = current.model;
+					}
+				} catch {
+					// Use defaults
+				}
+			}
+
+			currentSession = await sessionStart({
+				projectPath: process.cwd(),
+				provider: currentProvider || "minimax",
+			}) as SessionInfo;
+		} catch (error) {
+			showMessage(`**Error:** Failed to start session: ${error instanceof Error ? error.message : String(error)}`);
+			return;
+		}
+	}
+
+	try {
+		const result = await sessionSend(currentSession.sessionId, trimmed) as {
+			success: boolean;
+			message?: string;
+			content?: string;
+			turnCount?: number;
+			iterationCount?: number;
+		};
+
 		// Calculate elapsed time
 		const elapsed = Date.now() - startTime;
 		const seconds = Math.floor(elapsed / 1000);
 		const minutes = Math.floor(seconds / 60);
 		const secs = seconds % 60;
 		const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
-		showMessage(`Baked for ${timeStr}`);
-	};
 
-	// For now, simulate response after 2 seconds
-	// In real implementation, this would be called when IPC response arrives
-	setTimeout(() => {
-		cleanupProcessing();
-	}, 2000);
+		if (result.success) {
+			const response = result.content || result.message;
+			showMessage(`**FreeCode:** ${response || "Done!"}`);
+			showMessage(chalk.dim(`Baked for ${timeStr}`));
+		} else {
+			showMessage(`**FreeCode:** ${result.message || "Unknown error"}`);
+			showMessage(chalk.dim(`Baked for ${timeStr}`));
+		}
+	} catch (error) {
+		showMessage(`**Error:** ${error instanceof Error ? error.message : String(error)}`);
+	}
 };
 
 // Handle Ctrl+C for clean exit from keyboard
