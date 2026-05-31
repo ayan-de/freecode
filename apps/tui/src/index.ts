@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { ProcessTerminal, TUI, Key, matchesKey, CombinedAutocompleteProvider, SelectList, Box, type Component, type SelectItem, type SelectListTheme } from "@earendil-works/pi-tui";
+import { ProcessTerminal, TUI, Key, matchesKey, CombinedAutocompleteProvider, SelectList, type SelectItem, type SelectListTheme } from "@earendil-works/pi-tui";
 import { commandRegistry } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Editor } from "@earendil-works/pi-tui";
-import { Markdown } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { defaultEditorTheme, defaultMarkdownTheme } from "./themes.js";
+import { defaultEditorTheme } from "./themes.js";
 import { logoLines, logoTagline } from "./assets/logo.js";
+import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "./utils/elapsed-phrases.js";
 import {
   startCli,
   sessionStart,
@@ -20,13 +20,23 @@ import {
   type SessionInfo,
   type ModelInfo
 } from "./ipc/client.js";
+import {
+  createUserMessage,
+  createAssistantMessage,
+  createSystemMessage,
+  createInProgressMessage,
+  removeMessageById,
+  subscribeToMessages,
+  onMessagesChange,
+  type MessageInstance,
+} from "./components/index.js";
+import { VirtualMessageList } from "./components/virtual-message-list.js";
 
 registerBuiltInCommands();
 
 let tui: TUI;
 let messageCount = 0;
 
-// Session state (used across editor.onSubmit and model selectors)
 let currentSession: SessionInfo | null = null;
 let currentProvider = "";
 let currentModel = "";
@@ -36,7 +46,9 @@ let modelSelector: SelectList | null = null;
 let providerSelector: SelectList | null = null;
 let apiKeyEditor: Editor | null = null;
 let apiKeyPrompt: Text | null = null;
-let modelDisplayIdx = -1; // Track index of model display in children
+let modelDisplayIdx = -1;
+
+let messageList: VirtualMessageList;
 
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
@@ -48,6 +60,11 @@ ${chalk.dim(logoTagline)}
 Type your messages below. Press Ctrl+C to exit.`;
 
 tui.addChild(new Text(welcomeText));
+
+// Create message list and add to tui BEFORE editor
+messageList = new VirtualMessageList(200);
+messageList.setTui(tui);
+tui.addChild(messageList);
 
 const editor = new Editor(tui, defaultEditorTheme);
 
@@ -75,14 +92,12 @@ const defaultSelectListTheme: SelectListTheme = {
 };
 
 function updateModelDisplay(): void {
-	// Always update the display text
 	const displayText = currentProvider && currentModel
 		? `${currentProvider}/${currentModel}`
 		: "not selected";
 
 	modelDisplay = new Text(chalk.dim(`Model: ${displayText}`));
 
-	// Use stored index to update model display
 	if (modelDisplayIdx >= 0 && modelDisplayIdx < tui.children.length) {
 		tui.children[modelDisplayIdx] = modelDisplay;
 	}
@@ -91,34 +106,7 @@ function updateModelDisplay(): void {
 }
 
 function showMessage(content: string): void {
-	// Check if this is a user message (contains **You with chalk styling)
-	// Content looks like: **[31mYou[0m:** message
-	const isUserMessage = content.includes("**") && content.includes("You") && content.includes(":");
-
-	let msg: Component;
-	let displayContent = content;
-	if (isUserMessage) {
-		// Remove the **You:** prefix for display but keep background
-		displayContent = content.replace(/\*\*[^\:]+:\*\*\s*/, "");
-		const box = new Box(0, 0, (text: string) => {
-			return text.split('\n').map(line => chalk.bgRgb(80, 80, 80)(line)).join('\n');
-		});
-		msg = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
-		box.addChild(msg);
-		msg = box;
-	} else if (content.includes("**") && content.includes("FreeCode") && content.includes(":")) {
-		// Remove the **FreeCode:** prefix for assistant messages too
-		displayContent = content.replace(/\*\*[^\:]+:\*\*\s*/, "");
-		msg = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
-	} else {
-		msg = new Markdown(content, 1, 1, defaultMarkdownTheme);
-	}
-
-	const children = tui.children;
-	// Insert after welcome (index 0), before editor and model display
-	const editorIdx = children.indexOf(editor);
-	children.splice(editorIdx, 0, msg);
-	tui.requestRender();
+	createSystemMessage(content);
 }
 
 function removeSelector(selector: SelectList | null): void {
@@ -219,15 +207,12 @@ async function showModelSelector(providerId: string): Promise<void> {
 			currentProvider = providerId;
 			currentModel = item.value;
 
-			// Check if provider has API key
 			const providers = await listProviders();
 			const providerInfo = (providers as any[]).find((p: any) => p.id === providerId);
 
 			if (providerInfo && !providerInfo.hasApiKey) {
-				// Show API key input
 				await showApiKeyInput(providerId, item.value);
 			} else {
-				// Already has API key, just save current model
 				await setCurrentModel(providerId, item.value);
 				updateModelDisplay();
 				showMessage(`**Model changed to:** ${providerId}/${item.value}`);
@@ -256,13 +241,10 @@ async function showApiKeyInput(providerId: string, modelId: string): Promise<voi
 
 	showMessage(`**Paste your API key for ${providerId} below and press Enter:**`);
 
-	// Clear the main editor and set placeholder
 	editor.setText("");
-
 	tui.setFocus(editor);
 	tui.requestRender();
 
-	// Override editor's onSubmit temporarily to capture API key
 	const originalOnSubmit = editor.onSubmit;
 	editor.onSubmit = async (value: string) => {
 		const apiKey = value.trim();
@@ -271,7 +253,6 @@ async function showApiKeyInput(providerId: string, modelId: string): Promise<voi
 			return;
 		}
 
-		// Save API key and current model to config
 		await setApiKey(providerId, apiKey, modelId);
 		await setCurrentModel(providerId, modelId);
 
@@ -280,7 +261,6 @@ async function showApiKeyInput(providerId: string, modelId: string): Promise<voi
 		updateModelDisplay();
 		showMessage(`**API key saved and model set to:** ${providerId}/${modelId}`);
 
-		// Restore original onSubmit
 		editor.onSubmit = originalOnSubmit;
 		tui.setFocus(editor);
 	};
@@ -289,7 +269,6 @@ async function showApiKeyInput(providerId: string, modelId: string): Promise<voi
 async function loadCurrentModel(): Promise<void> {
 	startCli();
 
-	// Wait for CLI to initialize
 	await new Promise(resolve => setTimeout(resolve, 800));
 
 	try {
@@ -316,7 +295,16 @@ editor.onSubmit = async (value: string) => {
 		if (commandName) {
 			const command = commandRegistry.get(commandName);
 			if (command) {
-				command.execute(args, { showMessage, showModelSelector: showProviderSelector });
+				command.execute(args, {
+					showMessage,
+					showModelSelector: showProviderSelector,
+					createUserMessage: (content: string) => createUserMessage(content),
+					createAssistantMessage: (content: string) => createAssistantMessage(content),
+					createSystemMessage: (content: string) => createSystemMessage(content),
+					createInProgressMessage: (phrase: string) => createInProgressMessage(phrase),
+					insertBeforeEditor: () => { /* no-op - messages go through store now */ },
+					removeMessageById: (id: number) => removeMessageById(id),
+				});
 				return;
 			} else {
 				showMessage(`**Error:** Unknown command: /${commandName}. Type /help for available commands.`);
@@ -326,22 +314,19 @@ editor.onSubmit = async (value: string) => {
 	}
 
 	messageCount++;
-	showMessage(`**${chalk.red("You")}:** ${trimmed}`);
-	showMessage("Processing...");
 
-	// Track start time for elapsed display
+	// Create messages through the store - VirtualMessageList handles rendering
+	createUserMessage(`**${chalk.red("You")}:** ${trimmed}`);
+	const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
+
 	const startTime = Date.now();
 
-	// Ensure CLI is running
 	startCli();
 
-	// Wait for CLI to start if needed
 	await new Promise(resolve => setTimeout(resolve, 500));
 
-	// Get or create session
 	if (!currentSession) {
 		try {
-			// Get current model from config if not set
 			if (!currentProvider) {
 				try {
 					const current = await getCurrentModel();
@@ -359,6 +344,7 @@ editor.onSubmit = async (value: string) => {
 				provider: currentProvider || "minimax",
 			}) as SessionInfo;
 		} catch (error) {
+			removeMessageById(inProgressMsg.id);
 			showMessage(`**Error:** Failed to start session: ${error instanceof Error ? error.message : String(error)}`);
 			return;
 		}
@@ -373,7 +359,9 @@ editor.onSubmit = async (value: string) => {
 			iterationCount?: number;
 		};
 
-		// Calculate elapsed time
+		// Remove in-progress message
+		removeMessageById(inProgressMsg.id);
+
 		const elapsed = Date.now() - startTime;
 		const seconds = Math.floor(elapsed / 1000);
 		const minutes = Math.floor(seconds / 60);
@@ -382,18 +370,18 @@ editor.onSubmit = async (value: string) => {
 
 		if (result.success) {
 			const response = result.content || result.message;
-			showMessage(`**FreeCode:** ${response || "Done!"}`);
-			showMessage(chalk.dim(`Baked for ${timeStr}`));
+			createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
 		} else {
-			showMessage(`**FreeCode:** ${result.message || "Unknown error"}`);
-			showMessage(chalk.dim(`Baked for ${timeStr}`));
+			createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
+			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
 		}
 	} catch (error) {
+		removeMessageById(inProgressMsg.id);
 		showMessage(`**Error:** ${error instanceof Error ? error.message : String(error)}`);
 	}
 };
 
-// Handle Ctrl+C for clean exit from keyboard
 tui.addInputListener((data) => {
 	if (matchesKey(data, Key.ctrl("c"))) {
 		if (tui) {
@@ -404,10 +392,13 @@ tui.addInputListener((data) => {
 	return undefined;
 });
 
-// Load current model from config on startup
 loadCurrentModel();
 
-// Stop sound on exit
+// Wire stderr to system messages via store
+startCli((stderrMsg) => {
+	createSystemMessage(stderrMsg);
+});
+
 const freecodeModule = await import("./commands/freecode/index.js");
 process.on("exit", () => freecodeModule.stopSound?.());
 
