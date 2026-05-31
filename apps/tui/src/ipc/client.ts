@@ -45,7 +45,7 @@ function parseResponse(data: string): JsonRpcResponse[] {
   return responses;
 }
 
-export function startCli(): void {
+export function startCli(onStderr?: (msg: string) => void): void {
   if (cliProcess) return;
 
   // Project root is the monorepo root (where pnpm-workspace.yaml lives)
@@ -67,7 +67,7 @@ export function startCli(): void {
   cliProcess.stdout?.setEncoding("utf-8");
 
   cliProcess.stderr?.on("data", (data) => {
-    console.error("[CLI stderr]", data.toString());
+    onStderr?.(data.toString().trim());
   });
 
   cliProcess.stdout?.on("data", (data: string) => {
