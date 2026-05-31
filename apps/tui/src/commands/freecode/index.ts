@@ -13,6 +13,8 @@ import {
 } from "../../ipc/client.js";
 import { playAlert } from "./alert.js";
 import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "../../utils/elapsed-phrases.js";
+import { getModelContextLimit } from "../../utils/model-limits.js";
+import { formatTokenCount } from "../../utils/format-tokens.js";
 export { stopSound } from "./sound.js";
 
 // State
@@ -85,22 +87,29 @@ ${formatProviderList()}`);
     // Show in-progress message and track it for later removal
     const inProgressMsg = ctx.createInProgressMessage(getRandomInProgressPhrase());
     const inProgressId = inProgressMsg.id;
-
     const startTime = Date.now();
 
     const ready = await ensureSession(ctx);
     if (!ready) return;
 
     try {
-      const result = await sessionSend(currentSession!.sessionId, userPrompt) as {
-        success: boolean;
-        message?: string;
-        content?: string;
-        turnCount?: number;
-        iterationCount?: number;
-      };
+      const result = await sessionSend(currentSession!.sessionId, userPrompt);
 
-      // Remove in-progress message
+      // Update in-progress message with token counts
+      const contextLimit = getModelContextLimit(`${currentProvider}/MiniMax-M2`);
+      ctx.updateInProgressMessage(
+        inProgressId,
+        getRandomInProgressPhrase(),
+        result.usage?.inputTokens ?? 0,
+        result.usage?.outputTokens ?? 0,
+        contextLimit,
+        startTime
+      );
+
+      // Brief pause so user can see final token state before it disappears
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Remove in-progress message now that response has arrived
       ctx.removeMessageById(inProgressId);
 
       const elapsed = Date.now() - startTime;
@@ -112,7 +121,13 @@ ${formatProviderList()}`);
       if (result.success) {
         const response = result.content || result.message;
         ctx.createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
-        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
+        const inTokens = result.usage?.inputTokens ?? 0;
+        const outTokens = result.usage?.outputTokens ?? 0;
+        let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
+        if (contextLimit > 0) {
+          tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
+        }
+        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo}`);
         playAlert();
       } else {
         ctx.createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
