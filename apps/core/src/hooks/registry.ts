@@ -76,9 +76,51 @@ function matchesIfCondition(
     return true
   }
 
-  // For now, we just check if tool name matches
-  // Pattern matching on input would require tool-specific logic
-  return true
+  // Apply pattern to tool input
+  // Input is Record<string, unknown>, we serialize relevant parts for matching
+  const inputStr = serializeInputForMatching(input.toolInput)
+
+  // Handle glob patterns (simple wildcard matching)
+  if (pattern.includes("*")) {
+    return matchGlob(inputStr, pattern) || matchGlob(inputStr, pattern.replace(/\*/g, ".*"))
+  }
+
+  // Try regex
+  try {
+    const regex = new RegExp(pattern)
+    return regex.test(inputStr)
+  } catch {
+    // Fall back to exact match
+    return inputStr === pattern
+  }
+}
+
+function serializeInputForMatching(input: Record<string, unknown>): string {
+  // Serialize input for pattern matching - extract meaningful values
+  const parts: string[] = []
+
+  // Common useful fields to extract
+  for (const [key, value] of Object.entries(input)) {
+    if (value === undefined || value === null) continue
+    parts.push(String(value))
+  }
+
+  return parts.join(" ")
+}
+
+function matchGlob(str: string, pattern: string): boolean {
+  // Convert glob pattern to regex
+  // * matches anything, ** matches path separators
+  const regexPattern = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")  // Escape regex special chars except *
+    .replace(/\*\*/g, ".*")  // ** -> .* (any chars including /)
+    .replace(/\*/g, "[^\\s]*")  // * -> non-whitespace chars
+
+  try {
+    return new RegExp(`^${regexPattern}$`).test(str)
+  } catch {
+    return false
+  }
 }
 
 // =============================================================================
