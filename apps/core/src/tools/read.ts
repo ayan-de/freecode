@@ -1,6 +1,13 @@
+// =============================================================================
+// Read Tool - Read file contents with UI rendering
+// =============================================================================
+
 import * as fs from "fs"
 import * as path from "path"
-import type { ToolDef, ToolContext, ToolResult } from "./types"
+import type { ToolContext } from "./types"
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
+import { buildTool, defaultToolUI } from "./factory"
+import { readToolUI } from "./read/ui"
 
 interface ReadParams {
   filePath: string
@@ -40,19 +47,50 @@ function readLines(
   return { raw, count, cut, more }
 }
 
-export const ReadTool: ToolDef<ReadParams> = {
-  id: "read",
-  description: "Read file contents",
-  parameters: {
-    type: "object",
-    properties: {
-      filePath: { description: "The absolute path to the file or directory to read" },
-      offset: { description: "The line number to start reading from (1-indexed)" },
-      limit: { description: "The maximum number of lines to read (defaults to 2000)" },
-    },
-    required: ["filePath"],
+// =============================================================================
+// Read Schema
+// =============================================================================
+
+const readSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    filePath: { description: "The absolute path to the file or directory to read" },
+    offset: { description: "The line number to start reading from (1-indexed)" },
+    limit: { description: "The maximum number of lines to read (defaults to 2000)" },
   },
-  execute: async (params: ReadParams, ctx: ToolContext): Promise<ToolResult> => {
+  required: ["filePath"],
+}
+
+// =============================================================================
+// Input validation
+// =============================================================================
+
+function validateReadInput(params: unknown): { valid: true } | { valid: false; error: string } {
+  if (!params || typeof params !== "object") {
+    return { valid: false, error: "Expected object parameters" }
+  }
+  const p = params as Record<string, unknown>
+  if (typeof p.filePath !== "string" || p.filePath.length === 0) {
+    return { valid: false, error: "filePath is required and must be a string" }
+  }
+  if (p.offset !== undefined && typeof p.offset !== "number") {
+    return { valid: false, error: "offset must be a number" }
+  }
+  if (p.limit !== undefined && typeof p.limit !== "number") {
+    return { valid: false, error: "limit must be a number" }
+  }
+  return { valid: true }
+}
+
+// =============================================================================
+// Execute function
+// =============================================================================
+
+async function executeRead(
+  params: ReadParams,
+  ctx: ToolContext
+): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
+  try {
     let filepath = params.filePath
     if (!path.isAbsolute(filepath)) {
       filepath = path.resolve(ctx.cwd, filepath)
@@ -69,24 +107,30 @@ export const ReadTool: ToolDef<ReadParams> = {
       const truncated = start + sliced.length < items.length
 
       return {
-        title: path.basename(filepath),
-        output: [
-          `<path>${filepath}</path>`,
-          `<type>directory</type>`,
-          `<entries>`,
-          sliced.join("\n"),
-          truncated
-            ? `\n(Showing ${sliced.length} of ${items.length} entries)`
-            : `\n(${items.length} entries)`,
-          `</entries>`,
-        ].join("\n"),
-        metadata: { truncated },
+        success: true,
+        result: {
+          title: path.basename(filepath),
+          output: [
+            `<path>${filepath}</path>`,
+            `<type>directory</type>`,
+            `<entries>`,
+            sliced.join("\n"),
+            truncated
+              ? `\n(Showing ${sliced.length} of ${items.length} entries)`
+              : `\n(${items.length} entries)`,
+            `</entries>`,
+          ].join("\n"),
+          metadata: { truncated },
+        },
       }
     }
 
     const sample = fs.readFileSync(filepath)
     if (isBinaryFile(sample)) {
-      return { title: path.basename(filepath), output: `Cannot read binary file: ${filepath}` }
+      return {
+        success: false,
+        error: `Cannot read binary file: ${filepath}`,
+      }
     }
 
     const lines = readLines(filepath, {
@@ -110,9 +154,45 @@ export const ReadTool: ToolDef<ReadParams> = {
     output += "\n</content>"
 
     return {
-      title: path.basename(filepath),
-      output,
-      metadata: { truncated: lines.cut || lines.more, lines: lines.count },
+      success: true,
+      result: {
+        title: path.basename(filepath),
+        output,
+        metadata: { truncated: lines.cut || lines.more, lines: lines.count },
+      },
     }
-  },
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
 }
+
+// =============================================================================
+// ReadTool - Built with buildTool() factory
+// =============================================================================
+
+export const ReadTool: Tool<ReadParams> = buildTool({
+  id: "read",
+  description: "Read file contents",
+  schemas: {
+    parameters: readSchema,
+  },
+  permissions: {
+    operations: ["file.read"],
+  },
+  behavior: {
+    isConcurrencySafe: true,
+    isDestructive: false,
+    userFacingName: "Read File",
+  },
+  ui: {
+    ...defaultToolUI,
+    ...readToolUI,
+  },
+  execute: executeRead,
+  validateInput: validateReadInput,
+  isSearchOrReadCommand: () => ({ isSearch: false, isRead: true }),
+  getPath: (params) => params.filePath,
+})

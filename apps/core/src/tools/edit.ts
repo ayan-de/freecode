@@ -1,17 +1,15 @@
 // =============================================================================
-// edit Tool - In-place file editing
-// PRIMARY: Replace text in files with multiple matching strategies
-// INPUT: { filePath, oldString, newString, replaceAll? }
-// OUTPUT: Edit result with diff and diagnostics
-// NOTE: Ported from opencode with 9 replacer strategies
-// Source: https://github.com/cline/cline/blob/main/evals/diff...
+// Edit Tool - In-place file editing with UI rendering
 // =============================================================================
 
 import * as fs from "fs"
 import * as path from "path"
-import type { ToolDef, ToolContext, ToolResult } from "./types"
+import type { ToolContext } from "./types"
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
+import { buildTool, defaultToolUI } from "./factory"
+import { editToolUI } from "./edit/ui"
 
-export interface EditParams {
+interface EditParams {
   filePath: string
   oldString: string
   newString: string
@@ -24,9 +22,48 @@ type ReplacerCandidate = {
   endIndex: number
 }
 
-// Similarity thresholds
 const SINGLE_CANDIDATE_THRESHOLD = 0.0
 const MULTIPLE_CANDIDATES_THRESHOLD = 0.3
+
+// =============================================================================
+// Edit Schema
+// =============================================================================
+
+const editSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    filePath: { description: "Absolute path to the file to edit" },
+    oldString: { description: "The exact text to replace" },
+    newString: { description: "The replacement text" },
+    replaceAll: { description: "Replace all occurrences (default: false)" },
+  },
+  required: ["filePath", "oldString", "newString"],
+}
+
+// =============================================================================
+// Input validation
+// =============================================================================
+
+function validateEditInput(params: unknown): { valid: true } | { valid: false; error: string } {
+  if (!params || typeof params !== "object") {
+    return { valid: false, error: "Expected object parameters" }
+  }
+  const p = params as Record<string, unknown>
+  if (typeof p.filePath !== "string" || p.filePath.length === 0) {
+    return { valid: false, error: "filePath is required" }
+  }
+  if (typeof p.oldString !== "string") {
+    return { valid: false, error: "oldString is required" }
+  }
+  if (typeof p.newString !== "string") {
+    return { valid: false, error: "newString is required" }
+  }
+  return { valid: true }
+}
+
+// =============================================================================
+// Levenshtein distance
+// =============================================================================
 
 function levenshtein(a: string, b: string): number {
   if (!a || !b) return Math.max(a?.length ?? 0, b?.length ?? 0)
@@ -47,7 +84,7 @@ function detectLineEnding(text: string): "\n" | "\r\n" {
 }
 
 // =============================================================================
-// Replacer Strategies (9 total) - all return candidate arrays
+// Replacer Strategies
 // =============================================================================
 
 function simpleReplacer(content: string, find: string): ReplacerCandidate[] {
@@ -114,7 +151,6 @@ function blockAnchorReplacer(content: string, find: string): ReplacerCandidate[]
 
   if (candidates.length === 0) return results
 
-  // Single candidate
   if (candidates.length === 1) {
     const { startLine, endLine } = candidates[0]
     let similarity = 0
@@ -143,7 +179,6 @@ function blockAnchorReplacer(content: string, find: string): ReplacerCandidate[]
     return results
   }
 
-  // Multiple candidates
   let best: { startLine: number; endLine: number } | null = null
   let maxSim = -1
 
@@ -197,7 +232,6 @@ function whitespaceNormalizedReplacer(content: string, find: string): ReplacerCa
     }
   }
 
-  // Multi-line
   const findLines = find.split("\n")
   if (findLines.length > 1) {
     for (let i = 0; i <= lines.length - findLines.length; i++) {
@@ -224,12 +258,10 @@ function indentationFlexibleReplacer(content: string, find: string): ReplacerCan
     const lines = t.split("\n")
     const nonEmpty = lines.filter((l) => l.trim().length > 0)
     if (nonEmpty.length === 0) return t
-    const minIndent = Math.min(
-      ...nonEmpty.map((l) => {
-        const m = l.match(/^(\s*)/)
-        return m ? m[1].length : 0
-      }),
-    )
+    const minIndent = Math.min(...nonEmpty.map((l) => {
+      const m = l.match(/^(\s*)/)
+      return m ? m[1].length : 0
+    }))
     return lines.map((l) => (l.trim().length === 0 ? l : l.slice(minIndent))).join("\n")
   }
 
@@ -256,21 +288,19 @@ function indentationFlexibleReplacer(content: string, find: string): ReplacerCan
 
 function escapedNormalizedReplacer(content: string, find: string): ReplacerCandidate[] {
   const results: ReplacerCandidate[] = []
-  const unescape = (str: string) =>
-    str.replace(/\\(n|t|r|'|"|`|\\|\n|\$)/g, (m, c) => {
-      switch (c) {
-        case "n": return "\n"
-        case "t": return "\t"
-        case "r": return "\r"
-        case "'": return "'"
-        case '"': return '"'
-        case "`": return "`"
-        case "\\": return "\\"
-        case "\n": return "\n"
-        case "$": return "$"
-        default: return m
-      }
-    })
+  // Simple unescape using a map
+  const unescapeMap: Record<string, string> = {
+    n: "\n",
+    t: "\t",
+    r: "\r",
+    "'": "'",
+    '"': "\"",
+    "`": "`",
+    "\\": "\\",
+    "\n": "\n",
+    "$": "$",
+  }
+  const unescape = (s: string): string => s.replace(/\\(.)/g, (_, c) => unescapeMap[c] ?? c)
 
   const unescapedFind = unescape(find)
   if (content.includes(unescapedFind)) {
@@ -385,7 +415,7 @@ function contextAwareReplacer(content: string, find: string): ReplacerCandidate[
 }
 
 // =============================================================================
-// applyEdit - tries all replacers, returns modified content
+// applyEdit
 // =============================================================================
 
 function applyEdit(content: string, oldString: string, newString: string, replaceAll: boolean): string {
@@ -425,29 +455,18 @@ function applyEdit(content: string, oldString: string, newString: string, replac
     }
   }
 
-  throw new Error(
-    "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",
-  )
+  throw new Error("Could not find oldString in the file.")
 }
 
 // =============================================================================
-// EditTool Definition
+// Execute function
 // =============================================================================
 
-export const EditTool: ToolDef<EditParams> = {
-  id: "edit",
-  description: "Edit files in-place using old_string/new_string replacement",
-  parameters: {
-    type: "object",
-    properties: {
-      filePath: { description: "Absolute path to the file to edit" },
-      oldString: { description: "The exact text to replace" },
-      newString: { description: "The replacement text" },
-      replaceAll: { description: "Replace all occurrences (default: false)" },
-    },
-    required: ["filePath", "oldString", "newString"],
-  },
-  execute: async (params: EditParams, ctx: ToolContext): Promise<ToolResult> => {
+async function executeEdit(
+  params: EditParams,
+  ctx: ToolContext
+): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
+  try {
     let filepath = params.filePath
     if (!path.isAbsolute(filepath)) {
       filepath = path.resolve(ctx.cwd, filepath)
@@ -455,18 +474,24 @@ export const EditTool: ToolDef<EditParams> = {
 
     if (params.oldString === params.newString) {
       return {
-        title: path.basename(filepath),
-        output: "Error: oldString and newString are identical - no changes to apply",
+        success: false,
+        error: "oldString and newString are identical - no changes to apply",
       }
     }
 
     if (!fs.existsSync(filepath)) {
-      return { title: path.basename(filepath), output: `Error: File not found: ${filepath}` }
+      return {
+        success: false,
+        error: `File not found: ${filepath}`,
+      }
     }
 
     const stat = fs.statSync(filepath)
     if (stat.isDirectory()) {
-      return { title: path.basename(filepath), output: `Error: Path is a directory: ${filepath}` }
+      return {
+        success: false,
+        error: `Path is a directory: ${filepath}`,
+      }
     }
 
     const content = fs.readFileSync(filepath, "utf-8")
@@ -478,17 +503,53 @@ export const EditTool: ToolDef<EditParams> = {
       newContent = applyEdit(content, oldNormalized, params.newString, params.replaceAll ?? false)
     } catch (err) {
       return {
-        title: path.basename(filepath),
-        output: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
       }
     }
 
     fs.writeFileSync(filepath, newContent, "utf-8")
 
     return {
-      title: path.basename(filepath),
-      output: "Edit applied successfully.",
-      metadata: { filepath },
+      success: true,
+      result: {
+        title: path.basename(filepath),
+        output: "Edit applied successfully.",
+        metadata: { filepath },
+      },
     }
-  },
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
 }
+
+// =============================================================================
+// EditTool - Built with buildTool() factory
+// =============================================================================
+
+export const EditTool: Tool<EditParams> = buildTool({
+  id: "edit",
+  description: "Edit files in-place using old_string/new_string replacement",
+  schemas: {
+    parameters: editSchema,
+  },
+  permissions: {
+    operations: ["file.write"],
+  },
+  behavior: {
+    isConcurrencySafe: false,
+    isDestructive: true,
+    userFacingName: "Edit File",
+  },
+  ui: {
+    ...defaultToolUI,
+    ...editToolUI,
+  },
+  execute: executeEdit,
+  validateInput: validateEditInput,
+  isSearchOrReadCommand: () => ({ isSearch: false, isRead: false }),
+  getPath: (params) => params.filePath,
+})
