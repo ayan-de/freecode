@@ -29,3 +29,6 @@ export { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store"
 
 // SQLite Store
 export { SqliteThreadStoreImpl } from "./sqlite-store"
+
+// Remote Session Sync
+export { RemoteSessionSync, getRemoteSync, type ExportedSession, type RemoteSessionConfig } from "./remote"
