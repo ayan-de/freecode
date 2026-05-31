@@ -7,7 +7,7 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
 import { buildTool, defaultToolUI } from "./factory"
 import { agentToolUI } from "./agent/ui"
 import { AgentLoop } from "../agent/loop.js"
-import { bus, BusEvents } from "../bus/index.js"
+import { BusEvents } from "../bus/index.js"
 import type { HookContext } from "../agent/types.js"
 import type { HookRuntime } from "../hooks/runtime.js"
 
@@ -67,23 +67,11 @@ async function executeSubagent(
     toolName: "agent",
   }
 
-  const startTime = Date.now()
-
   try {
-    const startResult = await hooks.runSubagentStart(
-      { id: subagentId, tool: "agent", args: params, execution: "sequential" },
-      hookCtx
-    )
+    const startResult = await hooks.runSubagentStart(params.task, hookCtx)
 
-    if (startResult.action === "block") {
-      return {
-        success: false,
-        error: `Blocked by hook: ${startResult.reason ?? "no reason"}`,
-      }
-    }
-
-    if (startResult.action === "inject" && startResult.injectContext) {
-      params = { ...params, ...startResult.injectContext } as AgentParams
+    if (startResult.additionalContext) {
+      console.log(`[AgentTool] SubagentStart hook added context`)
     }
 
     BusEvents.subagentStarted(subagentId, parentSessionId, params.task)
@@ -100,14 +88,9 @@ async function executeSubagent(
       projectPath: ctx.cwd,
     })
 
-    const duration_ms = Date.now() - startTime
-
     BusEvents.subagentCompleted(subagentId, parentSessionId, result.message || "completed")
 
-    await hooks.runSubagentStop(
-      JSON.stringify({ success: result.success, message: result.message }),
-      hookCtx
-    )
+    await hooks.runSubagentStop(params.task, hookCtx)
 
     const output = [
       `Subagent: ${params.task}`,
