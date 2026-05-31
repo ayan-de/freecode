@@ -60,7 +60,7 @@ export function createSystemMessageComponent(content: string): Component {
  */
 export function createInProgressMessageComponent(phrase: string): Component {
   const box = new Box(1, 1);
-  const text = new Text(chalk.dim.yellow(phrase), 1, 1);
+  const text = new Text(chalk.yellow(phrase), 1, 1);
   box.addChild(text);
 
   return box;
