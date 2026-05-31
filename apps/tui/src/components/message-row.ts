@@ -15,13 +15,15 @@ class InProgressMessage implements Component {
   private baseInputTokens: number;
   private outputTokens: number;
   private contextLimit: number;
+  private turns: number;
 
-  constructor(phrase: string, startTime: number, baseInputTokens: number, outputTokens: number, contextLimit: number) {
+  constructor(phrase: string, startTime: number, baseInputTokens: number, outputTokens: number, contextLimit: number, turns: number) {
     this.phrase = phrase;
     this.startTime = startTime;
     this.baseInputTokens = baseInputTokens;
     this.outputTokens = outputTokens;
     this.contextLimit = contextLimit;
+    this.turns = turns;
   }
 
   render(_width: number): string[] {
@@ -30,7 +32,7 @@ class InProgressMessage implements Component {
     const estimatedInputTokens = this.baseInputTokens + (elapsed * 1000);
     const inStr = formatTokenCount(estimatedInputTokens);
     const outStr = formatTokenCount(this.outputTokens);
-    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)} ${chalk.dim(`(x${this.turns})`)}`;
 
     if (this.contextLimit > 0) {
       const pct = Math.min(estimatedInputTokens / this.contextLimit, 1);
@@ -116,8 +118,8 @@ export function createSystemMessageComponent(content: string): Component {
 /**
  * Create an in-progress message component — dimmed yellow text (for "Simmering...", etc.)
  */
-export function createInProgressMessageComponent(phrase: string, startTime: number, inputTokens: number, outputTokens: number, contextLimit: number): Component {
-  return new InProgressMessage(phrase, startTime, inputTokens, outputTokens, contextLimit);
+export function createInProgressMessageComponent(phrase: string, startTime: number, inputTokens: number, outputTokens: number, contextLimit: number, turns: number): Component {
+  return new InProgressMessage(phrase, startTime, inputTokens, outputTokens, contextLimit, turns);
 }
 
 /**
@@ -129,7 +131,8 @@ export function createMessageComponent(
   startTime?: number,
   inputTokens?: number,
   outputTokens?: number,
-  contextLimit?: number
+  contextLimit?: number,
+  turns?: number
 ): Component {
   switch (type) {
     case "user":
@@ -144,7 +147,8 @@ export function createMessageComponent(
         startTime ?? Date.now(),
         inputTokens ?? 0,
         outputTokens ?? 0,
-        contextLimit ?? 0
+        contextLimit ?? 0,
+        turns ?? 1
       );
     default:
       return createSystemMessageComponent(content);

@@ -103,7 +103,8 @@ ${formatProviderList()}`);
         result.usage?.inputTokens ?? 0,
         result.usage?.outputTokens ?? 0,
         contextLimit,
-        startTime
+        startTime,
+        result.turnCount || 1
       );
 
       // Brief pause so user can see final token state before it disappears
@@ -127,7 +128,7 @@ ${formatProviderList()}`);
         if (contextLimit > 0) {
           tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
         }
-        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo}`);
+        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`);
         playAlert();
       } else {
         ctx.createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);

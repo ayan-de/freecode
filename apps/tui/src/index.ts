@@ -305,7 +305,7 @@ editor.onSubmit = async (value: string) => {
 					createAssistantMessage: (content: string) => createAssistantMessage(content),
 					createSystemMessage: (content: string) => createSystemMessage(content),
 					createInProgressMessage: (phrase: string, inputTokens = 0, outputTokens = 0, contextLimit = 0) => createInProgressMessage(phrase, inputTokens, outputTokens, contextLimit),
-					updateInProgressMessage: (id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number) => updateInProgressMessage(id, phrase, inputTokens, outputTokens, contextLimit, startTime),
+					updateInProgressMessage: (id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number, turns: number) => updateInProgressMessage(id, phrase, inputTokens, outputTokens, contextLimit, startTime, turns),
 					insertBeforeEditor: () => { /* no-op - messages go through store now */ },
 					removeMessageById: (id: number) => removeMessageById(id),
 				});
@@ -364,7 +364,8 @@ editor.onSubmit = async (value: string) => {
 			result.usage?.inputTokens ?? 0,
 			result.usage?.outputTokens ?? 0,
 			contextLimit,
-			inProgressMsg.timestamp
+			inProgressMsg.timestamp,
+			result.turnCount || 1
 		);
 
 		// Brief pause so user can see final token state before it disappears
@@ -390,7 +391,7 @@ editor.onSubmit = async (value: string) => {
 			if (contextLimit > 0) {
 				tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
 			}
-			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo}`);
+			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`);
 		} else {
 			createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
 			createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);

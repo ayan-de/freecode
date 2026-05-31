@@ -6,7 +6,7 @@ export interface MessageCreators {
 	createAssistantMessage(content: string): { component: Component; id: number };
 	createSystemMessage(content: string): { component: Component; id: number };
 	createInProgressMessage(phrase: string, inputTokens?: number, outputTokens?: number, contextLimit?: number): { component: Component; id: number };
-	updateInProgressMessage(id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number): void;
+	updateInProgressMessage(id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number, turns: number): void;
 	insertBeforeEditor(component: Component): void;
 	removeMessageById(id: number): void;
 }
