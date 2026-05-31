@@ -1,6 +1,16 @@
+import type { Component } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
 
-export interface CommandContext {
+export interface MessageCreators {
+	createUserMessage(content: string): { component: Component; id: number };
+	createAssistantMessage(content: string): { component: Component; id: number };
+	createSystemMessage(content: string): { component: Component; id: number };
+	createInProgressMessage(phrase: string): { component: Component; id: number };
+	insertBeforeEditor(component: Component): void;
+	removeMessageById(id: number): void;
+}
+
+export interface CommandContext extends MessageCreators {
 	showMessage(content: string): void;
 	showModelSelector?(): void;
 }
