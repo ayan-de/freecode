@@ -7,7 +7,7 @@ export interface MessageInstance {
   type: MessageType;
   content: string;  // raw content for reference
   component: Component;
-  timestamp: number;
+  timestamp: number;  // also serves as startTime for in-progress messages
 }
 
 export interface MessageStoreOptions {
