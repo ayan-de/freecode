@@ -149,8 +149,17 @@ export async function sessionStop(sessionId: string): Promise<void> {
   await sendRequest("session.stop", { sessionId });
 }
 
-export async function sessionSend(sessionId: string, message: string, model?: string): Promise<unknown> {
-  return await sendRequest("session.send", { sessionId, message, model });
+export interface SessionSendResult {
+  success: boolean;
+  message?: string;
+  content?: string;
+  turnCount?: number;
+  iterationCount?: number;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+export async function sessionSend(sessionId: string, message: string, model?: string): Promise<SessionSendResult> {
+  return await sendRequest("session.send", { sessionId, message, model }) as SessionSendResult;
 }
 
 // =============================================================================
