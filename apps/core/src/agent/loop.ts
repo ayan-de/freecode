@@ -555,7 +555,28 @@ Based on this task, which files do you need to read to understand the codebase a
 
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`)
     const context = { cwd: process.cwd() }
-    const result = await orchestrator.execute(toolCall, context)
+
+    let result: ToolResult
+    try {
+      result = await orchestrator.execute(toolCall, context)
+    } catch (error) {
+      // PostToolUseFailure Hook — handle tool execution error
+      const failureResult = await this.hooks.runPostToolUseFailure(
+        toolCall,
+        String(error),
+        hookContext
+      )
+      const errorResult: ToolResult = {
+        id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        toolCallId: toolCall.id,
+        tool: toolCall.tool,
+        title: `Tool ${toolCall.tool}`,
+        error: String(error),
+        duration_ms: Date.now() - startTime,
+      }
+      BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false, Date.now() - startTime)
+      return errorResult
+    }
 
     // PostToolUse Hook — can modify result
     const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
