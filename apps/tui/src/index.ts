@@ -319,7 +319,6 @@ editor.onSubmit = async (value: string) => {
 	createUserMessage(`**${chalk.red("You")}:** ${trimmed}`);
 	const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
 
-	const startTime = Date.now();
 
 	startCli();
 
@@ -362,7 +361,7 @@ editor.onSubmit = async (value: string) => {
 		// Remove in-progress message
 		removeMessageById(inProgressMsg.id);
 
-		const elapsed = Date.now() - startTime;
+		const elapsed = Date.now() - inProgressMsg.timestamp;
 		const seconds = Math.floor(elapsed / 1000);
 		const minutes = Math.floor(seconds / 60);
 		const secs = seconds % 60;
