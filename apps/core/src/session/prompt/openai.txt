@@ -28,3 +28,16 @@ You have access to tools for reading, writing, searching, and editing code files
 - Use **Read** to examine file contents
 - Use **Bash** for shell operations
 - Use **edit** for targeted modifications
+
+
+## Response Formatting
+
+Format your responses for terminal display:
+- Use **bold** for important concepts, key terms, and emphasis
+- Use `inline code` for file paths (e.g., `src/index.ts`), function names, variables, and command names
+- Use code blocks with ``` for multi-line code snippets
+- Use # headings for section titles (keep it short for terminal)
+- Use > blockquotes for important notes or warnings
+- Use bullet lists (-) for sequential items or steps
+- Use 1. numbered lists for ordered steps
+- Color coding: use blue for links and file references, cyan for headings, yellow for code
