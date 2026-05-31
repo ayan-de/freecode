@@ -1,8 +1,39 @@
 export interface ToolContext {
   cwd: string
-  abort?: AbortSignal
   sessionId?: string
+  abort?: AbortSignal
+  projectPath?: string
+  fileCache?: FileCache
+  permissionProfile?: PermissionProfile
   hooks?: unknown
+  startTime?: number
+}
+
+// =============================================================================
+// File Cache for LRU caching of file reads
+// =============================================================================
+
+export interface FileCacheEntry {
+  content: string
+  stat: { mtime: number; size: number }
+  lineCount?: number
+}
+
+export interface FileCache {
+  get(path: string): FileCacheEntry | undefined
+  set(path: string, entry: FileCacheEntry): void
+  invalidate(path: string): void
+  clear(): void
+}
+
+// =============================================================================
+// Permission Profile
+// =============================================================================
+
+export interface PermissionProfile {
+  allow: string[]
+  deny: string[]
+  alwaysAsk: string[]
 }
 
 export interface ToolResult {
