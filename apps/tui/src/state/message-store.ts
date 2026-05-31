@@ -53,6 +53,19 @@ class MessageStoreImpl {
   }
 
   /**
+   * Update a message's content and component by ID
+   */
+  update(id: number, content: string, component: Component): MessageInstance | undefined {
+    const message = this.messages.find((m) => m.id === id);
+    if (!message) return undefined;
+
+    message.content = content;
+    message.component = component;
+    this.notify();
+    return message;
+  }
+
+  /**
    * Get all messages
    */
   getMessages(): MessageInstance[] {
@@ -133,6 +146,10 @@ export function getMessages(): MessageInstance[] {
 
 export function getInProgress(): MessageInstance | undefined {
   return messageStore.getInProgress();
+}
+
+export function updateMessage(id: number, content: string, component: Component): MessageInstance | undefined {
+  return messageStore.update(id, content, component);
 }
 
 export function clearMessages(): void {
