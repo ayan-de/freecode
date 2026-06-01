@@ -26,7 +26,7 @@ class InProgressMessage implements Component {
     this.turns = turns;
   }
 
-  render(_width: number): string[] {
+  render(width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
     // Estimate: ~1k tokens per second of processing (rough approximation)
     const estimatedInputTokens = this.baseInputTokens + (elapsed * 1000);
@@ -36,7 +36,7 @@ class InProgressMessage implements Component {
 
     if (this.contextLimit > 0) {
       const pct = Math.min(estimatedInputTokens / this.contextLimit, 1);
-      const barWidth = 10;
+      const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
       const filled = Math.round(pct * barWidth);
       const empty = barWidth - filled;
       const bar = '█'.repeat(filled) + '░'.repeat(empty);
@@ -45,8 +45,9 @@ class InProgressMessage implements Component {
       display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
     }
 
-    // Truncate to terminal width (180 default, use actual width if provided)
-    const maxWidth = _width > 0 ? _width : 180;
+    // Always use a reasonable max width to ensure fit on all screens
+    // 80 is safe minimum, but use actual width if reasonable
+    const maxWidth = Math.max(40, Math.min(width, 200));
     const truncated = truncateToWidth(display, maxWidth);
     return [truncated];
   }
