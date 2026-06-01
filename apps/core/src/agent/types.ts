@@ -171,12 +171,15 @@ export type MessagePart =
 // User Input / Loop Result - Main entry/exit types
 // =============================================================================
 
+import type { StreamEvent } from "@freecode/shared"
+
 export interface UserInput {
   prompt: string
   sessionId: string
   provider: string
   model?: string
   projectPath: string
+  onToolEvent?: (event: StreamEvent) => void
 }
 
 export interface LoopResult {

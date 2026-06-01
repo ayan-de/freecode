@@ -18,6 +18,7 @@ import type {
   HookContext,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
+import type { StreamEvent } from "@freecode/shared"
 import { createToolOrchestrator, listTools, getTool } from "../tools/index.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
@@ -44,6 +45,7 @@ export class AgentLoop {
   private memory: MemoryService
   private hooks: HookRuntime
   private recorder: RolloutRecorder
+  private onToolEvent: ((event: StreamEvent) => void) | undefined
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
   private recentReasoning: string[] = []
@@ -70,6 +72,7 @@ export class AgentLoop {
 
     try {
       this.state = { ...this.state, status: "running" }
+      this.onToolEvent = input.onToolEvent
 
       // Step 1: Collect project context (file tree, etc.)
       const contextResult = await this.collectContext(input.projectPath)
@@ -555,6 +558,14 @@ Based on this task, which files do you need to read to understand the codebase a
       }
     }
 
+    // Emit tool_start event for streaming
+    this.onToolEvent?.({
+      type: "tool_start",
+      toolCallId: toolCall.id,
+      toolName: toolCall.tool,
+      args: toolCall.args as Record<string, unknown>,
+    })
+
     // Emit tool.called event before execution
     BusEvents.toolCalled(this.state.sessionId, toolCall.tool, toolCall.id, toolCall.args as Record<string, unknown>)
 
@@ -586,6 +597,14 @@ Based on this task, which files do you need to read to understand the codebase a
       return errorResult
     }
 
+    // Emit tool_output with last 5 lines of stdout
+    const outputLines = (result.stdout || "").split("\n").filter(l => l.trim()).slice(-5)
+    this.onToolEvent?.({
+      type: "tool_output",
+      toolCallId: toolCall.id,
+      content: outputLines.join("\n"),
+    })
+
     // PostToolUse Hook — can modify result
     const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
 
@@ -596,6 +615,16 @@ Based on this task, which files do you need to read to understand the codebase a
     const duration_ms = Date.now() - startTime
     const success = !result.error
     BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, success, duration_ms)
+
+    // Emit tool_complete event for streaming
+    this.onToolEvent?.({
+      type: "tool_complete",
+      toolCallId: toolCall.id,
+      toolName: toolCall.tool,
+      result: result.stdout || result.error || "",
+      success,
+      duration_ms,
+    })
 
     return result
   }

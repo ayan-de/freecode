@@ -10,7 +10,7 @@ import { getProviders, getProviderModels } from "./models-dev.js";
 import { readConfig, writeConfig, setApiKey, setCurrentModel, hasApiKey, getCurrentModel, type ProviderId } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
-import type { JsonRpcRequest, JsonRpcResponse, SessionConfig } from "@freecode/shared";
+import type { JsonRpcRequest, JsonRpcResponse, SessionConfig, StreamEvent } from "@freecode/shared";
 import { getMemoryStore, type MemoryEntry, type MemoryType } from "./memory/index.js";
 import { findRelevantMemories } from "./memory/mem-query.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
@@ -118,6 +118,11 @@ const methodHandlers: Record<
 
     logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider });
 
+    // Emit events to stdout immediately for streaming
+    const emitEvent = (event: StreamEvent) => {
+      process.stdout.write(JSON.stringify(event) + "\n");
+    };
+
     const loop = createAgentLoop(sessionId, { maxIterations: 100 })
     const result = await loop.run({
       prompt: message,
@@ -125,7 +130,11 @@ const methodHandlers: Record<
       provider: currentProvider,
       model: session.model,
       projectPath: session.projectPath,
+      onToolEvent: emitEvent,
     })
+
+    // Emit done event
+    emitEvent({ type: "done", content: result.message || "Done" });
 
     return result;
   },
