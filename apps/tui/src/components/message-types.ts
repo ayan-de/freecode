@@ -1,6 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 
-export type MessageType = "user" | "assistant" | "system" | "in_progress";
+export type MessageType = "user" | "assistant" | "system" | "in_progress" | "tool";
 
 export interface MessageInstance {
   id: number;
