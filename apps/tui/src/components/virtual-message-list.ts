@@ -67,19 +67,31 @@ export class VirtualMessageList implements Component {
 
   /**
    * Render the message list.
-   * Returns only the last maxVisible messages for performance.
+   * In-progress message always stays at the bottom; all other messages render above it.
    */
   render(width: number): string[] {
     this.invalidated = false;
 
     const lines: string[] = [];
 
-    // Only render last N messages
-    const visibleMessages = this.messages.slice(-this.maxVisible);
+    // Separate in-progress message from others
+    const regularMessages = this.messages.filter((m) => m.type !== "in_progress");
+    const inProgressMessage = this.messages.find((m) => m.type === "in_progress");
+
+    // Render regular messages first (older messages, then newer ones)
+    const visibleMessages = regularMessages.slice(-this.maxVisible);
 
     for (const msg of visibleMessages) {
       const msgLines = msg.component.render(width);
       for (const line of msgLines) {
+        lines.push(line);
+      }
+    }
+
+    // Render in-progress message at the very bottom (if exists)
+    if (inProgressMessage) {
+      const inProgressLines = inProgressMessage.component.render(width);
+      for (const line of inProgressLines) {
         lines.push(line);
       }
     }
