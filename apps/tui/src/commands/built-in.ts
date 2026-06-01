@@ -1,6 +1,5 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
-import { registerFreecodeCommand } from "./freecode/index.js";
 
 const helpCommand: Command = {
 	name: "help",
@@ -12,7 +11,8 @@ const helpCommand: Command = {
 - **/clear** - Clear all messages
 - **/model** - Select AI model
 - **/exit** - Exit FreeCode
-- **/freecode** - Send prompt to ChatGPT and apply file changes`);
+
+Just type your prompt to start chatting!`);
 	},
 };
 
@@ -46,5 +46,4 @@ export function registerBuiltInCommands(): void {
 	registerCommand(clearCommand);
 	registerCommand(exitCommand);
 	registerCommand(modelCommand);
-	registerFreecodeCommand();
 }
