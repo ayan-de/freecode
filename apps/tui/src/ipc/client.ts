@@ -13,6 +13,7 @@ import type {
   ToolResult,
   SessionConfig,
   ProviderInfo,
+  StreamEvent,
 } from "@freecode/shared";
 
 // =============================================================================
@@ -26,6 +27,7 @@ let pendingRequests = new Map<
   number | string,
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
 >();
+let onStreamEvent: ((event: StreamEvent) => void) | null = null;
 
 function generateId(): number {
   return ++requestId;
@@ -34,10 +36,16 @@ function generateId(): number {
 function parseResponse(data: string): JsonRpcResponse[] {
   const responses: JsonRpcResponse[] = [];
   const lines = data.split("\n");
+  messageBuffer = lines.pop() ?? "";
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
-      responses.push(JSON.parse(line) as JsonRpcResponse);
+      const parsed = JSON.parse(line);
+      if (parsed.type && !parsed.jsonrpc && onStreamEvent) {
+        onStreamEvent(parsed as StreamEvent);
+        continue;
+      }
+      responses.push(parsed as JsonRpcResponse);
     } catch {
       // Skip malformed lines
     }
@@ -73,7 +81,6 @@ export function startCli(onStderr?: (msg: string) => void): void {
   cliProcess.stdout?.on("data", (data: string) => {
     messageBuffer += data;
     const responses = parseResponse(messageBuffer);
-    messageBuffer = "";
 
     for (const response of responses) {
       const pending = pendingRequests.get(response.id);
@@ -160,6 +167,27 @@ export interface SessionSendResult {
 
 export async function sessionSend(sessionId: string, message: string, model?: string): Promise<SessionSendResult> {
   return await sendRequest("session.send", { sessionId, message, model }) as SessionSendResult;
+}
+
+export async function sessionSendStreaming(
+  sessionId: string,
+  message: string,
+  model: string | undefined,
+  onEvent: (event: StreamEvent) => void
+): Promise<SessionSendResult> {
+  return new Promise((resolve, reject) => {
+    if (!cliProcess || !cliProcess.stdin) {
+      reject(new Error("CLI not running"));
+      return;
+    }
+
+    onStreamEvent = onEvent;
+
+    const id = generateId();
+    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method: "session.send", params: { sessionId, message, model } };
+    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    cliProcess.stdin.write(JSON.stringify(request) + "\n");
+  });
 }
 
 // =============================================================================
