@@ -53,14 +53,14 @@ export class ToolResultMessage implements Component {
 
     // Header line: [✓/✗] ToolName (args) (duration) - truncated to safe width
     let header = `${chalk.dim("[")}${statusIcon}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")} ${chalk.dim(duration)}`;
-    header = truncateToWidth(header, Math.max(40, width));
+    header = truncateToWidth(header, Math.max(40, width) - 1);
     lines.push(header);
 
     // Result with tree view character - truncated to safe width
     if (this.result) {
-      const maxResultWidth = Math.max(40, width) - 2;
+      const maxResultWidth = Math.max(40, width) - 3;
       const truncatedResult = truncateToWidth(this.result, maxResultWidth);
-      lines.push(`${chalk.dim("⎿")} ${chalk.dim(truncatedResult)}`);
+      lines.push(` ${chalk.dim("⎿")} ${chalk.dim(truncatedResult)}`);
     } else if (this.success) {
       lines.push(`${chalk.dim("⎿")} ${chalk.dim("(no output)")}`);
     }

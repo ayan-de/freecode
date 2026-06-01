@@ -65,11 +65,11 @@ export class ToolProgressMessage implements Component {
 
     // Header line: [spinner] ToolName (args)
     let header = `${chalk.dim("[")}${chalk.yellow(spinner)}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")}`;
-    header = truncateToWidth(header, Math.max(40, width));
+    header = truncateToWidth(header, Math.max(40, width) - 1);
     lines.push(header);
 
     // Output lines with tree view - always safe width
-    const safeWidth = Math.max(40, width);
+    const safeWidth = Math.max(40, width) - 1;
     for (const outputLine of this.outputLines.slice(-5)) {
       lines.push(`${chalk.dim("│   ")}${chalk.dim(truncateToWidth(outputLine, safeWidth))}`);
     }

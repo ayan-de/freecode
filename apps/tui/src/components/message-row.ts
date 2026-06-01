@@ -47,7 +47,8 @@ class InProgressMessage implements Component {
 
     // Always use a reasonable max width to ensure fit on all screens
     // 80 is safe minimum, but use actual width if reasonable
-    const maxWidth = Math.max(40, Math.min(width, 200));
+    // Subtract 1 to account for ANSI codes throwing off truncateToWidth
+    const maxWidth = Math.max(40, Math.min(width, 200)) - 1;
     const truncated = truncateToWidth(display, maxWidth);
     return [truncated];
   }
