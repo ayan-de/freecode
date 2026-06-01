@@ -1,4 +1,4 @@
-import { Box, Markdown, Text, type Component } from "@earendil-works/pi-tui";
+import { Box, Markdown, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
@@ -45,7 +45,10 @@ class InProgressMessage implements Component {
       display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
     }
 
-    return [display];
+    // Truncate to terminal width (180 default, use actual width if provided)
+    const maxWidth = _width > 0 ? _width : 180;
+    const truncated = truncateToWidth(display, maxWidth);
+    return [truncated];
   }
 
   invalidate(): void {}
