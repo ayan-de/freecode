@@ -1,5 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
+import type { StreamEvent } from "@freecode/shared";
 
 export interface MessageCreators {
 	createUserMessage(content: string): { component: Component; id: number };
@@ -14,6 +15,7 @@ export interface MessageCreators {
 export interface CommandContext extends MessageCreators {
 	showMessage(content: string): void;
 	showModelSelector?(): void;
+	handleToolEvent?(event: StreamEvent): void;
 }
 
 export interface Command {

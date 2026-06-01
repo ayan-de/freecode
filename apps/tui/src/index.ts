@@ -13,7 +13,7 @@ import { formatTokenCount } from "./utils/format-tokens.js";
 import {
   startCli,
   sessionStart,
-  sessionSend,
+  sessionSendStreaming,
   listProviders,
   listModels,
   getCurrentModel,
@@ -31,9 +31,13 @@ import {
   updateInProgressMessage,
   subscribeToMessages,
   onMessagesChange,
+  createToolProgressMessage,
+  createToolResultMessage,
+  ToolProgressMessage,
   type MessageInstance,
 } from "./components/index.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
+import type { StreamEvent } from "@freecode/shared";
 
 registerBuiltInCommands();
 
@@ -52,6 +56,7 @@ let apiKeyPrompt: Text | null = null;
 let modelDisplayIdx = -1;
 
 let messageList: VirtualMessageList;
+const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; id: number; args: Record<string, unknown> }>();
 
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
@@ -286,6 +291,47 @@ async function loadCurrentModel(): Promise<void> {
 	}
 }
 
+function handleToolEvent(event: StreamEvent): void {
+	switch (event.type) {
+		case "tool_start": {
+			const toolMsg = createToolProgressMessage(event.toolCallId, event.toolName, event.args);
+			const progressComponent = toolMsg.component as ToolProgressMessage;
+			progressComponent.setTui(tui);
+			toolMessageComponents.set(event.toolCallId, {
+				progress: progressComponent,
+				id: toolMsg.id,
+				args: event.args,
+			});
+			break;
+		}
+		case "tool_output": {
+			const entry = toolMessageComponents.get(event.toolCallId);
+			if (entry) {
+				entry.progress.updateOutput(event.content.split('\n').slice(-5));
+			}
+			tui.requestRender();
+			break;
+		}
+		case "tool_complete": {
+			const entry = toolMessageComponents.get(event.toolCallId);
+			if (entry) {
+				entry.progress.invalidate();
+				removeMessageById(entry.id);
+				toolMessageComponents.delete(event.toolCallId);
+			}
+			createToolResultMessage(
+				event.toolCallId,
+				event.toolName,
+				entry?.args ?? {},
+				event.result,
+				event.success,
+				event.duration_ms
+			);
+			break;
+		}
+	}
+}
+
 editor.onSubmit = async (value: string) => {
 	const trimmed = value.trim();
 	if (!trimmed) return;
@@ -308,6 +354,7 @@ editor.onSubmit = async (value: string) => {
 					updateInProgressMessage: (id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number, turns: number) => updateInProgressMessage(id, phrase, inputTokens, outputTokens, contextLimit, startTime, turns),
 					insertBeforeEditor: () => { /* no-op - messages go through store now */ },
 					removeMessageById: (id: number) => removeMessageById(id),
+					handleToolEvent,
 				});
 				return;
 			} else {
@@ -354,7 +401,14 @@ editor.onSubmit = async (value: string) => {
 	}
 
 	try {
-		const result = await sessionSend(currentSession.sessionId, trimmed);
+		const result = await sessionSendStreaming(
+			currentSession.sessionId,
+			trimmed,
+			undefined,
+			(event: StreamEvent) => {
+				handleToolEvent(event);
+			}
+		);
 
 		// Update in-progress message with token counts from result
 		const contextLimit = getModelContextLimit(`${currentProvider}/${currentModel}`);

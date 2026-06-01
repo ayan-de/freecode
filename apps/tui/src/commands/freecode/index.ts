@@ -7,7 +7,7 @@ import { registerCommand, type Command, type CommandContext } from "../index.js"
 import {
   startCli,
   sessionStart,
-  sessionSend,
+  sessionSendStreaming,
   listProviders,
   type SessionInfo,
 } from "../../ipc/client.js";
@@ -93,7 +93,12 @@ ${formatProviderList()}`);
     if (!ready) return;
 
     try {
-      const result = await sessionSend(currentSession!.sessionId, userPrompt);
+      const result = await sessionSendStreaming(
+        currentSession!.sessionId,
+        userPrompt,
+        undefined,
+        (event) => ctx.handleToolEvent?.(event)
+      );
 
       // Update in-progress message with token counts
       const contextLimit = getModelContextLimit(`${currentProvider}/MiniMax-M2`);
