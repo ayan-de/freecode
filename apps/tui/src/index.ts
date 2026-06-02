@@ -75,6 +75,7 @@ messageList.setTui(tui);
 tui.addChild(messageList);
 
 const editor = new Editor(tui, defaultEditorTheme);
+editor.setText("❯ ");
 
 const autocompleteProvider = new CombinedAutocompleteProvider(
 	commandRegistry.getSlashCommands(),
