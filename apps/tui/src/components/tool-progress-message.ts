@@ -64,14 +64,15 @@ export class ToolProgressMessage implements Component {
     const lines: string[] = [];
 
     // Header line: [spinner] ToolName (args)
+    const headerWidth = Math.max(20, width - 3);
     let header = `${chalk.dim("[")}${chalk.yellow(spinner)}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")}`;
-    header = truncateToWidth(header, Math.max(40, width) - 1);
+    header = truncateToWidth(header, headerWidth);
     lines.push(header);
 
-    // Output lines with tree view - always safe width
-    const safeWidth = Math.max(40, width) - 1;
+    // Output lines with tree view - account for prefix (3 chars: "│  ")
+    const outputWidth = Math.max(20, width - 4);
     for (const outputLine of this.outputLines.slice(-5)) {
-      lines.push(`${chalk.dim("│   ")}${chalk.dim(truncateToWidth(outputLine, safeWidth))}`);
+      lines.push(`${chalk.dim("│")} ${chalk.dim(truncateToWidth(outputLine, outputWidth))}`);
     }
 
     return lines;

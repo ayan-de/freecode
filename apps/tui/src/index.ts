@@ -14,6 +14,8 @@ import {
   startCli,
   sessionStart,
   sessionSendStreaming,
+  sessionList,
+  sessionResume,
   listProviders,
   listModels,
   getCurrentModel,
@@ -35,8 +37,10 @@ import {
   createToolResultMessage,
   ToolProgressMessage,
   type MessageInstance,
+  loadSessionMessages,
 } from "./components/index.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
+import { createResumePicker } from "./components/resume-picker.js";
 import type { StreamEvent } from "@freecode/shared";
 
 registerBuiltInCommands();
@@ -51,6 +55,7 @@ let currentModel = "";
 let modelDisplay: Text;
 let modelSelector: SelectList | null = null;
 let providerSelector: SelectList | null = null;
+let resumeSelector: SelectList | null = null;
 let apiKeyEditor: Editor | null = null;
 let apiKeyPrompt: Text | null = null;
 let modelDisplayIdx = -1;
@@ -133,6 +138,12 @@ function hideModelSelector(): void {
 	removeSelector(providerSelector);
 	modelSelector = null;
 	providerSelector = null;
+	tui.requestRender();
+}
+
+function hideResumeSelector(): void {
+	removeSelector(resumeSelector);
+	resumeSelector = null;
 	tui.requestRender();
 }
 
@@ -275,6 +286,61 @@ async function showApiKeyInput(providerId: string, modelId: string): Promise<voi
 	};
 }
 
+async function showResumePicker(): Promise<void> {
+	hideResumeSelector();
+	hideModelSelector();
+
+	try {
+		const sessions = await sessionList({});
+
+		if (sessions.length === 0) {
+			showMessage("**No sessions found.**");
+			return;
+		}
+
+		// Sort by lastTurnAt descending (most recent first)
+		sessions.sort((a, b) => b.lastTurnAt - a.lastTurnAt);
+
+		const { component: picker } = createResumePicker(
+			sessions,
+			{
+				onSelect: async (sessionId: string) => {
+					hideResumeSelector();
+					showMessage(`**Resuming session...**`);
+					try {
+						const result = await sessionResume(sessionId);
+						currentSession = { sessionId: result.sessionId };
+						// Load messages from the resumed session into the UI
+						if (result.messages && result.messages.length > 0) {
+							loadSessionMessages(result.messages);
+						}
+						showMessage(`**Session resumed with ${result.messages?.length || 0} messages.**`);
+					} catch (err) {
+						showMessage(`**Error resuming session:** ${err}`);
+					}
+					tui.setFocus(editor);
+					tui.requestRender();
+				},
+				onCancel: () => {
+					hideResumeSelector();
+					tui.setFocus(editor);
+					tui.requestRender();
+				},
+			},
+			defaultSelectListTheme
+		);
+
+		resumeSelector = picker;
+
+		const editorIdx = tui.children.indexOf(editor);
+		tui.children.splice(editorIdx + 1, 0, resumeSelector);
+		tui.setFocus(resumeSelector);
+		tui.requestRender();
+	} catch (err) {
+		showMessage(`**Error loading sessions:** ${err}`);
+	}
+}
+
 async function loadCurrentModel(): Promise<void> {
 	startCli();
 
@@ -348,6 +414,7 @@ editor.onSubmit = async (value: string) => {
 				command.execute(args, {
 					showMessage,
 					showModelSelector: showProviderSelector,
+					showResumePicker: showResumePicker,
 					createUserMessage: (content: string) => createUserMessage(content),
 					createAssistantMessage: (content: string) => createAssistantMessage(content),
 					createSystemMessage: (content: string) => createSystemMessage(content),
@@ -454,6 +521,8 @@ editor.onSubmit = async (value: string) => {
 	} catch (error) {
 		removeMessageById(inProgressMsg.id);
 		showMessage(`**Error:** ${error instanceof Error ? error.message : String(error)}`);
+	} finally {
+		editor.setText("❯ ");
 	}
 };
 
@@ -468,6 +537,20 @@ tui.addInputListener((data) => {
 });
 
 loadCurrentModel();
+
+// Check for interrupted sessions on startup
+async function checkForInterruptedSession(): Promise<void> {
+	try {
+		const sessions = await sessionList({ status: 'interrupted' });
+		if (sessions.length > 0) {
+			showMessage("**Interrupted session detected. Type /resume to continue or start a new session.**");
+		}
+	} catch {
+		// Ignore - session might not be available yet
+	}
+}
+
+checkForInterruptedSession();
 
 // Wire stderr to system messages via store
 startCli((stderrMsg) => {

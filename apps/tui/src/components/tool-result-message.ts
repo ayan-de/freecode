@@ -52,15 +52,16 @@ export class ToolResultMessage implements Component {
     const lines: string[] = [];
 
     // Header line: [✓/✗] ToolName (args) (duration) - truncated to safe width
+    const safeWidth = Math.max(20, width - 1);
     let header = `${chalk.dim("[")}${statusIcon}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")} ${chalk.dim(duration)}`;
-    header = truncateToWidth(header, Math.max(40, width) - 1);
+    header = truncateToWidth(header, safeWidth);
     lines.push(header);
 
-    // Result with tree view character - truncated to safe width
+    // Result with tree view character - account for prefix
+    const resultWidth = safeWidth - 3; // 3 for " ⎿ "
     if (this.result) {
-      const maxResultWidth = Math.max(40, width) - 3;
-      const truncatedResult = truncateToWidth(this.result, maxResultWidth);
-      lines.push(` ${chalk.dim("⎿")} ${chalk.dim(truncatedResult)}`);
+      const truncatedResult = truncateToWidth(this.result, resultWidth);
+      lines.push(`${chalk.dim("⎿")} ${chalk.dim(truncatedResult)}`);
     } else if (this.success) {
       lines.push(`${chalk.dim("⎿")} ${chalk.dim("(no output)")}`);
     }

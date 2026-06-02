@@ -6,6 +6,9 @@
 // FLOW: Build Prompt → Send to AI → Normalize → Parse → Execute Tool → Loop
 // =============================================================================
 
+import * as path from "path"
+import * as os from "os"
+import { randomUUID } from "crypto"
 import type {
   SessionState,
   ToolCall,
@@ -27,6 +30,20 @@ import type { HookResult } from "../agent/types.js"
 import { bus, BusEvents } from "../bus/index.js"
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js"
 import { loadProviderPrompt } from "../session/prompt.js"
+import { createSessionStore, type SessionStore, type SerializedMessage } from "../session/store.js"
+import { getInterruptHandler } from "../session/interrupt.js"
+
+const SESSION_DIR = ".freecode"
+
+let globalSessionStore: SessionStore | null = null
+
+async function getSessionStore(): Promise<SessionStore> {
+  if (!globalSessionStore) {
+    const baseDir = path.join(os.homedir(), SESSION_DIR)
+    globalSessionStore = await createSessionStore(baseDir)
+  }
+  return globalSessionStore
+}
 
 const orchestrator = createToolOrchestrator()
 
@@ -45,6 +62,7 @@ export class AgentLoop {
   private memory: MemoryService
   private hooks: HookRuntime
   private recorder: RolloutRecorder
+  private sessionStore: SessionStore | undefined
   private onToolEvent: ((event: StreamEvent) => void) | undefined
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
@@ -52,7 +70,7 @@ export class AgentLoop {
   private lastFileStates: string[] = []
   private fileStateHash: string = ""
 
-  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder }) {
+  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder; sessionStore?: SessionStore }) {
     this.state = createInitialSessionState(sessionId)
     this.config = {
       maxIterations: config?.maxIterations ?? 100,
@@ -61,6 +79,7 @@ export class AgentLoop {
     this.memory = new MemoryService(sessionId)
     this.hooks = config?.hooks ?? createHookRuntime()
     this.recorder = config?.recorder ?? createRecorder(sessionId)
+    this.sessionStore = config?.sessionStore
   }
 
   // ===========================================================================
@@ -215,6 +234,9 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       if (toolCalls.length === 0) {
         this.memory.addMessage("user", prompt)
         this.memory.addMessage("assistant", providerResult.content)
+        // Also append to session store
+        await this.appendUserMessage(prompt)
+        await this.appendAssistantMessage(providerResult.content)
         if (this.memory.shouldCompact(provider)) {
           // PreCompact Hook — can inspect/modify context before compaction
           const preHookCtx: HookContext = { sessionId: this.state.sessionId, turnCount: this.state.turnCount }
@@ -240,11 +262,16 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         toolResults.push(result)
         // Update loop health tracking after each tool execution
         this.updateLoopHealth(toolCall, result)
+        // Append tool result to session store
+        await this.appendToolMessage(toolCall, result)
       }
 
       // Record messages and check for compaction after tool execution
       this.memory.addMessage("user", prompt)
       this.memory.addMessage("assistant", providerResult.content)
+      // Also append to session store
+      await this.appendUserMessage(prompt)
+      await this.appendAssistantMessage(providerResult.content)
 
       if (this.memory.shouldCompact(provider)) {
         // PreCompact Hook — can inspect/modify context before compaction
@@ -598,7 +625,13 @@ Based on this task, which files do you need to read to understand the codebase a
     }
 
     // Emit tool_output with last 5 lines of stdout
-    const outputLines = (result.stdout || "").split("\n").filter(l => l.trim()).slice(-5)
+    // Truncate each line to 200 chars to prevent terminal overflow
+    const MAX_LINE_LEN = 200
+    const outputLines = (result.stdout || "")
+      .split("\n")
+      .filter(l => l.trim())
+      .slice(-5)
+      .map(line => line.length > MAX_LINE_LEN ? line.slice(0, MAX_LINE_LEN) + "..." : line)
     this.onToolEvent?.({
       type: "tool_output",
       toolCallId: toolCall.id,
@@ -809,6 +842,52 @@ Based on this task, which files do you need to read to understand the codebase a
   }
 
   // ===========================================================================
+  // PRIVATE: Session Store Helpers
+  // Append messages to session store for persistence
+  // ===========================================================================
+
+  private async appendUserMessage(content: string): Promise<void> {
+    if (!this.sessionStore) return
+    const message: SerializedMessage = {
+      id: randomUUID(),
+      role: "user",
+      parts: [{ type: "text", content }],
+      timestamp: Date.now(),
+    }
+    await this.sessionStore.appendMessage(this.state.sessionId, message)
+  }
+
+  private async appendAssistantMessage(content: string): Promise<string> {
+    if (!this.sessionStore) return ''
+    const id = randomUUID()
+    const message: SerializedMessage = {
+      id,
+      role: "assistant",
+      parts: [{ type: "text", content }],
+      timestamp: Date.now(),
+    }
+    await this.sessionStore.appendMessage(this.state.sessionId, message)
+    // Set this message as the interrupt target so Ctrl+C marks it
+    getInterruptHandler().setActive(this.state.sessionId, id)
+    return id
+  }
+
+  private async appendToolMessage(toolCall: ToolCall, result: ToolResult): Promise<void> {
+    if (!this.sessionStore) return
+    const message: SerializedMessage = {
+      id: randomUUID(),
+      role: "assistant",
+      parts: [{
+        type: "tool",
+        tool: { name: toolCall.tool, args: toolCall.args as Record<string, unknown> },
+        result: result.stdout || result.error || "",
+      }],
+      timestamp: Date.now(),
+    }
+    await this.sessionStore.appendMessage(this.state.sessionId, message)
+  }
+
+  // ===========================================================================
   // PUBLIC: getState() / interrupt()
   // Accessors for external monitoring/control
   // ===========================================================================
@@ -826,7 +905,7 @@ Based on this task, which files do you need to read to understand the codebase a
 // =============================================================================
 export const createAgentLoop = (
   sessionId: string,
-  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder }
+  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder; sessionStore?: SessionStore }
 ): AgentLoop => {
   return new AgentLoop(sessionId, config)
 }

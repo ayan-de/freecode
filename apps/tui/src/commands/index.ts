@@ -15,6 +15,7 @@ export interface MessageCreators {
 export interface CommandContext extends MessageCreators {
 	showMessage(content: string): void;
 	showModelSelector?(): void;
+	showResumePicker?(): void;
 	handleToolEvent?(event: StreamEvent): void;
 }
 

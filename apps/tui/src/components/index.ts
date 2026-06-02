@@ -130,6 +130,37 @@ export function clearAllMessages(): void {
   clearMessages();
 }
 
+/**
+ * Load messages from a resumed session into the UI
+ */
+export function loadSessionMessages(messages: Array<{
+  id: string
+  role: 'user' | 'assistant'
+  parts: Array<{
+    type: 'text' | 'code' | 'tool'
+    content?: string
+    language?: string
+    tool?: { name: string; args: Record<string, unknown> }
+    result?: string
+  }>
+  timestamp: number
+}>): void {
+  for (const msg of messages) {
+    let content = ""
+    if (msg.role === "user") {
+      content = msg.parts.map(p => p.type === "text" ? p.content || "" : "").join("")
+    } else {
+      // assistant message - extract text content
+      const textParts = msg.parts.filter(p => p.type === "text")
+      content = textParts.map(p => p.content || "").join("\n")
+    }
+    if (content) {
+      const label = msg.role === "user" ? "**You:**" : "**FreeCode:**"
+      addMessage(msg.role, content, createMessageComponent(msg.role as MessageType, `${label} ${content}`))
+    }
+  }
+}
+
 // Re-export types for convenience
 export type { MessageInstance, MessageType } from "./message-types.js";
 

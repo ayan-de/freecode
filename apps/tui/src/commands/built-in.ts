@@ -10,6 +10,7 @@ const helpCommand: Command = {
 - **/help** - Show this help message
 - **/clear** - Clear all messages
 - **/model** - Select AI model
+- **/resume** - Resume a previous session
 - **/exit** - Exit FreeCode
 
 Just type your prompt to start chatting!`);
@@ -41,9 +42,19 @@ const modelCommand: Command = {
 	},
 };
 
+const resumeCommand: Command = {
+	name: "resume",
+	description: "Resume a previous session",
+	execute: (_args, ctx) => {
+		ctx.showMessage(`**Select a session to resume:**`);
+		ctx.showResumePicker?.();
+	},
+};
+
 export function registerBuiltInCommands(): void {
 	registerCommand(helpCommand);
 	registerCommand(clearCommand);
 	registerCommand(exitCommand);
 	registerCommand(modelCommand);
+	registerCommand(resumeCommand);
 }

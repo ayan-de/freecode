@@ -76,26 +76,46 @@ function stripPrefix(content: string): string {
 }
 
 /**
+ * Wrapper that truncates child component output to fit available width.
+ * Use this instead of hardcoding widths - respects actual terminal width.
+ */
+class WidthBounded implements Component {
+  private inner: Component;
+
+  constructor(inner: Component) {
+    this.inner = inner;
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(20, width - 1);
+    return this.inner.render(safeWidth).map((line) => truncateToWidth(line, safeWidth));
+  }
+
+  invalidate(): void {
+    if (typeof this.inner.invalidate === "function") this.inner.invalidate();
+  }
+
+  addChild(_component: Component): void {}
+  destroy(): void {}
+}
+
+/**
  * Create a user message component — gray background with markdown content
  */
 export function createUserMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
   const box = new Box(0, 0, (text: string) => {
-    return text
-      .split("\n")
-      .map((line) => chalk.bgRgb(80, 80, 80)(line))
-      .join("\n");
+    return text.split("\n").map((line) => chalk.bgRgb(80, 80, 80)(line)).join("\n");
   });
-
   const markdown = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
   box.addChild(markdown);
 
-  return box;
+  return new WidthBounded(box);
 }
 
 /**
- * Create an assistant message component — markdown with colored output (headings=cyan, code=yellow, etc.)
+ * Create an assistant message component — markdown with colored output
  */
 export function createAssistantMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
@@ -104,11 +124,11 @@ export function createAssistantMessageComponent(content: string): Component {
   const markdown = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
   box.addChild(markdown);
 
-  return box;
+  return new WidthBounded(box);
 }
 
 /**
- * Create a system message component — dimmed text (for errors, elapsed time, etc.)
+ * Create a system message component — dimmed text
  */
 export function createSystemMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
@@ -117,7 +137,7 @@ export function createSystemMessageComponent(content: string): Component {
   const text = new Text(chalk.dim(displayContent), 1, 1);
   box.addChild(text);
 
-  return box;
+  return new WidthBounded(box);
 }
 
 /**
