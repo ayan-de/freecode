@@ -3,31 +3,15 @@
 // PRIMARY: Start, resume, switch, fork, list sessions
 // =============================================================================
 
-import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
+import * as fs from "fs"
 import { randomUUID } from "crypto"
-import { getThreadStore, createThreadStoreService, type ThreadStoreService } from "../store/thread-store"
-import type { StoredThread, ThreadFilter } from "../store/types"
+import { createSessionStore, type SessionStore, type SessionMeta, type SerializedMessage } from "./store"
+import { createThreadStoreService, type ThreadStoreService } from "../store/thread-store"
+import { CONFIG_FILE } from "../providers/config.js"
 
 const SESSION_DIR = ".freecode"
-const SESSIONS_DIR = "sessions"
-
-function getSessionsDir(): string {
-  return path.join(os.homedir(), SESSION_DIR, SESSIONS_DIR)
-}
-
-function getSessionDir(sessionId: string): string {
-  return path.join(getSessionsDir(), sessionId)
-}
-
-function getMessagesPath(sessionId: string): string {
-  return path.join(getSessionDir(sessionId), "messages.jsonl")
-}
-
-function getMetadataPath(sessionId: string): string {
-  return path.join(getSessionDir(sessionId), "metadata.json")
-}
 
 // =============================================================================
 // Session Context
@@ -38,7 +22,7 @@ export interface SessionContext {
   title: string
   projectPath: string
   provider: string
-  status: "active" | "archived" | "deleted"
+  status: "active" | "interrupted" | "archived" | "deleted"
   createdAt: number
   updatedAt: number
   lastTurnAt: number
@@ -47,54 +31,35 @@ export interface SessionContext {
   messages: SerializedMessage[]
 }
 
-export interface SerializedMessage {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  timestamp: number
-}
-
 // =============================================================================
 // SessionManager
 // =============================================================================
 
 export class SessionManager {
-  private store: ThreadStoreService
+  private sessionStore: SessionStore
+  private threadStore: ThreadStoreService | undefined
   private currentSessionId: string | null = null
 
-  constructor(store: ThreadStoreService) {
-    this.store = store
+  constructor(sessionStore: SessionStore, threadStore?: ThreadStoreService) {
+    this.sessionStore = sessionStore
+    this.threadStore = threadStore
   }
 
   // Start a new session
   async start(projectPath: string, provider: string, title?: string): Promise<string> {
-    const sessionId = randomUUID()
     const sessionTitle = title || `Session ${new Date().toLocaleDateString()}`
 
-    // Create session directory
-    const sessionDir = getSessionDir(sessionId)
-    fs.mkdirSync(sessionDir, { recursive: true })
-
-    // Create thread in store
-    const threadId = await this.store.create(sessionTitle, projectPath, provider)
-
-    // Save session metadata
-    const metadata = {
-      id: sessionId,
-      threadId,
+    // Use SessionStore to create the session
+    const sessionId = await this.sessionStore.createSession({
       title: sessionTitle,
       projectPath,
       provider,
-      status: "active" as const,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      lastTurnAt: Date.now(),
-      turnCount: 0,
-    }
-    fs.writeFileSync(getMetadataPath(sessionId), JSON.stringify(metadata, null, 2))
+    })
 
-    // Initialize empty messages file
-    fs.writeFileSync(getMessagesPath(sessionId), "", "utf-8")
+    // Also create thread in ThreadStore for structured queries (if provided)
+    if (this.threadStore) {
+      await this.threadStore.create(sessionTitle, projectPath, provider)
+    }
 
     this.currentSessionId = sessionId
     return sessionId
@@ -102,172 +67,170 @@ export class SessionManager {
 
   // Resume an existing session
   async resume(sessionId: string): Promise<SessionContext> {
-    const metadata = this.loadMetadata(sessionId)
-    if (!metadata) {
+    // List all sessions to find the one we want and get its projectPath
+    const allMetas = await this.sessionStore.list()
+    const meta = allMetas.find(m => m.id === sessionId)
+    if (!meta) {
       throw new Error(`Session not found: ${sessionId}`)
     }
 
-    const messages = this.loadMessages(sessionId)
+    // Use getMetaBySessionId with the formatted project dir (already stored in list results)
+    const formattedProjDir = this.sessionStore.list ? undefined : undefined // not needed - meta already has projectPath
+    let messages = await this.sessionStore.getMessages(sessionId, meta.projectPath)
+
+    // Detect interrupted state → inject resume marker
+    if (meta.status === "interrupted") {
+      const lastMsg = messages[messages.length - 1]
+      if (lastMsg?.interrupted) {
+        const resumeMsg: SerializedMessage = {
+          id: randomUUID(),
+          role: "user",
+          parts: [{ type: "text", content: "Continue from where you left off." }],
+          timestamp: Date.now(),
+        }
+        messages = [...messages, resumeMsg]
+      }
+    }
+
     this.currentSessionId = sessionId
 
     return {
-      id: sessionId,
-      title: metadata.title,
-      projectPath: metadata.projectPath,
-      provider: metadata.provider,
-      status: metadata.status,
-      createdAt: metadata.createdAt,
-      updatedAt: metadata.updatedAt,
-      lastTurnAt: metadata.lastTurnAt,
-      turnCount: metadata.turnCount,
-      parentId: metadata.parentId,
+      id: meta.id,
+      title: meta.title,
+      projectPath: meta.projectPath,
+      provider: meta.provider,
+      status: meta.status,
+      createdAt: meta.createdAt,
+      updatedAt: meta.updatedAt,
+      lastTurnAt: meta.lastTurnAt,
+      turnCount: meta.turnCount,
+      parentId: meta.parentId,
       messages,
     }
   }
 
   // Switch to a different session (make it current)
   async switch(sessionId: string): Promise<void> {
-    const metadata = this.loadMetadata(sessionId)
-    if (!metadata) {
+    const allMetas = await this.sessionStore.list()
+    const meta = allMetas.find(m => m.id === sessionId)
+    if (!meta) {
       throw new Error(`Session not found: ${sessionId}`)
     }
     this.currentSessionId = sessionId
   }
 
   // Fork session at current point
-  async fork(sessionId: string, _point?: string): Promise<string> {
-    const parent = await this.resume(sessionId)
-    const newSessionId = randomUUID()
-
-    // Create new session directory
-    const newDir = getSessionDir(newSessionId)
-    fs.mkdirSync(newDir, { recursive: true })
-
-    // Copy messages
-    const messages = this.loadMessages(sessionId)
-    fs.writeFileSync(getMessagesPath(newSessionId), messages.map((m) => JSON.stringify(m)).join("\n"), "utf-8")
-
-    // Create new metadata with parent reference
-    const metadata = {
-      id: newSessionId,
-      threadId: parent.id, // Reuse thread for now
-      title: `${parent.title} (fork)`,
-      projectPath: parent.projectPath,
-      provider: parent.provider,
-      status: "active" as const,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      lastTurnAt: Date.now(),
-      turnCount: 0,
-      parentId: sessionId,
+  async fork(sessionId: string): Promise<string> {
+    const allMetas = await this.sessionStore.list()
+    const meta = allMetas.find(m => m.id === sessionId)
+    if (!meta) {
+      throw new Error(`Session not found: ${sessionId}`)
     }
-    fs.writeFileSync(getMetadataPath(newSessionId), JSON.stringify(metadata, null, 2))
-
-    this.currentSessionId = newSessionId
-    return newSessionId
+    const forkId = await this.sessionStore.fork(sessionId, meta.projectPath)
+    this.currentSessionId = forkId
+    return forkId
   }
 
   // List sessions
-  async list(filter?: { projectPath?: string; status?: "active" | "archived" | "deleted" }): Promise<SessionContext[]> {
-    const sessions: SessionContext[] = []
-    const sessionsDir = getSessionsDir()
+  async list(filter?: { projectPath?: string; status?: SessionMeta["status"] }): Promise<SessionContext[]> {
+    const metas = await this.sessionStore.list(filter)
 
-    if (!fs.existsSync(sessionsDir)) {
-      return sessions
-    }
-
-    const entries = fs.readdirSync(sessionsDir)
-    for (const entry of entries) {
-      const sessionPath = path.join(sessionsDir, entry)
-      if (!fs.statSync(sessionPath).isDirectory()) continue
-
-      const metadata = this.loadMetadata(entry)
-      if (!metadata) continue
-
-      if (filter?.projectPath && metadata.projectPath !== filter.projectPath) continue
-      if (filter?.status && metadata.status !== filter.status) continue
-
-      sessions.push({
-        id: entry,
-        title: metadata.title,
-        projectPath: metadata.projectPath,
-        provider: metadata.provider,
-        status: metadata.status,
-        createdAt: metadata.createdAt,
-        updatedAt: metadata.updatedAt,
-        lastTurnAt: metadata.lastTurnAt,
-        turnCount: metadata.turnCount,
-        parentId: metadata.parentId,
-        messages: [], // Don't load messages for list
-      })
-    }
-
-    // Sort by lastTurnAt descending
-    sessions.sort((a, b) => b.lastTurnAt - a.lastTurnAt)
-    return sessions
+    return metas.map((meta) => ({
+      id: meta.id,
+      title: meta.title,
+      projectPath: meta.projectPath,
+      provider: meta.provider,
+      status: meta.status,
+      createdAt: meta.createdAt,
+      updatedAt: meta.updatedAt,
+      lastTurnAt: meta.lastTurnAt,
+      turnCount: meta.turnCount,
+      parentId: meta.parentId,
+      messages: [], // Don't load messages for list
+    }))
   }
 
   // Archive a session
   async archive(sessionId: string): Promise<void> {
-    const metadata = this.loadMetadata(sessionId)
-    if (!metadata) return
-
-    metadata.status = "archived"
-    metadata.updatedAt = Date.now()
-    fs.writeFileSync(getMetadataPath(sessionId), JSON.stringify(metadata, null, 2))
+    await this.sessionStore.updateStatus(sessionId, "archived")
   }
 
   // Delete a session
   async delete(sessionId: string): Promise<void> {
-    const sessionDir = getSessionDir(sessionId)
-    if (fs.existsSync(sessionDir)) {
-      fs.rmSync(sessionDir, { recursive: true, force: true })
-    }
+    await this.sessionStore.deleteSession(sessionId)
   }
 
   // Get current session
-  getCurrent(): SessionContext | null {
+  async getCurrent(): Promise<SessionContext | null> {
     if (!this.currentSessionId) return null
     try {
-      return this.resume(this.currentSessionId) as unknown as SessionContext
+      return await this.resume(this.currentSessionId)
     } catch {
       return null
     }
   }
 
-  // Add message to current session
-  addMessage(sessionId: string, role: "user" | "assistant", content: string): void {
-    const messagesPath = getMessagesPath(sessionId)
-    const message: SerializedMessage = {
-      id: randomUUID(),
-      role,
-      content,
-      timestamp: Date.now(),
+  // Append message to session
+  async appendMessage(sessionId: string, message: SerializedMessage): Promise<void> {
+    await this.sessionStore.appendMessage(sessionId, message)
+  }
+
+  // Mark message as interrupted
+  async markInterrupted(sessionId: string, messageId: string): Promise<void> {
+    await this.sessionStore.markInterrupted(sessionId, messageId)
+  }
+
+  // Export session to remote sync endpoint
+  async export(sessionId: string): Promise<{ url: string; expiresAt: number }> {
+    const meta = await this.sessionStore.getMeta(sessionId)
+    if (!meta) throw new Error("Session not found")
+    const messages = await this.sessionStore.getMessages(sessionId)
+
+    const payload = JSON.stringify({ meta, messages })
+    const endpoint = this.getSyncEndpoint()
+
+    const response = await fetch(`${endpoint}/upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!response.ok) throw new Error("Export failed")
+    return response.json() as Promise<{ url: string; expiresAt: number }>
+  }
+
+  // Import session from remote URL
+  async import(url: string): Promise<string> {
+    const response = await fetch(url, { signal: AbortSignal.timeout(30000) })
+    if (!response.ok) throw new Error("Import failed")
+    const { metadata: meta, messages } = await response.json() as { metadata: SessionMeta; messages: SerializedMessage[] }
+
+    const newId = await this.sessionStore.createSession({
+      title: meta.title + " (imported)",
+      projectPath: meta.projectPath,
+      provider: meta.provider,
+    })
+
+    for (const msg of messages) {
+      await this.sessionStore.appendMessage(newId, msg)
     }
-    fs.appendFileSync(messagesPath, JSON.stringify(message) + "\n", "utf-8")
+
+    await this.sessionStore.updateMeta(newId, { status: "active" })
+    return newId
   }
 
-  // =============================================================================
-  // Private helpers
-  // =============================================================================
-
-  private loadMetadata(sessionId: string): any {
-    const metadataPath = getMetadataPath(sessionId)
-    if (!fs.existsSync(metadataPath)) return null
-    return JSON.parse(fs.readFileSync(metadataPath, "utf-8"))
-  }
-
-  private loadMessages(sessionId: string): SerializedMessage[] {
-    const messagesPath = getMessagesPath(sessionId)
-    if (!fs.existsSync(messagesPath)) return []
-
-    const content = fs.readFileSync(messagesPath, "utf-8")
-    if (!content.trim()) return []
-
-    return content
-      .split("\n")
-      .filter((line) => line.trim())
-      .map((line) => JSON.parse(line))
+  private getSyncEndpoint(): string {
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const content = fs.readFileSync(CONFIG_FILE, "utf-8")
+        const config = JSON.parse(content) as { syncEndpoint?: string }
+        if (config.syncEndpoint) return config.syncEndpoint
+      }
+    } catch {
+      // ignore
+    }
+    return "https://sync.freecode.dev"
   }
 }
 
@@ -279,8 +242,14 @@ let globalSessionManager: SessionManager | null = null
 
 export async function getSessionManager(): Promise<SessionManager> {
   if (!globalSessionManager) {
-    const store = await createThreadStoreService()
-    globalSessionManager = new SessionManager(store)
+    const baseDir = path.join(os.homedir(), SESSION_DIR)
+    const sessionStore = await createSessionStore(baseDir)
+    const threadStore = await createThreadStoreService()
+    globalSessionManager = new SessionManager(sessionStore, threadStore)
   }
   return globalSessionManager
+}
+
+export function createSessionManager(sessionStore: SessionStore, threadStore?: ThreadStoreService): SessionManager {
+  return new SessionManager(sessionStore, threadStore)
 }

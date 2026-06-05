@@ -18,12 +18,23 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = opts.model || PROVIDER_INFO.defaultModel
 
+    const tools = opts.tools?.reduce((acc, t) => {
+      acc[t.name] = {
+        description: t.description,
+        inputSchema: t.parameters as Record<string, unknown>,
+      }
+      return acc
+    }, {} as Record<string, { description: string; inputSchema: Record<string, unknown> }>)
+
+    // Cast to any to satisfy AI SDK's ToolSet type which expects FlexibleSchema<never>
+    // The underlying implementation accepts plain JSON schema objects
     const result = await generateText({
       model: openai(model),
       system: opts.system,
       prompt: opts.prompt,
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
+      tools: tools as any,
     })
 
     const toolCalls = result.toolCalls?.map((tc): { name: string; args: Record<string, unknown>; id: string } => {
@@ -37,6 +48,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
 
     return {
       content: result.text || "",
+      thinking: undefined,  // OpenAI doesn't have extended thinking in same way
       toolCalls: toolCalls?.length ? toolCalls : undefined,
       usage: result.usage ? {
         inputTokens: result.usage.inputTokens ?? 0,

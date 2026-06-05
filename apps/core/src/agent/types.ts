@@ -128,6 +128,7 @@ export interface LoopAction {
 export interface SessionState {
   status: "idle" | "starting" | "running" | "error" | "stopped"
   sessionId: string
+  projectPath: string
   turnCount: number
   iterationCount: number
   loopHealth: LoopHealth
@@ -135,10 +136,11 @@ export interface SessionState {
   activeToolChain?: string[]  // For compaction awareness
 }
 
-export function createInitialSessionState(sessionId: string): SessionState {
+export function createInitialSessionState(sessionId: string, projectPath: string): SessionState {
   return {
     status: "idle",
     sessionId,
+    projectPath,
     turnCount: 0,
     iterationCount: 0,
     loopHealth: {
@@ -171,21 +173,26 @@ export type MessagePart =
 // User Input / Loop Result - Main entry/exit types
 // =============================================================================
 
+import type { StreamEvent } from "@freecode/shared"
+
 export interface UserInput {
   prompt: string
   sessionId: string
   provider: string
   model?: string
   projectPath: string
+  onToolEvent?: (event: StreamEvent) => void
 }
 
 export interface LoopResult {
   success: boolean
   message?: string
   content?: string
+  thinking?: string  // Extended thinking content from provider
   turnCount: number
   iterationCount: number
   finalState: SessionState
+  usage?: { inputTokens: number; outputTokens: number }
 }
 
 // =============================================================================

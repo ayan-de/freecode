@@ -10,12 +10,29 @@ import { getProviders, getProviderModels } from "./models-dev.js";
 import { readConfig, writeConfig, setApiKey, setCurrentModel, hasApiKey, getCurrentModel, type ProviderId } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
-import type { JsonRpcRequest, JsonRpcResponse, SessionConfig } from "@freecode/shared";
+import type { JsonRpcRequest, JsonRpcResponse, SessionConfig, StreamEvent } from "@freecode/shared";
 import { getMemoryStore, type MemoryEntry, type MemoryType } from "./memory/index.js";
 import { findRelevantMemories } from "./memory/mem-query.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
+import { createSessionStore, type SessionStore } from "./session/store.js";
 import { getRemoteSync, type ExportedSession, type RemoteSessionConfig } from "./store/index.js";
+import { getInterruptHandler } from "./session/interrupt.js";
+import { generateTitleFromPrompt } from "./agent/title-generator.js";
+import { homedir } from "os";
+import { randomUUID } from 'crypto'
+import { join } from "path";
+
+const SESSION_BASE_DIR = join(homedir(), ".freecode");
+
+let sessionStore: SessionStore | null = null;
+
+async function getSessionStore(): Promise<SessionStore> {
+  if (!sessionStore) {
+    sessionStore = await createSessionStore(SESSION_BASE_DIR);
+  }
+  return sessionStore;
+}
 
 interface ToolListItem {
   id: string;
@@ -40,10 +57,9 @@ interface SessionInfo {
 }
 
 const sessions: Map<string, SessionInfo> = new Map();
-let sessionCounter = 0;
 
 function createSession(config: SessionConfig): SessionInfo {
-  const id = `session-${++sessionCounter}`;
+  const id = randomUUID();
   const session: SessionInfo = {
     id,
     projectPath: config.projectPath,
@@ -96,6 +112,17 @@ const methodHandlers: Record<
     const config = params as unknown as SessionConfig;
     const session = createSession(config);
     logger.info("Session started", { sessionId: session.id, provider: session.provider });
+
+    // Persist session to ~/.freecode/sessions/ via SessionStore
+    const store = await getSessionStore();
+    // Use the same session ID that was created in createSession()
+    await store.createSession({
+      title: `Session ${session.id}`,
+      projectPath: session.projectPath,
+      provider: session.provider,
+      model: session.model,
+    }, session.id);
+
     return { sessionId: session.id };
   },
 
@@ -118,14 +145,33 @@ const methodHandlers: Record<
 
     logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider });
 
-    const loop = createAgentLoop(sessionId, { maxIterations: 100 })
+    // Emit events to stdout immediately for streaming
+    const emitEvent = (event: StreamEvent) => {
+      process.stdout.write(JSON.stringify(event) + "\n");
+    };
+
+    // Get session store for persisting messages
+    const store = await getSessionStore();
+
+    const loop = createAgentLoop(sessionId, { maxIterations: 100, sessionStore: store })
     const result = await loop.run({
       prompt: message,
       sessionId,
       provider: currentProvider,
       model: session.model,
       projectPath: session.projectPath,
+      onToolEvent: emitEvent,
     })
+
+    // Emit done event
+    emitEvent({ type: "done", content: result.message || "Done" });
+
+    // Extract session title from first response (no extra API call)
+    if (result.success && result.turnCount > 0 && result.content) {
+      const titleMatch = result.content.match(/SESSION_TITLE:\s*(.+)/i)
+      const title = titleMatch ? titleMatch[1].trim() : generateTitleFromPrompt(message)
+      await store.updateMeta(sessionId, { title }, session.projectPath)
+    }
 
     return result;
   },
@@ -232,9 +278,9 @@ const methodHandlers: Record<
   },
 
   "session.fork": async (params: Record<string, unknown>): Promise<string> => {
-    const { sessionId, point } = params as { sessionId: string; point?: string }
+    const { sessionId } = params as { sessionId: string }
     const manager = await getSessionManager()
-    return manager.fork(sessionId, point)
+    return manager.fork(sessionId)
   },
 
   "session.archive": async (params: Record<string, unknown>): Promise<void> => {
@@ -249,12 +295,24 @@ const methodHandlers: Record<
     await manager.delete(sessionId)
   },
 
+  "session.getInterrupted": async (): Promise<{ sessionId: string; messageId: string } | null> => {
+    const store = await getSessionStore()
+    return store.getInterruptedSession()
+  },
+
   // ========== Remote Sync Methods ==========
 
   "session.export": async (params: Record<string, unknown>): Promise<ExportedSession> => {
     const { sessionId } = params as { sessionId: string }
     const remoteSync = await getRemoteSync()
     return remoteSync.exportSession(sessionId)
+  },
+
+  "session.import": async (params: Record<string, unknown>): Promise<{ sessionId: string }> => {
+    const { url } = params as { url: string }
+    const manager = await getSessionManager()
+    const sessionId = await manager.import(url)
+    return { sessionId }
   },
 
   "session.upload": async (params: Record<string, unknown>): Promise<string> => {
@@ -286,6 +344,17 @@ async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> 
 
 async function main() {
   await initProviders();
+
+  // Set up Ctrl+C interrupt handler for session resumption
+  const handler = getInterruptHandler()
+  handler.setupSignalHandler(async (sessionId: string, messageId: string) => {
+    try {
+      const manager = await getSessionManager()
+      await manager.markInterrupted(sessionId, messageId)
+    } catch (e) {
+      // Ignore errors during interrupt handling
+    }
+  })
 
   let buffer = "";
 

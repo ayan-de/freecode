@@ -13,6 +13,7 @@ import type {
   ToolResult,
   SessionConfig,
   ProviderInfo,
+  StreamEvent,
 } from "@freecode/shared";
 
 // =============================================================================
@@ -26,6 +27,7 @@ let pendingRequests = new Map<
   number | string,
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
 >();
+let onStreamEvent: ((event: StreamEvent) => void) | null = null;
 
 function generateId(): number {
   return ++requestId;
@@ -34,10 +36,16 @@ function generateId(): number {
 function parseResponse(data: string): JsonRpcResponse[] {
   const responses: JsonRpcResponse[] = [];
   const lines = data.split("\n");
+  messageBuffer = lines.pop() ?? "";
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
-      responses.push(JSON.parse(line) as JsonRpcResponse);
+      const parsed = JSON.parse(line);
+      if (parsed.type && !parsed.jsonrpc && onStreamEvent) {
+        onStreamEvent(parsed as StreamEvent);
+        continue;
+      }
+      responses.push(parsed as JsonRpcResponse);
     } catch {
       // Skip malformed lines
     }
@@ -45,7 +53,7 @@ function parseResponse(data: string): JsonRpcResponse[] {
   return responses;
 }
 
-export function startCli(): void {
+export function startCli(onStderr?: (msg: string) => void): void {
   if (cliProcess) return;
 
   // Project root is the monorepo root (where pnpm-workspace.yaml lives)
@@ -67,13 +75,12 @@ export function startCli(): void {
   cliProcess.stdout?.setEncoding("utf-8");
 
   cliProcess.stderr?.on("data", (data) => {
-    console.error("[CLI stderr]", data.toString());
+    onStderr?.(data.toString().trim());
   });
 
   cliProcess.stdout?.on("data", (data: string) => {
     messageBuffer += data;
     const responses = parseResponse(messageBuffer);
-    messageBuffer = "";
 
     for (const response of responses) {
       const pending = pendingRequests.get(response.id);
@@ -149,8 +156,38 @@ export async function sessionStop(sessionId: string): Promise<void> {
   await sendRequest("session.stop", { sessionId });
 }
 
-export async function sessionSend(sessionId: string, message: string, model?: string): Promise<unknown> {
-  return await sendRequest("session.send", { sessionId, message, model });
+export interface SessionSendResult {
+  success: boolean;
+  message?: string;
+  content?: string;
+  turnCount?: number;
+  iterationCount?: number;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+export async function sessionSend(sessionId: string, message: string, model?: string): Promise<SessionSendResult> {
+  return await sendRequest("session.send", { sessionId, message, model }) as SessionSendResult;
+}
+
+export async function sessionSendStreaming(
+  sessionId: string,
+  message: string,
+  model: string | undefined,
+  onEvent: (event: StreamEvent) => void
+): Promise<SessionSendResult> {
+  return new Promise((resolve, reject) => {
+    if (!cliProcess || !cliProcess.stdin) {
+      reject(new Error("CLI not running"));
+      return;
+    }
+
+    onStreamEvent = onEvent;
+
+    const id = generateId();
+    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method: "session.send", params: { sessionId, message, model } };
+    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    cliProcess.stdin.write(JSON.stringify(request) + "\n");
+  });
 }
 
 // =============================================================================
@@ -190,4 +227,50 @@ export async function setCurrentModel(provider: string, model: string): Promise<
 
 export async function getCurrentModel(): Promise<{ provider: string; model: string } | undefined> {
   return (await sendRequest("config.getCurrentModel")) as { provider: string; model: string } | undefined
+}
+
+// =============================================================================
+// Session List/Resume Methods
+// =============================================================================
+
+export interface SessionMeta {
+  id: string
+  title: string
+  projectPath: string
+  provider: string
+  model?: string
+  status: 'active' | 'interrupted' | 'archived' | 'deleted'
+  createdAt: number
+  updatedAt: number
+  lastTurnAt: number
+  turnCount: number
+  parentId?: string
+  aggregatedTokenCount?: number
+}
+
+export interface SessionFilter {
+  status?: 'active' | 'interrupted' | 'archived' | 'deleted'
+  projectPath?: string
+}
+
+export async function sessionList(filter?: SessionFilter): Promise<SessionMeta[]> {
+  return (await sendRequest("session.list", filter as Record<string, unknown>)) as SessionMeta[]
+}
+
+export async function sessionResume(sessionId: string): Promise<{ sessionId: string; messages?: SerializedMessage[] }> {
+  return (await sendRequest("session.resume", { sessionId })) as { sessionId: string; messages?: SerializedMessage[] }
+}
+
+export interface SerializedMessage {
+  id: string
+  role: 'user' | 'assistant'
+  parts: Array<{
+    type: 'text' | 'code' | 'tool'
+    content?: string
+    language?: string
+    tool?: { name: string; args: Record<string, unknown> }
+    result?: string
+  }>
+  timestamp: number
+  interrupted?: boolean
 }

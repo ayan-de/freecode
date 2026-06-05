@@ -27,6 +27,15 @@ export type StreamResponse =
   | { type: "done"; content: string; toolName?: undefined; toolArgs?: undefined; toolResult?: undefined }
   | { type: "error"; content: string; toolName?: undefined; toolArgs?: undefined; toolResult?: undefined };
 
+export type StreamEvent =
+  | { type: "tool_start"; toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | { type: "tool_output"; toolCallId: string; content: string }
+  | { type: "tool_complete"; toolCallId: string; toolName: string; result: string; success: boolean; duration_ms?: number }
+  | { type: "thinking"; content: string }  // Streaming thinking/reasoning
+  | { type: "text"; content: string }
+  | { type: "done"; content: string }
+  | { type: "error"; content: string };
+
 // =============================================================================
 // IPC Method Signatures
 // =============================================================================

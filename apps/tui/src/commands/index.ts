@@ -1,8 +1,22 @@
+import type { Component } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
+import type { StreamEvent } from "@freecode/shared";
 
-export interface CommandContext {
+export interface MessageCreators {
+	createUserMessage(content: string): { component: Component; id: number };
+	createAssistantMessage(content: string): { component: Component; id: number };
+	createSystemMessage(content: string): { component: Component; id: number };
+	createInProgressMessage(phrase: string, inputTokens?: number, outputTokens?: number, contextLimit?: number): { component: Component; id: number };
+	updateInProgressMessage(id: number, phrase: string, inputTokens: number, outputTokens: number, contextLimit: number, startTime: number, turns: number): void;
+	insertBeforeEditor(component: Component): void;
+	removeMessageById(id: number): void;
+}
+
+export interface CommandContext extends MessageCreators {
 	showMessage(content: string): void;
 	showModelSelector?(): void;
+	showResumePicker?(): void;
+	handleToolEvent?(event: StreamEvent): void;
 }
 
 export interface Command {

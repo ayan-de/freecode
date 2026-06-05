@@ -39,3 +39,7 @@ yarn-error.log*
 
 # Worktrees
 .worktrees
+
+# FreeCode runtime data
+.freecode/
+apps/*/.freecode/

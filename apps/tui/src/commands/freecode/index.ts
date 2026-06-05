@@ -7,19 +7,21 @@ import { registerCommand, type Command, type CommandContext } from "../index.js"
 import {
   startCli,
   sessionStart,
-  sessionSend,
+  sessionSendStreaming,
   listProviders,
   type SessionInfo,
 } from "../../ipc/client.js";
-import { playSound } from "./sound.js";
 import { playAlert } from "./alert.js";
+import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "../../utils/elapsed-phrases.js";
+import { getModelContextLimit } from "../../utils/model-limits.js";
+import { formatTokenCount } from "../../utils/format-tokens.js";
 export { stopSound } from "./sound.js";
 
 // State
 let currentSession: SessionInfo | null = null;
 let providersLoaded = false;
 let cachedProviders: Array<{ id: string; name: string }> = [];
-let currentProvider = "minimax"; // Default to minimax
+let currentProvider = "minimax";
 
 async function ensureProviders(): Promise<void> {
   if (!providersLoaded) {
@@ -46,8 +48,6 @@ async function ensureSession(ctx: CommandContext): Promise<boolean> {
   if (currentSession) return true;
 
   startCli();
-
-  // Small delay to let CLI start
   await new Promise((resolve) => setTimeout(resolve, 500));
 
   try {
@@ -81,29 +81,43 @@ ${formatProviderList()}`);
       return;
     }
 
-    ctx.showMessage(`**You:** ${userPrompt}`);
-    ctx.showMessage("Processing...");
+    // Show user message with gray background
+    ctx.createUserMessage(`**You:** ${userPrompt}`);
 
-    // Play sound while processing
-    // playSound();
-
-    // Track start time for elapsed display
+    // Show in-progress message and track it for later removal
+    const inProgressMsg = ctx.createInProgressMessage(getRandomInProgressPhrase());
+    const inProgressId = inProgressMsg.id;
     const startTime = Date.now();
 
-    // Ensure CLI is running and we have a session
     const ready = await ensureSession(ctx);
     if (!ready) return;
 
     try {
-      const result = await sessionSend(currentSession!.sessionId, userPrompt) as {
-        success: boolean;
-        message?: string;
-        content?: string;
-        turnCount?: number;
-        iterationCount?: number;
-      };
+      const result = await sessionSendStreaming(
+        currentSession!.sessionId,
+        userPrompt,
+        undefined,
+        (event) => ctx.handleToolEvent?.(event)
+      );
 
-      // Calculate elapsed time
+      // Update in-progress message with token counts
+      const contextLimit = getModelContextLimit(`${currentProvider}/MiniMax-M2`);
+      ctx.updateInProgressMessage(
+        inProgressId,
+        getRandomInProgressPhrase(),
+        result.usage?.inputTokens ?? 0,
+        result.usage?.outputTokens ?? 0,
+        contextLimit,
+        startTime,
+        result.turnCount || 1
+      );
+
+      // Brief pause so user can see final token state before it disappears
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Remove in-progress message now that response has arrived
+      ctx.removeMessageById(inProgressId);
+
       const elapsed = Date.now() - startTime;
       const seconds = Math.floor(elapsed / 1000);
       const minutes = Math.floor(seconds / 60);
@@ -112,20 +126,25 @@ ${formatProviderList()}`);
 
       if (result.success) {
         const response = result.content || result.message;
-        ctx.showMessage(`**FreeCode:** ${response || "Done!"}`);
-        ctx.showMessage(chalk.dim(`Baked for ${timeStr}`));
-        // stopSound();
+        ctx.createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+        const inTokens = result.usage?.inputTokens ?? 0;
+        const outTokens = result.usage?.outputTokens ?? 0;
+        let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
+        if (contextLimit > 0) {
+          tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
+        }
+        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`);
         playAlert();
       } else {
-        ctx.showMessage(`**FreeCode:** ${result.message || "Unknown error"}`);
-        // stopSound();
+        ctx.createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
+        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
         playAlert();
       }
     } catch (error) {
+      ctx.removeMessageById(inProgressId);
       ctx.showMessage(
         `Error: ${error instanceof Error ? error.message : String(error)}`
       );
-    //   stopSound();
       playAlert();
     }
   },

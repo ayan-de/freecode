@@ -6,6 +6,9 @@
 // FLOW: Build Prompt → Send to AI → Normalize → Parse → Execute Tool → Loop
 // =============================================================================
 
+import * as path from "path"
+import * as os from "os"
+import { randomUUID } from "crypto"
 import type {
   SessionState,
   ToolCall,
@@ -18,6 +21,7 @@ import type {
   HookContext,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
+import type { StreamEvent } from "@freecode/shared"
 import { createToolOrchestrator, listTools, getTool } from "../tools/index.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
@@ -26,6 +30,20 @@ import type { HookResult } from "../agent/types.js"
 import { bus, BusEvents } from "../bus/index.js"
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js"
 import { loadProviderPrompt } from "../session/prompt.js"
+import { createSessionStore, type SessionStore, type SerializedMessage } from "../session/store.js"
+import { getInterruptHandler } from "../session/interrupt.js"
+
+const SESSION_DIR = ".freecode"
+
+let globalSessionStore: SessionStore | null = null
+
+async function getSessionStore(): Promise<SessionStore> {
+  if (!globalSessionStore) {
+    const baseDir = path.join(os.homedir(), SESSION_DIR)
+    globalSessionStore = await createSessionStore(baseDir)
+  }
+  return globalSessionStore
+}
 
 const orchestrator = createToolOrchestrator()
 
@@ -44,14 +62,17 @@ export class AgentLoop {
   private memory: MemoryService
   private hooks: HookRuntime
   private recorder: RolloutRecorder
+  private sessionStore: SessionStore | undefined
+  private onToolEvent: ((event: StreamEvent) => void) | undefined
+  private lastThinking: string | undefined
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
   private recentReasoning: string[] = []
   private lastFileStates: string[] = []
   private fileStateHash: string = ""
 
-  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder }) {
-    this.state = createInitialSessionState(sessionId)
+  constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder; sessionStore?: SessionStore }) {
+    this.state = createInitialSessionState(sessionId, "") // projectPath set in run()
     this.config = {
       maxIterations: config?.maxIterations ?? 100,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
@@ -59,6 +80,7 @@ export class AgentLoop {
     this.memory = new MemoryService(sessionId)
     this.hooks = config?.hooks ?? createHookRuntime()
     this.recorder = config?.recorder ?? createRecorder(sessionId)
+    this.sessionStore = config?.sessionStore
   }
 
   // ===========================================================================
@@ -66,10 +88,11 @@ export class AgentLoop {
   // Main execution entry point - runs the continuous loop until completion
   // ===========================================================================
   async run(input: UserInput): Promise<LoopResult> {
-    this.state = { ...this.state, status: "starting" }
+    this.state = { ...this.state, status: "starting", projectPath: input.projectPath }
 
     try {
       this.state = { ...this.state, status: "running" }
+      this.onToolEvent = input.onToolEvent
 
       // Step 1: Collect project context (file tree, etc.)
       const contextResult = await this.collectContext(input.projectPath)
@@ -85,6 +108,8 @@ export class AgentLoop {
 
       let prompt = input.prompt
       let previousToolResults: ToolResult[] | undefined
+      let totalInputTokens = 0
+      let totalOutputTokens = 0
 
       // =======================================================================
       // CONTINUOUS LOOP - Core agent cycle
@@ -113,9 +138,15 @@ export class AgentLoop {
           return this.fail("Turn execution failed", turnResult.error)
         }
 
+        // Accumulate usage across turns
+        if (turnResult.usage) {
+          totalInputTokens += turnResult.usage.inputTokens ?? 0
+          totalOutputTokens += turnResult.usage.outputTokens ?? 0
+        }
+
         // No tool calls means we're done
         if (turnResult.toolResults.length === 0) {
-          return this.complete("Done", turnResult.responseText)
+          return this.complete("Done", turnResult.responseText, turnResult.thinking, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })
         }
 
         // Build continuation prompt for next iteration
@@ -148,7 +179,7 @@ export class AgentLoop {
     model: string | undefined,
     context: { name: string; projectPath: string; tree: string },
     previousToolResults?: ToolResult[]
-  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string }> {
+  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; thinking?: string; error?: string; usage?: { inputTokens: number; outputTokens: number } }> {
     try {
       // TWO-PHASE CONTEXT COLLECTION
       // Phase 1: Ask model which files it needs to complete the task
@@ -184,6 +215,12 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       console.log("[AgentLoop] Sending prompt to provider...")
       const providerResult = await this.sendToProvider(modifiedPrompt, provider, model, previousToolResults)
 
+      // Emit thinking content if present (for UI to display as streaming reasoning)
+      if (providerResult.thinking) {
+        this.lastThinking = providerResult.thinking
+        this.onToolEvent?.({ type: "thinking", content: providerResult.thinking })
+      }
+
       // Record turn.started event
       this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`)
 
@@ -204,6 +241,9 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       if (toolCalls.length === 0) {
         this.memory.addMessage("user", prompt)
         this.memory.addMessage("assistant", providerResult.content)
+        // Also append to session store
+        await this.appendUserMessage(prompt)
+        await this.appendAssistantMessage(providerResult.content)
         if (this.memory.shouldCompact(provider)) {
           // PreCompact Hook — can inspect/modify context before compaction
           const preHookCtx: HookContext = { sessionId: this.state.sessionId, turnCount: this.state.turnCount }
@@ -219,7 +259,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
             }
           }
         }
-        return { success: true, toolResults: [], responseText: providerResult.content }
+        return { success: true, toolResults: [], responseText: providerResult.content, thinking: providerResult.thinking, usage: providerResult.usage }
       }
 
       // Execute each tool sequentially (as per spec: sequential tools run one at a time)
@@ -229,11 +269,16 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         toolResults.push(result)
         // Update loop health tracking after each tool execution
         this.updateLoopHealth(toolCall, result)
+        // Append tool result to session store
+        await this.appendToolMessage(toolCall, result)
       }
 
       // Record messages and check for compaction after tool execution
       this.memory.addMessage("user", prompt)
       this.memory.addMessage("assistant", providerResult.content)
+      // Also append to session store
+      await this.appendUserMessage(prompt)
+      await this.appendAssistantMessage(providerResult.content)
 
       if (this.memory.shouldCompact(provider)) {
         // PreCompact Hook — can inspect/modify context before compaction
@@ -251,7 +296,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
         }
       }
 
-      return { success: true, toolResults, responseText: providerResult.content }
+      return { success: true, toolResults, responseText: providerResult.content, usage: providerResult.usage }
     } catch (error) {
       return { success: false, toolResults: [], error: String(error) }
     }
@@ -379,7 +424,7 @@ Based on this task, which files do you need to read to understand the codebase a
     provider: string,
     model: string | undefined,
     toolResults?: ToolResult[]
-  ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }> }> {
+  ): Promise<{ content: string; thinking?: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>; usage?: { inputTokens: number; outputTokens: number } }> {
     const aiProvider = getProvider(provider as any)
     const tools = listTools().map(t => {
       const toolDef = getTool(t.id)
@@ -400,7 +445,7 @@ Based on this task, which files do you need to read to understand the codebase a
       })),
       model,
     })
-    return { content: result.content, toolCalls: result.toolCalls }
+    return { content: result.content, thinking: result.thinking, toolCalls: result.toolCalls, usage: result.usage }
   }
 
   // ===========================================================================
@@ -547,6 +592,14 @@ Based on this task, which files do you need to read to understand the codebase a
       }
     }
 
+    // Emit tool_start event for streaming
+    this.onToolEvent?.({
+      type: "tool_start",
+      toolCallId: toolCall.id,
+      toolName: toolCall.tool,
+      args: toolCall.args as Record<string, unknown>,
+    })
+
     // Emit tool.called event before execution
     BusEvents.toolCalled(this.state.sessionId, toolCall.tool, toolCall.id, toolCall.args as Record<string, unknown>)
 
@@ -578,6 +631,20 @@ Based on this task, which files do you need to read to understand the codebase a
       return errorResult
     }
 
+    // Emit tool_output with last 5 lines of stdout
+    // Truncate each line to 200 chars to prevent terminal overflow
+    const MAX_LINE_LEN = 200
+    const outputLines = (result.stdout || "")
+      .split("\n")
+      .filter(l => l.trim())
+      .slice(-5)
+      .map(line => line.length > MAX_LINE_LEN ? line.slice(0, MAX_LINE_LEN) + "..." : line)
+    this.onToolEvent?.({
+      type: "tool_output",
+      toolCallId: toolCall.id,
+      content: outputLines.join("\n"),
+    })
+
     // PostToolUse Hook — can modify result
     const postResult = await this.hooks.runPostToolUse(toolCall, result, hookContext)
 
@@ -588,6 +655,16 @@ Based on this task, which files do you need to read to understand the codebase a
     const duration_ms = Date.now() - startTime
     const success = !result.error
     BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, success, duration_ms)
+
+    // Emit tool_complete event for streaming
+    this.onToolEvent?.({
+      type: "tool_complete",
+      toolCallId: toolCall.id,
+      toolName: toolCall.tool,
+      result: result.stdout || result.error || "",
+      success,
+      duration_ms,
+    })
 
     return result
   }
@@ -757,17 +834,65 @@ Based on this task, which files do you need to read to understand the codebase a
     }
   }
 
-  private complete(message: string, content?: string): LoopResult {
+  private complete(message: string, content?: string, thinking?: string, usage?: { inputTokens: number; outputTokens: number }): LoopResult {
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId)
     return {
       success: true,
       message,
       content,
+      thinking: thinking ?? this.lastThinking,
       turnCount: this.state.turnCount,
       iterationCount: this.state.iterationCount,
       finalState: this.state,
+      usage,
     }
+  }
+
+  // ===========================================================================
+  // PRIVATE: Session Store Helpers
+  // Append messages to session store for persistence
+  // ===========================================================================
+
+  private async appendUserMessage(content: string): Promise<void> {
+    if (!this.sessionStore) return
+    const message: SerializedMessage = {
+      id: randomUUID(),
+      role: "user",
+      parts: [{ type: "text", content }],
+      timestamp: Date.now(),
+    }
+    await this.sessionStore.appendMessage(this.state.sessionId, message, this.state.projectPath)
+  }
+
+  private async appendAssistantMessage(content: string): Promise<string> {
+    if (!this.sessionStore) return ''
+    const id = randomUUID()
+    const message: SerializedMessage = {
+      id,
+      role: "assistant",
+      parts: [{ type: "text", content }],
+      timestamp: Date.now(),
+    }
+    await this.sessionStore.appendMessage(this.state.sessionId, message, this.state.projectPath)
+    // Set this message as the interrupt target so Ctrl+C marks it
+    getInterruptHandler().setActive(this.state.sessionId, id)
+    return id
+  }
+
+  private async appendToolMessage(toolCall: ToolCall, result: ToolResult): Promise<void> {
+    if (!this.sessionStore) return
+    const message: SerializedMessage = {
+      id: randomUUID(),
+      role: "assistant",
+      parts: [{
+        type: "tool",
+        tool: { name: toolCall.tool, args: toolCall.args as Record<string, unknown> },
+        result: result.stdout || result.error || "",
+      }],
+      timestamp: Date.now(),
+    }
+    await this.sessionStore.appendMessage(this.state.sessionId, message, this.state.projectPath)
   }
 
   // ===========================================================================
@@ -788,7 +913,7 @@ Based on this task, which files do you need to read to understand the codebase a
 // =============================================================================
 export const createAgentLoop = (
   sessionId: string,
-  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder }
+  config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder; sessionStore?: SessionStore }
 ): AgentLoop => {
   return new AgentLoop(sessionId, config)
 }

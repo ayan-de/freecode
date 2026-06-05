@@ -38,3 +38,14 @@ When referencing code, include `file_path:line_number` for navigation.
 - Tool results may include `<system-reminder>` tags with useful reminders
 - System reminders are automatically added and relevant to the task
 - You can call multiple tools in parallel when independent
+
+## Response Formatting
+
+Format your responses for terminal display:
+- Use **bold** for important concepts, key terms, and emphasis
+- Use `inline code` for file paths (e.g., `src/index.ts`), function names, variables, and command names
+- Use code blocks with ``` for multi-line code snippets
+- Use # headings for section titles (keep it short for terminal)
+- Use > blockquotes for important notes or warnings
+- Use bullet lists (-) for sequential items or steps
+- Color coding: blue for links and file references, cyan for headings, yellow for code

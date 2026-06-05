@@ -25,6 +25,7 @@ export interface ExecuteOptions {
 
 export interface ExecuteResult {
   content: string
+  thinking?: string  // Extended thinking/reasoning content
   toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>
   usage?: { inputTokens: number; outputTokens: number }
   stopReason: "stop" | "tool_use" | "max_tokens" | "unknown"
