@@ -74,8 +74,6 @@ export class SessionManager {
       throw new Error(`Session not found: ${sessionId}`)
     }
 
-    // Use getMetaBySessionId with the formatted project dir (already stored in list results)
-    const formattedProjDir = this.sessionStore.list ? undefined : undefined // not needed - meta already has projectPath
     let messages = await this.sessionStore.getMessages(sessionId, meta.projectPath)
 
     // Detect interrupted state → inject resume marker

@@ -1,9 +1,14 @@
 {
-  "name": "@freecode/core",
+  "name": "@thisisayande/freecode-core",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "main": "src/server.ts",
+  "description": "CLI backend for FreeCode AI coding assistant",
+  "license": "MIT",
+  "repository": "https://github.com/ayan-de/freecode",
+  "bin": {
+    "freecode": "./dist/server.js"
+  },
+  "main": "dist/server.js",
   "scripts": {
     "dev": "tsx src/server.ts",
     "build": "tsc",
@@ -14,7 +19,7 @@
     "@ai-sdk/anthropic": "^3.0.80",
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.66",
-    "@freecode/shared": "workspace:*",
+    "@thisisayande/freecode-shared": "^0.1.0",
     "ai": "^6.0.191",
     "effect": "^3.21.2",
     "fast-glob": "^3.3.3",

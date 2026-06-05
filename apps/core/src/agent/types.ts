@@ -173,7 +173,7 @@ export type MessagePart =
 // User Input / Loop Result - Main entry/exit types
 // =============================================================================
 
-import type { StreamEvent } from "@freecode/shared"
+import type { StreamEvent } from "@thisisayande/freecode-shared"
 
 export interface UserInput {
   prompt: string

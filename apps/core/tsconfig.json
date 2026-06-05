@@ -14,8 +14,8 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@thisisaynde/freecode-shared": ["../../packages/shared/dist/index.d.ts"],
-      "@thisisaynde/freecode-shared/*": ["../../packages/shared/dist/*"]
+      "@thisisayande/freecode-shared": ["../../packages/shared/dist/index.d.ts"],
+      "@thisisayande/freecode-shared/*": ["../../packages/shared/dist/*"]
     }
   },
   "include": ["src/**/*"],

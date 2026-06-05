@@ -10,7 +10,7 @@ import { getProviders, getProviderModels } from "./models-dev.js";
 import { readConfig, writeConfig, setApiKey, setCurrentModel, hasApiKey, getCurrentModel, type ProviderId } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
-import type { JsonRpcRequest, JsonRpcResponse, SessionConfig, StreamEvent } from "@freecode/shared";
+import type { JsonRpcRequest, JsonRpcResponse, SessionConfig, StreamEvent } from "@thisisayande/freecode-shared";
 import { getMemoryStore, type MemoryEntry, type MemoryType } from "./memory/index.js";
 import { findRelevantMemories } from "./memory/mem-query.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";

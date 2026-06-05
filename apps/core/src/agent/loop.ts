@@ -21,7 +21,7 @@ import type {
   HookContext,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
-import type { StreamEvent } from "@freecode/shared"
+import type { StreamEvent } from "@thisisayande/freecode-shared"
 import { createToolOrchestrator, listTools, getTool } from "../tools/index.js"
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
 import { getProvider } from "../providers/index.js"
