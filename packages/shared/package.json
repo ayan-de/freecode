@@ -1,8 +1,13 @@
 {
-  "name": "@freecode/shared",
+  "name": "@thisisayande/freecode-shared",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
+  "description": "Shared types and IPC protocol for FreeCode",
+  "license": "MIT",
+  "repository": "https://github.com/ayan-de/freecode",
+  "files": [
+    "dist"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -19,9 +24,6 @@
       "import": "./dist/types.js"
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist"
