@@ -71,7 +71,7 @@ export class AgentLoop {
   private fileStateHash: string = ""
 
   constructor(sessionId: string, config?: { maxIterations?: number; heuristics?: Partial<LoopHeuristics>; hooks?: HookRuntime; recorder?: RolloutRecorder; sessionStore?: SessionStore }) {
-    this.state = createInitialSessionState(sessionId)
+    this.state = createInitialSessionState(sessionId, "") // projectPath set in run()
     this.config = {
       maxIterations: config?.maxIterations ?? 100,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
@@ -87,7 +87,7 @@ export class AgentLoop {
   // Main execution entry point - runs the continuous loop until completion
   // ===========================================================================
   async run(input: UserInput): Promise<LoopResult> {
-    this.state = { ...this.state, status: "starting" }
+    this.state = { ...this.state, status: "starting", projectPath: input.projectPath }
 
     try {
       this.state = { ...this.state, status: "running" }
@@ -854,7 +854,7 @@ Based on this task, which files do you need to read to understand the codebase a
       parts: [{ type: "text", content }],
       timestamp: Date.now(),
     }
-    await this.sessionStore.appendMessage(this.state.sessionId, message)
+    await this.sessionStore.appendMessage(this.state.sessionId, message, this.state.projectPath)
   }
 
   private async appendAssistantMessage(content: string): Promise<string> {
@@ -866,7 +866,7 @@ Based on this task, which files do you need to read to understand the codebase a
       parts: [{ type: "text", content }],
       timestamp: Date.now(),
     }
-    await this.sessionStore.appendMessage(this.state.sessionId, message)
+    await this.sessionStore.appendMessage(this.state.sessionId, message, this.state.projectPath)
     // Set this message as the interrupt target so Ctrl+C marks it
     getInterruptHandler().setActive(this.state.sessionId, id)
     return id
@@ -884,7 +884,7 @@ Based on this task, which files do you need to read to understand the codebase a
       }],
       timestamp: Date.now(),
     }
-    await this.sessionStore.appendMessage(this.state.sessionId, message)
+    await this.sessionStore.appendMessage(this.state.sessionId, message, this.state.projectPath)
   }
 
   // ===========================================================================
