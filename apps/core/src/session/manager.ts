@@ -67,12 +67,16 @@ export class SessionManager {
 
   // Resume an existing session
   async resume(sessionId: string): Promise<SessionContext> {
-    const meta = await this.sessionStore.getMeta(sessionId)
+    // List all sessions to find the one we want and get its projectPath
+    const allMetas = await this.sessionStore.list()
+    const meta = allMetas.find(m => m.id === sessionId)
     if (!meta) {
       throw new Error(`Session not found: ${sessionId}`)
     }
 
-    let messages = await this.sessionStore.getMessages(sessionId)
+    // Use getMetaBySessionId with the formatted project dir (already stored in list results)
+    const formattedProjDir = this.sessionStore.list ? undefined : undefined // not needed - meta already has projectPath
+    let messages = await this.sessionStore.getMessages(sessionId, meta.projectPath)
 
     // Detect interrupted state → inject resume marker
     if (meta.status === "interrupted") {
@@ -107,7 +111,8 @@ export class SessionManager {
 
   // Switch to a different session (make it current)
   async switch(sessionId: string): Promise<void> {
-    const meta = await this.sessionStore.getMeta(sessionId)
+    const allMetas = await this.sessionStore.list()
+    const meta = allMetas.find(m => m.id === sessionId)
     if (!meta) {
       throw new Error(`Session not found: ${sessionId}`)
     }
@@ -116,7 +121,12 @@ export class SessionManager {
 
   // Fork session at current point
   async fork(sessionId: string): Promise<string> {
-    const forkId = await this.sessionStore.fork(sessionId)
+    const allMetas = await this.sessionStore.list()
+    const meta = allMetas.find(m => m.id === sessionId)
+    if (!meta) {
+      throw new Error(`Session not found: ${sessionId}`)
+    }
+    const forkId = await this.sessionStore.fork(sessionId, meta.projectPath)
     this.currentSessionId = forkId
     return forkId
   }
