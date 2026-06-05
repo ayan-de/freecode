@@ -128,6 +128,7 @@ export interface LoopAction {
 export interface SessionState {
   status: "idle" | "starting" | "running" | "error" | "stopped"
   sessionId: string
+  projectPath: string
   turnCount: number
   iterationCount: number
   loopHealth: LoopHealth
@@ -135,10 +136,11 @@ export interface SessionState {
   activeToolChain?: string[]  // For compaction awareness
 }
 
-export function createInitialSessionState(sessionId: string): SessionState {
+export function createInitialSessionState(sessionId: string, projectPath: string): SessionState {
   return {
     status: "idle",
     sessionId,
+    projectPath,
     turnCount: 0,
     iterationCount: 0,
     loopHealth: {
