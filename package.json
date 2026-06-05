@@ -19,5 +19,10 @@
   },
   "dependencies": {
     "postprocessing": "^6.39.1"
+  },
+  "pnpm": {
+    "overrides": {
+      "@thisisayande/freecode-shared": "workspace:*"
+    }
   }
 }
