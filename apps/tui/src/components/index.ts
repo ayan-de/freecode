@@ -108,6 +108,14 @@ export function createToolResultMessage(
 }
 
 /**
+ * Create a thinking message - dimmed cyan text showing LLM reasoning
+ */
+export function createThinkingMessage(content: string): MessageInstance {
+  const component = createMessageComponent("thinking", content);
+  return addMessage("thinking", content, component);
+}
+
+/**
  * Get the current in-progress message, if any
  */
 export function getPendingInProgress(): MessageInstance | undefined {

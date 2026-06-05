@@ -35,6 +35,7 @@ import {
   onMessagesChange,
   createToolProgressMessage,
   createToolResultMessage,
+  createThinkingMessage,
   ToolProgressMessage,
   type MessageInstance,
   loadSessionMessages,
@@ -394,6 +395,12 @@ function handleToolEvent(event: StreamEvent): void {
 				event.success,
 				event.duration_ms
 			);
+			break;
+		}
+		case "thinking": {
+			// Create or update thinking message - dimmed cyan stream
+			const thinkingComponent = createThinkingMessage(event.content);
+			tui.requestRender();
 			break;
 		}
 	}

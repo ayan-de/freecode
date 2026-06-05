@@ -188,6 +188,7 @@ export interface LoopResult {
   success: boolean
   message?: string
   content?: string
+  thinking?: string  // Extended thinking content from provider
   turnCount: number
   iterationCount: number
   finalState: SessionState

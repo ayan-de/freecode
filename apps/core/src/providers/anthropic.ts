@@ -51,6 +51,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
 
     return {
       content,
+      thinking: undefined,  // V3 SDK doesn't expose thinking blocks
       toolCalls: toolCalls?.length ? toolCalls : undefined,
       usage: result.usage ? {
         inputTokens: result.usage.inputTokens ?? 0,

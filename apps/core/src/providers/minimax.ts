@@ -95,9 +95,11 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
       stop_reason: string
     }
 
-    // Extract text content, filter out thinking blocks
-    const textParts = data.content?.filter(c => c.type === "text" || c.type === "thinking")
-    const content = textParts?.map(c => c.text || c.thinking || "").join("\n").trim() || ""
+    // Extract text content and thinking blocks separately
+    const textParts = data.content?.filter(c => c.type === "text")
+    const thinkingParts = data.content?.filter(c => c.type === "thinking")
+    const content = textParts?.map(c => c.text || "").join("\n").trim() || ""
+    const thinking = thinkingParts?.map(c => c.thinking || "").join("\n").trim() || undefined
 
     // Extract tool calls from tool_use content blocks
     const toolCalls = data.content
@@ -119,6 +121,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
 
     return {
       content,
+      thinking,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage: data.usage ? {
         inputTokens: data.usage.input_tokens,

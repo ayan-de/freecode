@@ -48,6 +48,7 @@ function createGeminiProvider(_apiKey: string): AIProvider {
 
     return {
       content: result.text || "",
+      thinking: undefined,  // Gemini doesn't expose thinking blocks
       toolCalls: toolCalls?.length ? toolCalls : undefined,
       usage: result.usage ? {
         inputTokens: result.usage.inputTokens ?? 0,

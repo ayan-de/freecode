@@ -128,8 +128,17 @@ export function createAssistantMessageComponent(content: string): Component {
 }
 
 /**
- * Create a system message component — dimmed text
+ * Create a thinking message component — dimmed cyan text with thinking prefix
  */
+export function createThinkingMessageComponent(content: string): Component {
+  const box = new Box(1, 1)
+  const lines = content.split("\n")
+  for (const line of lines) {
+    const text = new Text(chalk.dim.cyan(`Thinking: ${line}`), 1, 1)
+    box.addChild(text)
+  }
+  return new WidthBounded(box)
+}
 export function createSystemMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
@@ -166,6 +175,8 @@ export function createMessageComponent(
       return createAssistantMessageComponent(content);
     case "system":
       return createSystemMessageComponent(content);
+    case "thinking":
+      return createThinkingMessageComponent(content);
     case "in_progress":
       return createInProgressMessageComponent(
         content,

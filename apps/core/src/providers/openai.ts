@@ -48,6 +48,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
 
     return {
       content: result.text || "",
+      thinking: undefined,  // OpenAI doesn't have extended thinking in same way
       toolCalls: toolCalls?.length ? toolCalls : undefined,
       usage: result.usage ? {
         inputTokens: result.usage.inputTokens ?? 0,

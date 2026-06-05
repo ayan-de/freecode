@@ -64,6 +64,7 @@ export class AgentLoop {
   private recorder: RolloutRecorder
   private sessionStore: SessionStore | undefined
   private onToolEvent: ((event: StreamEvent) => void) | undefined
+  private lastThinking: string | undefined
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
   private recentReasoning: string[] = []
@@ -145,7 +146,7 @@ export class AgentLoop {
 
         // No tool calls means we're done
         if (turnResult.toolResults.length === 0) {
-          return this.complete("Done", turnResult.responseText, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })
+          return this.complete("Done", turnResult.responseText, turnResult.thinking, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })
         }
 
         // Build continuation prompt for next iteration
@@ -178,7 +179,7 @@ export class AgentLoop {
     model: string | undefined,
     context: { name: string; projectPath: string; tree: string },
     previousToolResults?: ToolResult[]
-  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; error?: string; usage?: { inputTokens: number; outputTokens: number } }> {
+  ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; thinking?: string; error?: string; usage?: { inputTokens: number; outputTokens: number } }> {
     try {
       // TWO-PHASE CONTEXT COLLECTION
       // Phase 1: Ask model which files it needs to complete the task
@@ -213,6 +214,12 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
       console.log("[AgentLoop] Sending prompt to provider...")
       const providerResult = await this.sendToProvider(modifiedPrompt, provider, model, previousToolResults)
+
+      // Emit thinking content if present (for UI to display as streaming reasoning)
+      if (providerResult.thinking) {
+        this.lastThinking = providerResult.thinking
+        this.onToolEvent?.({ type: "thinking", content: providerResult.thinking })
+      }
 
       // Record turn.started event
       this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`)
@@ -252,7 +259,7 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
             }
           }
         }
-        return { success: true, toolResults: [], responseText: providerResult.content, usage: providerResult.usage }
+        return { success: true, toolResults: [], responseText: providerResult.content, thinking: providerResult.thinking, usage: providerResult.usage }
       }
 
       // Execute each tool sequentially (as per spec: sequential tools run one at a time)
@@ -417,7 +424,7 @@ Based on this task, which files do you need to read to understand the codebase a
     provider: string,
     model: string | undefined,
     toolResults?: ToolResult[]
-  ): Promise<{ content: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>; usage?: { inputTokens: number; outputTokens: number } }> {
+  ): Promise<{ content: string; thinking?: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>; usage?: { inputTokens: number; outputTokens: number } }> {
     const aiProvider = getProvider(provider as any)
     const tools = listTools().map(t => {
       const toolDef = getTool(t.id)
@@ -438,7 +445,7 @@ Based on this task, which files do you need to read to understand the codebase a
       })),
       model,
     })
-    return { content: result.content, toolCalls: result.toolCalls, usage: result.usage }
+    return { content: result.content, thinking: result.thinking, toolCalls: result.toolCalls, usage: result.usage }
   }
 
   // ===========================================================================
@@ -827,13 +834,14 @@ Based on this task, which files do you need to read to understand the codebase a
     }
   }
 
-  private complete(message: string, content?: string, usage?: { inputTokens: number; outputTokens: number }): LoopResult {
+  private complete(message: string, content?: string, thinking?: string, usage?: { inputTokens: number; outputTokens: number }): LoopResult {
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId)
     return {
       success: true,
       message,
       content,
+      thinking: thinking ?? this.lastThinking,
       turnCount: this.state.turnCount,
       iterationCount: this.state.iterationCount,
       finalState: this.state,
