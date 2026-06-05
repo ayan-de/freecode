@@ -1,5 +1,5 @@
 // =============================================================================
-// Shared Types — re-exported from @freecode/shared
+// Shared Types — re-exported from @thisisayande/freecode-shared
 // =============================================================================
 
-export type { Message, MessagePart } from "@freecode/shared";
+export type { Message, MessagePart } from "@thisisayande/freecode-shared";

@@ -12,7 +12,7 @@ import type {
   ToolResult,
   SessionConfig,
   ProviderInfo,
-} from "@freecode/shared";
+} from "@thisisayande/freecode-shared";
 
 // =============================================================================
 // IPC Transport

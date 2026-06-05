@@ -3,7 +3,7 @@
   "displayName": "FreeCode",
   "description": "AI coding assistant with chat interface",
   "version": "0.1.0",
-  "publisher": "freecode",
+  "publisher": "thisisaynde",
   "id": "freecode.freecode-chat",
   "engines": {
     "vscode": "^1.88.0"
@@ -48,7 +48,7 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "@freecode/shared": "workspace:*",
+    "@thisisayande/freecode-shared": "^0.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "zustand": "^4.5.0"

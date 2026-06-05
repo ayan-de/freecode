@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { create } from "zustand";
-import type { Message, MessagePart } from "@freecode/shared";
+import type { Message, MessagePart } from "@thisisayande/freecode-shared";
 
 interface ChatStore {
   messages: Message[];
