@@ -14,7 +14,7 @@ import type {
   SessionConfig,
   ProviderInfo,
   StreamEvent,
-} from "@freecode/shared";
+} from "@thisisayande/freecode-shared";
 
 // =============================================================================
 // IPC Transport

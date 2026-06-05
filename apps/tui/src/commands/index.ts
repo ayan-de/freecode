@@ -1,6 +1,6 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
-import type { StreamEvent } from "@freecode/shared";
+import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 export interface MessageCreators {
 	createUserMessage(content: string): { component: Component; id: number };

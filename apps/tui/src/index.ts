@@ -42,7 +42,7 @@ import {
 } from "./components/index.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
 import { createResumePicker } from "./components/resume-picker.js";
-import type { StreamEvent } from "@freecode/shared";
+import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
 
