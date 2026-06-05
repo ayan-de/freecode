@@ -18,7 +18,9 @@ import { getSessionManager, type SessionContext } from "./session/index.js";
 import { createSessionStore, type SessionStore } from "./session/store.js";
 import { getRemoteSync, type ExportedSession, type RemoteSessionConfig } from "./store/index.js";
 import { getInterruptHandler } from "./session/interrupt.js";
+import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { homedir } from "os";
+import { randomUUID } from 'crypto'
 import { join } from "path";
 
 const SESSION_BASE_DIR = join(homedir(), ".freecode");
@@ -55,10 +57,9 @@ interface SessionInfo {
 }
 
 const sessions: Map<string, SessionInfo> = new Map();
-let sessionCounter = 0;
 
 function createSession(config: SessionConfig): SessionInfo {
-  const id = `session-${++sessionCounter}`;
+  const id = randomUUID();
   const session: SessionInfo = {
     id,
     projectPath: config.projectPath,
@@ -116,7 +117,7 @@ const methodHandlers: Record<
     const store = await getSessionStore();
     // Use the same session ID that was created in createSession()
     await store.createSession({
-      title: config.title || `Session ${session.id}`,
+      title: `Session ${session.id}`,
       projectPath: session.projectPath,
       provider: session.provider,
       model: session.model,
@@ -164,6 +165,13 @@ const methodHandlers: Record<
 
     // Emit done event
     emitEvent({ type: "done", content: result.message || "Done" });
+
+    // Extract session title from first response (no extra API call)
+    if (result.success && result.turnCount > 0 && result.content) {
+      const titleMatch = result.content.match(/SESSION_TITLE:\s*(.+)/i)
+      const title = titleMatch ? titleMatch[1].trim() : generateTitleFromPrompt(message)
+      await store.updateMeta(sessionId, { title }, session.projectPath)
+    }
 
     return result;
   },
