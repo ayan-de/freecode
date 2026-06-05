@@ -71,6 +71,28 @@ export class RemoteSessionSync {
     const memoryStore = new MemoryStore(context.projectPath)
     const memories = memoryStore.list()
 
+    // Map "interrupted" to "active" for export compatibility
+    const exportStatus: "active" | "archived" | "deleted" =
+      context.status === "interrupted" ? "active" : context.status as "active" | "archived" | "deleted"
+
+    // Transform SerializedMessage (with parts) to flat content format
+    const exportedMessages = context.messages.map((msg) => {
+      const content = msg.parts
+        .map((part) => {
+          if (part.type === "text") return part.content || ""
+          if (part.type === "code") return part.content || ""
+          if (part.type === "tool") return `[tool: ${part.tool?.name || "unknown"}]`
+          return ""
+        })
+        .join("\n")
+      return {
+        id: msg.id,
+        role: msg.role,
+        content,
+        timestamp: msg.timestamp,
+      }
+    })
+
     return {
       version: 1,
       metadata: {
@@ -78,22 +100,22 @@ export class RemoteSessionSync {
         title: context.title,
         projectPath: context.projectPath,
         provider: context.provider,
-        status: context.status,
+        status: exportStatus,
         createdAt: context.createdAt,
         updatedAt: context.updatedAt,
         lastTurnAt: context.lastTurnAt,
         turnCount: context.turnCount,
         parentId: context.parentId,
       },
-      messages: context.messages,
+      messages: exportedMessages,
       memories,
       exportedAt: Date.now(),
     }
   }
 
   // Save exported session to local file
-  saveExportToFile(sessionId: string, filePath?: string): string {
-    const exportData = this.exportSession(sessionId)
+  async saveExportToFile(sessionId: string, filePath?: string): Promise<string> {
+    const exportData = await this.exportSession(sessionId)
     const targetPath = filePath || path.join(getRemoteDir(), `${sessionId}.json`)
 
     fs.mkdirSync(path.dirname(targetPath), { recursive: true })

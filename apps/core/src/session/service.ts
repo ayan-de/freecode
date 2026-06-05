@@ -31,8 +31,8 @@ export class SessionServiceImpl implements SessionService {
   private state: SessionState
   private history: Message[] = []
 
-  constructor(sessionId: string) {
-    this.state = createInitialSessionState(sessionId)
+  constructor(sessionId: string, projectPath: string) {
+    this.state = createInitialSessionState(sessionId, projectPath)
   }
 
   // ===========================================================================
@@ -80,6 +80,6 @@ export class SessionServiceImpl implements SessionService {
 // =============================================================================
 // Factory Function
 // =============================================================================
-export const createSessionService = (sessionId: string): SessionService => {
-  return new SessionServiceImpl(sessionId)
+export const createSessionService = (sessionId: string, projectPath: string): SessionService => {
+  return new SessionServiceImpl(sessionId, projectPath)
 }
