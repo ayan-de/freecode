@@ -1,12 +1,14 @@
 // =============================================================================
 // SessionStore - JSONL-based file operations for session persistence
 // PRIMARY: Provides file-based session storage at ~/.freecode/sessions/
-// STORAGE: Sessions stored at {baseDir}/sessions/{sessionId}/ with meta.json + messages.jsonl
+// STORAGE: Sessions stored at {baseDir}/sessions/{projectDir}/{sessionId}/ with meta.json + messages.jsonl
+// PROJECT DIR: Project path is formatted using path-formatter (e.g., /home/ayande/Project → home__ayande__Project)
 // =============================================================================
 
 import { mkdir, readFile, writeFile, readdir } from 'fs/promises'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import { formatSessionDirName } from '../store/path-formatter.js'
 
 // ============================================================================
 // Types
@@ -49,18 +51,19 @@ export interface CreateSessionOptions {
 }
 
 export interface SessionStore {
-  createSession(opts: CreateSessionOptions): Promise<string>
-  getMeta(sessionId: string): Promise<SessionMeta | null>
-  updateMeta(sessionId: string, updates: Partial<SessionMeta>): Promise<void>
-  updateStatus(sessionId: string, status: SessionMeta['status']): Promise<void>
-  deleteSession(sessionId: string): Promise<void>
+  createSession(opts: CreateSessionOptions, forcedId?: string): Promise<string>
+  getMeta(sessionId: string, projectPath?: string): Promise<SessionMeta | null>
+  getMetaBySessionId(formattedProjDir: string, sessionId: string): Promise<SessionMeta | null>
+  updateMeta(sessionId: string, updates: Partial<SessionMeta>, projectPath?: string): Promise<void>
+  updateStatus(sessionId: string, status: SessionMeta['status'], projectPath?: string): Promise<void>
+  deleteSession(sessionId: string, projectPath?: string): Promise<void>
 
-  appendMessage(sessionId: string, message: SerializedMessage): Promise<void>
-  getMessages(sessionId: string): Promise<SerializedMessage[]>
-  markInterrupted(sessionId: string, messageId: string): Promise<void>
+  appendMessage(sessionId: string, message: SerializedMessage, projectPath?: string): Promise<void>
+  getMessages(sessionId: string, projectPath?: string): Promise<SerializedMessage[]>
+  markInterrupted(sessionId: string, messageId: string, projectPath?: string): Promise<void>
 
   list(filter?: { status?: SessionMeta['status']; projectPath?: string }): Promise<SessionMeta[]>
-  fork(sessionId: string): Promise<string>
+  fork(sessionId: string, newProjectPath?: string): Promise<string>
 
   getInterruptedSession(): Promise<{ sessionId: string; messageId: string } | null>
 }
@@ -112,18 +115,40 @@ export async function createSessionStore(baseDir: string): Promise<SessionStore>
 // ============================================================================
 
 class SessionStoreImpl implements SessionStore {
-  constructor(private baseDir: string) {}
+  constructor(private baseDir: string, private projectDir?: string) {}
 
-  private sessionDir(sessionId: string): string {
-    return join(this.baseDir, SESSION_DIR, sessionId)
+  private getProjectDir(projectPath: string): string {
+    return formatSessionDirName(projectPath)
   }
 
-  private metaPath(sessionId: string): string {
-    return join(this.sessionDir(sessionId), META_FILE)
+  private sessionDir(sessionId: string, projectPath?: string): string {
+    const projDir = projectPath ? this.getProjectDir(projectPath) : this.projectDir
+    if (!projDir) throw new Error('Project path required')
+    return join(this.baseDir, SESSION_DIR, projDir, sessionId)
   }
 
-  private messagesPath(sessionId: string): string {
-    return join(this.sessionDir(sessionId), MESSAGES_FILE)
+  private sessionDirFromFormatted(sessionId: string, formattedProjDir: string): string {
+    return join(this.baseDir, SESSION_DIR, formattedProjDir, sessionId)
+  }
+
+  private metaPath(sessionId: string, projectPath?: string): string {
+    return join(this.sessionDir(sessionId, projectPath), META_FILE)
+  }
+
+  private metaPathFromFormatted(sessionId: string, formattedProjDir: string): string {
+    return join(this.sessionDirFromFormatted(sessionId, formattedProjDir), META_FILE)
+  }
+
+  private messagesPath(sessionId: string, projectPath?: string): string {
+    return join(this.sessionDir(sessionId, projectPath), MESSAGES_FILE)
+  }
+
+  private messagesPathFromFormatted(sessionId: string, formattedProjDir: string): string {
+    return join(this.sessionDirFromFormatted(sessionId, formattedProjDir), MESSAGES_FILE)
+  }
+
+  private projectSessionsDir(projectPath: string): string {
+    return join(this.baseDir, SESSION_DIR, this.getProjectDir(projectPath))
   }
 
   async createSession(opts: CreateSessionOptions, forcedId?: string): Promise<string> {
@@ -141,85 +166,101 @@ class SessionStoreImpl implements SessionStore {
       lastTurnAt: now,
       turnCount: 0,
     }
-    await ensureDir(this.sessionDir(id))
-    await writeJson(this.metaPath(id), meta)
-    await writeFile(this.messagesPath(id), '', 'utf-8')
+    const projDir = this.getProjectDir(opts.projectPath)
+    await ensureDir(join(this.baseDir, SESSION_DIR, projDir))
+    await ensureDir(this.sessionDir(id, opts.projectPath))
+    await writeJson(this.metaPath(id, opts.projectPath), meta)
+    await writeFile(this.messagesPath(id, opts.projectPath), '', 'utf-8')
     return id
   }
 
-  async getMeta(sessionId: string): Promise<SessionMeta | null> {
-    return readJson<SessionMeta>(this.metaPath(sessionId))
+  async getMeta(sessionId: string, projectPath?: string): Promise<SessionMeta | null> {
+    return readJson<SessionMeta>(this.metaPath(sessionId, projectPath))
   }
 
-  async updateMeta(sessionId: string, updates: Partial<SessionMeta>): Promise<void> {
-    const meta = await this.getMeta(sessionId)
+  async getMetaBySessionId(formattedProjDir: string, sessionId: string): Promise<SessionMeta | null> {
+    return readJson<SessionMeta>(this.metaPathFromFormatted(sessionId, formattedProjDir))
+  }
+
+  async updateMeta(sessionId: string, updates: Partial<SessionMeta>, projectPath?: string): Promise<void> {
+    const meta = await this.getMeta(sessionId, projectPath)
     if (!meta) return
     const updated = { ...meta, ...updates, updatedAt: Date.now() }
-    await writeJson(this.metaPath(sessionId), updated)
+    await writeJson(this.metaPath(sessionId, projectPath), updated)
   }
 
-  async updateStatus(sessionId: string, status: SessionMeta['status']): Promise<void> {
-    await this.updateMeta(sessionId, { status })
+  async updateStatus(sessionId: string, status: SessionMeta['status'], projectPath?: string): Promise<void> {
+    await this.updateMeta(sessionId, { status }, projectPath)
   }
 
-  async deleteSession(sessionId: string): Promise<void> {
-    await this.updateStatus(sessionId, 'deleted')
+  async deleteSession(sessionId: string, projectPath?: string): Promise<void> {
+    await this.updateStatus(sessionId, 'deleted', projectPath)
   }
 
-  async appendMessage(sessionId: string, message: SerializedMessage): Promise<void> {
+  async appendMessage(sessionId: string, message: SerializedMessage, projectPath?: string): Promise<void> {
     const line = JSON.stringify(message) + '\n'
-    await writeFile(this.messagesPath(sessionId), line, { flag: 'a' })
+    await writeFile(this.messagesPath(sessionId, projectPath), line, { flag: 'a' })
   }
 
-  async getMessages(sessionId: string): Promise<SerializedMessage[]> {
-    const content = await readFile(this.messagesPath(sessionId), 'utf-8').catch(() => '')
+  async getMessages(sessionId: string, projectPath?: string): Promise<SerializedMessage[]> {
+    const content = await readFile(this.messagesPath(sessionId, projectPath), 'utf-8').catch(() => '')
     if (!content.trim()) return []
     return content.trim().split('\n').map(line => JSON.parse(line) as SerializedMessage)
   }
 
-  async markInterrupted(sessionId: string, messageId: string): Promise<void> {
-    const messages = await this.getMessages(sessionId)
+  async markInterrupted(sessionId: string, messageId: string, projectPath?: string): Promise<void> {
+    const messages = await this.getMessages(sessionId, projectPath)
     const idx = messages.findIndex(m => m.id === messageId)
     if (idx !== -1) {
       messages[idx] = { ...messages[idx], interrupted: true }
     }
     const content = messages.map(m => JSON.stringify(m)).join('\n') + '\n'
-    await writeFile(this.messagesPath(sessionId), content, 'utf-8')
-    await this.updateStatus(sessionId, 'interrupted')
+    await writeFile(this.messagesPath(sessionId, projectPath), content, 'utf-8')
+    await this.updateStatus(sessionId, 'interrupted', projectPath)
   }
 
   async list(filter?: { status?: SessionMeta['status']; projectPath?: string }): Promise<SessionMeta[]> {
     const sessionsDir = join(this.baseDir, SESSION_DIR)
-    let entries: string[]
+    let projectDirs: string[]
     try {
-      entries = await readdir(sessionsDir)
+      projectDirs = await readdir(sessionsDir)
     } catch {
       return []
     }
     const metas: SessionMeta[] = []
-    for (const id of entries) {
-      const meta = await this.getMeta(id)
-      if (!meta) continue
-      if (filter?.status && meta.status !== filter.status) continue
-      if (filter?.projectPath && meta.projectPath !== filter.projectPath) continue
-      metas.push(meta)
+    for (const projDir of projectDirs) {
+      const projPath = join(sessionsDir, projDir)
+      let sessionIds: string[]
+      try {
+        sessionIds = await readdir(projPath)
+      } catch {
+        continue
+      }
+      for (const id of sessionIds) {
+        const meta = await this.getMetaBySessionId(projDir, id)
+        if (!meta) continue
+        if (filter?.status && meta.status !== filter.status) continue
+        if (filter?.projectPath && meta.projectPath !== filter.projectPath) continue
+        metas.push(meta)
+      }
     }
     return metas.sort((a, b) => b.lastTurnAt - a.lastTurnAt)
   }
 
-  async fork(sessionId: string): Promise<string> {
+  async fork(sessionId: string, newProjectPath?: string): Promise<string> {
     const meta = await this.getMeta(sessionId)
     if (!meta) throw new Error('Session not found')
+    const targetProjectPath = newProjectPath || meta.projectPath
     const newId = await this.createSession({
       title: meta.title + ' (fork)',
-      projectPath: meta.projectPath,
+      projectPath: targetProjectPath,
       provider: meta.provider,
       model: meta.model,
     })
-    await this.updateMeta(newId, { parentId: sessionId, turnCount: meta.turnCount })
-    const messages = await this.getMessages(sessionId)
+    await this.updateMeta(newId, { parentId: sessionId, turnCount: meta.turnCount }, targetProjectPath)
+    const messages = await this.getMessages(sessionId, meta.projectPath)
     for (const msg of messages) {
-      await this.appendMessage(newId, msg)
+      await this.appendMessage(newId, msg, targetProjectPath)
     }
     return newId
   }
@@ -228,7 +269,7 @@ class SessionStoreImpl implements SessionStore {
     const all = await this.list({ status: 'interrupted' })
     if (all.length === 0) return null
     const session = all[0]
-    const messages = await this.getMessages(session.id)
+    const messages = await this.getMessages(session.id, session.projectPath)
     const last = messages[messages.length - 1]
     return last ? { sessionId: session.id, messageId: last.id } : null
   }
