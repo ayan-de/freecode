@@ -91,15 +91,16 @@ tui.addChild(new Text(welcomeText));
 
 // Info box below logo
 const infoBoxWidth = 60;
+const cwdPath = process.cwd().replace(process.env.HOME || "", "~");
 const infoBoxLines = [
 	`╭${"─".repeat(infoBoxWidth)}╮`,
-	`│ >_ FreeCode (v${getVersion()})${" ".repeat(Math.max(0, infoBoxWidth - 16 - getVersion().length))}│`,
+	`│ >_ ${chalk.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, infoBoxWidth - 16 - getVersion().length))}│`,
 	`│${" ".repeat(infoBoxWidth)}│`,
-	`│ /help for help   /model to change${" ".repeat(Math.max(0, infoBoxWidth - 34))}│`,
-	`│ directory: ${process.cwd().replace(process.env.HOME || "", "~")}${" ".repeat(Math.max(0, infoBoxWidth - 12 - (process.cwd().replace(process.env.HOME || "", "~")).length))}│`,
+	`│ /help for help   ${chalk.yellowBright("/model")} to change${" ".repeat(Math.max(0, infoBoxWidth - 34))}│`,
+	`│ ${chalk.yellowBright("directory:")} ${cwdPath}${" ".repeat(Math.max(0, infoBoxWidth - 12 - cwdPath.length))}│`,
 	`╰${"─".repeat(infoBoxWidth)}╯`,
 ];
-const infoBoxText = infoBoxLines.map(line => chalk.dim(line)).join('\n');
+const infoBoxText = infoBoxLines.map(line => chalk.white(line)).join('\n');
 const infoBox = new Text(infoBoxText);
 tui.addChild(infoBox);
 
