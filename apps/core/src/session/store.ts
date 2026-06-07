@@ -50,6 +50,14 @@ export interface CreateSessionOptions {
   model?: string
 }
 
+// Context cache for file requests across turns
+export interface ContextCache {
+  requestedFiles: string[]
+  fileContents: Record<string, string>  // path -> content
+  lastUpdated: number
+  turnCount: number
+}
+
 export interface SessionStore {
   createSession(opts: CreateSessionOptions, forcedId?: string): Promise<string>
   getMeta(sessionId: string, projectPath?: string): Promise<SessionMeta | null>
@@ -61,6 +69,10 @@ export interface SessionStore {
   appendMessage(sessionId: string, message: SerializedMessage, projectPath?: string): Promise<void>
   getMessages(sessionId: string, projectPath?: string): Promise<SerializedMessage[]>
   markInterrupted(sessionId: string, messageId: string, projectPath?: string): Promise<void>
+
+  getContextCache(sessionId: string, projectPath?: string): Promise<ContextCache | null>
+  setContextCache(sessionId: string, cache: ContextCache, projectPath?: string): Promise<void>
+  clearContextCache(sessionId: string, projectPath?: string): Promise<void>
 
   list(filter?: { status?: SessionMeta['status']; projectPath?: string }): Promise<SessionMeta[]>
   fork(sessionId: string, newProjectPath?: string): Promise<string>
@@ -75,6 +87,7 @@ export interface SessionStore {
 const SESSION_DIR = 'sessions'
 const META_FILE = 'meta.json'
 const MESSAGES_FILE = 'messages.jsonl'
+const CONTEXT_CACHE_FILE = 'context-cache.json'
 
 // ============================================================================
 // Helpers
@@ -263,6 +276,30 @@ class SessionStoreImpl implements SessionStore {
       await this.appendMessage(newId, msg, targetProjectPath)
     }
     return newId
+  }
+
+  async getContextCache(sessionId: string, projectPath?: string): Promise<ContextCache | null> {
+    const content = await readFile(join(this.sessionDir(sessionId, projectPath), CONTEXT_CACHE_FILE), 'utf-8').catch(() => '')
+    if (!content.trim()) return null
+    try {
+      return JSON.parse(content) as ContextCache
+    } catch {
+      return null
+    }
+  }
+
+  async setContextCache(sessionId: string, cache: ContextCache, projectPath?: string): Promise<void> {
+    await ensureDir(this.sessionDir(sessionId, projectPath))
+    await writeJson(join(this.sessionDir(sessionId, projectPath), CONTEXT_CACHE_FILE), cache)
+  }
+
+  async clearContextCache(sessionId: string, projectPath?: string): Promise<void> {
+    try {
+      const { unlink } = await import('fs/promises')
+      await unlink(join(this.sessionDir(sessionId, projectPath), CONTEXT_CACHE_FILE))
+    } catch {
+      // doesn't exist, that's fine
+    }
   }
 
   async getInterruptedSession(): Promise<{ sessionId: string; messageId: string } | null> {
