@@ -38,6 +38,7 @@ import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js"
 import { loadProviderPrompt } from "../session/prompt.js"
 import { type SessionStore, type SerializedMessage } from "../session/store.js"
 import { getInterruptHandler } from "../session/interrupt.js"
+import { PromptCompiler } from "../context/compiler.js"
 
 const orchestrator = createToolOrchestrator()
 
@@ -59,6 +60,7 @@ export class AgentLoop {
   private sessionStore: SessionStore | undefined
   private onToolEvent: ((event: StreamEvent) => void) | undefined
   private lastThinking: string | undefined
+  private compiler: PromptCompiler
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = []
   private recentReasoning: string[] = []
@@ -74,6 +76,7 @@ export class AgentLoop {
     this.memory = new MemoryService(sessionId)
     this.hooks = config?.hooks ?? createHookRuntime()
     this.recorder = config?.recorder ?? createRecorder(sessionId)
+    this.compiler = new PromptCompiler("", "")
     this.sessionStore = config?.sessionStore
   }
 
@@ -88,11 +91,17 @@ export class AgentLoop {
       this.state = { ...this.state, status: "running" }
       this.onToolEvent = input.onToolEvent
 
+      // Initialize compiler with project info and mode
+      this.compiler = new PromptCompiler(input.projectPath, "", this.state.agentMode)
+
       // Step 1: Collect project context (file tree, etc.)
       const contextResult = await this.collectContext(input.projectPath)
       if (!contextResult.success || !contextResult.value) {
         return this.fail("Context collection failed", contextResult.error)
       }
+
+      // Update compiler with project name from context
+      this.compiler = new PromptCompiler(input.projectPath, contextResult.value.name, this.state.agentMode)
 
       // Step 2: Run SessionStart hook
       await this.hooks.runSessionStart({ sessionId: this.state.sessionId, turnCount: this.state.turnCount })
@@ -169,19 +178,33 @@ export class AgentLoop {
     prompt: string,
     provider: string,
     model: string | undefined,
-    context: { name: string; projectPath: string; tree: string },
+    context: { name: string; projectPath: string; tree: string; gitHead: string },
     previousToolResults?: ToolResult[]
   ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; thinking?: string; error?: string; usage?: { inputTokens: number; outputTokens: number } }> {
     try {
-      // Build full prompt with project context and memory
+      // Get tools for prompt compilation
+      const tools = listTools().map(t => {
+        const toolDef = getTool(t.id)
+        return {
+          name: t.id,
+          description: t.description,
+          parameters: (toolDef?.schemas.parameters ?? { type: "object", properties: {} }) as unknown as Record<string, unknown>
+        }
+      })
+
+      // Build full prompt using compiler
       const memoryContext = renderPromptMemoryContext(this.memory.getPromptContext())
-      const fullPrompt = `Project: ${context.name}
-Path: ${context.projectPath}
-
-File tree:
-${context.tree}
-
-${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
+      const fullPrompt = this.compiler.compile(
+        prompt,
+        tools,
+        context.tree,
+        context.gitHead,
+        "", // ignorePatterns - empty for now
+        [], // recentTurns - handled via memoryContext above
+        provider,
+        model,
+        memoryContext || undefined
+      )
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
       const hookResult = await this.hooks.runUserPromptSubmit(fullPrompt, { sessionId: this.state.sessionId, turnCount: this.state.turnCount })
@@ -551,23 +574,31 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
 
   // ===========================================================================
   // PRIVATE: collectContext()
-  // Gather project context (name, path, file tree)
-  // TODO: Replace with proper ContextCollector integration
+  // Gather project context (name, path, file tree, git head)
   // ===========================================================================
-  private async collectContext(projectPath: string): Promise<{ success: boolean; value?: { name: string; projectPath: string; tree: string }; error?: string }> {
+  private async collectContext(projectPath: string): Promise<{ success: boolean; value?: { name: string; projectPath: string; tree: string; gitHead: string }; error?: string }> {
     try {
       const fs = await import("fs")
       const path = await import("path")
+      const { execSync } = await import("child_process")
 
       const name = path.basename(projectPath)
       let tree = ""
+      let gitHead = ""
 
       if (fs.existsSync(projectPath)) {
         const entries = fs.readdirSync(projectPath, { withFileTypes: true })
         tree = entries.map(e => `  ${e.isDirectory() ? "📁" : "📄"} ${e.name}`).join("\n")
       }
 
-      return { success: true, value: { name, projectPath, tree } }
+      // Get git HEAD for cache invalidation
+      try {
+        gitHead = execSync("git rev-parse HEAD 2>/dev/null", { cwd: projectPath, encoding: "utf8" }).trim().slice(0, 8)
+      } catch {
+        gitHead = "no-git"
+      }
+
+      return { success: true, value: { name, projectPath, tree, gitHead } }
     } catch (error) {
       return { success: false, error: String(error) }
     }

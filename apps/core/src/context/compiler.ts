@@ -1,0 +1,237 @@
+// =============================================================================
+// PromptCompiler - Mode-aware prompt building with caching
+// PRIMARY: Build prompts with stable sections: system, tools, project, history, message
+// CACHING: File tree by git HEAD + ignore patterns, tool schemas per provider/model
+// =============================================================================
+
+import type { AgentMode } from "../agent/types.js"
+import type { ToolCall, ToolResult } from "../agent/types.js"
+
+// ===========================================================================
+// System Prompts per Agent Mode
+// ===========================================================================
+
+const MODE_PROMPTS: Record<AgentMode, string> = {
+  plan: `You are in PLAN mode - read-only analysis and thinking.
+Do NOT write any files, run commands, or make changes.
+Only analyze, read files, grep/search, and provide recommendations.
+When you have a plan, present it clearly and wait for user approval before any build step.`,
+
+  build: `You are in BUILD mode - normal coding assistant.
+You can read and write files, run commands, and use all available tools.
+Work systematically to complete the task at hand.
+Always verify your changes work correctly.`,
+
+  review: `You are in REVIEW mode - code review and quality analysis.
+Do NOT make changes. Only read, analyze, and provide feedback.
+Focus on: correctness, security, performance, maintainability.
+Provide specific, actionable feedback with code references.`,
+
+  explore: `You are in EXPLORE mode - discovery and learning.
+Navigate freely, read files, search codebases.
+Understand the architecture, patterns, and conventions.
+Provide summaries of what you find without making changes.`,
+}
+
+// ===========================================================================
+// Tool Schema Cache
+// ===========================================================================
+
+interface CachedToolSchemas {
+  schema: string
+  timestamp: number
+}
+
+const toolSchemaCache = new Map<string, CachedToolSchemas>()
+const TOOL_SCHEMA_TTL_MS = 60 * 60 * 1000 // 1 hour
+
+function getToolSchemasKey(provider: string, model?: string): string {
+  return `${provider}:${model || "default"}`
+}
+
+// ===========================================================================
+// File Tree Cache
+// ===========================================================================
+
+interface CachedFileTree {
+  tree: string
+  gitHead: string
+  ignorePatterns: string
+  timestamp: number
+}
+
+const fileTreeCache = new Map<string, CachedFileTree>()
+const FILE_TREE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+function getFileTreeKey(projectPath: string, gitHead: string, ignorePatterns: string): string {
+  return `${projectPath}:${gitHead}:${ignorePatterns}`
+}
+
+// ===========================================================================
+// PromptCompiler Class
+// ===========================================================================
+
+export class PromptCompiler {
+  private projectPath: string
+  private projectName: string
+  private agentMode: AgentMode
+
+  constructor(projectPath: string, projectName: string, agentMode: AgentMode = "build") {
+    this.projectPath = projectPath
+    this.projectName = projectName
+    this.agentMode = agentMode
+  }
+
+  /**
+   * Update agent mode
+   */
+  setAgentMode(mode: AgentMode): void {
+    this.agentMode = mode
+  }
+
+  /**
+   * Compile system prompt section
+   */
+  compileSystemPrompt(): string {
+    return MODE_PROMPTS[this.agentMode]
+  }
+
+  /**
+   * Compile tool schemas with caching
+   */
+  compileToolsSection(
+    tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>,
+    provider: string,
+    model?: string
+  ): string {
+    const cacheKey = getToolSchemasKey(provider, model)
+    const cached = toolSchemaCache.get(cacheKey)
+
+    if (cached && Date.now() - cached.timestamp < TOOL_SCHEMA_TTL_MS) {
+      return cached.schema
+    }
+
+    const schema = tools
+      .map((t) => `- ${t.name}: ${t.description}`)
+      .join("\n")
+
+    const section = `Available tools:
+${schema}
+
+Use tools as needed. Format: [TOOL_CALLS]\ntool_name: {args}\n[/TOOL_CALLS]`
+
+    toolSchemaCache.set(cacheKey, { schema: section, timestamp: Date.now() })
+    return section
+  }
+
+  /**
+   * Compile project summary section with caching
+   */
+  compileProjectSummary(
+    tree: string,
+    gitHead: string,
+    ignorePatterns: string
+  ): string {
+    const cacheKey = getFileTreeKey(this.projectPath, gitHead, ignorePatterns)
+    const cached = fileTreeCache.get(cacheKey)
+
+    if (cached && Date.now() - cached.timestamp < FILE_TREE_TTL_MS) {
+      return cached.tree
+    }
+
+    // Cache miss - build section and store
+    const section = `Project: ${this.projectName}
+Path: ${this.projectPath}
+
+File tree:
+${tree}`
+
+    fileTreeCache.set(cacheKey, {
+      tree: section,
+      gitHead,
+      ignorePatterns,
+      timestamp: Date.now(),
+    })
+
+    return section
+  }
+
+  /**
+   * Compile recent history section
+   */
+  compileHistorySection(
+    recentTurns: Array<{ prompt: string; response: string; toolResults?: ToolResult[] }>,
+    maxTurns: number = 3
+  ): string {
+    if (recentTurns.length === 0) return ""
+
+    const recent = recentTurns.slice(-maxTurns)
+    const lines = recent.map((turn, i) => {
+      let entry = `[Turn ${i + 1}]
+User: ${turn.prompt}
+Assistant: ${turn.response}`
+      if (turn.toolResults && turn.toolResults.length > 0) {
+        const toolSummary = turn.toolResults
+          .map((r) => `  - ${r.tool}: ${r.error || "ok"}`)
+          .join("\n")
+        entry += `\nTool results:\n${toolSummary}`
+      }
+      return entry
+    })
+
+    return `Recent turns:\n${lines.join("\n\n")}\n\n`
+  }
+
+  /**
+   * Compile latest user message section
+   */
+  compileMessageSection(prompt: string): string {
+    return `Task: ${prompt}`
+  }
+
+  /**
+   * Compile full prompt from sections
+   */
+  compile(
+    prompt: string,
+    tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>,
+    tree: string,
+    gitHead: string,
+    ignorePatterns: string,
+    recentTurns: Array<{ prompt: string; response: string; toolResults?: ToolResult[] }>,
+    provider: string,
+    model?: string,
+    memoryContext?: string
+  ): string {
+    const sections = [
+      this.compileSystemPrompt(),
+      "",
+      this.compileToolsSection(tools, provider, model),
+      "",
+      this.compileProjectSummary(tree, gitHead, ignorePatterns),
+      "",
+      memoryContext ? `Session context:\n${memoryContext}\n` : "",
+      this.compileHistorySection(recentTurns),
+      "",
+      this.compileMessageSection(prompt),
+    ].filter((s) => s.length > 0)
+
+    return sections.join("\n")
+  }
+
+  /**
+   * Clear caches (useful for refresh)
+   */
+  static clearCaches(): void {
+    toolSchemaCache.clear()
+    fileTreeCache.clear()
+  }
+
+  /**
+   * Clear tool schema cache for a specific provider
+   */
+  static clearToolSchemaCache(provider: string, model?: string): void {
+    const key = getToolSchemasKey(provider, model)
+    toolSchemaCache.delete(key)
+  }
+}
