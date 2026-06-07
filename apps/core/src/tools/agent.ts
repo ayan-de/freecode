@@ -74,7 +74,7 @@ async function executeSubagent(
       console.log(`[AgentTool] SubagentStart hook added context`)
     }
 
-    BusEvents.subagentStarted(subagentId, parentSessionId, params.task)
+    BusEvents.subagentStarted(subagentId, params.agentType || "agent", parentSessionId, params.task)
 
     const subAgentLoop = new AgentLoop(subagentId, {
       maxIterations: 50,
@@ -88,7 +88,7 @@ async function executeSubagent(
       projectPath: ctx.cwd,
     })
 
-    BusEvents.subagentCompleted(subagentId, parentSessionId, result.message || "completed")
+    BusEvents.subagentCompleted(subagentId, params.agentType || "agent", parentSessionId, result.success, result.message)
 
     await hooks.runSubagentStop(params.task, hookCtx)
 
@@ -112,7 +112,7 @@ async function executeSubagent(
     const errorMsg = error instanceof Error ? error.message : String(error)
     console.error(`[agent] Subagent ${subagentId} failed: ${errorMsg}`)
 
-    BusEvents.subagentCompleted(subagentId, parentSessionId, `ERROR: ${errorMsg}`)
+    BusEvents.subagentCompleted(subagentId, params.agentType || "agent", parentSessionId, false, errorMsg)
 
     await hooks.runSubagentStop(
       JSON.stringify({ success: false, error: errorMsg }),

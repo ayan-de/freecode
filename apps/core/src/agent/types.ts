@@ -26,6 +26,44 @@ export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
 }
 
 // =============================================================================
+// Subagent Types - Specialized agent roles for delegation
+// =============================================================================
+export type SubagentType = "explorer" | "reviewer" | "tester" | "summarizer"
+
+export interface SubagentConfig {
+  type: SubagentType
+  /** Model to use for this subagent (defaults to main model) */
+  model?: string
+  /** Max iterations for this subagent */
+  maxIterations?: number
+  /** Whether this subagent can modify files */
+  readOnly?: boolean
+  /** System prompt additions */
+  systemPrompt?: string
+  /** Task-specific prompt */
+  taskPrompt: string
+}
+
+export const SUBAGENT_DEFINITIONS: Record<SubagentType, { description: string; defaultReadOnly: boolean }> = {
+  explorer: {
+    description: "Explore codebase structure, find patterns, understand architecture",
+    defaultReadOnly: true,
+  },
+  reviewer: {
+    description: "Review code for bugs, security issues, performance problems",
+    defaultReadOnly: true,
+  },
+  tester: {
+    description: "Write and run tests, verify functionality",
+    defaultReadOnly: false,
+  },
+  summarizer: {
+    description: "Summarize long conversations, documents, or code",
+    defaultReadOnly: true,
+  },
+}
+
+// =============================================================================
 // Execution Modes
 // Sequential: tools run one after another (edit, write, bash, agent)
 // Parallel-safe: independent tools run concurrently (read, grep, glob)

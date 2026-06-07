@@ -68,6 +68,7 @@ export interface MCPToolsChangedEvent {
 export interface SubagentStartedEvent {
   type: "subagent.started"
   subagentId: string
+  subagentType: string
   parentId: string
   task: string
 }
@@ -75,8 +76,10 @@ export interface SubagentStartedEvent {
 export interface SubagentCompletedEvent {
   type: "subagent.completed"
   subagentId: string
+  subagentType: string
   parentId: string
-  result: string
+  success: boolean
+  message?: string
 }
 
 export interface ToolCalledEvent {
@@ -274,11 +277,11 @@ export const BusEvents = {
   mcpToolsChanged: (server: string) =>
     bus.publish({ type: "mcp.tools.changed", server } as MCPToolsChangedEvent),
 
-  subagentStarted: (subagentId: string, parentId: string, task: string) =>
-    bus.publish({ type: "subagent.started", subagentId, parentId, task } as SubagentStartedEvent),
+  subagentStarted: (subagentId: string, subagentType: string, parentId: string, task: string) =>
+    bus.publish({ type: "subagent.started", subagentId, subagentType, parentId, task } as SubagentStartedEvent),
 
-  subagentCompleted: (subagentId: string, parentId: string, result: string) =>
-    bus.publish({ type: "subagent.completed", subagentId, parentId, result } as SubagentCompletedEvent),
+  subagentCompleted: (subagentId: string, subagentType: string, parentId: string, success: boolean, message?: string) =>
+    bus.publish({ type: "subagent.completed", subagentId, subagentType, parentId, success, message } as SubagentCompletedEvent),
 
   toolCalled: (sessionId: string, tool: string, toolCallId: string, args?: Record<string, unknown>) =>
     bus.publish({ type: "tool.called", sessionId, tool, toolCallId, args } as ToolCalledEvent),
