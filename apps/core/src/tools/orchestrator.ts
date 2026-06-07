@@ -17,6 +17,9 @@ import { getTool, type ToolContext } from "./index.js"
 import { isToolAllowed, type PermissionProfile } from "../permission/index.js"
 import type { Tool } from "./tool.types.js"
 
+// Max output length for model (truncation to save tokens)
+const MAX_MODEL_OUTPUT_CHARS = 500
+
 // =============================================================================
 // Orchestrator Interface
 // =============================================================================
@@ -84,14 +87,20 @@ function mapToolResult(
   toolResult: { title: string; output: string; metadata?: Record<string, unknown>; error?: string },
   call: ToolCall
 ): ToolResult {
+  const output = toolResult.output
+  const truncated = output.length > MAX_MODEL_OUTPUT_CHARS
+
   return {
     id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     toolCallId: call.id,
     tool: call.tool,
     title: toolResult.title,
-    stdout: toolResult.output,
+    displayOutput: output,
+    modelOutput: truncated ? output.slice(0, MAX_MODEL_OUTPUT_CHARS) + "..." : output,
+    stdout: toolResult.output, // Legacy
     stderr: toolResult.error,
     structuredData: toolResult.metadata ?? undefined,
+    truncated,
   }
 }
 
@@ -218,12 +227,16 @@ export function createToolOrchestrator(opts: OrchestratorOptions = {}): ToolOrch
         const output = typeof execResult.result === "string"
           ? execResult.result
           : JSON.stringify(execResult.result)
+        const truncated = output.length > MAX_MODEL_OUTPUT_CHARS
         return {
           id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           toolCallId: toolId,
           tool,
           title: toolDef.description,
-          stdout: output,
+          displayOutput: output,
+          modelOutput: truncated ? output.slice(0, MAX_MODEL_OUTPUT_CHARS) + "..." : output,
+          stdout: output, // Legacy
+          truncated,
         }
       } catch (err) {
         return {

@@ -68,6 +68,13 @@ export interface ToolResult {
   toolCallId: string
   tool: string
   title: string
+  /** Full output for UI display */
+  displayOutput?: string
+  /** Truncated output for model (capped at ~500 chars to save tokens) */
+  modelOutput?: string
+  /** Path to full artifact file if output was truncated */
+  artifactPath?: string
+  /** Legacy field - use displayOutput/modelOutput instead */
   stdout?: string
   stderr?: string
   exitCode?: number

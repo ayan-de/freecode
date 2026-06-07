@@ -326,7 +326,7 @@ export class AgentLoop {
       tools,
       toolResults: toolResults?.map(tr => ({
         toolCallId: tr.toolCallId,
-        result: tr.stdout || tr.error || "",
+        result: tr.modelOutput || tr.displayOutput || tr.error || "",
         name: tr.tool,
       })),
       model,
@@ -702,9 +702,10 @@ export class AgentLoop {
   // ===========================================================================
   // PRIVATE: buildContinuationPrompt()
   // Format tool results into prompt for next iteration
+  // Uses modelOutput (truncated) to save tokens
   // ===========================================================================
   private buildContinuationPrompt(results: ToolResult[]): string {
-    const lines = results.map(r => `Tool ${r.tool}: ${r.error || r.stdout}`)
+    const lines = results.map(r => `Tool ${r.tool}: ${r.error || r.modelOutput || r.displayOutput || ""}`)
     return `Previous tool results:\n${lines.join("\n")}\n\nContinue task:`
   }
 
