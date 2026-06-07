@@ -24,6 +24,7 @@ import type {
   LoopResult,
   AssistantContent,
   HookContext,
+  AgentMode,
 } from "./types.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 import type { StreamEvent } from "@thisisayande/freecode-shared"
@@ -81,7 +82,7 @@ export class AgentLoop {
   // Main execution entry point - runs the continuous loop until completion
   // ===========================================================================
   async run(input: UserInput): Promise<LoopResult> {
-    this.state = { ...this.state, status: "starting", projectPath: input.projectPath }
+    this.state = { ...this.state, status: "starting", projectPath: input.projectPath, agentMode: input.agentMode ?? "build" }
 
     try {
       this.state = { ...this.state, status: "running" }
@@ -404,6 +405,23 @@ ${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
       turnCount: this.state.turnCount,
       toolName: toolCall.tool,
     }
+
+    // Plan mode: block write tools
+    if (this.state.agentMode === "plan") {
+      const writeTools = ["write", "edit", "delete", "bash", "agent"]
+      if (writeTools.includes(toolCall.tool)) {
+        const blockedResult = {
+          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          toolCallId: toolCall.id,
+          tool: toolCall.tool,
+          title: `Tool ${toolCall.tool}`,
+          error: `Tool "${toolCall.tool}" is not allowed in plan mode (read-only)`,
+        }
+        BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
+        return blockedResult
+      }
+    }
+
 
     // PreToolUse Hook — can block or modify tool call
     const preResult = await this.hooks.runPreToolUse(toolCall, hookContext)

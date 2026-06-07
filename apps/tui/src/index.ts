@@ -66,6 +66,9 @@ let messageCount = 0;
 let currentSession: SessionInfo | null = null;
 let currentProvider = "";
 let currentModel = "";
+let currentAgentMode: "plan" | "build" | "review" | "explore" = "build";
+let agentModeDisplay: Text;
+let agentModeDisplayIdx = -1;
 
 let modelDisplay: Text;
 let modelSelector: SelectList | null = null;
@@ -123,11 +126,13 @@ const autocompleteProvider = new CombinedAutocompleteProvider(
 editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
+agentModeDisplay = new Text(chalk.dim(`Mode: ${currentAgentMode}`));
+agentModeDisplayIdx = tui.children.length;
+tui.addChild(agentModeDisplay);
 
 modelDisplay = new Text(chalk.dim(`Model: not selected`));
 modelDisplayIdx = tui.children.length;
 tui.addChild(modelDisplay);
-
 tui.setFocus(editor);
 
 const defaultSelectListTheme: SelectListTheme = {
@@ -150,6 +155,21 @@ function updateModelDisplay(): void {
 	}
 
 	tui.requestRender();
+}
+
+function updateAgentModeDisplay(): void {
+	agentModeDisplay = new Text(chalk.dim(`Mode: ${currentAgentMode}`));
+	if (agentModeDisplayIdx >= 0 && agentModeDisplayIdx < tui.children.length) {
+		tui.children[agentModeDisplayIdx] = agentModeDisplay;
+	}
+	tui.requestRender();
+}
+
+function cycleAgentMode(): void {
+	const modes: Array<"plan" | "build" | "review" | "explore"> = ["plan", "build", "review", "explore"];
+	const idx = modes.indexOf(currentAgentMode);
+	currentAgentMode = modes[(idx + 1) % modes.length];
+	updateAgentModeDisplay();
 }
 
 function showMessage(content: string): void {
@@ -571,6 +591,10 @@ tui.addInputListener((data) => {
 			tui.stop();
 		}
 		process.exit(0);
+	}
+	if (matchesKey(data, Key.shift("tab"))) {
+		cycleAgentMode();
+		return undefined;
 	}
 	return undefined;
 });

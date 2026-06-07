@@ -8,6 +8,24 @@
 // =============================================================================
 
 // =============================================================================
+// Agent Mode - First-class operating modes
+// plan: read-only planning/review mode
+// build: normal editing mode
+// review: code review mode
+// explore: exploration mode
+// =============================================================================
+export type AgentMode = "plan" | "build" | "review" | "explore"
+
+export const AGENT_MODES: AgentMode[] = ["plan", "build", "review", "explore"]
+
+export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
+  plan: "Plan",
+  build: "Build",
+  review: "Review",
+  explore: "Explore",
+}
+
+// =============================================================================
 // Execution Modes
 // Sequential: tools run one after another (edit, write, bash, agent)
 // Parallel-safe: independent tools run concurrently (read, grep, glob)
@@ -131,6 +149,7 @@ export interface SessionState {
   projectPath: string
   turnCount: number
   iterationCount: number
+  agentMode: AgentMode
   loopHealth: LoopHealth
   pendingToolCalls: ToolCall[]
   activeToolChain?: string[]  // For compaction awareness
@@ -143,6 +162,7 @@ export function createInitialSessionState(sessionId: string, projectPath: string
     projectPath,
     turnCount: 0,
     iterationCount: 0,
+    agentMode: "build",
     loopHealth: {
       repeatedTools: 0,
       stagnantTurns: 0,
@@ -181,6 +201,7 @@ export interface UserInput {
   provider: string
   model?: string
   projectPath: string
+  agentMode?: AgentMode
   onToolEvent?: (event: StreamEvent) => void
 }
 
