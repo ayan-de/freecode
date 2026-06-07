@@ -67,7 +67,7 @@ const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; i
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
 
-const welcomeText = `${chalk.cyanBright(logoLines.join('\n'))}
+const welcomeText = `${chalk.yellowBright(logoLines.join('\n'))}
 
 ${chalk.dim(logoTagline)}
 
@@ -81,7 +81,7 @@ messageList.setTui(tui);
 tui.addChild(messageList);
 
 const editor = new Editor(tui, defaultEditorTheme);
-editor.setText("❯ ");
+editor.setText("");
 
 const autocompleteProvider = new CombinedAutocompleteProvider(
 	commandRegistry.getSlashCommands(),
@@ -529,7 +529,7 @@ editor.onSubmit = async (value: string) => {
 		removeMessageById(inProgressMsg.id);
 		showMessage(`**Error:** ${error instanceof Error ? error.message : String(error)}`);
 	} finally {
-		editor.setText("❯ ");
+		editor.setText("");
 	}
 };
 
