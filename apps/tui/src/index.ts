@@ -7,6 +7,20 @@ import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultEditorTheme } from "./themes.js";
 import { logoLines, logoTagline } from "./assets/logo.js";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+function getVersion(): string {
+	try {
+		const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+		return pkg.version || "unknown";
+	} catch {
+		return "unknown";
+	}
+}
 import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
 import { formatTokenCount } from "./utils/format-tokens.js";
@@ -74,6 +88,20 @@ ${chalk.dim(logoTagline)}
 Type your messages below. Press Ctrl+C to exit.`;
 
 tui.addChild(new Text(welcomeText));
+
+// Info box below logo
+const infoBoxWidth = 60;
+const infoBoxLines = [
+	`╭${"─".repeat(infoBoxWidth)}╮`,
+	`│ >_ FreeCode (v${getVersion()})${" ".repeat(Math.max(0, infoBoxWidth - 16 - getVersion().length))}│`,
+	`│${" ".repeat(infoBoxWidth)}│`,
+	`│ /help for help   /model to change${" ".repeat(Math.max(0, infoBoxWidth - 34))}│`,
+	`│ directory: ${process.cwd().replace(process.env.HOME || "", "~")}${" ".repeat(Math.max(0, infoBoxWidth - 12 - (process.cwd().replace(process.env.HOME || "", "~")).length))}│`,
+	`╰${"─".repeat(infoBoxWidth)}╯`,
+];
+const infoBoxText = infoBoxLines.map(line => chalk.dim(line)).join('\n');
+const infoBox = new Text(infoBoxText);
+tui.addChild(infoBox);
 
 // Create message list and add to tui BEFORE editor
 messageList = new VirtualMessageList(200);
