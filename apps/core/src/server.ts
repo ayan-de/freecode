@@ -111,7 +111,11 @@ const methodHandlers: Record<
   "session.start": async (params: Record<string, unknown>): Promise<SessionStartResult> => {
     const config = params as unknown as SessionConfig;
     const session = createSession(config);
-    logger.info("Session started", { sessionId: session.id, provider: session.provider });
+    // Store agentMode on session for later use
+    if (config.agentMode) {
+      (session as unknown as Record<string, unknown>).agentMode = config.agentMode;
+    }
+    logger.info("Session started", { sessionId: session.id, provider: session.provider, agentMode: config.agentMode });
 
     // Persist session to ~/.freecode/sessions/ via SessionStore
     const store = await getSessionStore();
@@ -143,7 +147,10 @@ const methodHandlers: Record<
       session.model = model;
     }
 
-    logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider });
+    // Get agentMode from session (set during session.start)
+    const agentMode = (session as unknown as Record<string, unknown>).agentMode as "plan" | "build" | "review" | "explore" | undefined;
+
+    logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider, agentMode });
 
     // Emit events to stdout immediately for streaming
     const emitEvent = (event: StreamEvent) => {
@@ -160,6 +167,7 @@ const methodHandlers: Record<
       provider: currentProvider,
       model: session.model,
       projectPath: session.projectPath,
+      agentMode,
       onToolEvent: emitEvent,
     })
 

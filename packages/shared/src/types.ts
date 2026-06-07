@@ -115,6 +115,7 @@ export interface ProviderDefinition {
 export interface SessionConfig {
   projectPath: string;
   provider?: string;
+  agentMode?: "plan" | "build" | "review" | "explore";
 }
 
 export interface SessionInfo {

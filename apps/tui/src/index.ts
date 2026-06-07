@@ -519,6 +519,7 @@ editor.onSubmit = async (value: string) => {
 			currentSession = await sessionStart({
 				projectPath: process.cwd(),
 				provider: currentProvider || "minimax",
+				agentMode: currentAgentMode,
 			}) as SessionInfo;
 		} catch (error) {
 			removeMessageById(inProgressMsg.id);
