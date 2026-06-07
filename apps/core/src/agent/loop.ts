@@ -252,6 +252,10 @@ export class AgentLoop {
             console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`)
           } else {
             const result = await this.memory.compact()
+            // Record compaction event
+            if (result.success && result.summary) {
+              this.recorder.recordCompactOccurred(result.tokenCountBefore, result.tokenCountAfter)
+            }
             // PostCompact Hook — verify/log compaction result
             await this.hooks.runPostCompact({ sessionId: this.state.sessionId, turnCount: this.state.turnCount }, result.success)
             if (!result.success) {
@@ -287,6 +291,10 @@ export class AgentLoop {
           console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`)
         } else {
           const result = await this.memory.compact()
+          // Record compaction event
+          if (result.success && result.summary) {
+            this.recorder.recordCompactOccurred(result.tokenCountBefore, result.tokenCountAfter)
+          }
           // PostCompact Hook — verify/log compaction result
           await this.hooks.runPostCompact({ sessionId: this.state.sessionId, turnCount: this.state.turnCount }, result.success)
           if (!result.success) {
