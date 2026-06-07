@@ -81,7 +81,10 @@ const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; i
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
 
-const welcomeText = `${chalk.yellowBright(logoLines.join('\n'))}
+const welcomeText = `${logoLines.map(line => {
+	const mid = Math.floor(line.length / 2);
+	return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
+}).join('\n')}
 
 ${chalk.dim(logoTagline)}
 
