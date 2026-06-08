@@ -70,13 +70,11 @@ let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" = "buil
 let agentModeDisplay: Text;
 let agentModeDisplayIdx = -1;
 
-let modelDisplay: Text;
 let modelSelector: SelectList | null = null;
 let providerSelector: SelectList | null = null;
 let resumeSelector: SelectList | null = null;
 let apiKeyEditor: Editor | null = null;
 let apiKeyPrompt: Text | null = null;
-let modelDisplayIdx = -1;
 
 let messageList: VirtualMessageList;
 const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; id: number; args: Record<string, unknown> }>();
@@ -100,10 +98,10 @@ const infoBoxWidth = 60;
 const cwdPath = process.cwd().replace(process.env.HOME || "", "~");
 const infoBoxLines = [
 	`╭${"─".repeat(infoBoxWidth)}╮`,
-	`│ >_ ${chalk.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, infoBoxWidth - 16 - getVersion().length))}│`,
+	`│ >_ ${chalk.bold.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, infoBoxWidth - 16 - getVersion().length))}│`,
 	`│${" ".repeat(infoBoxWidth)}│`,
 	`│ /help for help   ${chalk.yellowBright("/model")} to change${" ".repeat(Math.max(0, infoBoxWidth - 34))}│`,
-	`│ ${chalk.yellowBright("directory:")} ${cwdPath}${" ".repeat(Math.max(0, infoBoxWidth - 12 - cwdPath.length))}│`,
+	`│ ${chalk.bold.yellowBright("Directory:")} ${cwdPath}${" ".repeat(Math.max(0, infoBoxWidth - 12 - cwdPath.length))}│`,
 	`╰${"─".repeat(infoBoxWidth)}╯`,
 ];
 const infoBoxText = infoBoxLines.map(line => chalk.white(line)).join('\n');
@@ -128,14 +126,14 @@ editor.setAutocompleteProvider(autocompleteProvider);
 tui.addChild(editor);
 {
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
-	agentModeDisplay = new Text(bgColor(chalk.black(` ${currentAgentMode} `)) + chalk.dim(" (shift+tab to cycle)"));
+	const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
+	const hintText = chalk.dim(" (shift+tab to cycle)");
+	const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim("not selected")}`;
+	agentModeDisplay = new Text(`${modeText}${hintText}  ${modelText}`);
 }
 agentModeDisplayIdx = tui.children.length;
 tui.addChild(agentModeDisplay);
 
-modelDisplay = new Text(chalk.dim(`Model: not selected`));
-modelDisplayIdx = tui.children.length;
-tui.addChild(modelDisplay);
 tui.setFocus(editor);
 
 const defaultSelectListTheme: SelectListTheme = {
@@ -147,22 +145,21 @@ const defaultSelectListTheme: SelectListTheme = {
 };
 
 function updateModelDisplay(): void {
+	// Model display is now combined with agent mode display - rebuild combined display
+	updateAgentModeDisplay();
+}
+
+function updateAgentModeDisplay(): void {
 	const displayText = currentProvider && currentModel
 		? `${currentProvider}/${currentModel}`
 		: "not selected";
 
-	modelDisplay = new Text(chalk.dim(`Model: ${displayText}`));
-
-	if (modelDisplayIdx >= 0 && modelDisplayIdx < tui.children.length) {
-		tui.children[modelDisplayIdx] = modelDisplay;
-	}
-
-	tui.requestRender();
-}
-
-function updateAgentModeDisplay(): void {
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
-	const text = bgColor(chalk.black(` ${currentAgentMode} `)) + chalk.dim(" (shift+tab to cycle)");
+	const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
+	const hintText = chalk.dim(" (shift+tab to cycle)");
+	const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(displayText)}`;
+	const text = `${modeText}${hintText}  ${modelText}`;
+
 	agentModeDisplay = new Text(text);
 	if (agentModeDisplayIdx >= 0 && agentModeDisplayIdx < tui.children.length) {
 		tui.children[agentModeDisplayIdx] = agentModeDisplay;
