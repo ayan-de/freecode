@@ -11,6 +11,8 @@ import type { McpServer } from './mcp/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logo = fs.readFileSync(path.join(__dirname, 'logo.txt'), 'utf-8');
+const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+const version = packageJson.version;
 
 function getConfigDir(): string {
   return path.join(os.homedir(), '.freecode');
@@ -56,12 +58,13 @@ async function removeMcpServerByName(name: string) {
 async function main() {
   // Print logo before yargs to avoid Unicode/formatting corruption
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log('\n' + logo + '\n');
+    console.log('\n' + logo.trimEnd() + '\n');
   }
 
   const argv = await yargs(hideBin(process.argv))
     .scriptName('freecode')
     .usage('$0 [command] [options]')
+    .version(version)
     .help()
     .command('mcp', 'Manage MCP servers', (yargs) =>
       yargs
