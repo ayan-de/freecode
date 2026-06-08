@@ -8,14 +8,26 @@ import { fileURLToPath } from 'url';
 import { mcpCommand } from './cli/commands/mcp/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const logo = fs.readFileSync(path.join(__dirname, '..', 'src', 'logo.txt'), 'utf-8');
+const logoLines = fs.readFileSync(path.join(__dirname, '..', 'src', 'logo.txt'), 'utf-8').trimEnd().split('\n');
 const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
 const version = packageJson.version;
+
+// ANSI color codes
+const yellowBright = '\x1b[93m';
+const yellow = '\x1b[33m';
+const reset = '\x1b[0m';
+
+function printLogo() {
+  console.log('\n' + logoLines.map(line => {
+    const mid = Math.floor(line.length / 2);
+    return `${yellowBright}${line.slice(0, mid)}${yellow}${line.slice(mid)}${reset}`;
+  }).join('\n') + '\n');
+}
 
 async function main() {
   // Print logo before yargs to avoid Unicode/formatting corruption
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log('\n' + logo.trimEnd() + '\n');
+    printLogo();
   }
 
   const argv = await yargs(hideBin(process.argv))
