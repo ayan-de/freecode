@@ -3,7 +3,7 @@ import * as path from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { loadMcpConfig } from './config.js';
 import { createStdioTransport } from './transport.js';
-import { registerClient, removeClient } from './client-registry.js';
+import { registerClient, removeClient, getClient, listClients } from './client-registry.js';
 import { convertMcpTool } from './convert-tool.js';
 import { registerMcpTool, unregisterMcpTools } from '../tools/index.js';
 import { BusEvents } from '../bus/index.js';
@@ -74,13 +74,11 @@ export async function initMcpServers(): Promise<void> {
 }
 
 export async function stopMcpServers(): Promise<void> {
-  // Get all registered client names
-  const { listClients } = await import('./client-registry.js');
   const names = listClients();
 
   for (const name of names) {
     try {
-      const client = await import('./client-registry.js').then(m => m.getClient(name));
+      const client = getClient(name);
       if (client) {
         await client.close();
         removeClient(name);
@@ -95,4 +93,43 @@ export async function stopMcpServers(): Promise<void> {
   for (const name of names) {
     unregisterMcpTools(`${name}_`);
   }
+}
+
+// Connect a single MCP server by name
+export async function connectMcpServer(name: string): Promise<{ name: string; toolCount: number } | null> {
+  const configDir = getConfigDir();
+  const config = await loadMcpConfig(configDir);
+
+  const server = config.servers.find(s => s.name === name);
+  if (!server) {
+    throw new Error(`MCP server "${name}" not found in config`);
+  }
+
+  if (server.type !== 'local') {
+    throw new Error('Remote MCP servers not yet supported');
+  }
+
+  // Check if already connected
+  if (getClient(name)) {
+    throw new Error(`MCP server "${name}" is already connected`);
+  }
+
+  const result = await connectServer(server);
+  if (result) {
+    BusEvents.mcpToolsChanged(name);
+  }
+  return result;
+}
+
+// Disconnect a single MCP server by name
+export async function disconnectMcpServer(name: string): Promise<void> {
+  const client = getClient(name);
+  if (!client) {
+    throw new Error(`MCP server "${name}" is not connected`);
+  }
+
+  await client.close();
+  removeClient(name);
+  unregisterMcpTools(`${name}_`);
+  BusEvents.mcpServerStopped(name, 'manual');
 }

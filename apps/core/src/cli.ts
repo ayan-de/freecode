@@ -7,6 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loadMcpConfig, saveMcpServer, removeMcpServer } from './mcp/config.js';
+import { connectMcpServer, disconnectMcpServer } from './mcp/init.js';
 import type { McpServer } from './mcp/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -55,6 +56,21 @@ async function removeMcpServerByName(name: string) {
   console.log(`✓ Server "${name}" removed`);
 }
 
+async function startMcpServer(name: string) {
+  const result = await connectMcpServer(name);
+  if (result) {
+    console.log(`✓ Server "${name}" started with ${result.toolCount} tools`);
+  } else {
+    console.error(`Error: Failed to start server "${name}"`);
+    process.exit(1);
+  }
+}
+
+async function stopMcpServer(name: string) {
+  await disconnectMcpServer(name);
+  console.log(`✓ Server "${name}" stopped`);
+}
+
 async function main() {
   // Print logo before yargs to avoid Unicode/formatting corruption
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
@@ -76,6 +92,22 @@ async function main() {
         })
         .command('remove <name>', 'Remove MCP server', (yargs) => yargs, async (argv) => {
           await removeMcpServerByName(String(argv.name));
+        })
+        .command('start <name>', 'Start an MCP server', (yargs) => yargs, async (argv) => {
+          try {
+            await startMcpServer(String(argv.name));
+          } catch (err) {
+            console.error(`Error: ${(err as Error).message}`);
+            process.exit(1);
+          }
+        })
+        .command('stop <name>', 'Stop an MCP server', (yargs) => yargs, async (argv) => {
+          try {
+            await stopMcpServer(String(argv.name));
+          } catch (err) {
+            console.error(`Error: ${(err as Error).message}`);
+            process.exit(1);
+          }
         })
         .demandCommand(1, 'Specify a command')
     )
