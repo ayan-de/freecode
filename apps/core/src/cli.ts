@@ -31,7 +31,7 @@ async function main() {
   }
 
   const argv = await yargs(hideBin(process.argv))
-    .scriptName('freecode')
+    .scriptName(`${yellowBright}freecode${reset}`)
     .usage('$0 [command] [options]')
     .option('h', {
       alias: 'help',
