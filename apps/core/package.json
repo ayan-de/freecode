@@ -24,10 +24,13 @@
     "ai": "^6.0.191",
     "effect": "^3.21.2",
     "fast-glob": "^3.3.3",
-    "playwright": "^1.42.0"
+    "playwright": "^1.42.0",
+    "yargs": "^17.7.2",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
+    "@types/yargs": "^17.0.35",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   }
