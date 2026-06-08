@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": "https://github.com/ayan-de/freecode",
   "bin": {
-    "freecode": "./dist/server.js"
+    "freecode": "./dist/cli.js"
   },
   "main": "dist/server.js",
   "scripts": {
@@ -19,6 +19,7 @@
     "@ai-sdk/anthropic": "^3.0.80",
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.66",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@thisisayande/freecode-shared": "^0.2.0",
     "ai": "^6.0.191",
     "effect": "^3.21.2",
