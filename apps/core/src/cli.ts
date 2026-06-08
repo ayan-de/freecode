@@ -2,10 +2,15 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { loadMcpConfig, saveMcpServer, removeMcpServer } from './mcp/config.js';
 import type { McpServer } from './mcp/types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const logo = fs.readFileSync(path.join(__dirname, 'logo.txt'), 'utf-8');
 
 function getConfigDir(): string {
   return path.join(os.homedir(), '.freecode');
@@ -49,7 +54,15 @@ async function removeMcpServerByName(name: string) {
 }
 
 async function main() {
+  // Print logo before yargs to avoid Unicode/formatting corruption
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    console.log('\n' + logo + '\n');
+  }
+
   const argv = await yargs(hideBin(process.argv))
+    .scriptName('freecode')
+    .usage('$0 [command] [options]')
+    .help()
     .command('mcp', 'Manage MCP servers', (yargs) =>
       yargs
         .command('list', 'List configured MCP servers', {}, async () => {
@@ -64,6 +77,7 @@ async function main() {
         .demandCommand(1, 'Specify a command')
     )
     .demandCommand(1, 'Specify a command')
+    .strict()
     .parseAsync();
 
   // If no MCP command, start the JSON-RPC server (lazy import to avoid loading tools)
