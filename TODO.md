@@ -18,3 +18,8 @@
 **Status:** Skipped - requires significant architectural change using Effect framework
 
 **Reference:** opencode's `packages/opencode/src/effect/` directory for `makeRuntime<I, S, E>()` pattern
+
+## Input suggestion
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ push                                         
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -128,7 +128,7 @@ editor.setAutocompleteProvider(autocompleteProvider);
 tui.addChild(editor);
 {
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
-	agentModeDisplay = new Text(bgColor(chalk.black(` ${currentAgentMode} `)));
+	agentModeDisplay = new Text(bgColor(chalk.black(` ${currentAgentMode} `)) + chalk.dim(" (shift+tab to cycle)"));
 }
 agentModeDisplayIdx = tui.children.length;
 tui.addChild(agentModeDisplay);
@@ -162,7 +162,7 @@ function updateModelDisplay(): void {
 
 function updateAgentModeDisplay(): void {
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
-	const text = bgColor(chalk.black(` ${currentAgentMode} `));
+	const text = bgColor(chalk.black(` ${currentAgentMode} `)) + chalk.dim(" (shift+tab to cycle)");
 	agentModeDisplay = new Text(text);
 	if (agentModeDisplayIdx >= 0 && agentModeDisplayIdx < tui.children.length) {
 		tui.children[agentModeDisplayIdx] = agentModeDisplay;
