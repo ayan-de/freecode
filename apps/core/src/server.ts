@@ -350,7 +350,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> 
   }
 }
 
-async function main() {
+export async function startServer() {
   await initProviders();
 
   // Set up Ctrl+C interrupt handler for session resumption
@@ -401,7 +401,9 @@ async function main() {
   });
 }
 
-main().catch((e) => {
-  process.stderr.write(`Server error: ${e}\n`);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  startServer().catch((e) => {
+    process.stderr.write(`Server error: ${e}\n`);
+    process.exit(1);
+  });
+}

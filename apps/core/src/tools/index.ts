@@ -18,6 +18,8 @@ export type { Tool, ToolUseMessage, ToolUI, ToolBehavior, ToolPermissions, ToolE
 export type { ToolOrchestrator }
 export type { ToolRenderer }
 
+const mcpTools: Record<string, Tool> = {};
+
 export const tools = {
   read: ReadTool,
   write: WriteTool,
@@ -32,16 +34,41 @@ export const tools = {
 
 export type ToolId = keyof typeof tools
 
+export function registerMcpTool(tool: Tool): void {
+  mcpTools[tool.id] = tool;
+}
+
+export function unregisterMcpTools(prefix: string): void {
+  for (const key of Object.keys(mcpTools)) {
+    if (key.startsWith(prefix)) {
+      delete mcpTools[key];
+    }
+  }
+}
+
+export function getMcpTools(): Record<string, Tool> {
+  return { ...mcpTools };
+}
+
 export function getTool(id: string): Tool | undefined {
-  return tools[id as ToolId] as Tool | undefined
+  if (tools[id as ToolId]) return tools[id as ToolId] as Tool;
+  return mcpTools[id];
 }
 
 export function listTools(): { id: string; description: string; parameters: JsonSchema }[] {
-  return Object.values(tools).map((t) => ({
+  const builtIn = Object.values(tools).map((t) => ({
     id: t.id,
     description: t.description,
     parameters: t.schemas.parameters,
-  }))
+  }));
+
+  const mcp = Object.values(mcpTools).map((t) => ({
+    id: t.id,
+    description: t.description,
+    parameters: t.schemas.parameters,
+  }));
+
+  return [...builtIn, ...mcp];
 }
 
 export { createToolOrchestrator }

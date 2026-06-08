@@ -128,6 +128,28 @@ export interface QuestionRejectedEvent {
 }
 
 // ============================================================================
+// MCP Server Events
+// ============================================================================
+
+export interface MCPServerStartedEvent {
+  type: "mcp.server.started"
+  server: string
+  toolCount: number
+}
+
+export interface MCPServerStoppedEvent {
+  type: "mcp.server.stopped"
+  server: string
+  reason?: string
+}
+
+export interface MCPServerErrorEvent {
+  type: "mcp.server.error"
+  server: string
+  error: string
+}
+
+// ============================================================================
 // Union of all Bus Events
 // ============================================================================
 
@@ -145,6 +167,9 @@ export type BusEvent =
   | QuestionAskedEvent
   | QuestionAnsweredEvent
   | QuestionRejectedEvent
+  | MCPServerStartedEvent
+  | MCPServerStoppedEvent
+  | MCPServerErrorEvent
 
 // ============================================================================
 // Event Emitter Bus
@@ -288,6 +313,15 @@ export const BusEvents = {
 
   toolCompleted: (sessionId: string, tool: string, toolCallId: string, success: boolean, duration_ms?: number) =>
     bus.publish({ type: "tool.completed", sessionId, tool, toolCallId, success, duration_ms } as ToolCompletedEvent),
+
+  mcpServerStarted: (server: string, toolCount: number) =>
+    bus.publish({ type: "mcp.server.started", server, toolCount } as MCPServerStartedEvent),
+
+  mcpServerStopped: (server: string, reason?: string) =>
+    bus.publish({ type: "mcp.server.stopped", server, reason } as MCPServerStoppedEvent),
+
+  mcpServerError: (server: string, error: string) =>
+    bus.publish({ type: "mcp.server.error", server, error } as MCPServerErrorEvent),
 }
 
 // Types already exported at top of file
