@@ -151,3 +151,30 @@
      ✔ Task 6: Create CLI entry point with yargs                                                                                
      ✔ Task 7: Implement convertMcpTool function                                                                                
      ✔ Task 8: Integrate MCP tools into agent tool system                                                                       
+
+
+
+
+     ///////////////////////////
+
+     ---
+  2. Remote MCP server support
+  
+  This would enable:
+  freecode mcp add myserver remote "https://mcp.example.com/server"
+
+  Why it's not done: The current connect() function in mcp/service.ts (line 46-48) explicitly rejects remote servers:
+  if (server.type !== 'local') {
+    yield* Effect.fail(new Error('Remote MCP servers not yet supported'));
+    return;
+  } 
+
+  What's needed to implement it:
+  - Use  SSEClientTransport or StreamableHTTPClientTransport from @modelcontextprotocol/sdk instead of
+  StdioClientTransport
+  - Handle authentication (API keys, OAuth tokens)
+  - Handle connection lifecycle (reconnecting on failure)
+  - The init.ts connect logic would need a branch for local vs remote transport
+
+  The config schema already supports remote (url field in McpServerSchema), but the actual connection code only
+  handles local stdio.
