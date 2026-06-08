@@ -31,6 +31,11 @@ Provide specific, actionable feedback with code references.`,
 Navigate freely, read files, search codebases.
 Understand the architecture, patterns, and conventions.
 Provide summaries of what you find without making changes.`,
+
+  danger: `You are in DANGER mode - unrestricted full access.
+ALL permission checks are BYPASSED. You have complete access to everything.
+Read and write any files, run any commands including destructive ones.
+Use with extreme caution - you can break things permanently.`,
 }
 
 // ===========================================================================

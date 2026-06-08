@@ -33,16 +33,18 @@ export const defaultEditorTheme: EditorTheme = {
 	selectList: defaultSelectListTheme,
 };
 
-export const MODE_COLORS: Record<"plan" | "build" | "review" | "explore", (text: string) => string> = {
+export const MODE_COLORS: Record<"plan" | "build" | "review" | "explore" | "danger", (text: string) => string> = {
 	plan: (text: string) => chalk.blueBright(text),
 	build: (text: string) => chalk.yellowBright(text),
 	review: (text: string) => chalk.greenBright(text),
 	explore: (text: string) => chalk.magentaBright(text),
+	danger: (text: string) => chalk.redBright(text),
 };
 
-export const MODE_BG_COLORS: Record<"plan" | "build" | "review" | "explore", (text: string) => string> = {
+export const MODE_BG_COLORS: Record<"plan" | "build" | "review" | "explore" | "danger", (text: string) => string> = {
 	plan: (text: string) => chalk.bgHex("#5B9BD5")(text),    // bright blue
 	build: (text: string) => chalk.bgHex("#FFD700")(text),  // bright yellow
 	review: (text: string) => chalk.bgHex("#3CFB3C")(text),  // bright green
 	explore: (text: string) => chalk.bgHex("#D92688")(text), // bright magenta
+	danger: (text: string) => chalk.bgHex("#FF4444")(text),  // bright red
 };

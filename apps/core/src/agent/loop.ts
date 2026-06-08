@@ -26,6 +26,7 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js"
+import type { PermissionRequestResult } from "../hooks/PermissionRequest.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 import type { StreamEvent } from "@thisisayande/freecode-shared"
 import { createToolOrchestrator, listTools, getTool } from "../tools/index.js"
@@ -481,18 +482,22 @@ export class AgentLoop {
     }
 
     // PermissionRequest Hook — can block dangerous operations requiring user approval
-    const permResult = await this.hooks.runPermissionRequest(toolCall, hookContext)
-    if (permResult.decision === "deny") {
-      console.warn(`[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`)
-      const blockedResult = {
-        id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        toolCallId: toolCall.id,
-        tool: toolCall.tool,
-        title: `Tool ${toolCall.tool}`,
-        error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
+    // Bypass permission check entirely in danger mode
+    let permResult: PermissionRequestResult = { decision: "allow", modifiedInput: undefined };
+    if (this.state.agentMode !== "danger") {
+      permResult = await this.hooks.runPermissionRequest(toolCall, hookContext)
+      if (permResult.decision === "deny") {
+        console.warn(`[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`)
+        const blockedResult = {
+          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          toolCallId: toolCall.id,
+          tool: toolCall.tool,
+          title: `Tool ${toolCall.tool}`,
+          error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
+        }
+        BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
+        return blockedResult
       }
-      BusEvents.toolCompleted(this.state.sessionId, toolCall.tool, toolCall.id, false)
-      return blockedResult
     }
 
     // Apply input modifications from permission hook if any

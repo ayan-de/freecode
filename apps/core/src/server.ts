@@ -148,7 +148,7 @@ const methodHandlers: Record<
     }
 
     // Get agentMode from session (set during session.start)
-    const agentMode = (session as unknown as Record<string, unknown>).agentMode as "plan" | "build" | "review" | "explore" | undefined;
+    const agentMode = (session as unknown as Record<string, unknown>).agentMode as "plan" | "build" | "review" | "explore" | "danger" | undefined;
 
     logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider, agentMode });
 

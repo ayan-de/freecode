@@ -14,15 +14,16 @@
 // review: code review mode
 // explore: exploration mode
 // =============================================================================
-export type AgentMode = "plan" | "build" | "review" | "explore"
+export type AgentMode = "plan" | "build" | "review" | "explore" | "danger"
 
-export const AGENT_MODES: AgentMode[] = ["plan", "build", "review", "explore"]
+export const AGENT_MODES: AgentMode[] = ["plan", "build", "review", "explore", "danger"]
 
 export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
   plan: "Plan",
   build: "Build",
   review: "Review",
   explore: "Explore",
+  danger: "Danger",
 }
 
 // =============================================================================

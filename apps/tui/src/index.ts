@@ -66,7 +66,7 @@ let messageCount = 0;
 let currentSession: SessionInfo | null = null;
 let currentProvider = "";
 let currentModel = "";
-let currentAgentMode: "plan" | "build" | "review" | "explore" = "build";
+let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" = "build";
 let agentModeDisplay: Text;
 let agentModeDisplayIdx = -1;
 
@@ -171,7 +171,7 @@ function updateAgentModeDisplay(): void {
 }
 
 function cycleAgentMode(): void {
-	const modes: Array<"plan" | "build" | "review" | "explore"> = ["plan", "build", "review", "explore"];
+	const modes: Array<"plan" | "build" | "review" | "explore" | "danger"> = ["plan", "build", "review", "explore", "danger"];
 	const idx = modes.indexOf(currentAgentMode);
 	currentAgentMode = modes[(idx + 1) % modes.length];
 	editor.borderColor = MODE_COLORS[currentAgentMode];
