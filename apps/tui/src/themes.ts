@@ -29,6 +29,13 @@ export const defaultMarkdownTheme: MarkdownTheme = {
 };
 
 export const defaultEditorTheme: EditorTheme = {
-	borderColor: (text: string) => chalk.dim(text),
+	borderColor: (text: string) => chalk.yellowBright(text),
 	selectList: defaultSelectListTheme,
+};
+
+export const MODE_COLORS: Record<"plan" | "build" | "review" | "explore", (text: string) => string> = {
+	plan: (text: string) => chalk.blueBright(text),
+	build: (text: string) => chalk.yellowBright(text),
+	review: (text: string) => chalk.greenBright(text),
+	explore: (text: string) => chalk.magentaBright(text),
 };

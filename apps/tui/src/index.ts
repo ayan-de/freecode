@@ -5,7 +5,7 @@ import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Editor } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { defaultEditorTheme } from "./themes.js";
+import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
 import { logoLines, logoTagline } from "./assets/logo.js";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -169,6 +169,7 @@ function cycleAgentMode(): void {
 	const modes: Array<"plan" | "build" | "review" | "explore"> = ["plan", "build", "review", "explore"];
 	const idx = modes.indexOf(currentAgentMode);
 	currentAgentMode = modes[(idx + 1) % modes.length];
+	editor.borderColor = MODE_COLORS[currentAgentMode];
 	updateAgentModeDisplay();
 }
 
