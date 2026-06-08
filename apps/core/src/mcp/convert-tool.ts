@@ -1,10 +1,16 @@
 import type { Tool } from '../tools/tool.types.js';
 import type { JsonSchema, JsonSchemaProperty } from '../tools/tool.types.js';
+import { getClient } from './client-registry.js';
 
 interface McpToolDef {
   name: string;
   description?: string;
   inputSchema: unknown;
+}
+
+interface CallToolResult {
+  content: Array<{ type: string; text?: string }>;
+  isError?: boolean;
 }
 
 export function convertMcpTool(
@@ -38,9 +44,25 @@ export function convertMcpTool(
       operations: ['mcp'],
       requiresApproval: false,
     },
-    execute: async (params, ctx) => {
-      // This will be connected to MCP client in Phase 3
-      return { success: true, result: { title: prefixedName, output: 'MCP tool called' } };
+    execute: async (params, _ctx) => {
+      const client = getClient(serverName);
+      if (!client) {
+        return { success: false, error: `MCP server '${serverName}' not connected` };
+      }
+
+      try {
+        const args = params as Record<string, unknown>;
+        const result = await client.callTool(
+          { name: mcpTool.name, arguments: args }
+        ) as CallToolResult;
+        // MCP returns { content: [{ type: 'text', text: '...' }] }
+        const output = result.content
+          .map((c) => c.type === 'text' ? c.text : JSON.stringify(c))
+          .join('\n');
+        return { success: true, result: { title: prefixedName, output } };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
     },
   };
 }

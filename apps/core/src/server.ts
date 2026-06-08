@@ -19,6 +19,7 @@ import { createSessionStore, type SessionStore } from "./session/store.js";
 import { getRemoteSync, type ExportedSession, type RemoteSessionConfig } from "./store/index.js";
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
+import { initMcpServers } from "./mcp/index.js";
 import { homedir } from "os";
 import { randomUUID } from 'crypto'
 import { join } from "path";
@@ -352,6 +353,7 @@ async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> 
 
 export async function startServer() {
   await initProviders();
+  await initMcpServers();
 
   // Set up Ctrl+C interrupt handler for session resumption
   const handler = getInterruptHandler()
