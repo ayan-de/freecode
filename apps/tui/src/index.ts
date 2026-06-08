@@ -6,7 +6,7 @@ import { Editor } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultEditorTheme, MODE_COLORS, MODE_BG_COLORS } from "./themes.js";
-import { logoLines, logoTagline } from "./assets/logo.js";
+import { logoLines } from "./assets/logo.js";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -86,8 +86,6 @@ const welcomeText = `${logoLines.map(line => {
 	const mid = Math.floor(line.length / 2);
 	return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
 }).join('\n')}
-
-${chalk.dim(logoTagline)}
 
 Type your messages below. Press Ctrl+C to exit.`;
 
