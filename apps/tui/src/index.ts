@@ -5,7 +5,7 @@ import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Editor } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
+import { defaultEditorTheme, MODE_COLORS, MODE_BG_COLORS } from "./themes.js";
 import { logoLines, logoTagline } from "./assets/logo.js";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -126,7 +126,10 @@ const autocompleteProvider = new CombinedAutocompleteProvider(
 editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
-agentModeDisplay = new Text(chalk.dim(`Mode: ${currentAgentMode}`));
+{
+	const bgColor = MODE_BG_COLORS[currentAgentMode];
+	agentModeDisplay = new Text(bgColor(chalk.black(` ${currentAgentMode} `)));
+}
 agentModeDisplayIdx = tui.children.length;
 tui.addChild(agentModeDisplay);
 
@@ -158,7 +161,9 @@ function updateModelDisplay(): void {
 }
 
 function updateAgentModeDisplay(): void {
-	agentModeDisplay = new Text(chalk.dim(`Mode: ${currentAgentMode}`));
+	const bgColor = MODE_BG_COLORS[currentAgentMode];
+	const text = bgColor(chalk.black(` ${currentAgentMode} `));
+	agentModeDisplay = new Text(text);
 	if (agentModeDisplayIdx >= 0 && agentModeDisplayIdx < tui.children.length) {
 		tui.children[agentModeDisplayIdx] = agentModeDisplay;
 	}

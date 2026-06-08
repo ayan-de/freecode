@@ -39,3 +39,10 @@ export const MODE_COLORS: Record<"plan" | "build" | "review" | "explore", (text:
 	review: (text: string) => chalk.greenBright(text),
 	explore: (text: string) => chalk.magentaBright(text),
 };
+
+export const MODE_BG_COLORS: Record<"plan" | "build" | "review" | "explore", (text: string) => string> = {
+	plan: (text: string) => chalk.bgHex("#5B9BD5")(text),    // bright blue
+	build: (text: string) => chalk.bgHex("#FFD700")(text),  // bright yellow
+	review: (text: string) => chalk.bgHex("#3CFB3C")(text),  // bright green
+	explore: (text: string) => chalk.bgHex("#D92688")(text), // bright magenta
+};
