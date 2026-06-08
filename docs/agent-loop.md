@@ -2,6 +2,8 @@
 
 > The core execution engine that drives the agent's behavior through a continuous cycle of thought-action-observation.
 
+> **TUI Framework**: For TUI components and customization, see [`pi-tui.md`](../pi-tui.md).
+
 ## Overview
 
 The agent loop is a continuous cycle that processes user prompts, executes tools, manages memory, and handles recovery. It follows a two-phase context collection approach before each model invocation.

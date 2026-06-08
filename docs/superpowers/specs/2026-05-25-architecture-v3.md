@@ -5,6 +5,8 @@
 **Supersedes:** `2026-05-25-architecture-v2.md`, `2026-05-23-architecture.md`
 **Inspired by:** Anthropic's Claude Code (codex-rs) + opencode (opencode-ai/opencode)
 
+> **TUI Framework**: For TUI components and customization, see [`pi-tui.md`](../../pi-tui.md).
+
 ---
 
 ## Overview

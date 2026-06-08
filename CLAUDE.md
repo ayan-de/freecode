@@ -43,6 +43,8 @@ The system uses a two-phase approach: the AI first returns which files it needs,
 
 **TUI and VSCode are pure presentation layers. All business logic lives in CLI.**
 
+> **TUI Framework**: For pi-tui customization, see [`pi-tui.md`](pi-tui.md).
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                          TUI                                 │

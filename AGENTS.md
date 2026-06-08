@@ -43,6 +43,9 @@ The system uses a two-phase approach: the AI first returns which files it needs,
 
 ## Architecture
 
+
+> **TUI Framework**: For pi-tui customization, see [`pi-tui.md`](pi-tui.md).
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                          TUI                                 │
