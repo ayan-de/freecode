@@ -1,3 +1,5 @@
+import type { Message } from '../agent/types.js'
+
 export interface ProviderInfo {
   id: string
   name: string
@@ -13,7 +15,8 @@ export interface ToolDef {
 }
 
 export interface ExecuteOptions {
-  prompt: string
+  prompt?: string
+  messages?: Message[]
   system?: string
   model?: string
   temperature?: number

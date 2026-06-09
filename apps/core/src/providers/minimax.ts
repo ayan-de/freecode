@@ -1,6 +1,6 @@
-import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
-import { getApiKey } from './config'
-import { registerProvider } from './registry'
+import { AIProvider, ExecuteOptions, ExecuteResult } from './types.js'
+import { getApiKey } from './config.js'
+import { registerProvider } from './registry.js'
 
 const PROVIDER_INFO = {
   id: "minimax" as const,
@@ -22,35 +22,88 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
       messages.push({ role: "user", content: opts.system })
     }
 
-    // If there are previous tool results, they come AFTER an assistant message with tool_use
-    // (following Anthropic message protocol pattern from opencode)
-    if (opts.toolResults && opts.toolResults.length > 0) {
-      // First, an assistant message with tool_use blocks referencing the calls
-      const assistantContent: Array<{ type: string; [key: string]: unknown }> = []
-      for (const tr of opts.toolResults) {
-        assistantContent.push({
-          type: "tool_use",
-          id: tr.toolCallId,
-          name: tr.name || "unknown",
-          input: tr.input || {},
-        })
-      }
-      messages.push({ role: "assistant", content: assistantContent })
+    if (opts.messages) {
+      for (const msg of opts.messages) {
+        const textParts: string[] = []
+        const toolCalls: Array<{ type: string; id: string; name: string; input: Record<string, unknown> }> = []
+        const toolResults: Array<{ type: string; tool_use_id: string; content: string }> = []
 
-      // Then a user message with tool_result blocks
-      const userContent: Array<{ type: string; [key: string]: unknown }> = []
-      for (const tr of opts.toolResults) {
-        userContent.push({
-          type: "tool_result",
-          tool_use_id: tr.toolCallId,
-          content: tr.result || "",
-        })
+        for (const part of msg.parts) {
+          if (part.type === 'text') {
+            textParts.push(part.content)
+          } else if (part.type === 'code') {
+            textParts.push(`\`\`\`${part.language}\n${part.content}\n\`\`\``)
+          } else if (part.type === 'tool') {
+            toolCalls.push({
+              type: "tool_use",
+              id: part.tool.id,
+              name: part.tool.tool,
+              input: part.tool.args as Record<string, unknown>,
+            })
+            if (part.result !== undefined) {
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: part.tool.id,
+                content: part.result,
+              })
+            }
+          }
+        }
+
+        if (msg.role === 'user') {
+          if (textParts.length > 0) {
+            messages.push({ role: 'user', content: textParts.join('\n\n') })
+          }
+        } else if (msg.role === 'assistant') {
+          if (toolCalls.length > 0) {
+            const content: Array<{ type: string; [key: string]: unknown }> = []
+            if (textParts.length > 0) {
+              content.push({ type: 'text', text: textParts.join('\n\n') })
+            }
+            content.push(...toolCalls)
+            messages.push({ role: 'assistant', content })
+          } else if (textParts.length > 0) {
+            messages.push({ role: 'assistant', content: textParts.join('\n\n') })
+          }
+
+          if (toolResults.length > 0) {
+            messages.push({ role: 'user', content: toolResults })
+          }
+        }
       }
-      messages.push({ role: "user", content: userContent })
+    } else {
+      // If there are previous tool results, they come AFTER an assistant message with tool_use
+      // (following Anthropic message protocol pattern from opencode)
+      if (opts.toolResults && opts.toolResults.length > 0) {
+        // First, an assistant message with tool_use blocks referencing the calls
+        const assistantContent: Array<{ type: string; [key: string]: unknown }> = []
+        for (const tr of opts.toolResults) {
+          assistantContent.push({
+            type: "tool_use",
+            id: tr.toolCallId,
+            name: tr.name || "unknown",
+            input: tr.input || {},
+          })
+        }
+        messages.push({ role: "assistant", content: assistantContent })
+
+        // Then a user message with tool_result blocks
+        const userContent: Array<{ type: string; [key: string]: unknown }> = []
+        for (const tr of opts.toolResults) {
+          userContent.push({
+            type: "tool_result",
+            tool_use_id: tr.toolCallId,
+            content: tr.result || "",
+          })
+        }
+        messages.push({ role: "user", content: userContent })
+      }
+
+      // Finally, the new user prompt
+      if (opts.prompt) {
+        messages.push({ role: "user", content: opts.prompt })
+      }
     }
-
-    // Finally, the new user prompt
-    messages.push({ role: "user", content: opts.prompt })
 
     const body: Record<string, unknown> = {
       model,

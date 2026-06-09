@@ -1,8 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { generateText } from 'ai'
-import { AIProvider, ExecuteOptions, ExecuteResult } from './types'
-import { getApiKey } from './config'
-import { registerProvider } from './registry'
+import { AIProvider, ExecuteOptions, ExecuteResult } from './types.js'
+import { getApiKey } from './config.js'
+import { registerProvider } from './registry.js'
+import { convertToCoreMessages } from './utils.js'
 
 const PROVIDER_INFO = {
   id: "anthropic" as const,
@@ -28,14 +29,21 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
 
     // Cast to any to satisfy AI SDK's ToolSet type which expects FlexibleSchema<never>
     // The underlying implementation accepts plain JSON schema objects
-    const result = await generateText({
+    const generateOptions: any = {
       model: anthropic(model),
       system: opts.system,
-      prompt: opts.prompt,
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
-    })
+    }
+
+    if (opts.messages) {
+      generateOptions.messages = convertToCoreMessages(opts.messages)
+    } else {
+      generateOptions.prompt = opts.prompt
+    }
+
+    const result = await generateText(generateOptions)
 
     const toolCalls = result.toolCalls?.map((tc): { name: string; args: Record<string, unknown>; id: string } => {
       // tc is TypedToolCall<ToolSet> - input is the args, toolCallId is the id
