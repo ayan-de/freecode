@@ -82,29 +82,74 @@ const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; i
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
 
-const welcomeText = `${logoLines.map(line => {
+const coloredLogoLines = logoLines.map(line => {
 	const mid = Math.floor(line.length / 2);
 	return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
-}).join('\n')}
+});
+while (coloredLogoLines.length < 4) {
+	coloredLogoLines.push(" ".repeat(34));
+}
 
-Type your messages below. Press Ctrl+C to exit.`;
+import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 
-tui.addChild(new Text(welcomeText));
+class ResponsiveInfoBox implements Component {
+	render(width: number): string[] {
+		if (width < 80) {
+			const boxWidth = Math.max(0, width - 2);
+			const padLeft = Math.max(0, Math.floor((boxWidth - 34) / 2));
+			const padRight = Math.max(0, boxWidth - 34 - padLeft);
 
-// Info box below logo
-const infoBoxWidth = 60;
-const cwdPath = process.cwd().replace(process.env.HOME || "", "~");
-const infoBoxLines = [
-	`╭${"─".repeat(infoBoxWidth)}╮`,
-	`│ >_ ${chalk.bold.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, infoBoxWidth - 16 - getVersion().length))}│`,
-	`│${" ".repeat(infoBoxWidth)}│`,
-	`│ /help for help   ${chalk.yellowBright("/model")} to change${" ".repeat(Math.max(0, infoBoxWidth - 34))}│`,
-	`│ ${chalk.bold.yellowBright("Directory:")} ${cwdPath}${" ".repeat(Math.max(0, infoBoxWidth - 12 - cwdPath.length))}│`,
-	`╰${"─".repeat(infoBoxWidth)}╯`,
-];
-const infoBoxText = infoBoxLines.map(line => chalk.white(line)).join('\n');
-const infoBox = new Text(infoBoxText);
-tui.addChild(infoBox);
+			const emptyLine = `│${" ".repeat(boxWidth)}│`;
+
+			const infoBoxLines = [
+				`╭${"─".repeat(boxWidth)}╮`,
+				emptyLine,
+				emptyLine,
+				emptyLine,
+				emptyLine,
+				`│${" ".repeat(padLeft)}${coloredLogoLines[0]}${" ".repeat(padRight)}│`,
+				`│${" ".repeat(padLeft)}${coloredLogoLines[1]}${" ".repeat(padRight)}│`,
+				`│${" ".repeat(padLeft)}${coloredLogoLines[2]}${" ".repeat(padRight)}│`,
+				emptyLine,
+				emptyLine,
+				emptyLine,
+				emptyLine,
+				`╰${"─".repeat(boxWidth)}╯`,
+			];
+			return infoBoxLines.map(line => truncateToWidth(chalk.white(line), width));
+		}
+
+		const leftColWidth = 50;
+		const rightColWidth = Math.max(20, width - leftColWidth - 3);
+		const cwdPath = process.cwd().replace(process.env.HOME || "", "~");
+
+		const logoPadLeft = Math.max(0, Math.floor((leftColWidth - 34) / 2));
+		const logoPadRight = Math.max(0, leftColWidth - 34 - logoPadLeft);
+		const padL = " ".repeat(logoPadLeft);
+		const padR = " ".repeat(logoPadRight);
+
+		const infoBoxLines = [
+			`╭${"─".repeat(leftColWidth)}┬${"─".repeat(rightColWidth)}╮`,
+			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
+			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
+			`│${" ".repeat(leftColWidth)}│ >_ ${chalk.bold.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, rightColWidth - 16 - getVersion().length))}│`,
+			`│${padL}${coloredLogoLines[0]}${padR}│${" ".repeat(rightColWidth)}│`,
+			`│${padL}${coloredLogoLines[1]}${padR}│ /help for help   ${chalk.yellowBright("/model")} to change${" ".repeat(Math.max(0, rightColWidth - 34))}│`,
+			`│${padL}${coloredLogoLines[2]}${padR}│${" ".repeat(rightColWidth)}│`,
+			`│${" ".repeat(leftColWidth)}│ ${chalk.bold.yellowBright("Directory:")} ${cwdPath}${" ".repeat(Math.max(0, rightColWidth - 12 - cwdPath.length))}│`,
+			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
+			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
+			`╰${"─".repeat(leftColWidth)}┴${"─".repeat(rightColWidth)}╯`,
+		];
+		return infoBoxLines.map(line => truncateToWidth(chalk.white(line), width));
+	}
+
+	invalidate(): void {}
+}
+
+tui.addChild(new ResponsiveInfoBox());
+
+// tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
 // Create message list and add to tui BEFORE editor
 messageList = new VirtualMessageList(200);
