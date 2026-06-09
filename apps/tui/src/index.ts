@@ -91,6 +91,7 @@ while (coloredLogoLines.length < 4) {
 }
 
 import { truncateToWidth, type Component, Spacer } from "@earendil-works/pi-tui";
+import { getModelDisplayString, getDisplayDirectory } from "./utils/display.js";
 
 class ResponsiveInfoBox implements Component {
 	render(width: number): string[] {
@@ -100,6 +101,17 @@ class ResponsiveInfoBox implements Component {
 			const padRight = Math.max(0, boxWidth - 34 - padLeft);
 
 			const emptyLine = `│${" ".repeat(boxWidth)}│`;
+
+			const cwdPath = getDisplayDirectory();
+			const modelStr = getModelDisplayString(currentProvider, currentModel);
+
+			const modelPadL = Math.max(0, Math.floor((boxWidth - modelStr.length) / 2));
+			const modelPadR = Math.max(0, boxWidth - modelStr.length - modelPadL);
+			const modelLine = `│${" ".repeat(modelPadL)}${chalk.dim(modelStr)}${" ".repeat(modelPadR)}│`;
+
+			const dirPadL = Math.max(0, Math.floor((boxWidth - cwdPath.length) / 2));
+			const dirPadR = Math.max(0, boxWidth - cwdPath.length - dirPadL);
+			const dirLine = `│${" ".repeat(dirPadL)}${cwdPath}${" ".repeat(dirPadR)}│`;
 
 			const infoBoxLines = [
 				`╭${"─".repeat(boxWidth)}╮`,
@@ -111,8 +123,8 @@ class ResponsiveInfoBox implements Component {
 				`│${" ".repeat(padLeft)}${coloredLogoLines[1]}${" ".repeat(padRight)}│`,
 				`│${" ".repeat(padLeft)}${coloredLogoLines[2]}${" ".repeat(padRight)}│`,
 				emptyLine,
-				emptyLine,
-				emptyLine,
+				modelLine,
+				dirLine,
 				emptyLine,
 				`╰${"─".repeat(boxWidth)}╯`,
 			];
@@ -121,7 +133,7 @@ class ResponsiveInfoBox implements Component {
 
 		const leftColWidth = 50;
 		const rightColWidth = Math.max(20, width - leftColWidth - 3);
-		const cwdPath = process.cwd().replace(process.env.HOME || "", "~");
+		const cwdPath = getDisplayDirectory();
 
 		const logoPadLeft = Math.max(0, Math.floor((leftColWidth - 34) / 2));
 		const logoPadRight = Math.max(0, leftColWidth - 34 - logoPadLeft);
@@ -172,7 +184,7 @@ tui.addChild(editor);
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
 	const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
 	const hintText = chalk.dim(" (shift+tab to cycle)");
-	const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim("not selected")}`;
+	const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(getModelDisplayString(currentProvider, currentModel))}`;
 	agentModeDisplay = new Text(`${modeText}${hintText}  ${modelText}`, 1, 0);
 }
 agentModeDisplayIdx = tui.children.length;
@@ -194,9 +206,7 @@ function updateModelDisplay(): void {
 }
 
 function updateAgentModeDisplay(): void {
-	const displayText = currentProvider && currentModel
-		? `${currentProvider}/${currentModel}`
-		: "not selected";
+	const displayText = getModelDisplayString(currentProvider, currentModel);
 
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
 	const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
