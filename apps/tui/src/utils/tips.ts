@@ -6,6 +6,7 @@ const tips = [
   // "Use '/resume' to pick and continue a previous session",
   // "Press 'Ctrl+C' to exit the TUI securely",
   // "Type '/clear' to wipe the terminal message history",
+  //dev pnpm --filter @thisisayande/freecode-core exec tsx src/cli.ts --help
 ];
 
 export function getRandomTip(): string {
