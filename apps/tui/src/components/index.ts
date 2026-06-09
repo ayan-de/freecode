@@ -6,6 +6,7 @@ import {
   subscribeToMessages,
   clearMessages,
   updateMessage,
+  getMessages,
 } from "../state/message-store.js";
 import { createMessageComponent } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
@@ -108,9 +109,18 @@ export function createToolResultMessage(
 }
 
 /**
- * Create a thinking message - dimmed cyan text showing LLM reasoning
+ * Create or update a thinking message - yellow/dim yellow text showing LLM reasoning
  */
 export function createThinkingMessage(content: string): MessageInstance {
+  const messages = getMessages();
+  const lastMessage = messages[messages.length - 1];
+
+  if (lastMessage && lastMessage.type === "thinking") {
+    const component = createMessageComponent("thinking", content);
+    const updated = updateMessage(lastMessage.id, content, component);
+    if (updated) return updated;
+  }
+
   const component = createMessageComponent("thinking", content);
   return addMessage("thinking", content, component);
 }

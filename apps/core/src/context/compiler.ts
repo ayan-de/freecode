@@ -95,11 +95,18 @@ export class PromptCompiler {
     this.agentMode = mode
   }
 
-  /**
-   * Compile system prompt section
-   */
   compileSystemPrompt(): string {
-    return MODE_PROMPTS[this.agentMode]
+    const modePrompt = MODE_PROMPTS[this.agentMode];
+    const formattingGuidelines = `
+
+RESPONSE FORMATTING GUIDELINES:
+- Keep responses concise. Output is rendered on a terminal/TUI CLI.
+- Markdown tables are fully supported and encouraged for displaying structured data.
+- Avoid using deep sub-headings (e.g., ###, ####, etc.) or HTML tags. Keep the document structure clean and simple (e.g., use only single '#' or '##' for main sections, '**bold**' for key terms/emphasis, and bullet lists (-) for listings).
+- Use code blocks (with appropriate language tags) for code, and inline code for paths/variable/function names.
+- Do NOT tell the user to manually launch Chrome or Chromium with remote debugging (e.g., never output commands like \`chromium --remote-debugging-port=9222\` or \`google-chrome --remote-debugging-port=9222\`). The browser controller is managed internally.
+- Do NOT use formatting elements that are poorly supported in terminal views.`;
+    return `${modePrompt}${formattingGuidelines}`;
   }
 
   /**

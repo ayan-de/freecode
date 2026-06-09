@@ -62,6 +62,7 @@ export class ToolProgressMessage implements Component {
     const argsStr = this.formatArgs();
 
     const lines: string[] = [];
+    lines.push(""); // Empty line above
 
     // Header line: [spinner] ToolName (args)
     const headerWidth = Math.max(20, width - 3);
@@ -75,6 +76,7 @@ export class ToolProgressMessage implements Component {
       lines.push(`${chalk.dim("│")} ${chalk.dim(truncateToWidth(outputLine, outputWidth))}`);
     }
 
+    lines.push(""); // Empty line below
     return lines;
   }
 

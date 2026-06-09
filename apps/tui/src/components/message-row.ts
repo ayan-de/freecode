@@ -127,17 +127,47 @@ export function createAssistantMessageComponent(content: string): Component {
   return new WidthBounded(box);
 }
 
+export class ThinkingMessage implements Component {
+  private content: string;
+
+  constructor(content: string) {
+    this.content = content;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const lines: string[] = [];
+    const maxContentWidth = Math.max(20, width - 4);
+
+    lines.push(chalk.yellow("Thinking..."));
+
+    const rawLines = this.content.split("\n");
+    for (const line of rawLines) {
+      const truncated = truncateToWidth(line, maxContentWidth);
+      lines.push(`${chalk.dim.yellow("  │")} ${chalk.dim.yellow(truncated)}`);
+    }
+
+    return lines;
+  }
+
+  getMinWidth(): number {
+    return 10;
+  }
+
+  getMinHeight(): number {
+    return 1;
+  }
+
+  addChild(_component: Component): void {}
+  destroy(): void {}
+}
+
 /**
- * Create a thinking message component — dimmed cyan text with thinking prefix
+ * Create a thinking message component — yellow/dim yellow text with left-border decoration
  */
 export function createThinkingMessageComponent(content: string): Component {
-  const box = new Box(1, 1)
-  const lines = content.split("\n")
-  for (const line of lines) {
-    const text = new Text(chalk.dim.cyan(`Thinking: ${line}`), 1, 1)
-    box.addChild(text)
-  }
-  return new WidthBounded(box)
+  return new WidthBounded(new ThinkingMessage(content));
 }
 export function createSystemMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);

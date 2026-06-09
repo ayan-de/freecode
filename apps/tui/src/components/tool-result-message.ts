@@ -50,6 +50,7 @@ export class ToolResultMessage implements Component {
     const duration = this.duration_ms ? `(${this.duration_ms}ms)` : "";
 
     const lines: string[] = [];
+    lines.push(""); // Empty line above
 
     // Header line: [✓/✗] ToolName (args) (duration) - truncated to safe width
     const safeWidth = Math.max(20, width - 1);
@@ -66,6 +67,7 @@ export class ToolResultMessage implements Component {
       lines.push(`${chalk.dim("⎿")} ${chalk.dim("(no output)")}`);
     }
 
+    lines.push(""); // Empty line below
     return lines;
   }
 

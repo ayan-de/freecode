@@ -93,6 +93,7 @@ const autocompleteProvider = new CombinedAutocompleteProvider(
 editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
+tui.addChild(new Spacer(1));
 {
 	const bgColor = MODE_BG_COLORS[currentAgentMode];
 	const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
