@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.svg" alt="FreeCode Logo" width="320" height="60" />
+<img src="logo.svg" alt="FreeCode Logo" width="286" height="60" />
 
 
 **Open source CLI tool that drives AI coding assistants via browser automation**
