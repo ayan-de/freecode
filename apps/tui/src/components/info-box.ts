@@ -2,6 +2,7 @@ import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { logoLines } from "../assets/logo.js";
 import { getModelDisplayString, getDisplayDirectory, getVersion } from "../utils/display.js";
+import { getRandomTip } from "../utils/tips.js";
 
 const coloredLogoLines = logoLines.map(line => {
 	const mid = Math.floor(line.length / 2);
@@ -12,10 +13,14 @@ while (coloredLogoLines.length < 4) {
 }
 
 export class ResponsiveInfoBox implements Component {
+	private tip: string;
+
 	constructor(
 		private getProvider: () => string,
 		private getModel: () => string
-	) {}
+	) {
+		this.tip = getRandomTip();
+	}
 
 	render(width: number): string[] {
 		if (width < 80) {
@@ -63,6 +68,15 @@ export class ResponsiveInfoBox implements Component {
 		const padL = " ".repeat(logoPadLeft);
 		const padR = " ".repeat(logoPadRight);
 
+		let tipDisplay = this.tip;
+		const maxTipLen = rightColWidth - 3;
+		if (tipDisplay.length > maxTipLen && maxTipLen > 5) {
+			tipDisplay = tipDisplay.slice(0, maxTipLen - 3) + "...";
+		}
+
+		const tipsHeader = chalk.bold.yellowBright("Tips and Ticks");
+		const tipsHeaderLen = 14;
+
 		const infoBoxLines = [
 			`╭${"─".repeat(leftColWidth)}┬${"─".repeat(rightColWidth)}╮`,
 			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
@@ -71,8 +85,8 @@ export class ResponsiveInfoBox implements Component {
 			`│${padL}${coloredLogoLines[1]}${padR}│ ${chalk.bold.yellowBright("Directory:")} ${cwdPath}${" ".repeat(Math.max(0, rightColWidth - 12 - cwdPath.length))}│`,
 			`│${padL}${coloredLogoLines[2]}${padR}├${"─".repeat(rightColWidth)}┤`,
 			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
+			`│${" ".repeat(leftColWidth)}│ ${tipsHeader}${" ".repeat(Math.max(0, rightColWidth - 15))}│`,
+			`│${" ".repeat(leftColWidth)}│ ${chalk.dim(tipDisplay)}${" ".repeat(Math.max(0, rightColWidth - 1 - tipDisplay.length))}│`,
 			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
 			`╰${"─".repeat(leftColWidth)}┴${"─".repeat(rightColWidth)}╯`,
 		];
