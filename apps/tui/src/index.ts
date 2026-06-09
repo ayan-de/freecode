@@ -90,7 +90,7 @@ while (coloredLogoLines.length < 4) {
 	coloredLogoLines.push(" ".repeat(34));
 }
 
-import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, type Component, Spacer } from "@earendil-works/pi-tui";
 
 class ResponsiveInfoBox implements Component {
 	render(width: number): string[] {
@@ -148,6 +148,7 @@ class ResponsiveInfoBox implements Component {
 }
 
 tui.addChild(new ResponsiveInfoBox());
+tui.addChild(new Spacer(1));
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
@@ -172,7 +173,7 @@ tui.addChild(editor);
 	const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
 	const hintText = chalk.dim(" (shift+tab to cycle)");
 	const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim("not selected")}`;
-	agentModeDisplay = new Text(`${modeText}${hintText}  ${modelText}`);
+	agentModeDisplay = new Text(`${modeText}${hintText}  ${modelText}`, 1, 0);
 }
 agentModeDisplayIdx = tui.children.length;
 tui.addChild(agentModeDisplay);
@@ -203,7 +204,7 @@ function updateAgentModeDisplay(): void {
 	const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(displayText)}`;
 	const text = `${modeText}${hintText}  ${modelText}`;
 
-	agentModeDisplay = new Text(text);
+	agentModeDisplay = new Text(text, 1, 0);
 	if (agentModeDisplayIdx >= 0 && agentModeDisplayIdx < tui.children.length) {
 		tui.children[agentModeDisplayIdx] = agentModeDisplay;
 	}
