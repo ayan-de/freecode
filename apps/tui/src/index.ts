@@ -6,21 +6,6 @@ import { Editor } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultEditorTheme, MODE_COLORS, MODE_BG_COLORS } from "./themes.js";
-import { logoLines } from "./assets/logo.js";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-function getVersion(): string {
-	try {
-		const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
-		return pkg.version || "unknown";
-	} catch {
-		return "unknown";
-	}
-}
 import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
 import { formatTokenCount } from "./utils/format-tokens.js";
@@ -56,6 +41,8 @@ import {
 } from "./components/index.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
 import { createResumePicker } from "./components/resume-picker.js";
+import { ResponsiveInfoBox } from "./components/info-box.js";
+import { createProviderSelector, createModelSelector } from "./components/model-picker.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
@@ -82,84 +69,10 @@ const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; i
 const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
 
-const coloredLogoLines = logoLines.map(line => {
-	const mid = Math.floor(line.length / 2);
-	return chalk.yellowBright(line.slice(0, mid)) + chalk.yellow(line.slice(mid));
-});
-while (coloredLogoLines.length < 4) {
-	coloredLogoLines.push(" ".repeat(34));
-}
+import { Spacer } from "@earendil-works/pi-tui";
+import { getModelDisplayString } from "./utils/display.js";
 
-import { truncateToWidth, type Component, Spacer } from "@earendil-works/pi-tui";
-import { getModelDisplayString, getDisplayDirectory } from "./utils/display.js";
-
-class ResponsiveInfoBox implements Component {
-	render(width: number): string[] {
-		if (width < 80) {
-			const boxWidth = Math.max(0, width - 2);
-			const padLeft = Math.max(0, Math.floor((boxWidth - 34) / 2));
-			const padRight = Math.max(0, boxWidth - 34 - padLeft);
-
-			const emptyLine = `│${" ".repeat(boxWidth)}│`;
-
-			const cwdPath = getDisplayDirectory();
-			const modelStr = getModelDisplayString(currentProvider, currentModel);
-
-			const modelPadL = Math.max(0, Math.floor((boxWidth - modelStr.length) / 2));
-			const modelPadR = Math.max(0, boxWidth - modelStr.length - modelPadL);
-			const modelLine = `│${" ".repeat(modelPadL)}${chalk.dim(modelStr)}${" ".repeat(modelPadR)}│`;
-
-			const dirPadL = Math.max(0, Math.floor((boxWidth - cwdPath.length) / 2));
-			const dirPadR = Math.max(0, boxWidth - cwdPath.length - dirPadL);
-			const dirLine = `│${" ".repeat(dirPadL)}${cwdPath}${" ".repeat(dirPadR)}│`;
-
-			const infoBoxLines = [
-				`╭${"─".repeat(boxWidth)}╮`,
-				emptyLine,
-				emptyLine,
-				emptyLine,
-				emptyLine,
-				`│${" ".repeat(padLeft)}${coloredLogoLines[0]}${" ".repeat(padRight)}│`,
-				`│${" ".repeat(padLeft)}${coloredLogoLines[1]}${" ".repeat(padRight)}│`,
-				`│${" ".repeat(padLeft)}${coloredLogoLines[2]}${" ".repeat(padRight)}│`,
-				emptyLine,
-				modelLine,
-				dirLine,
-				emptyLine,
-				`╰${"─".repeat(boxWidth)}╯`,
-			];
-			return infoBoxLines.map(line => truncateToWidth(chalk.white(line), width));
-		}
-
-		const leftColWidth = 50;
-		const rightColWidth = Math.max(20, width - leftColWidth - 3);
-		const cwdPath = getDisplayDirectory();
-
-		const logoPadLeft = Math.max(0, Math.floor((leftColWidth - 34) / 2));
-		const logoPadRight = Math.max(0, leftColWidth - 34 - logoPadLeft);
-		const padL = " ".repeat(logoPadLeft);
-		const padR = " ".repeat(logoPadRight);
-
-		const infoBoxLines = [
-			`╭${"─".repeat(leftColWidth)}┬${"─".repeat(rightColWidth)}╮`,
-			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-			`│${" ".repeat(leftColWidth)}│ >_ ${chalk.bold.yellowBright("FreeCode")} (v${getVersion()})${" ".repeat(Math.max(0, rightColWidth - 16 - getVersion().length))}│`,
-			`│${padL}${coloredLogoLines[0]}${padR}│${" ".repeat(rightColWidth)}│`,
-			`│${padL}${coloredLogoLines[1]}${padR}│ /help for help   ${chalk.yellowBright("/model")} to change${" ".repeat(Math.max(0, rightColWidth - 34))}│`,
-			`│${padL}${coloredLogoLines[2]}${padR}│${" ".repeat(rightColWidth)}│`,
-			`│${" ".repeat(leftColWidth)}│ ${chalk.bold.yellowBright("Directory:")} ${cwdPath}${" ".repeat(Math.max(0, rightColWidth - 12 - cwdPath.length))}│`,
-			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-			`│${" ".repeat(leftColWidth)}│${" ".repeat(rightColWidth)}│`,
-			`╰${"─".repeat(leftColWidth)}┴${"─".repeat(rightColWidth)}╯`,
-		];
-		return infoBoxLines.map(line => truncateToWidth(chalk.white(line), width));
-	}
-
-	invalidate(): void {}
-}
-
-tui.addChild(new ResponsiveInfoBox());
+tui.addChild(new ResponsiveInfoBox(() => currentProvider, () => currentModel));
 tui.addChild(new Spacer(1));
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
@@ -280,29 +193,21 @@ async function showProviderSelector(): Promise<void> {
 
 	try {
 		const providers = await listProviders();
-		const hasApiKeyMap: Record<string, boolean> = {};
-		for (const p of providers as any[]) {
-			hasApiKeyMap[p.id] = p.hasApiKey;
-		}
 
-		const providerItems: SelectItem[] = providers.map((p: any) => ({
-			label: p.name,
-			value: p.id,
-			description: hasApiKeyMap[p.id] ? "(configured)" : "(not configured)",
-		}));
-
-		const maxVisible = Math.min(providerItems.length, 5);
-		providerSelector = new SelectList(providerItems, maxVisible, defaultSelectListTheme);
-
-		providerSelector.onSelect = async (item: SelectItem) => {
-			await showModelSelector(item.value);
-		};
-
-		providerSelector.onCancel = () => {
-			hideModelSelector();
-			tui.setFocus(editor);
-			tui.requestRender();
-		};
+		providerSelector = createProviderSelector(
+			providers,
+			{
+				onSelect: async (providerId: string) => {
+					await showModelSelector(providerId);
+				},
+				onCancel: () => {
+					hideModelSelector();
+					tui.setFocus(editor);
+					tui.requestRender();
+				},
+			},
+			defaultSelectListTheme
+		);
 
 		const editorIdx = tui.children.indexOf(editor);
 		tui.children.splice(editorIdx + 1, 0, providerSelector);
@@ -319,42 +224,38 @@ async function showModelSelector(providerId: string): Promise<void> {
 	try {
 		const models = await listModels(providerId);
 
-		const modelItems: SelectItem[] = models.map((m: ModelInfo) => ({
-			label: m.name || m.id,
-			value: m.id,
-			description: m.description || m.id,
-		}));
-
-		if (modelItems.length === 0) {
+		if (models.length === 0) {
 			showMessage(`**No models available** for provider: ${providerId}`);
 			return;
 		}
 
-		const maxVisible = Math.min(modelItems.length, 5);
-		modelSelector = new SelectList(modelItems, maxVisible, defaultSelectListTheme);
+		modelSelector = createModelSelector(
+			models,
+			{
+				onSelect: async (modelId: string) => {
+					currentProvider = providerId;
+					currentModel = modelId;
 
-		modelSelector.onSelect = async (item: SelectItem) => {
-			currentProvider = providerId;
-			currentModel = item.value;
+					const providers = await listProviders();
+					const providerInfo = (providers as any[]).find((p: any) => p.id === providerId);
 
-			const providers = await listProviders();
-			const providerInfo = (providers as any[]).find((p: any) => p.id === providerId);
-
-			if (providerInfo && !providerInfo.hasApiKey) {
-				await showApiKeyInput(providerId, item.value);
-			} else {
-				await setCurrentModel(providerId, item.value);
-				updateModelDisplay();
-				showMessage(`**Model changed to:** ${providerId}/${item.value}`);
-			}
-			hideModelSelector();
-		};
-
-		modelSelector.onCancel = () => {
-			hideModelSelector();
-			tui.setFocus(editor);
-			tui.requestRender();
-		};
+					if (providerInfo && !providerInfo.hasApiKey) {
+						await showApiKeyInput(providerId, modelId);
+					} else {
+						await setCurrentModel(providerId, modelId);
+						updateModelDisplay();
+						showMessage(`**Model changed to:** ${providerId}/${modelId}`);
+					}
+					hideModelSelector();
+				},
+				onCancel: () => {
+					hideModelSelector();
+					tui.setFocus(editor);
+					tui.requestRender();
+				},
+			},
+			defaultSelectListTheme
+		);
 
 		const editorIdx = tui.children.indexOf(editor);
 		tui.children.splice(editorIdx + 1, 0, modelSelector);
