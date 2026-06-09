@@ -1,10 +1,6 @@
 <div align="center">
 
-<pre>
-<span style="color: #F5C71A;">█▀▀ █▀▀█ █▀▀ █▀▀ </span><span style="color: #9e714b;">█▀▀ █▀▀█ █▀▀▄ █▀▀</span>
-<span style="color: #F5C71A;">█▀▀ █▄▄▀ █▀▀ █▀▀ </span><span style="color: #9e714b;">█   █  █ █  █ █▀▀</span>
-<span style="color: #F5C71A;">▀   ▀ ▀▀ ▀▀▀ ▀▀▀ </span><span style="color: #9e714b;">▀▀▀ ▀▀▀▀ ▀▀▀  ▀▀▀</span>
-</pre>
+<img src="logo.svg" alt="FreeCode Logo" width="320" height="60" />
 
 
 **Open source CLI tool that drives AI coding assistants via browser automation**
