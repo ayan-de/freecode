@@ -31,14 +31,53 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     // The underlying implementation accepts plain JSON schema objects
     const generateOptions: any = {
       model: anthropic(model),
-      system: opts.system,
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
     }
 
+    if (opts.system) {
+      if (typeof opts.system === 'string') {
+        generateOptions.system = opts.system
+      } else {
+        generateOptions.system = opts.system.map(block => {
+          const part: any = { type: 'text', text: block.text }
+          if (block.cache) {
+            part.providerOptions = {
+              anthropic: { cacheControl: { type: 'ephemeral' } }
+            }
+          }
+          return part
+        })
+      }
+    }
+
     if (opts.messages) {
-      generateOptions.messages = convertToCoreMessages(opts.messages)
+      const coreMessages = convertToCoreMessages(opts.messages)
+      if (coreMessages.length > 0) {
+        const lastMsg = coreMessages[coreMessages.length - 1]
+        if (lastMsg) {
+          if (typeof lastMsg.content === 'string') {
+            lastMsg.content = [
+              {
+                type: 'text',
+                text: lastMsg.content,
+                providerOptions: {
+                  anthropic: { cacheControl: { type: 'ephemeral' } }
+                }
+              } as any
+            ]
+          } else if (Array.isArray(lastMsg.content)) {
+            const lastPart = lastMsg.content[lastMsg.content.length - 1]
+            if (lastPart && typeof lastPart === 'object') {
+              (lastPart as any).providerOptions = {
+                anthropic: { cacheControl: { type: 'ephemeral' } }
+              }
+            }
+          }
+        }
+      }
+      generateOptions.messages = coreMessages
     } else {
       generateOptions.prompt = opts.prompt
     }
@@ -56,6 +95,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     })
 
     const content = result.text || ""
+    const anthropicMetadata = result.providerMetadata?.anthropic as any
 
     return {
       content,
@@ -64,6 +104,8 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
       usage: result.usage ? {
         inputTokens: result.usage.inputTokens ?? 0,
         outputTokens: result.usage.outputTokens ?? 0,
+        cacheCreationInputTokens: anthropicMetadata?.cacheCreationInputTokens ?? undefined,
+        cacheReadInputTokens: anthropicMetadata?.cacheReadInputTokens ?? undefined,
       } : undefined,
       stopReason: result.finishReason === "tool-calls" ? "tool_use"
         : result.finishReason === "length" ? "max_tokens"

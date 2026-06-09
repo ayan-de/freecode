@@ -29,9 +29,13 @@ function createGeminiProvider(_apiKey: string): AIProvider {
 
     // Cast to any to satisfy AI SDK's ToolSet type which expects FlexibleSchema<never>
     // The underlying implementation accepts plain JSON schema objects
+    const systemPrompt = typeof opts.system === 'string'
+      ? opts.system
+      : opts.system?.map(b => b.text).join('\n\n')
+
     const generateOptions: any = {
       model: gemini.languageModel(model),
-      system: opts.system,
+      system: systemPrompt,
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,

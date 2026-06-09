@@ -14,10 +14,15 @@ export interface ToolDef {
   parameters: Record<string, unknown>
 }
 
+export interface SystemBlock {
+  text: string
+  cache?: boolean
+}
+
 export interface ExecuteOptions {
   prompt?: string
   messages?: Message[]
-  system?: string
+  system?: string | SystemBlock[]
   model?: string
   temperature?: number
   maxTokens?: number
@@ -30,7 +35,12 @@ export interface ExecuteResult {
   content: string
   thinking?: string  // Extended thinking/reasoning content
   toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>
-  usage?: { inputTokens: number; outputTokens: number }
+  usage?: {
+    inputTokens: number
+    outputTokens: number
+    cacheCreationInputTokens?: number
+    cacheReadInputTokens?: number
+  }
   stopReason: "stop" | "tool_use" | "max_tokens" | "unknown"
   provider: string
   model: string

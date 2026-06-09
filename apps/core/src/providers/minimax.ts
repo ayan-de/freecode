@@ -19,7 +19,10 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
 
     const messages: Array<{ role: "user" | "assistant"; content: string | Array<{ type: string; [key: string]: unknown }> }> = []
     if (opts.system) {
-      messages.push({ role: "user", content: opts.system })
+      const systemPrompt = typeof opts.system === 'string'
+        ? opts.system
+        : opts.system.map(b => b.text).join('\n\n')
+      messages.push({ role: "user", content: systemPrompt })
     }
 
     if (opts.messages) {

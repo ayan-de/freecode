@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { mkdir, readFile, writeFile, readdir } from 'fs/promises'
+import { existsSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { formatSessionDirName } from '../store/path-formatter.js'
@@ -135,7 +136,26 @@ class SessionStoreImpl implements SessionStore {
   }
 
   private sessionDir(sessionId: string, projectPath?: string): string {
-    const projDir = projectPath ? this.getProjectDir(projectPath) : this.projectDir
+    let projDir = projectPath ? this.getProjectDir(projectPath) : this.projectDir
+    if (!projDir) {
+      const sessionsDir = join(this.baseDir, SESSION_DIR)
+      if (existsSync(sessionsDir)) {
+        try {
+          const entries = readdirSync(sessionsDir, { withFileTypes: true })
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              const candidate = join(sessionsDir, entry.name, sessionId)
+              if (existsSync(candidate)) {
+                projDir = entry.name
+                break
+              }
+            }
+          }
+        } catch {
+          // ignore directory read errors
+        }
+      }
+    }
     if (!projDir) throw new Error('Project path required')
     return join(this.baseDir, SESSION_DIR, projDir, sessionId)
   }

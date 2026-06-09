@@ -19,6 +19,7 @@ import type {
   ToolCall,
   ToolResult,
   Message,
+  MessagePart,
   LoopHeuristics,
   UserInput,
   LoopResult,
@@ -26,6 +27,7 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js"
+import type { SystemBlock } from "../providers/types.js"
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js"
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js"
 import type { StreamEvent } from "@thisisayande/freecode-shared"
@@ -81,6 +83,74 @@ export class AgentLoop {
     this.sessionStore = config?.sessionStore
   }
 
+  private async loadHistory(): Promise<void> {
+    if (!this.sessionStore) {
+      this.history = []
+      return
+    }
+
+    await this.ensureProjectPath()
+    try {
+      const serialized = await this.sessionStore.getMessages(this.state.sessionId, this.state.projectPath)
+      this.history = serialized.map((msg): Message => {
+        return {
+          id: msg.id,
+          role: msg.role,
+          timestamp: msg.timestamp,
+          parts: msg.parts.map((part): MessagePart => {
+            if (part.type === 'text') {
+              return { type: 'text', content: part.content || '' }
+            } else if (part.type === 'code') {
+              return { type: 'code', language: part.language || '', content: part.content || '' }
+            } else {
+              const toolCall: ToolCall = {
+                id: `tool-${msg.id}`,
+                tool: part.tool?.name || '',
+                args: part.tool?.args || {},
+                execution: 'sequential'
+              }
+              return {
+                type: 'tool',
+                tool: toolCall,
+                result: part.result
+              }
+            }
+          })
+        }
+      })
+    } catch (error) {
+      console.error("[AgentLoop] Failed to load history from sessionStore:", error)
+      this.history = []
+    }
+  }
+
+  private maybeTimeBasedMicrocompact(messages: Message[], gapThresholdMinutes = 5): Message[] {
+    if (messages.length === 0) return messages
+
+    const lastMessage = messages[messages.length - 1]
+    const gapMinutes = (Date.now() - lastMessage.timestamp) / 60_000
+    if (gapMinutes < gapThresholdMinutes) return messages
+
+    console.log(`[AgentLoop] Idle gap of ${gapMinutes.toFixed(1)}m detected. Performing time-based compaction of old tool results to reduce token count on cold start.`)
+
+    return messages.map((msg) => {
+      if (msg.role !== "assistant") return msg
+
+      return {
+        ...msg,
+        parts: msg.parts.map(part => {
+          if (part.type === "tool" && part.result && part.result.length > 200) {
+            return {
+              ...part,
+              result: "[Old tool result content cleared]",
+            }
+          }
+          return part
+        })
+      }
+    })
+  }
+
   // ===========================================================================
   // PUBLIC: run()
   // Main execution entry point - runs the continuous loop until completion
@@ -110,8 +180,23 @@ export class AgentLoop {
       // Step 3: Emit session.created event
       BusEvents.sessionCreated(this.state.sessionId, input.projectPath)
 
-      let prompt = input.prompt
-      let previousToolResults: ToolResult[] | undefined
+      // Load session history from persistent storage
+      await this.loadHistory()
+
+      // Prune/compact history using idle-time gap detection
+      this.history = this.maybeTimeBasedMicrocompact(this.history)
+
+      // Construct and push the new user message to history and store
+      const initialUserMessage: Message = {
+        id: randomUUID(),
+        role: "user",
+        parts: [{ type: "text", content: input.prompt }],
+        timestamp: Date.now(),
+      }
+      this.history.push(initialUserMessage)
+      await this.appendUserMessage(input.prompt)
+      this.memory.addMessage("user", input.prompt)
+
       let totalInputTokens = 0
       let totalOutputTokens = 0
 
@@ -137,7 +222,7 @@ export class AgentLoop {
         }
 
         // Execute one turn: send prompt, get response, parse tools, execute
-        const turnResult = await this.executeTurn(prompt, input.provider, input.model, contextResult.value, previousToolResults)
+        const turnResult = await this.executeTurn(input.provider, input.model, contextResult.value)
         if (!turnResult.success) {
           return this.fail("Turn execution failed", turnResult.error)
         }
@@ -153,9 +238,6 @@ export class AgentLoop {
           return this.complete("Done", turnResult.responseText, turnResult.thinking, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens })
         }
 
-        // Build continuation prompt for next iteration
-        prompt = this.buildContinuationPrompt(turnResult.toolResults)
-        previousToolResults = turnResult.toolResults
         this.state = {
           ...this.state,
           iterationCount: this.state.iterationCount + 1,
@@ -176,11 +258,9 @@ export class AgentLoop {
   // Single LLM call per turn (Claude Code/OpenCode style)
   // ===========================================================================
   private async executeTurn(
-    prompt: string,
     provider: string,
     model: string | undefined,
-    context: { name: string; projectPath: string; tree: string; gitHead: string },
-    previousToolResults?: ToolResult[]
+    context: { name: string; projectPath: string; tree: string; gitHead: string }
   ): Promise<{ success: boolean; toolResults: ToolResult[]; responseText?: string; thinking?: string; error?: string; usage?: { inputTokens: number; outputTokens: number } }> {
     try {
       // Get tools for prompt compilation
@@ -193,29 +273,28 @@ export class AgentLoop {
         }
       })
 
-      // Build full prompt using compiler
+      // Build system prompt blocks using compiler
       const memoryContext = renderPromptMemoryContext(this.memory.getPromptContext())
-      const fullPrompt = this.compiler.compile(
-        prompt,
+      const systemBlocks = this.compiler.compileSystemBlocks(
         tools,
         context.tree,
         context.gitHead,
         "", // ignorePatterns - empty for now
-        [], // recentTurns - handled via memoryContext above
         provider,
         model,
         memoryContext || undefined
       )
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
-      const hookResult = await this.hooks.runUserPromptSubmit(fullPrompt, { sessionId: this.state.sessionId, turnCount: this.state.turnCount })
-      const modifiedPrompt = hookResult.modifiedPrompt ?? fullPrompt
-      if (hookResult.additionalContext) {
-        console.log(`[AgentLoop] UserPromptSubmit hook added context`)
+      const joinedSystem = systemBlocks.map(b => b.text).join("\n\n")
+      const hookResult = await this.hooks.runUserPromptSubmit(joinedSystem, { sessionId: this.state.sessionId, turnCount: this.state.turnCount })
+      let finalSystemBlocks = systemBlocks
+      if (hookResult.modifiedPrompt && hookResult.modifiedPrompt !== joinedSystem) {
+        finalSystemBlocks = [{ text: hookResult.modifiedPrompt, cache: true }]
       }
 
-      console.log("[AgentLoop] Sending prompt to provider...")
-      const providerResult = await this.sendToProvider(modifiedPrompt, provider, model, previousToolResults)
+      console.log("[AgentLoop] Sending messages to provider...")
+      const providerResult = await this.sendToProvider(this.history, finalSystemBlocks, provider, model)
 
       // Emit thinking content if present (for UI to display as streaming reasoning)
       if (providerResult.thinking) {
@@ -239,12 +318,24 @@ export class AgentLoop {
         toolCalls = this.parseResponse(this.normalizeResponse(providerResult.content))
       }
 
+      // Construct assistant message and push to history
+      const assistantMessage: Message = {
+        id: randomUUID(),
+        role: "assistant",
+        parts: [
+          ...(providerResult.content ? [{ type: "text" as const, content: providerResult.content }] : []),
+          ...toolCalls.map(tc => ({
+            type: "tool" as const,
+            tool: tc,
+          }))
+        ],
+        timestamp: Date.now()
+      }
+      this.history.push(assistantMessage)
+
       // No tools? Return early
       if (toolCalls.length === 0) {
-        this.memory.addMessage("user", prompt)
         this.memory.addMessage("assistant", providerResult.content)
-        // Also append to session store
-        await this.appendUserMessage(prompt)
         await this.appendAssistantMessage(providerResult.content)
         if (this.memory.shouldCompact(provider)) {
           // PreCompact Hook — can inspect/modify context before compaction
@@ -253,9 +344,11 @@ export class AgentLoop {
             console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`)
           } else {
             const result = await this.memory.compact()
-            // Record compaction event
             if (result.success && result.summary) {
               this.recorder.recordCompactOccurred(result.tokenCountBefore, result.tokenCountAfter)
+              // Sync native history with preserved messages
+              const preserveCount = result.preservedMessageIds.length
+              this.history = this.history.slice(-preserveCount)
             }
             // PostCompact Hook — verify/log compaction result
             await this.hooks.runPostCompact({ sessionId: this.state.sessionId, turnCount: this.state.turnCount }, result.success)
@@ -267,6 +360,11 @@ export class AgentLoop {
         return { success: true, toolResults: [], responseText: providerResult.content, thinking: providerResult.thinking, usage: providerResult.usage }
       }
 
+      // If there are tool calls, append assistant text (if present) to session store
+      if (providerResult.content) {
+        await this.appendAssistantMessage(providerResult.content)
+      }
+
       // Execute each tool sequentially (as per spec: sequential tools run one at a time)
       const toolResults: ToolResult[] = []
       for (const toolCall of toolCalls) {
@@ -274,16 +372,19 @@ export class AgentLoop {
         toolResults.push(result)
         // Update loop health tracking after each tool execution
         this.updateLoopHealth(toolCall, result)
+
+        // Find tool part in assistantMessage and update its result
+        const part = assistantMessage.parts.find(p => p.type === "tool" && p.tool.id === toolCall.id)
+        if (part && part.type === "tool") {
+          part.result = result.stdout || result.error || ""
+        }
+
         // Append tool result to session store
         await this.appendToolMessage(toolCall, result)
       }
 
-      // Record messages and check for compaction after tool execution
-      this.memory.addMessage("user", prompt)
-      this.memory.addMessage("assistant", providerResult.content)
-      // Also append to session store
-      await this.appendUserMessage(prompt)
-      await this.appendAssistantMessage(providerResult.content)
+      // Add assistant response to MemoryService for token tracking
+      this.memory.addMessage("assistant", providerResult.content || `[Executed ${toolCalls.length} tools]`)
 
       if (this.memory.shouldCompact(provider)) {
         // PreCompact Hook — can inspect/modify context before compaction
@@ -292,9 +393,11 @@ export class AgentLoop {
           console.warn(`[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`)
         } else {
           const result = await this.memory.compact()
-          // Record compaction event
           if (result.success && result.summary) {
             this.recorder.recordCompactOccurred(result.tokenCountBefore, result.tokenCountAfter)
+            // Sync native history with preserved messages
+            const preserveCount = result.preservedMessageIds.length
+            this.history = this.history.slice(-preserveCount)
           }
           // PostCompact Hook — verify/log compaction result
           await this.hooks.runPostCompact({ sessionId: this.state.sessionId, turnCount: this.state.turnCount }, result.success)
@@ -315,10 +418,10 @@ export class AgentLoop {
   // Send prompt to AI provider via provider adapter
   // ===========================================================================
   private async sendToProvider(
-    prompt: string,
+    messages: Message[],
+    system: SystemBlock[],
     provider: string,
-    model: string | undefined,
-    toolResults?: ToolResult[]
+    model: string | undefined
   ): Promise<{ content: string; thinking?: string; toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>; usage?: { inputTokens: number; outputTokens: number } }> {
     const aiProvider = getProvider(provider as any)
     const tools = listTools().map(t => {
@@ -330,14 +433,9 @@ export class AgentLoop {
       }
     })
     const result = await aiProvider.execute({
-      prompt,
-      system: loadProviderPrompt(provider),
+      messages,
+      system,
       tools,
-      toolResults: toolResults?.map(tr => ({
-        toolCallId: tr.toolCallId,
-        result: tr.modelOutput || tr.displayOutput || tr.error || "",
-        name: tr.tool,
-      })),
       model,
     })
     return { content: result.content, thinking: result.thinking, toolCalls: result.toolCalls, usage: result.usage }
@@ -779,8 +877,23 @@ export class AgentLoop {
   // Append messages to session store for persistence
   // ===========================================================================
 
+  private async ensureProjectPath(): Promise<void> {
+    if (!this.state.projectPath && this.sessionStore) {
+      try {
+        const all = await this.sessionStore.list()
+        const meta = all.find(s => s.id === this.state.sessionId)
+        if (meta && meta.projectPath) {
+          this.state.projectPath = meta.projectPath
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   private async appendUserMessage(content: string): Promise<void> {
     if (!this.sessionStore) return
+    await this.ensureProjectPath()
     const message: SerializedMessage = {
       id: randomUUID(),
       role: "user",
@@ -792,6 +905,7 @@ export class AgentLoop {
 
   private async appendAssistantMessage(content: string): Promise<string> {
     if (!this.sessionStore) return ''
+    await this.ensureProjectPath()
     const id = randomUUID()
     const message: SerializedMessage = {
       id,
@@ -807,6 +921,7 @@ export class AgentLoop {
 
   private async appendToolMessage(toolCall: ToolCall, result: ToolResult): Promise<void> {
     if (!this.sessionStore) return
+    await this.ensureProjectPath()
     const message: SerializedMessage = {
       id: randomUUID(),
       role: "assistant",

@@ -6,6 +6,7 @@
 
 import type { AgentMode } from "../agent/types.js"
 import type { ToolCall, ToolResult } from "../agent/types.js"
+import type { SystemBlock } from "../providers/types.js"
 
 // ===========================================================================
 // System Prompts per Agent Mode
@@ -192,6 +193,37 @@ Assistant: ${turn.response}`
    */
   compileMessageSection(prompt: string): string {
     return `Task: ${prompt}`
+  }
+
+  /**
+   * Compile system prompt blocks for caching
+   */
+  compileSystemBlocks(
+    tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>,
+    tree: string,
+    gitHead: string,
+    ignorePatterns: string,
+    provider: string,
+    model?: string,
+    memoryContext?: string
+  ): SystemBlock[] {
+    const staticText = [
+      this.compileSystemPrompt(),
+      "",
+      this.compileToolsSection(tools, provider, model),
+    ].filter((s) => s.length > 0).join("\n\n")
+
+    const dynamicText = [
+      this.compileProjectSummary(tree, gitHead, ignorePatterns),
+      "",
+      memoryContext ? `Session context:\n${memoryContext}` : "",
+      `Current Time: ${new Date().toISOString()}`,
+    ].filter((s) => s.length > 0).join("\n\n")
+
+    return [
+      { text: staticText, cache: true },
+      { text: dynamicText, cache: false }
+    ]
   }
 
   /**
