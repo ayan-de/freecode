@@ -97,7 +97,8 @@ ${formatProviderList()}`);
         currentSession!.sessionId,
         userPrompt,
         undefined,
-        (event) => ctx.handleToolEvent?.(event)
+        "build",
+        (event: import("@thisisayande/freecode-shared").StreamEvent) => ctx.handleToolEvent?.(event)
       );
 
       // Update in-progress message with token counts

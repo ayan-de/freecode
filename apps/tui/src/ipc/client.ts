@@ -173,6 +173,7 @@ export async function sessionSendStreaming(
   sessionId: string,
   message: string,
   model: string | undefined,
+  agentMode: string | undefined,
   onEvent: (event: StreamEvent) => void
 ): Promise<SessionSendResult> {
   return new Promise((resolve, reject) => {
@@ -184,7 +185,7 @@ export async function sessionSendStreaming(
     onStreamEvent = onEvent;
 
     const id = generateId();
-    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method: "session.send", params: { sessionId, message, model } };
+    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method: "session.send", params: { sessionId, message, model, agentMode } };
     pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
@@ -257,8 +258,8 @@ export async function sessionList(filter?: SessionFilter): Promise<SessionMeta[]
   return (await sendRequest("session.list", filter as Record<string, unknown>)) as SessionMeta[]
 }
 
-export async function sessionResume(sessionId: string): Promise<{ sessionId: string; messages?: SerializedMessage[] }> {
-  return (await sendRequest("session.resume", { sessionId })) as { sessionId: string; messages?: SerializedMessage[] }
+export async function sessionResume(sessionId: string, agentMode?: string): Promise<{ sessionId: string; messages?: SerializedMessage[] }> {
+  return (await sendRequest("session.resume", { sessionId, agentMode })) as { sessionId: string; messages?: SerializedMessage[] }
 }
 
 export interface SerializedMessage {

@@ -492,6 +492,7 @@ editor.onSubmit = async (value: string) => {
 			currentSession.sessionId,
 			trimmed,
 			undefined,
+			currentAgentMode,
 			(event: StreamEvent) => {
 				handleToolEvent(event);
 			}

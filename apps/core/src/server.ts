@@ -132,7 +132,7 @@ const methodHandlers: Record<
   },
 
   "session.send": async (params: Record<string, unknown>): Promise<unknown> => {
-    const { sessionId, message, model } = params as { sessionId: string; message: string; model?: string };
+    const { sessionId, message, model, agentMode: paramAgentMode } = params as { sessionId: string; message: string; model?: string; agentMode?: string };
     const session = getSession(sessionId);
 
     if (!session) {
@@ -148,7 +148,12 @@ const methodHandlers: Record<
       session.model = model;
     }
 
-    // Get agentMode from session (set during session.start)
+    // Update session with agentMode if provided
+    if (paramAgentMode) {
+      (session as unknown as Record<string, unknown>).agentMode = paramAgentMode;
+    }
+
+    // Get agentMode from session (set during session.start or updated above)
     const agentMode = (session as unknown as Record<string, unknown>).agentMode as "plan" | "build" | "review" | "explore" | "danger" | undefined;
 
     logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider, agentMode });
@@ -274,10 +279,26 @@ const methodHandlers: Record<
     return manager.list({ projectPath, status })
   },
 
-  "session.resume": async (params: Record<string, unknown>): Promise<SessionContext> => {
+  "session.resume": async (params: Record<string, unknown>): Promise<unknown> => {
     const { sessionId } = params as { sessionId: string }
     const manager = await getSessionManager()
-    return manager.resume(sessionId)
+    const context = await manager.resume(sessionId)
+
+    // Store in-memory session mapping so that subsequent session.send requests can find it
+    const session: SessionInfo = {
+      id: context.id,
+      projectPath: context.projectPath,
+      provider: context.provider,
+    };
+    // Initialize default agent mode
+    (session as unknown as Record<string, unknown>).agentMode = "build";
+    sessions.set(context.id, session);
+
+    // Return shape the TUI client expects: { sessionId, messages }
+    return {
+      sessionId: context.id,
+      messages: context.messages,
+    }
   },
 
   "session.switch": async (params: Record<string, unknown>): Promise<void> => {
