@@ -1,5 +1,6 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
+import { startInteractiveHeatmap } from "@thisisayande/terminal-heatmap";
 
 const helpCommand: Command = {
 	name: "help",
@@ -11,6 +12,7 @@ const helpCommand: Command = {
 - **/clear** - Clear all messages
 - **/model** - Select AI model
 - **/resume** - Resume a previous session
+- **/usage** - Show daily token usage heatmap
 - **/exit** - Exit FreeCode
 
 Just type your prompt to start chatting!`);
@@ -51,10 +53,55 @@ const resumeCommand: Command = {
 	},
 };
 
+const usageCommand: Command = {
+	name: "usage",
+	description: "Show daily token usage heatmap",
+	execute: async (_args, ctx) => {
+		let data: any[] = [];
+		try {
+			const fs = await import("fs");
+			const path = await import("path");
+			const os = await import("os");
+			const usagePath = path.join(os.homedir(), ".freecode", "usage.json");
+			
+			if (fs.existsSync(usagePath)) {
+				const content = fs.readFileSync(usagePath, "utf-8");
+				data = JSON.parse(content);
+			} else {
+				ctx.showMessage(`*No usage.json found at .freecode/usage.json. Showing heatmap with {} data.*`);
+				// Show empty heatmap
+				data = [];
+			}
+		} catch (err) {
+			ctx.showMessage(`*Error reading usage.json: ${err}*`);
+			return;
+		}
+
+		ctx.showMessage(`*Launching interactive token usage heatmap... Press 'q' or 'Esc' to exit.*`);
+
+		await startInteractiveHeatmap(data, {
+			title: "Daily Token Usage",
+			preset: "double-block",
+			allDayLabels: true,
+			theme: {
+				colors: ["#2d2d2d", "#82660a", "#C2990F", "#DCAE15", "#F5C71A"]
+			}
+		});
+
+		// Restore pi-tui terminal state
+		if (process.stdin.setRawMode) {
+			process.stdin.setRawMode(true);
+		}
+		process.stdin.resume();
+		process.stdout.write('\x1b[?25l'); // hide hardware cursor
+	},
+};
+
 export function registerBuiltInCommands(): void {
 	registerCommand(helpCommand);
 	registerCommand(clearCommand);
 	registerCommand(exitCommand);
 	registerCommand(modelCommand);
 	registerCommand(resumeCommand);
+	registerCommand(usageCommand);
 }

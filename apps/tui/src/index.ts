@@ -429,6 +429,7 @@ editor.onSubmit = async (value: string) => {
 		if (commandName) {
 			const command = commandRegistry.get(commandName);
 			if (command) {
+				editor.setText("");
 				command.execute(args, {
 					showMessage,
 					showModelSelector: showProviderSelector,
