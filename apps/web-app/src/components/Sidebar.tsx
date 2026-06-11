@@ -8,8 +8,8 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const sidebarClasses = `
     fixed inset-y-0 left-0 z-50 w-72 bg-bg-secondary border-r border-border p-5 flex flex-col transition-all duration-300 ease-in-out
-    lg:relative lg:z-0 lg:w-80 lg:flex
-    ${isOpen ? "translate-x-0 lg:ml-0" : "-translate-x-full lg:-ml-80"}
+    lg:relative lg:z-0 lg:flex
+    ${isOpen ? "translate-x-0 lg:ml-0" : "-translate-x-full lg:-ml-72"}
   `;
 
   return (

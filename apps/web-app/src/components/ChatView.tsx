@@ -62,34 +62,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       </header>
 
-      {/* Message Feed */}
-      <div className="flex-1 overflow-y-auto bg-bg-primary">
-        {!sessionId ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
-            <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/25 flex items-center justify-center mb-6 text-indigo-400">
-              <FolderOpenIcon />
+      {/* Message Feed Container */}
+      <div className="relative flex-1 flex flex-col overflow-hidden bg-bg-primary">
+        <div className="flex-1 overflow-y-auto pb-32">
+          {!sessionId ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/25 flex items-center justify-center mb-6 text-indigo-400">
+                <FolderOpenIcon />
+              </div>
+              <h2 className="text-lg font-bold text-gray-100 mb-2">No Active Session</h2>
+              <p className="text-sm text-gray-400 leading-relaxed">
+                Start a session in the settings sidebar to begin coding and interacting with your project.
+              </p>
             </div>
-            <h2 className="text-lg font-bold text-gray-100 mb-2">No Active Session</h2>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              Start a session in the settings sidebar to begin coding and interacting with your project.
-            </p>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto pb-32">
+          ) : (
             <MessageList />
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Floating Input Area */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-20">
-          <div className="shadow-2xl rounded-xl bg-bg-primary border border-border">
-              <PromptInput
-                onSend={onSend}
-                disabled={!sessionId || status === "streaming" || connState !== "connected"}
-                workspaceFiles={workspaceFiles}
-                projectPath={projectPath}
-                selectedModel={selectedModel}
-              />
+        {/* Floating Input Area (Fixed to the bottom of ChatView) */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-20 pointer-events-none">
+          <div className="shadow-2xl rounded-2xl bg-bg-primary border border-border pointer-events-auto">
+            <PromptInput
+              onSend={onSend}
+              disabled={!sessionId || status === "streaming" || connState !== "connected"}
+              workspaceFiles={workspaceFiles}
+              projectPath={projectPath}
+              selectedModel={selectedModel}
+            />
           </div>
         </div>
       </div>
