@@ -67,10 +67,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="flex-1 overflow-y-auto pb-32">
           {!sessionId ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/25 flex items-center justify-center mb-6 text-indigo-400">
-                <FolderOpenIcon />
+              <div className="flex items-center justify-center mb-2">
+                <FreeCodeLogo />
               </div>
-              <h2 className="text-lg font-bold text-gray-100 mb-2">No Active Session</h2>
+              {/* <h2 className="text-lg font-bold text-gray-100 mb-2">No Active Session</h2> */}
               <p className="text-sm text-gray-400 leading-relaxed">
                 Start a session in the settings sidebar to begin coding and interacting with your project.
               </p>
@@ -97,20 +97,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   );
 };
 
-// Simple Icon fallback
-const FolderOpenIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="28"
-    height="28"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
-    <path d="M2 10h20" />
+// FreeCode Logo
+const FreeCodeLogo = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 286 60" width="286" height="60">
+    <style>
+      {`
+        .logo-left { font: bold 14px monospace; fill: #F5C71A; white-space: pre; }
+        .logo-right { font: bold 14px monospace; fill: #C2990F; white-space: pre; }
+      `}
+    </style>
+    <text x="0" y="15">
+      <tspan className="logo-left">█▀▀ █▀▀█ █▀▀ █▀▀ </tspan><tspan className="logo-right">█▀▀ █▀▀█ █▀▀▄ █▀▀</tspan>
+    </text>
+    <text x="0" y="32">
+      <tspan className="logo-left">█▀▀ █▄▄▀ █▀▀ █▀▀ </tspan><tspan className="logo-right">█   █  █ █  █ █▀▀</tspan>
+    </text>
+    <text x="0" y="49">
+      <tspan className="logo-left">▀   ▀ ▀▀ ▀▀▀ ▀▀▀ </tspan><tspan className="logo-right">▀▀▀ ▀▀▀▀ ▀▀▀  ▀▀▀</tspan>
+    </text>
   </svg>
 );
