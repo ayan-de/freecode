@@ -29,7 +29,8 @@ pub fn run() {
             // Spawn the CLI backend process
             let mut child = Command::new("npx")
                 .arg("tsx")
-                .arg("../../core/src/server.ts")
+                .arg("src/server.ts")
+                .current_dir("../../core")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .spawn()
