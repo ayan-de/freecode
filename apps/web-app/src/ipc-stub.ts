@@ -30,26 +30,55 @@ export interface ModelInfo {
   provider: string;
 }
 
-let nextRequestId = 1;
-let eventSource: EventSource | null = null;
+import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
-// Connect to the backend (verifies backend is reachable)
-export async function connectBackend(): Promise<void> {
-  const response = await fetch("/api", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "ping",
-      method: "providers.list",
-    }),
+// Helper to check if we are running inside the Tauri desktop app
+const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
+
+const HTTP_BASE_URL = "http://127.0.0.1:4096";
+
+let nextRequestId = 1;
+const pendingRequests = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
+let streamCallback: ((event: any) => void) | null = null;
+let unlistenCliMessage: UnlistenFn | null = null;
+
+// Initialize Tauri listener for all CLI output
+async function initTauriListener() {
+  if (unlistenCliMessage || !isTauri) return;
+  unlistenCliMessage = await listen<string>("cli-message", (event) => {
+    try {
+      const data = JSON.parse(event.payload);
+      // If it has an id, it's a JSON-RPC response
+      if (data.id !== undefined && pendingRequests.has(data.id)) {
+        const promiseHandlers = pendingRequests.get(data.id)!;
+        pendingRequests.delete(data.id);
+        if (data.error) {
+          promiseHandlers.reject(new Error(data.error.message || "Request failed"));
+        } else {
+          promiseHandlers.resolve(data.result);
+        }
+      } 
+      // Otherwise, if there is a stream callback and it looks like a stream event (has type)
+      else if (streamCallback && data.type) {
+        streamCallback(data);
+      }
+    } catch (err) {
+      console.error("[IPC] Failed to parse cli-message:", err, event.payload);
+    }
   });
-  if (!response.ok) {
-    throw new Error("Backend server is not responding");
-  }
 }
 
-// Send a JSON-RPC request over HTTP POST
+// Connect to the backend (verifies backend is reachable via Tauri)
+export async function connectBackend(): Promise<void> {
+  if (isTauri) {
+    await initTauriListener();
+  }
+  // Ping backend to ensure CLI is up
+  await sendRequest("providers.list");
+}
+
+// Send a JSON-RPC request over Tauri's CLI stdin pipe OR Http
 async function sendRequest<T>(method: string, params: Record<string, any> = {}): Promise<T> {
   const id = nextRequestId++;
   const request = {
@@ -59,47 +88,53 @@ async function sendRequest<T>(method: string, params: Record<string, any> = {}):
     params,
   };
 
-  const response = await fetch("/api", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! Status: ${response.status}`);
+  if (isTauri) {
+    await initTauriListener();
+    return new Promise<T>((resolve, reject) => {
+      pendingRequests.set(id, { resolve, reject });
+      invoke("send_to_cli", { message: JSON.stringify(request) }).catch(reject);
+    });
+  } else {
+    // Fallback to HTTP for normal web browsers
+    const response = await fetch(`${HTTP_BASE_URL}/api`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error.message || "Request failed");
+    }
+    return data.result as T;
   }
-
-  const data = await response.json();
-  if (data.error) {
-    throw new Error(data.error.message || "Request failed");
-  }
-  return data.result as T;
 }
 
+let eventSource: EventSource | null = null;
+
 export function registerStreamListener(sessionId: string, callback: (event: any) => void): void {
-  if (eventSource) {
-    eventSource.close();
+  streamCallback = callback;
+
+  if (!isTauri) {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource(`${HTTP_BASE_URL}/events?sessionId=${sessionId}`);
+    eventSource.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (streamCallback && data.type) {
+          streamCallback(data);
+        }
+      } catch (err) {
+        console.error("Failed to parse SSE message", err);
+      }
+    };
   }
-
-  eventSource = new EventSource(`/events?sessionId=${sessionId}`);
-
-  eventSource.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      callback(data);
-    } catch (err) {
-      console.error("[IPC] Failed to parse SSE event data:", err);
-    }
-  };
-
-  eventSource.onerror = (err) => {
-    console.error("[IPC] EventSource error:", err);
-  };
 }
 
 export function unregisterStreamListener(): void {
+  streamCallback = null;
   if (eventSource) {
     eventSource.close();
     eventSource = null;

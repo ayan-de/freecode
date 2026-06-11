@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useChatStore } from "./stores";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
+import { Titlebar } from "./components/Titlebar";
 import {
   connectBackend,
   listProviders,
@@ -323,42 +324,45 @@ export const App: React.FC = () => {
   const isKeySaved = selectedProvider ? apiKeysStatus[selectedProvider] : false;
 
   return (
-    <div className="flex h-screen w-screen bg-bg-primary overflow-hidden font-sans">
-      <Sidebar
-        projectPath={projectPath}
-        setProjectPath={setProjectPath}
-        selectedProvider={selectedProvider}
-        setSelectedProvider={setSelectedProvider}
-        providers={providers}
-        selectedModel={selectedModel}
-        setSelectedModel={setSelectedModel}
-        models={models}
-        agentMode={agentMode}
-        setAgentMode={setAgentMode}
-        apiKey={apiKey}
-        setApiKeyInput={setApiKeyInput}
-        isKeySaved={isKeySaved}
-        sessionId={sessionId}
-        onStartSession={handleStartSession}
-        onResetSession={handleReset}
-        status={status}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        sessionsList={sessionsList}
-        onResumeSession={handleResumeSession}
-        onDeleteSession={handleDeleteSession}
-      />
-      
-      <ChatView
-        connState={connState}
-        sessionId={sessionId}
-        projectPath={projectPath}
-        selectedModel={selectedModel}
-        status={status}
-        onSend={handleSend}
-        workspaceFiles={workspaceFiles}
-        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-      />
+    <div className="flex flex-col h-screen w-screen bg-bg-primary overflow-hidden font-sans">
+      <Titlebar />
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar
+          projectPath={projectPath}
+          setProjectPath={setProjectPath}
+          selectedProvider={selectedProvider}
+          setSelectedProvider={setSelectedProvider}
+          providers={providers}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          models={models}
+          agentMode={agentMode}
+          setAgentMode={setAgentMode}
+          apiKey={apiKey}
+          setApiKeyInput={setApiKeyInput}
+          isKeySaved={isKeySaved}
+          sessionId={sessionId}
+          onStartSession={handleStartSession}
+          onResetSession={handleReset}
+          status={status}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          sessionsList={sessionsList}
+          onResumeSession={handleResumeSession}
+          onDeleteSession={handleDeleteSession}
+        />
+        
+        <ChatView
+          connState={connState}
+          sessionId={sessionId}
+          projectPath={projectPath}
+          selectedModel={selectedModel}
+          status={status}
+          onSend={handleSend}
+          workspaceFiles={workspaceFiles}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        />
+      </div>
     </div>
   );
 };
