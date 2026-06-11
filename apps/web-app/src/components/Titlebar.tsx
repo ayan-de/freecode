@@ -13,7 +13,7 @@ export function Titlebar() {
   return (
     <div
       data-tauri-drag-region
-      className="h-10 bg-[#111111] flex items-center justify-between select-none border-b border-[#222]"
+      className="h-8 bg-[#111111] flex items-center justify-between select-none border-b border-[#222]"
     >
       <div 
         className="pl-4 flex items-center space-x-4 pointer-events-none text-[#a3a3a3] text-sm"
@@ -23,24 +23,24 @@ export function Titlebar() {
         <span>Building FreeCode Rust Interface</span>
       </div>
 
-      <div className="flex h-full">
+      <div className="flex items-center h-full pr-2 space-x-1">
         <button
-          className="h-full px-4 text-[#a3a3a3] hover:bg-[#222] hover:text-white transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded-full text-[#a3a3a3] hover:bg-[#333] hover:text-white transition-colors"
           onClick={() => appWindow.minimize()}
         >
-          <Minus size={16} />
+          <Minus size={12} />
         </button>
         <button
-          className="h-full px-4 text-[#a3a3a3] hover:bg-[#222] hover:text-white transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded-full text-[#a3a3a3] hover:bg-[#333] hover:text-white transition-colors"
           onClick={() => appWindow.toggleMaximize()}
         >
-          <Square size={14} />
+          <Square size={10} />
         </button>
         <button
-          className="h-full px-4 text-[#a3a3a3] hover:bg-red-500 hover:text-white transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded-full text-[#a3a3a3] hover:bg-[#333] hover:text-white transition-colors"
           onClick={() => appWindow.close()}
         >
-          <X size={16} />
+          <X size={12} />
         </button>
       </div>
     </div>
