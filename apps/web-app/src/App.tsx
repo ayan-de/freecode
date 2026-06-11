@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useChatStore } from "./stores";
-import { MessageList } from "./chat/MessageList";
-import { MessageInput } from "./chat/MessageInput";
+import { Sidebar } from "./components/Sidebar";
+import { ChatView } from "./components/ChatView";
 import {
   connectBackend,
   listProviders,
@@ -13,10 +13,14 @@ import {
   stopSession,
   registerStreamListener,
   unregisterStreamListener,
+  callTool,
+  listSessions,
+  resumeSession,
+  deleteSession,
   type ProviderInfo,
   type ModelInfo,
+  type SessionContext,
 } from "./ipc-stub";
-import "./App.css";
 
 export const App: React.FC = () => {
   const status = useChatStore((s) => s.status);
@@ -37,13 +41,30 @@ export const App: React.FC = () => {
   const [agentMode, setAgentMode] = useState("build");
   const [apiKey, setApiKeyInput] = useState("");
   const [apiKeysStatus, setApiKeysStatus] = useState<Record<string, boolean>>({});
+  
+  // Responsive sidebar open on mobile
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // File mention database pre-fetched on session start
+  const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
   // Active Session states
   const [sessionId, setSessionId] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const [sessionsList, setSessionsList] = useState<SessionContext[]>([]);
 
   // Keep track of tool call IDs to their part index in the last message
   const toolCallPartIndices = useRef<Map<string, number>>(new Map());
+
+  const loadSessionsHistory = useCallback(async (path: string) => {
+    if (!path) return;
+    try {
+      const list = await listSessions(path);
+      const sorted = [...list].sort((a, b) => b.lastTurnAt - a.lastTurnAt);
+      setSessionsList(sorted);
+    } catch (err) {
+      console.error("Failed to load session history:", err);
+    }
+  }, []);
 
   // Connect Backend on load
   useEffect(() => {
@@ -60,6 +81,13 @@ export const App: React.FC = () => {
       unregisterStreamListener();
     };
   }, []);
+
+  // Fetch session history when connected or project path changes
+  useEffect(() => {
+    if (connState === "connected" && projectPath) {
+      loadSessionsHistory(projectPath);
+    }
+  }, [connState, projectPath, loadSessionsHistory]);
 
   const loadProviders = async () => {
     try {
@@ -149,11 +177,12 @@ export const App: React.FC = () => {
       }
     } else if (event.type === "done") {
       setStatus("idle");
+      loadSessionsHistory(projectPath);
     } else if (event.type === "error") {
       setError(event.content);
       setStatus("error");
     }
-  }, [addMessage, addPartToLastMessage, updateLastMessagePart, setStatus, setError]);
+  }, [addMessage, addPartToLastMessage, updateLastMessagePart, setStatus, setError, loadSessionsHistory, projectPath]);
 
   const handleStartSession = async () => {
     if (!projectPath) {
@@ -165,6 +194,7 @@ export const App: React.FC = () => {
     setError(null);
     clearMessages();
     toolCallPartIndices.current.clear();
+    setWorkspaceFiles([]);
 
     try {
       // Set API Key if entered
@@ -186,9 +216,75 @@ export const App: React.FC = () => {
       sessionIdRef.current = session.sessionId;
       registerStreamListener(session.sessionId, handleStreamEvent);
       setStatus("idle");
+
+      // Load files for autocomplete context using glob tool in the background
+      try {
+        const globResult = await callTool("glob", { pattern: "**/*", cwd: projectPath });
+        if (globResult.success && globResult.output) {
+          const files = globResult.output.split("\n").filter(Boolean);
+          setWorkspaceFiles(files);
+        }
+      } catch (e) {
+        console.error("Failed to load workspace file tree:", e);
+      }
+
+      loadSessionsHistory(projectPath);
     } catch (err: any) {
       setError(err.message || "Failed to start session");
       setStatus("error");
+    }
+  };
+
+  const handleResumeSession = async (sid: string) => {
+    setStatus("streaming");
+    setError(null);
+    clearMessages();
+    toolCallPartIndices.current.clear();
+    setWorkspaceFiles([]);
+
+    try {
+      if (sessionId && sessionId !== sid) {
+        await stopSession(sessionId).catch(() => {});
+      }
+
+      const resumed = await resumeSession(sid);
+
+      setSessionId(resumed.sessionId);
+      sessionIdRef.current = resumed.sessionId;
+
+      useChatStore.setState({ messages: resumed.messages });
+
+      registerStreamListener(resumed.sessionId, handleStreamEvent);
+      setStatus("idle");
+
+      // Load files for autocomplete context using glob tool in the background
+      try {
+        const globResult = await callTool("glob", { pattern: "**/*", cwd: projectPath });
+        if (globResult.success && globResult.output) {
+          const files = globResult.output.split("\n").filter(Boolean);
+          setWorkspaceFiles(files);
+        }
+      } catch (e) {
+        console.error("Failed to load workspace file tree:", e);
+      }
+
+      loadSessionsHistory(projectPath);
+    } catch (err: any) {
+      setError(err.message || "Failed to resume session");
+      setStatus("error");
+    }
+  };
+
+  const handleDeleteSession = async (sid: string) => {
+    try {
+      await deleteSession(sid);
+      if (sid === sessionId) {
+        await handleReset();
+      } else {
+        loadSessionsHistory(projectPath);
+      }
+    } catch (err: any) {
+      console.error("Failed to delete session:", err);
     }
   };
 
@@ -218,133 +314,51 @@ export const App: React.FC = () => {
     setSessionId(null);
     sessionIdRef.current = null;
     clearMessages();
+    setWorkspaceFiles([]);
     toolCallPartIndices.current.clear();
     unregisterStreamListener();
+    loadSessionsHistory(projectPath);
   };
 
   const isKeySaved = selectedProvider ? apiKeysStatus[selectedProvider] : false;
 
   return (
-    <div className="app-container">
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="logo-section">
-          <div className="logo-icon">F</div>
-          <div className="logo-text">FreeCode Web</div>
-        </div>
-
-        <div className="sidebar-group">
-          <label className="sidebar-label">Project Workspace</label>
-          <input
-            className="input-field"
-            value={projectPath}
-            onChange={(e) => setProjectPath(e.target.value)}
-            placeholder="/absolute/path/to/project"
-            disabled={!!sessionId}
-          />
-        </div>
-
-        <div className="sidebar-group">
-          <label className="sidebar-label">Provider</label>
-          <select
-            className="select-field"
-            value={selectedProvider}
-            onChange={(e) => setSelectedProvider(e.target.value)}
-            disabled={!!sessionId}
-          >
-            {providers.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="sidebar-group">
-          <label className="sidebar-label">Model</label>
-          <select
-            className="select-field"
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={!!sessionId || models.length === 0}
-          >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="sidebar-group">
-          <label className="sidebar-label">Agent Mode</label>
-          <select
-            className="select-field"
-            value={agentMode}
-            onChange={(e) => setAgentMode(e.target.value)}
-            disabled={!!sessionId}
-          >
-            <option value="build">Build (Full Access)</option>
-            <option value="plan">Plan (Read-only / Safe)</option>
-            <option value="explore">Explore</option>
-            <option value="review">Review</option>
-          </select>
-        </div>
-
-        <div className="sidebar-group">
-          <label className="sidebar-label">
-            API Key {isKeySaved && <span style={{ color: "#10b981", fontSize: "10px" }}>(Saved)</span>}
-          </label>
-          <input
-            className="input-field"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKeyInput(e.target.value)}
-            placeholder={isKeySaved ? "••••••••••••••••" : "Enter API key"}
-            disabled={!!sessionId}
-          />
-        </div>
-
-        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "12px" }}>
-          {!sessionId ? (
-            <button className="btn-primary" onClick={handleStartSession} disabled={status === "streaming"}>
-              Start Session
-            </button>
-          ) : (
-            <button className="btn-secondary" onClick={handleReset}>
-              Reset Session
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Main Chat Area */}
-      <div className="main-chat">
-        <div className="chat-header">
-          <div className="header-status">
-            <div className={`status-indicator ${connState}`} />
-            <span style={{ fontWeight: 600 }}>
-              {connState === "connected" ? "Connected" : connState === "connecting" ? "Connecting..." : "Disconnected"}
-            </span>
-          </div>
-          {sessionId && (
-            <div className="header-info">
-              <span>
-                <strong>Workspace:</strong> {projectPath}
-              </span>
-              <span>
-                <strong>Model:</strong> {selectedModel}
-              </span>
-            </div>
-          )}
-        </div>
-
-        <div className="chat-messages-container">
-          <MessageList />
-        </div>
-
-        <MessageInput onSend={handleSend} disabled={!sessionId || status === "streaming"} />
-      </div>
+    <div className="flex h-screen w-screen bg-bg-primary overflow-hidden font-sans">
+      <Sidebar
+        projectPath={projectPath}
+        setProjectPath={setProjectPath}
+        selectedProvider={selectedProvider}
+        setSelectedProvider={setSelectedProvider}
+        providers={providers}
+        selectedModel={selectedModel}
+        setSelectedModel={setSelectedModel}
+        models={models}
+        agentMode={agentMode}
+        setAgentMode={setAgentMode}
+        apiKey={apiKey}
+        setApiKeyInput={setApiKeyInput}
+        isKeySaved={isKeySaved}
+        sessionId={sessionId}
+        onStartSession={handleStartSession}
+        onResetSession={handleReset}
+        status={status}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        sessionsList={sessionsList}
+        onResumeSession={handleResumeSession}
+        onDeleteSession={handleDeleteSession}
+      />
+      
+      <ChatView
+        connState={connState}
+        sessionId={sessionId}
+        projectPath={projectPath}
+        selectedModel={selectedModel}
+        status={status}
+        onSend={handleSend}
+        workspaceFiles={workspaceFiles}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+      />
     </div>
   );
 };

@@ -157,3 +157,27 @@ export async function callTool(name: string, args: Record<string, unknown>): Pro
 export async function stopSession(sessionId: string): Promise<void> {
   return sendRequest<void>("session.stop", { sessionId });
 }
+
+export interface SessionContext {
+  id: string;
+  title?: string;
+  projectPath: string;
+  provider: string;
+  model?: string;
+  status: "active" | "archived" | "deleted";
+  turnCount: number;
+  lastTurnAt: number;
+}
+
+export async function listSessions(projectPath: string): Promise<SessionContext[]> {
+  return sendRequest<SessionContext[]>("session.list", { projectPath });
+}
+
+export async function resumeSession(sessionId: string): Promise<{ sessionId: string; messages: any[] }> {
+  return sendRequest<{ sessionId: string; messages: any[] }>("session.resume", { sessionId });
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  return sendRequest<void>("session.delete", { sessionId });
+}
+
