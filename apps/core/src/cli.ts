@@ -7,6 +7,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { mcpCommand } from './cli/commands/mcp/index.js';
 import { sessionCommand } from './cli/commands/session/index.js';
+import { webCommand } from './cli/commands/web.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logoLines = fs.readFileSync(path.join(__dirname, '..', 'src', 'logo.txt'), 'utf-8').trimEnd().split('\n');
@@ -42,12 +43,13 @@ async function main() {
     .version(version)
     .command(mcpCommand)
     .command(sessionCommand)
+    .command(webCommand)
     .demandCommand(1, 'Specify a command')
     .strict()
     .parseAsync();
 
-  // If no MCP or session command, start the JSON-RPC server (lazy import to avoid loading tools)
-  if (!argv._.includes('mcp') && !argv._.includes('session')) {
+  // If no MCP, session, or web command, start the JSON-RPC server (lazy import to avoid loading tools)
+  if (!argv._.includes('mcp') && !argv._.includes('session') && !argv._.includes('web')) {
     const { startServer } = await import('./server.js');
     startServer();
   }

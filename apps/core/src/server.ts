@@ -57,7 +57,8 @@ interface SessionInfo {
   model?: string;
 }
 
-const sessions: Map<string, SessionInfo> = new Map();
+export const sessions: Map<string, SessionInfo> = new Map();
+export const sessionEventCallbacks = new Map<string, (event: any) => void>();
 
 function createSession(config: SessionConfig): SessionInfo {
   const id = randomUUID();
@@ -161,6 +162,10 @@ const methodHandlers: Record<
     // Emit events to stdout immediately for streaming
     const emitEvent = (event: StreamEvent) => {
       process.stdout.write(JSON.stringify(event) + "\n");
+      const cb = sessionEventCallbacks.get(sessionId);
+      if (cb) {
+        cb(event);
+      }
     };
 
     // Get session store for persisting messages
@@ -358,7 +363,7 @@ const methodHandlers: Record<
   },
 };
 
-async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
+export async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
   try {
     const handler = methodHandlers[request.method];
     if (!handler) {
