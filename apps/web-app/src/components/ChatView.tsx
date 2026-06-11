@@ -75,17 +75,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </p>
           </div>
         ) : (
-          <MessageList />
+          <div className="flex-1 overflow-y-auto pb-32">
+            <MessageList />
+          </div>
         )}
-      </div>
 
-      {/* Footer Prompt Input */}
-      <PromptInput
-        onSend={onSend}
-        disabled={!sessionId || status === "streaming"}
-        workspaceFiles={workspaceFiles}
-        projectPath={projectPath}
-      />
+        {/* Floating Input Area */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-20">
+          <div className="shadow-2xl rounded-xl bg-bg-primary border border-border">
+              <PromptInput
+                onSend={onSend}
+                disabled={!sessionId || status === "streaming" || connState !== "connected"}
+                workspaceFiles={workspaceFiles}
+                projectPath={projectPath}
+                selectedModel={selectedModel}
+              />
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
