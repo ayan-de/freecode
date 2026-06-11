@@ -1,7 +1,7 @@
 import React from "react";
 import { MessageList } from "../chat/MessageList";
 import { PromptInput } from "./PromptInput";
-import { Menu, Wifi, WifiOff, Loader } from "lucide-react";
+import { Wifi, WifiOff, Loader } from "lucide-react";
 
 interface ChatViewProps {
   connState: "connecting" | "connected" | "error";
@@ -11,7 +11,6 @@ interface ChatViewProps {
   status: "idle" | "streaming" | "error";
   onSend: (message: string) => void;
   workspaceFiles: string[];
-  onToggleSidebar: () => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -22,21 +21,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   status,
   onSend,
   workspaceFiles,
-  onToggleSidebar,
 }) => {
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-bg-primary">
       {/* Header */}
-      <header className="h-16 border-b border-border bg-bg-secondary flex items-center justify-between px-6 z-10">
+      <header className="h-10 border-b border-border bg-bg-secondary flex items-center justify-between px-12 z-10">
         <div className="flex items-center gap-3">
-          {/* Mobile Menu Toggle Button */}
-          <button
-            onClick={onToggleSidebar}
-            className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-white/5 lg:hidden"
-          >
-            <Menu size={20} />
-          </button>
-
           {/* Connection Status */}
           <div className="flex items-center gap-2 text-sm font-semibold">
             {connState === "connected" ? (
@@ -55,19 +45,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
 
-        {/* Current Session Metadata */}
-        {sessionId && (
-          <div className="hidden sm:flex items-center gap-6 text-xs text-gray-400">
-            <span className="truncate max-w-xs">
-              <strong className="text-gray-500 uppercase font-semibold mr-1">Workspace:</strong>{" "}
-              {projectPath}
-            </span>
-            <span>
-              <strong className="text-gray-500 uppercase font-semibold mr-1">Model:</strong>{" "}
-              {selectedModel}
-            </span>
-          </div>
-        )}
+        {/* Right Side: Session Metadata & Toggle */}
+        <div className="flex items-center gap-3">
+          {sessionId && (
+            <div className="hidden sm:flex items-center gap-6 text-xs text-gray-400 border-border pr-4">
+              <span className="truncate max-w-xs">
+                <strong className="text-gray-500 uppercase font-semibold mr-1">Workspace:</strong>{" "}
+                {projectPath}
+              </span>
+              <span>
+                <strong className="text-gray-500 uppercase font-semibold mr-1">Model:</strong>{" "}
+                {selectedModel}
+              </span>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Message Feed */}
