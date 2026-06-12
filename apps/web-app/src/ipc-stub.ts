@@ -34,12 +34,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 // Helper to check if we are running inside the Tauri desktop app
-const isTauri = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
+const isTauri =
+  typeof window !== "undefined" &&
+  (window as any).__TAURI_INTERNALS__ !== undefined;
 
 const HTTP_BASE_URL = "http://127.0.0.1:4096";
 
 let nextRequestId = 1;
-const pendingRequests = new Map<number, { resolve: (val: any) => void; reject: (err: any) => void }>();
+const pendingRequests = new Map<
+  number,
+  { resolve: (val: any) => void; reject: (err: any) => void }
+>();
 let streamCallback: ((event: any) => void) | null = null;
 let unlistenCliMessage: UnlistenFn | null = null;
 
@@ -54,11 +59,13 @@ async function initTauriListener() {
         const promiseHandlers = pendingRequests.get(data.id)!;
         pendingRequests.delete(data.id);
         if (data.error) {
-          promiseHandlers.reject(new Error(data.error.message || "Request failed"));
+          promiseHandlers.reject(
+            new Error(data.error.message || "Request failed"),
+          );
         } else {
           promiseHandlers.resolve(data.result);
         }
-      } 
+      }
       // Otherwise, if there is a stream callback and it looks like a stream event (has type)
       else if (streamCallback && data.type) {
         streamCallback(data);
@@ -79,7 +86,10 @@ export async function connectBackend(): Promise<void> {
 }
 
 // Send a JSON-RPC request over Tauri's CLI stdin pipe OR Http
-async function sendRequest<T>(method: string, params: Record<string, any> = {}): Promise<T> {
+async function sendRequest<T>(
+  method: string,
+  params: Record<string, any> = {},
+): Promise<T> {
   const id = nextRequestId++;
   const request = {
     jsonrpc: "2.0",
@@ -101,10 +111,10 @@ async function sendRequest<T>(method: string, params: Record<string, any> = {}):
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
-    
+
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
     const data = await response.json();
-    
+
     if (data.error) {
       throw new Error(data.error.message || "Request failed");
     }
@@ -114,12 +124,17 @@ async function sendRequest<T>(method: string, params: Record<string, any> = {}):
 
 let eventSource: EventSource | null = null;
 
-export function registerStreamListener(sessionId: string, callback: (event: any) => void): void {
+export function registerStreamListener(
+  sessionId: string,
+  callback: (event: any) => void,
+): void {
   streamCallback = callback;
 
   if (!isTauri) {
     if (eventSource) eventSource.close();
-    eventSource = new EventSource(`${HTTP_BASE_URL}/events?sessionId=${sessionId}`);
+    eventSource = new EventSource(
+      `${HTTP_BASE_URL}/events?sessionId=${sessionId}`,
+    );
     eventSource.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
@@ -158,7 +173,7 @@ export async function sessionSend(
   sessionId: string,
   message: string,
   model?: string,
-  agentMode?: string
+  agentMode?: string,
 ): Promise<unknown> {
   return sendRequest("session.send", { sessionId, message, model, agentMode });
 }
@@ -168,7 +183,27 @@ export async function listProviders(): Promise<ProviderInfo[]> {
 }
 
 export async function listModels(providerId: string): Promise<ModelInfo[]> {
-  return sendRequest<ModelInfo[]>("models.list", { providerId });
+  const models = await sendRequest<any[]>("models.list", { providerId });
+  return models.map((m) => ({
+    id: m.id,
+    name: m.name,
+    provider: providerId,
+  }));
+}
+
+export async function getCurrentModel(): Promise<
+  { provider: string; model: string } | undefined
+> {
+  return sendRequest<{ provider: string; model: string } | undefined>(
+    "config.getCurrentModel",
+  );
+}
+
+export async function setCurrentModel(
+  provider: string,
+  model: string,
+): Promise<void> {
+  return sendRequest<void>("config.setCurrentModel", { provider, model });
 }
 
 export async function getApiKeyStatus(): Promise<Record<string, boolean>> {
@@ -181,11 +216,18 @@ export async function getApiKeyStatus(): Promise<Record<string, boolean>> {
   return status;
 }
 
-export async function setApiKey(provider: string, apiKey: string, model?: string): Promise<void> {
+export async function setApiKey(
+  provider: string,
+  apiKey: string,
+  model?: string,
+): Promise<void> {
   return sendRequest<void>("config.setApiKey", { provider, apiKey, model });
 }
 
-export async function callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+export async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
   return sendRequest<ToolCallResult>("tools.call", { name, args });
 }
 
@@ -204,15 +246,20 @@ export interface SessionContext {
   lastTurnAt: number;
 }
 
-export async function listSessions(projectPath: string): Promise<SessionContext[]> {
+export async function listSessions(
+  projectPath: string,
+): Promise<SessionContext[]> {
   return sendRequest<SessionContext[]>("session.list", { projectPath });
 }
 
-export async function resumeSession(sessionId: string): Promise<{ sessionId: string; messages: any[] }> {
-  return sendRequest<{ sessionId: string; messages: any[] }>("session.resume", { sessionId });
+export async function resumeSession(
+  sessionId: string,
+): Promise<{ sessionId: string; messages: any[] }> {
+  return sendRequest<{ sessionId: string; messages: any[] }>("session.resume", {
+    sessionId,
+  });
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
   return sendRequest<void>("session.delete", { sessionId });
 }
-
