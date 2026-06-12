@@ -8,10 +8,6 @@ import { RightSidebar } from "./components/RightSidebar";
 import { PanelLeft, PanelRight } from "lucide-react";
 import {
   connectBackend,
-  listProviders,
-  listModels,
-  getApiKeyStatus,
-  setApiKey,
   sessionStart,
   sessionSend,
   stopSession,
@@ -25,6 +21,7 @@ import {
   type ModelInfo,
   type SessionContext,
 } from "./ipc-stub";
+import { useFreeCodeConfig } from "./hooks/useFreeCodeConfig";
 
 export const App: React.FC = () => {
   const status = useChatStore((s) => s.status);
@@ -36,16 +33,25 @@ export const App: React.FC = () => {
   const clearMessages = useChatStore((s) => s.clearMessages);
 
   // Connection states
-  const [connState, setConnState] = useState<"connecting" | "connected" | "error">("connecting");
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [models, setModels] = useState<ModelInfo[]>([]);
-  const [selectedModel, setSelectedModel] = useState("");
-  const [projectPath, setProjectPath] = useState("/home/ayande/Project/freecode");
+  const [connState, setConnState] = useState<
+    "connecting" | "connected" | "error"
+  >("connecting");
+  const {
+    providers,
+    models,
+    selectedProvider,
+    selectedModel,
+    apiKeysStatus,
+    changeModel,
+    saveApiKey,
+  } = useFreeCodeConfig();
+
+  const [projectPath, setProjectPath] = useState(
+    "/home/ayande/Project/freecode",
+  );
   const [agentMode, setAgentMode] = useState("build");
   const [apiKey, setApiKeyInput] = useState("");
-  const [apiKeysStatus, setApiKeysStatus] = useState<Record<string, boolean>>({});
-  
+
   // Responsive sidebar open on mobile
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
@@ -76,7 +82,6 @@ export const App: React.FC = () => {
     connectBackend()
       .then(() => {
         setConnState("connected");
-        loadProviders();
       })
       .catch(() => {
         setConnState("error");
@@ -94,100 +99,81 @@ export const App: React.FC = () => {
     }
   }, [connState, projectPath, loadSessionsHistory]);
 
-  const loadProviders = async () => {
-    try {
-      const list = await listProviders();
-      setProviders(list);
-      if (list.length > 0) {
-        setSelectedProvider(list[0].id);
-      }
-      const keyStatus = await getApiKeyStatus();
-      setApiKeysStatus(keyStatus);
-    } catch (err) {
-      console.error("Failed to load providers:", err);
-    }
-  };
-
-  // Load models when provider changes
-  useEffect(() => {
-    if (!selectedProvider) return;
-    listModels(selectedProvider)
-      .then((list) => {
-        setModels(list);
-        if (list.length > 0) {
-          setSelectedModel(list[0].id);
-        } else {
-          setSelectedModel("");
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to load models:", err);
-        setModels([]);
-        setSelectedModel("");
-      });
-  }, [selectedProvider]);
-
   // Handle stream events from CLI
-  const handleStreamEvent = useCallback((event: any) => {
-    const currentMessages = useChatStore.getState().messages;
-    const lastMsg = currentMessages[currentMessages.length - 1];
-    
-    // Ensure we have an assistant message to append parts to
-    let activeMsg = lastMsg;
-    if (!activeMsg || activeMsg.role !== "assistant") {
-      addMessage("assistant", []);
-      // Refresh current messages state reference
-      const updatedMessages = useChatStore.getState().messages;
-      activeMsg = updatedMessages[updatedMessages.length - 1];
-    }
+  const handleStreamEvent = useCallback(
+    (event: any) => {
+      const currentMessages = useChatStore.getState().messages;
+      const lastMsg = currentMessages[currentMessages.length - 1];
 
-    if (event.type === "text" || event.type === "thinking") {
-      const parts = activeMsg.parts;
-      const lastPartIndex = parts.length - 1;
-      const lastPart = parts[lastPartIndex];
-
-      if (lastPart && lastPart.type === "text") {
-        updateLastMessagePart(lastPartIndex, {
-          type: "text",
-          content: lastPart.content + event.content,
-        });
-      } else {
-        addPartToLastMessage({
-          type: "text",
-          content: event.content,
-        });
+      // Ensure we have an assistant message to append parts to
+      let activeMsg = lastMsg;
+      if (!activeMsg || activeMsg.role !== "assistant") {
+        addMessage("assistant", []);
+        // Refresh current messages state reference
+        const updatedMessages = useChatStore.getState().messages;
+        activeMsg = updatedMessages[updatedMessages.length - 1];
       }
-    } else if (event.type === "tool_start") {
-      const partIndex = activeMsg.parts.length;
-      toolCallPartIndices.current.set(event.toolCallId, partIndex);
-      
-      addPartToLastMessage({
-        type: "tool",
-        tool: {
-          name: event.toolName,
-          args: event.args || {},
-        },
-      });
-    } else if (event.type === "tool_complete") {
-      const partIndex = toolCallPartIndices.current.get(event.toolCallId);
-      if (partIndex !== undefined) {
-        updateLastMessagePart(partIndex, {
+
+      if (event.type === "text" || event.type === "thinking") {
+        const parts = activeMsg.parts;
+        const lastPartIndex = parts.length - 1;
+        const lastPart = parts[lastPartIndex];
+
+        if (lastPart && lastPart.type === "text") {
+          updateLastMessagePart(lastPartIndex, {
+            type: "text",
+            content: lastPart.content + event.content,
+          });
+        } else {
+          addPartToLastMessage({
+            type: "text",
+            content: event.content,
+          });
+        }
+      } else if (event.type === "tool_start") {
+        const partIndex = activeMsg.parts.length;
+        toolCallPartIndices.current.set(event.toolCallId, partIndex);
+
+        addPartToLastMessage({
           type: "tool",
           tool: {
             name: event.toolName,
-            args: activeMsg.parts[partIndex].type === "tool" ? (activeMsg.parts[partIndex] as any).tool.args : {},
+            args: event.args || {},
           },
-          result: event.result || (event.success ? "Success" : "Failed"),
         });
+      } else if (event.type === "tool_complete") {
+        const partIndex = toolCallPartIndices.current.get(event.toolCallId);
+        if (partIndex !== undefined) {
+          updateLastMessagePart(partIndex, {
+            type: "tool",
+            tool: {
+              name: event.toolName,
+              args:
+                activeMsg.parts[partIndex].type === "tool"
+                  ? (activeMsg.parts[partIndex] as any).tool.args
+                  : {},
+            },
+            result: event.result || (event.success ? "Success" : "Failed"),
+          });
+        }
+      } else if (event.type === "done") {
+        setStatus("idle");
+        loadSessionsHistory(projectPath);
+      } else if (event.type === "error") {
+        setError(event.content);
+        setStatus("error");
       }
-    } else if (event.type === "done") {
-      setStatus("idle");
-      loadSessionsHistory(projectPath);
-    } else if (event.type === "error") {
-      setError(event.content);
-      setStatus("error");
-    }
-  }, [addMessage, addPartToLastMessage, updateLastMessagePart, setStatus, setError, loadSessionsHistory, projectPath]);
+    },
+    [
+      addMessage,
+      addPartToLastMessage,
+      updateLastMessagePart,
+      setStatus,
+      setError,
+      loadSessionsHistory,
+      projectPath,
+    ],
+  );
 
   const handleStartSession = async () => {
     if (!projectPath) {
@@ -204,10 +190,8 @@ export const App: React.FC = () => {
     try {
       // Set API Key if entered
       if (apiKey) {
-        await setApiKey(selectedProvider, apiKey);
+        await saveApiKey(selectedProvider, apiKey);
         setApiKeyInput("");
-        const keyStatus = await getApiKeyStatus();
-        setApiKeysStatus(keyStatus);
       }
 
       const session = await sessionStart({
@@ -224,7 +208,10 @@ export const App: React.FC = () => {
 
       // Load files for autocomplete context using glob tool in the background
       try {
-        const globResult = await callTool("glob", { pattern: "**/*", cwd: projectPath });
+        const globResult = await callTool("glob", {
+          pattern: "**/*",
+          cwd: projectPath,
+        });
         if (globResult.success && globResult.output) {
           const files = globResult.output.split("\n").filter(Boolean);
           setWorkspaceFiles(files);
@@ -264,7 +251,10 @@ export const App: React.FC = () => {
 
       // Load files for autocomplete context using glob tool in the background
       try {
-        const globResult = await callTool("glob", { pattern: "**/*", cwd: projectPath });
+        const globResult = await callTool("glob", {
+          pattern: "**/*",
+          cwd: projectPath,
+        });
         if (globResult.success && globResult.output) {
           const files = globResult.output.split("\n").filter(Boolean);
           setWorkspaceFiles(files);
@@ -347,20 +337,24 @@ export const App: React.FC = () => {
             onClick={() => setRightSidebarOpen((prev) => !prev)}
             className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-white/5 transition-colors"
           >
-            <PanelRight size={16} className={rightSidebarOpen ? "text-white" : ""} />
+            <PanelRight
+              size={16}
+              className={rightSidebarOpen ? "text-white" : ""}
+            />
           </button>
         </div>
 
-        <Sidebar
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
-        
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
         <ChatView
           connState={connState}
           sessionId={sessionId}
           projectPath={projectPath}
           selectedModel={selectedModel}
+          selectedProvider={selectedProvider}
+          models={models}
+          providers={providers}
+          onChangeModel={changeModel}
           status={status}
           onSend={handleSend}
           workspaceFiles={workspaceFiles}
