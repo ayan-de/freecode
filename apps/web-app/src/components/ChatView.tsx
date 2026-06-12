@@ -2,14 +2,19 @@ import React from "react";
 import { MessageList } from "../chat/MessageList";
 import { PromptInput } from "./PromptInput";
 import { Wifi, WifiOff, Loader } from "lucide-react";
+import type { ProviderInfo, ModelInfo } from "../ipc-stub";
 
 interface ChatViewProps {
   connState: "connecting" | "connected" | "error";
   sessionId: string | null;
   projectPath: string;
   selectedModel: string;
+  selectedProvider: string;
+  models: ModelInfo[];
+  providers: ProviderInfo[];
   status: "idle" | "streaming" | "error";
   onSend: (message: string) => void;
+  onChangeModel: (providerId: string, modelId: string) => void;
   workspaceFiles: string[];
 }
 
@@ -18,6 +23,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   sessionId,
   projectPath,
   selectedModel,
+  selectedProvider,
+  models,
+  providers,
+  onChangeModel,
   status,
   onSend,
   workspaceFiles,
@@ -50,11 +59,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {sessionId && (
             <div className="hidden sm:flex items-center gap-6 text-xs text-gray-400 border-border pr-4">
               <span className="truncate max-w-xs">
-                <strong className="text-gray-500 uppercase font-semibold mr-1">Workspace:</strong>{" "}
+                <strong className="text-gray-500 uppercase font-semibold mr-1">
+                  Workspace:
+                </strong>{" "}
                 {projectPath}
               </span>
               <span>
-                <strong className="text-gray-500 uppercase font-semibold mr-1">Model:</strong>{" "}
+                <strong className="text-gray-500 uppercase font-semibold mr-1">
+                  Model:
+                </strong>{" "}
                 {selectedModel}
               </span>
             </div>
@@ -72,7 +85,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
               {/* <h2 className="text-lg font-bold text-gray-100 mb-2">No Active Session</h2> */}
               <p className="text-sm text-gray-400 leading-relaxed">
-                Start a session in the settings sidebar to begin coding and interacting with your project.
+                Start a session in the settings sidebar to begin coding and
+                interacting with your project.
               </p>
             </div>
           ) : (
@@ -85,10 +99,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
           <div className="shadow-2xl rounded-2xl bg-bg-primary border border-border pointer-events-auto">
             <PromptInput
               onSend={onSend}
-              disabled={!sessionId || status === "streaming" || connState !== "connected"}
+              disabled={
+                !sessionId ||
+                status === "streaming" ||
+                connState !== "connected"
+              }
               workspaceFiles={workspaceFiles}
               projectPath={projectPath}
               selectedModel={selectedModel}
+              selectedProvider={selectedProvider}
+              models={models}
+              providers={providers}
+              onChangeModel={onChangeModel}
             />
           </div>
         </div>
@@ -99,7 +121,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
 // FreeCode Logo
 const FreeCodeLogo = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 286 60" width="286" height="60">
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 286 60"
+    width="286"
+    height="60"
+  >
     <style>
       {`
         .logo-left { font: bold 14px monospace; fill: #F5C71A; white-space: pre; }
