@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 
 export function HeroGrid() {
   const cells = Array.from({ length: 96 });
@@ -38,9 +38,9 @@ export function HeroGrid() {
       <div
         className="w-full h-full relative z-10"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(12, 1fr)',
-          gridTemplateRows: 'repeat(8, 1fr)',
+          display: "grid",
+          gridTemplateColumns: "repeat(12, 1fr)",
+          gridTemplateRows: "repeat(8, 1fr)",
         }}
       >
         {cells.map((_, i) => {
@@ -51,8 +51,10 @@ export function HeroGrid() {
               key={i}
               className="border-r border-b border-white/20"
               style={{
-                borderLeft: col === 0 ? '1px solid rgba(255,255,255,0.4)' : undefined,
-                borderTop: row === 0 ? '1px solid rgba(255,255,255,0.4)' : undefined,
+                borderLeft:
+                  col === 0 ? "1px solid rgba(255,255,255,0.4)" : undefined,
+                borderTop:
+                  row === 0 ? "1px solid rgba(255,255,255,0.4)" : undefined,
               }}
             />
           );

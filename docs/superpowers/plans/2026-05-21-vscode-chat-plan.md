@@ -44,6 +44,7 @@ apps/vscode/
 ## Task 1: Scaffold VS Code Extension
 
 **Files:**
+
 - Create: `apps/vscode/package.json`
 - Create: `apps/vscode/tsconfig.json`
 - Create: `apps/vscode/src/extension.ts`
@@ -135,31 +136,32 @@ export interface ToolCallResult {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   parts: MessagePart[];
   timestamp: number;
 }
 
 export type MessagePart =
-  | { type: 'text'; content: string }
-  | { type: 'code'; language: string; content: string }
-  | { type: 'tool'; tool: { name: string; args: Record<string, unknown> }; result?: string };
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; content: string }
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+    };
 ```
 
 - [ ] **Step 4: Create src/extension.ts**
 
 ```typescript
-import * as vscode from 'vscode';
-import { ChatView } from './chat/ChatView.js';
+import * as vscode from "vscode";
+import { ChatView } from "./chat/ChatView.js";
 
 export function activate(context: vscode.ExtensionContext) {
   const chatView = new ChatView(context);
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      'freecode.chat',
-      chatView
-    )
+    vscode.window.registerWebviewViewProvider("freecode.chat", chatView),
   );
 }
 
@@ -179,6 +181,7 @@ git commit -m "feat(vscode): scaffold extension with basic manifest and types"
 ## Task 2: IPC Client
 
 **Files:**
+
 - Create: `apps/vscode/src/ipc/protocol.ts`
 - Create: `apps/vscode/src/ipc/client.ts`
 
@@ -186,21 +189,21 @@ git commit -m "feat(vscode): scaffold extension with basic manifest and types"
 
 ```typescript
 export interface JsonRpcRequest {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   id: number | string;
   method: string;
   params?: Record<string, unknown>;
 }
 
 export interface JsonRpcResponse {
-  jsonrpc: '2.0';
+  jsonrpc: "2.0";
   id: number | string;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
 }
 
 export interface StreamResponse {
-  type: 'text' | 'code' | 'tool' | 'done' | 'error';
+  type: "text" | "code" | "tool" | "done" | "error";
   content: string;
 }
 ```
@@ -208,13 +211,21 @@ export interface StreamResponse {
 - [ ] **Step 2: Create src/ipc/client.ts** (adapted from TUI)
 
 ```typescript
-import { spawn, type ChildProcess } from 'child_process';
-import type { JsonRpcRequest, JsonRpcResponse, ToolListItem, ToolCallResult } from './protocol.js';
+import { spawn, type ChildProcess } from "child_process";
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  ToolListItem,
+  ToolCallResult,
+} from "./protocol.js";
 
 let requestId = 0;
 let cliProcess: ChildProcess | null = null;
-let messageBuffer = '';
-let pendingRequests = new Map<number | string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+let messageBuffer = "";
+let pendingRequests = new Map<
+  number | string,
+  { resolve: (value: unknown) => void; reject: (error: Error) => void }
+>();
 
 function generateId(): number {
   return ++requestId;
@@ -222,7 +233,7 @@ function generateId(): number {
 
 function parseResponse(data: string): JsonRpcResponse[] {
   const responses: JsonRpcResponse[] = [];
-  const lines = data.split('\n');
+  const lines = data.split("\n");
   for (const line of lines) {
     if (!line.trim()) continue;
     try {
@@ -235,20 +246,20 @@ function parseResponse(data: string): JsonRpcResponse[] {
 export function startCli(): void {
   if (cliProcess) return;
 
-  cliProcess = spawn('node', ['apps/core/src/server.ts'], {
-    cwd: '/home/ayande/Project/freecode',
-    stdio: ['pipe', 'pipe', 'pipe'],
+  cliProcess = spawn("node", ["apps/core/src/server.ts"], {
+    cwd: "/home/ayande/Project/freecode",
+    stdio: ["pipe", "pipe", "pipe"],
   });
 
-  cliProcess.stdout?.setEncoding('utf-8');
-  cliProcess.stderr?.on('data', (data) => {
-    console.error('[CLI stderr]', data.toString());
+  cliProcess.stdout?.setEncoding("utf-8");
+  cliProcess.stderr?.on("data", (data) => {
+    console.error("[CLI stderr]", data.toString());
   });
 
-  cliProcess.stdout?.on('data', (data: string) => {
+  cliProcess.stdout?.on("data", (data: string) => {
     messageBuffer += data;
     const responses = parseResponse(messageBuffer);
-    messageBuffer = '';
+    messageBuffer = "";
 
     for (const response of responses) {
       const pending = pendingRequests.get(response.id);
@@ -263,37 +274,46 @@ export function startCli(): void {
     }
   });
 
-  cliProcess.on('error', (err) => {
-    console.error('[CLI process error]', err);
+  cliProcess.on("error", (err) => {
+    console.error("[CLI process error]", err);
     cliProcess = null;
   });
 
-  cliProcess.on('exit', () => {
+  cliProcess.on("exit", () => {
     cliProcess = null;
   });
 }
 
-function sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+function sendRequest(
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
-      reject(new Error('CLI not running'));
+      reject(new Error("CLI not running"));
       return;
     }
 
     const id = generateId();
-    const request: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
-    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
+    pendingRequests.set(id, {
+      resolve: resolve as (value: unknown) => void,
+      reject,
+    });
 
-    cliProcess.stdin.write(JSON.stringify(request) + '\n');
+    cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
 }
 
 export async function listTools(): Promise<ToolListItem[]> {
-  return (await sendRequest('tools.list')) as ToolListItem[];
+  return (await sendRequest("tools.list")) as ToolListItem[];
 }
 
-export async function callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
-  return (await sendRequest('tools.call', { name, args })) as ToolCallResult;
+export async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolCallResult> {
+  return (await sendRequest("tools.call", { name, args })) as ToolCallResult;
 }
 
 export function stopCli(): void {
@@ -317,23 +337,24 @@ git commit -m "feat(vscode): add IPC client for CLI communication"
 ## Task 3: Chat Store
 
 **Files:**
+
 - Create: `apps/vscode/src/stores/chat-store.ts`
 - Create: `apps/vscode/src/stores/index.ts`
 
 - [ ] **Step 1: Create src/stores/chat-store.ts**
 
 ```typescript
-import { create } from 'zustand';
-import type { Message, MessagePart } from '../lib/types.js';
+import { create } from "zustand";
+import type { Message, MessagePart } from "../lib/types.js";
 
 interface ChatStore {
   messages: Message[];
-  status: 'idle' | 'streaming' | 'error';
+  status: "idle" | "streaming" | "error";
   error: string | null;
-  addMessage: (role: 'user' | 'assistant', parts: MessagePart[]) => void;
+  addMessage: (role: "user" | "assistant", parts: MessagePart[]) => void;
   addPartToLastMessage: (part: MessagePart) => void;
   updateLastMessagePart: (index: number, part: MessagePart) => void;
-  setStatus: (status: 'idle' | 'streaming' | 'error') => void;
+  setStatus: (status: "idle" | "streaming" | "error") => void;
   setError: (error: string | null) => void;
   clearMessages: () => void;
 }
@@ -342,7 +363,7 @@ let messageCounter = 0;
 
 export const useChatStore = create<ChatStore>((set) => ({
   messages: [],
-  status: 'idle',
+  status: "idle",
   error: null,
 
   addMessage: (role, parts) =>
@@ -386,15 +407,15 @@ export const useChatStore = create<ChatStore>((set) => ({
 
   setStatus: (status) => set({ status }),
   setError: (error) => set({ error }),
-  clearMessages: () => set({ messages: [], status: 'idle', error: null }),
+  clearMessages: () => set({ messages: [], status: "idle", error: null }),
 }));
 ```
 
 - [ ] **Step 2: Create src/stores/index.ts**
 
 ```typescript
-export { useChatStore } from './chat-store.js';
-export type { Message, MessagePart } from '../lib/types.js';
+export { useChatStore } from "./chat-store.js";
+export type { Message, MessagePart } from "../lib/types.js";
 ```
 
 - [ ] **Step 3: Commit**
@@ -410,6 +431,7 @@ git commit -m "feat(vscode): add chat store with Zustand"
 ## Task 4: Message Part Components
 
 **Files:**
+
 - Create: `apps/vscode/src/chat/parts/TextPart.tsx`
 - Create: `apps/vscode/src/chat/parts/CodePart.tsx`
 - Create: `apps/vscode/src/chat/parts/ToolPart.tsx`
@@ -566,6 +588,7 @@ git commit -m "feat(vscode): add message part components"
 ## Task 5: Message Components
 
 **Files:**
+
 - Create: `apps/vscode/src/chat/Message.tsx`
 - Create: `apps/vscode/src/chat/MessageList.tsx`
 - Create: `apps/vscode/src/chat/MessageInput.tsx`
@@ -734,15 +757,16 @@ git commit -m "feat(vscode): add Message, MessageList, MessageInput components"
 ## Task 6: ChatView (Main Webview Provider)
 
 **Files:**
+
 - Create: `apps/vscode/src/chat/ChatView.tsx`
 
 - [ ] **Step 1: Create src/chat/ChatView.tsx**
 
 ```typescript
-import * as vscode from 'vscode';
-import * as React from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { App } from '../webview/App.js';
+import * as vscode from "vscode";
+import * as React from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { App } from "../webview/App.js";
 
 export class ChatView implements vscode.WebviewViewProvider {
   private webviewView: vscode.WebviewView | undefined;

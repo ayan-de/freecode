@@ -16,9 +16,9 @@
 //   parseSessionDirName("home-ayande-Project-opencode")
 //   // → "/home/ayande/Project/opencode"
 
-const PATH_SEP = '-'
-const HYPHEN_ESCAPE = '_h_'
-const SEGMENT_SEP = '__'
+const PATH_SEP = "-";
+const HYPHEN_ESCAPE = "_h_";
+const SEGMENT_SEP = "__";
 
 /**
  * Convert an absolute project path to a safe directory name.
@@ -31,22 +31,24 @@ const SEGMENT_SEP = '__'
  */
 export function formatSessionDirName(projectPath: string): string {
   // Normalize backslashes to forward slashes
-  const normalized = projectPath.replace(/\\/g, '/')
+  const normalized = projectPath.replace(/\\/g, "/");
 
   // Remove leading/trailing slashes
-  const stripped = normalized.replace(/^\/+|\/+$/g, '')
+  const stripped = normalized.replace(/^\/+|\/+$/g, "");
 
-  if (!stripped) return ''
+  if (!stripped) return "";
 
   // Split into segments and process each
-  const segments = stripped.split('/')
+  const segments = stripped.split("/");
 
-  const formatted = segments.map(segment => {
-    // Escape hyphens within segments (they're our separator)
-    return segment.replace(/-/g, HYPHEN_ESCAPE)
-  }).join(SEGMENT_SEP)
+  const formatted = segments
+    .map((segment) => {
+      // Escape hyphens within segments (they're our separator)
+      return segment.replace(/-/g, HYPHEN_ESCAPE);
+    })
+    .join(SEGMENT_SEP);
 
-  return formatted
+  return formatted;
 }
 
 /**
@@ -57,21 +59,23 @@ export function formatSessionDirName(projectPath: string): string {
  *   home__ayande__Project__my_ h_project → /home/ayande/Project/my-project
  */
 export function parseSessionDirName(dirName: string): string {
-  if (!dirName) return ''
+  if (!dirName) return "";
 
   // Split by segment separator, unescape hyphens, rejoin with slashes
-  const segments = dirName.split(SEGMENT_SEP)
+  const segments = dirName.split(SEGMENT_SEP);
 
-  const path = segments.map(segment => {
-    return segment.replace(new RegExp(HYPHEN_ESCAPE, 'g'), '-')
-  }).join('/')
+  const path = segments
+    .map((segment) => {
+      return segment.replace(new RegExp(HYPHEN_ESCAPE, "g"), "-");
+    })
+    .join("/");
 
-  return '/' + path
+  return "/" + path;
 }
 
 /**
  * Check if a string looks like a formatted session directory name.
  */
 export function isSessionDirName(str: string): boolean {
-  return str.length > 0 && str.indexOf(SEGMENT_SEP) !== -1
+  return str.length > 0 && str.indexOf(SEGMENT_SEP) !== -1;
 }

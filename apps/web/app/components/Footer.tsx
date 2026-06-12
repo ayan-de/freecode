@@ -1,30 +1,30 @@
-import React from 'react';
-import ASCIIText from './ASCIIText';
+import React from "react";
+import ASCIIText from "./ASCIIText";
 
 const footerLinks = [
-  'Login',
-  'Docs',
-  'Security',
-  'Changelog',
-  'About',
-  'Taste',
-  'Teams',
-  'Brand',
-  'Pricing',
-  'Careers',
-  'Privacy',
-  'Blog',
-  'Community',
-  'Skills',
-  'Developers',
-  'Models',
+  "Login",
+  "Docs",
+  "Security",
+  "Changelog",
+  "About",
+  "Taste",
+  "Teams",
+  "Brand",
+  "Pricing",
+  "Careers",
+  "Privacy",
+  "Blog",
+  "Community",
+  "Skills",
+  "Developers",
+  "Models",
 ];
 
 const hoverGradients = [
-  'hover:bg-gradient-to-r hover:from-[#C7B8F5] hover:to-[#F3B5D2]',
-  'hover:bg-gradient-to-l hover:from-[#F3B5D2] hover:to-[#AFCDF6]',
-  'hover:bg-gradient-to-r hover:from-[#A7EADC] hover:to-[#F5B6A6]',
-  'hover:bg-gradient-to-l hover:from-[#A7EADC] hover:to-[#C7B8F5]',
+  "hover:bg-gradient-to-r hover:from-[#C7B8F5] hover:to-[#F3B5D2]",
+  "hover:bg-gradient-to-l hover:from-[#F3B5D2] hover:to-[#AFCDF6]",
+  "hover:bg-gradient-to-r hover:from-[#A7EADC] hover:to-[#F5B6A6]",
+  "hover:bg-gradient-to-l hover:from-[#A7EADC] hover:to-[#C7B8F5]",
 ];
 
 export function Footer() {
@@ -34,9 +34,9 @@ export function Footer() {
       <div
         className="absolute inset-0 w-1/2"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gridTemplateRows: 'repeat(4, 1fr)',
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gridTemplateRows: "repeat(4, 1fr)",
         }}
       >
         {footerLinks.map((link, i) => {
@@ -48,8 +48,10 @@ export function Footer() {
               key={i}
               className={`border-r border-b border-white/20 flex items-center justify-center transition-colors duration-300 group ${gradient}`}
               style={{
-                borderLeft: col === 0 ? '1px solid rgba(255,255,255,0.2)' : undefined,
-                borderTop: row === 0 ? '1px solid rgba(255,255,255,0.2)' : undefined,
+                borderLeft:
+                  col === 0 ? "1px solid rgba(255,255,255,0.2)" : undefined,
+                borderTop:
+                  row === 0 ? "1px solid rgba(255,255,255,0.2)" : undefined,
               }}
             >
               <a

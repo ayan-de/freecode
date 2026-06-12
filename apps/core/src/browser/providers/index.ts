@@ -2,10 +2,10 @@
 // Provider Registry
 // =============================================================================
 
-import type { PageAdapter, ProviderConfig } from './types.js';
-export type { PageAdapter, ProviderConfig } from './types.js';
+import type { PageAdapter, ProviderConfig } from "./types.js";
+export type { PageAdapter, ProviderConfig } from "./types.js";
 
-import { ChatGPTAdapter } from './chatgpt.js';
+import { ChatGPTAdapter } from "./chatgpt.js";
 
 export interface ProviderDefinition {
   id: string;
@@ -30,11 +30,11 @@ export function listProviders(): ProviderDefinition[] {
 
 export function createDefaultProviders(): void {
   registerProvider({
-    id: 'chatgpt',
-    name: 'ChatGPT',
+    id: "chatgpt",
+    name: "ChatGPT",
     adapter: new ChatGPTAdapter(),
     config: {
-      url: 'https://chatgpt.com',
+      url: "https://chatgpt.com",
     },
   });
 }

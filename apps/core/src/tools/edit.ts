@@ -2,28 +2,28 @@
 // Edit Tool - In-place file editing with UI rendering
 // =============================================================================
 
-import * as fs from "fs"
-import * as path from "path"
-import type { ToolContext } from "./types"
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types"
-import { buildTool, defaultToolUI } from "./factory"
-import { editToolUI } from "./edit/ui"
+import * as fs from "fs";
+import * as path from "path";
+import type { ToolContext } from "./types";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
+import { buildTool, defaultToolUI } from "./factory";
+import { editToolUI } from "./edit/ui";
 
 interface EditParams {
-  filePath: string
-  oldString: string
-  newString: string
-  replaceAll?: boolean
+  filePath: string;
+  oldString: string;
+  newString: string;
+  replaceAll?: boolean;
 }
 
 type ReplacerCandidate = {
-  match: string
-  startIndex: number
-  endIndex: number
-}
+  match: string;
+  startIndex: number;
+  endIndex: number;
+};
 
-const SINGLE_CANDIDATE_THRESHOLD = 0.0
-const MULTIPLE_CANDIDATES_THRESHOLD = 0.3
+const SINGLE_CANDIDATE_THRESHOLD = 0.0;
+const MULTIPLE_CANDIDATES_THRESHOLD = 0.3;
 
 // =============================================================================
 // Edit Schema
@@ -38,27 +38,29 @@ const editSchema: JsonSchema = {
     replaceAll: { description: "Replace all occurrences (default: false)" },
   },
   required: ["filePath", "oldString", "newString"],
-}
+};
 
 // =============================================================================
 // Input validation
 // =============================================================================
 
-function validateEditInput(params: unknown): { valid: true } | { valid: false; error: string } {
+function validateEditInput(
+  params: unknown,
+): { valid: true } | { valid: false; error: string } {
   if (!params || typeof params !== "object") {
-    return { valid: false, error: "Expected object parameters" }
+    return { valid: false, error: "Expected object parameters" };
   }
-  const p = params as Record<string, unknown>
+  const p = params as Record<string, unknown>;
   if (typeof p.filePath !== "string" || p.filePath.length === 0) {
-    return { valid: false, error: "filePath is required" }
+    return { valid: false, error: "filePath is required" };
   }
   if (typeof p.oldString !== "string") {
-    return { valid: false, error: "oldString is required" }
+    return { valid: false, error: "oldString is required" };
   }
   if (typeof p.newString !== "string") {
-    return { valid: false, error: "newString is required" }
+    return { valid: false, error: "newString is required" };
   }
-  return { valid: true }
+  return { valid: true };
 }
 
 // =============================================================================
@@ -66,21 +68,27 @@ function validateEditInput(params: unknown): { valid: true } | { valid: false; e
 // =============================================================================
 
 function levenshtein(a: string, b: string): number {
-  if (!a || !b) return Math.max(a?.length ?? 0, b?.length ?? 0)
+  if (!a || !b) return Math.max(a?.length ?? 0, b?.length ?? 0);
   const matrix: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
-    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
-  )
+    Array.from({ length: b.length + 1 }, (_, j) =>
+      i === 0 ? j : j === 0 ? i : 0,
+    ),
+  );
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i - 1][j - 1] + cost, matrix[i][j - 1] + 1)
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i - 1][j - 1] + cost,
+        matrix[i][j - 1] + 1,
+      );
     }
   }
-  return matrix[a.length][b.length]
+  return matrix[a.length][b.length];
 }
 
 function detectLineEnding(text: string): "\n" | "\r\n" {
-  return text.includes("\r\n") ? "\r\n" : "\n"
+  return text.includes("\r\n") ? "\r\n" : "\n";
 }
 
 // =============================================================================
@@ -88,339 +96,415 @@ function detectLineEnding(text: string): "\n" | "\r\n" {
 // =============================================================================
 
 function simpleReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  let start = 0
+  const results: ReplacerCandidate[] = [];
+  let start = 0;
   while (true) {
-    const idx = content.indexOf(find, start)
-    if (idx === -1) break
-    results.push({ match: find, startIndex: idx, endIndex: idx + find.length })
-    start = idx + 1
+    const idx = content.indexOf(find, start);
+    if (idx === -1) break;
+    results.push({ match: find, startIndex: idx, endIndex: idx + find.length });
+    start = idx + 1;
   }
-  return results
+  return results;
 }
 
-function lineTrimmedReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  const origLines = content.split("\n")
-  const searchLines = find.split("\n")
-  if (searchLines[searchLines.length - 1] === "") searchLines.pop()
+function lineTrimmedReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  const origLines = content.split("\n");
+  const searchLines = find.split("\n");
+  if (searchLines[searchLines.length - 1] === "") searchLines.pop();
 
   for (let i = 0; i <= origLines.length - searchLines.length; i++) {
-    let matches = true
+    let matches = true;
     for (let j = 0; j < searchLines.length; j++) {
       if (origLines[i + j].trim() !== searchLines[j].trim()) {
-        matches = false
-        break
+        matches = false;
+        break;
       }
     }
     if (matches) {
-      let start = 0
-      for (let k = 0; k < i; k++) start += origLines[k].length + 1
-      let end = start
+      let start = 0;
+      for (let k = 0; k < i; k++) start += origLines[k].length + 1;
+      let end = start;
       for (let k = 0; k < searchLines.length; k++) {
-        end += origLines[i + k].length
-        if (k < searchLines.length - 1) end += 1
+        end += origLines[i + k].length;
+        if (k < searchLines.length - 1) end += 1;
       }
-      results.push({ match: content.substring(start, end), startIndex: start, endIndex: end })
+      results.push({
+        match: content.substring(start, end),
+        startIndex: start,
+        endIndex: end,
+      });
     }
   }
-  return results
+  return results;
 }
 
-function blockAnchorReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  const origLines = content.split("\n")
-  const searchLines = find.split("\n")
+function blockAnchorReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  const origLines = content.split("\n");
+  const searchLines = find.split("\n");
 
-  if (searchLines.length < 3) return results
-  if (searchLines[searchLines.length - 1] === "") searchLines.pop()
+  if (searchLines.length < 3) return results;
+  if (searchLines[searchLines.length - 1] === "") searchLines.pop();
 
-  const firstLine = searchLines[0].trim()
-  const lastLine = searchLines[searchLines.length - 1].trim()
+  const firstLine = searchLines[0].trim();
+  const lastLine = searchLines[searchLines.length - 1].trim();
 
-  const candidates: { startLine: number; endLine: number }[] = []
+  const candidates: { startLine: number; endLine: number }[] = [];
   for (let i = 0; i < origLines.length; i++) {
-    if (origLines[i].trim() !== firstLine) continue
+    if (origLines[i].trim() !== firstLine) continue;
     for (let j = i + 2; j < origLines.length; j++) {
       if (origLines[j].trim() === lastLine) {
-        candidates.push({ startLine: i, endLine: j })
-        break
+        candidates.push({ startLine: i, endLine: j });
+        break;
       }
     }
   }
 
-  if (candidates.length === 0) return results
+  if (candidates.length === 0) return results;
 
   if (candidates.length === 1) {
-    const { startLine, endLine } = candidates[0]
-    let similarity = 0
-    const linesToCheck = Math.min(searchLines.length - 2, endLine - startLine - 2)
+    const { startLine, endLine } = candidates[0];
+    let similarity = 0;
+    const linesToCheck = Math.min(
+      searchLines.length - 2,
+      endLine - startLine - 2,
+    );
     if (linesToCheck > 0) {
-      for (let j = 1; j < searchLines.length - 1 && j < endLine - startLine - 1; j++) {
-        const origLine = origLines[startLine + j].trim()
-        const searchLine = searchLines[j].trim()
-        const maxLen = Math.max(origLine.length, searchLine.length)
-        if (maxLen > 0) similarity += (1 - levenshtein(origLine, searchLine) / maxLen) / linesToCheck
+      for (
+        let j = 1;
+        j < searchLines.length - 1 && j < endLine - startLine - 1;
+        j++
+      ) {
+        const origLine = origLines[startLine + j].trim();
+        const searchLine = searchLines[j].trim();
+        const maxLen = Math.max(origLine.length, searchLine.length);
+        if (maxLen > 0)
+          similarity +=
+            (1 - levenshtein(origLine, searchLine) / maxLen) / linesToCheck;
       }
     } else {
-      similarity = 1.0
+      similarity = 1.0;
     }
 
     if (similarity >= SINGLE_CANDIDATE_THRESHOLD) {
-      let start = 0
-      for (let k = 0; k < startLine; k++) start += origLines[k].length + 1
-      let end = start
+      let start = 0;
+      for (let k = 0; k < startLine; k++) start += origLines[k].length + 1;
+      let end = start;
       for (let k = startLine; k <= endLine; k++) {
-        end += origLines[k].length
-        if (k < endLine) end += 1
+        end += origLines[k].length;
+        if (k < endLine) end += 1;
       }
-      results.push({ match: content.substring(start, end), startIndex: start, endIndex: end })
+      results.push({
+        match: content.substring(start, end),
+        startIndex: start,
+        endIndex: end,
+      });
     }
-    return results
+    return results;
   }
 
-  let best: { startLine: number; endLine: number } | null = null
-  let maxSim = -1
+  let best: { startLine: number; endLine: number } | null = null;
+  let maxSim = -1;
 
   for (const { startLine, endLine } of candidates) {
-    let sim = 0
-    const linesToCheck = Math.min(searchLines.length - 2, endLine - startLine - 2)
+    let sim = 0;
+    const linesToCheck = Math.min(
+      searchLines.length - 2,
+      endLine - startLine - 2,
+    );
     if (linesToCheck > 0) {
-      for (let j = 1; j < searchLines.length - 1 && j < endLine - startLine - 1; j++) {
-        const orig = origLines[startLine + j].trim()
-        const srch = searchLines[j].trim()
-        const len = Math.max(orig.length, srch.length)
-        if (len > 0) sim += 1 - levenshtein(orig, srch) / len
+      for (
+        let j = 1;
+        j < searchLines.length - 1 && j < endLine - startLine - 1;
+        j++
+      ) {
+        const orig = origLines[startLine + j].trim();
+        const srch = searchLines[j].trim();
+        const len = Math.max(orig.length, srch.length);
+        if (len > 0) sim += 1 - levenshtein(orig, srch) / len;
       }
-      sim /= linesToCheck
+      sim /= linesToCheck;
     } else {
-      sim = 1.0
+      sim = 1.0;
     }
     if (sim > maxSim) {
-      maxSim = sim
-      best = { startLine, endLine }
+      maxSim = sim;
+      best = { startLine, endLine };
     }
   }
 
   if (maxSim >= MULTIPLE_CANDIDATES_THRESHOLD && best) {
-    const { startLine, endLine } = best
-    let start = 0
-    for (let k = 0; k < startLine; k++) start += origLines[k].length + 1
-    let end = start
+    const { startLine, endLine } = best;
+    let start = 0;
+    for (let k = 0; k < startLine; k++) start += origLines[k].length + 1;
+    let end = start;
     for (let k = startLine; k <= endLine; k++) {
-      end += origLines[k].length
-      if (k < endLine) end += 1
+      end += origLines[k].length;
+      if (k < endLine) end += 1;
     }
-    results.push({ match: content.substring(start, end), startIndex: start, endIndex: end })
+    results.push({
+      match: content.substring(start, end),
+      startIndex: start,
+      endIndex: end,
+    });
   }
 
-  return results
+  return results;
 }
 
-function whitespaceNormalizedReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  const normalize = (t: string) => t.replace(/\s+/g, " ").trim()
-  const normalizedFind = normalize(find)
+function whitespaceNormalizedReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  const normalize = (t: string) => t.replace(/\s+/g, " ").trim();
+  const normalizedFind = normalize(find);
 
-  const lines = content.split("\n")
+  const lines = content.split("\n");
   for (let i = 0; i < lines.length; i++) {
     if (normalize(lines[i]) === normalizedFind) {
-      let start = 0
-      for (let k = 0; k < i; k++) start += lines[k].length + 1
-      const end = start + lines[i].length
-      results.push({ match: lines[i], startIndex: start, endIndex: end })
+      let start = 0;
+      for (let k = 0; k < i; k++) start += lines[k].length + 1;
+      const end = start + lines[i].length;
+      results.push({ match: lines[i], startIndex: start, endIndex: end });
     }
   }
 
-  const findLines = find.split("\n")
+  const findLines = find.split("\n");
   if (findLines.length > 1) {
     for (let i = 0; i <= lines.length - findLines.length; i++) {
-      const block = lines.slice(i, i + findLines.length).join("\n")
+      const block = lines.slice(i, i + findLines.length).join("\n");
       if (normalize(block) === normalizedFind) {
-        let start = 0
-        for (let k = 0; k < i; k++) start += lines[k].length + 1
-        let end = start
+        let start = 0;
+        for (let k = 0; k < i; k++) start += lines[k].length + 1;
+        let end = start;
         for (let k = 0; k < findLines.length; k++) {
-          end += lines[i + k].length
-          if (k < findLines.length - 1) end += 1
+          end += lines[i + k].length;
+          if (k < findLines.length - 1) end += 1;
         }
-        results.push({ match: block, startIndex: start, endIndex: end })
+        results.push({ match: block, startIndex: start, endIndex: end });
       }
     }
   }
 
-  return results
+  return results;
 }
 
-function indentationFlexibleReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
+function indentationFlexibleReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
   const removeIndent = (t: string) => {
-    const lines = t.split("\n")
-    const nonEmpty = lines.filter((l) => l.trim().length > 0)
-    if (nonEmpty.length === 0) return t
-    const minIndent = Math.min(...nonEmpty.map((l) => {
-      const m = l.match(/^(\s*)/)
-      return m ? m[1].length : 0
-    }))
-    return lines.map((l) => (l.trim().length === 0 ? l : l.slice(minIndent))).join("\n")
-  }
+    const lines = t.split("\n");
+    const nonEmpty = lines.filter((l) => l.trim().length > 0);
+    if (nonEmpty.length === 0) return t;
+    const minIndent = Math.min(
+      ...nonEmpty.map((l) => {
+        const m = l.match(/^(\s*)/);
+        return m ? m[1].length : 0;
+      }),
+    );
+    return lines
+      .map((l) => (l.trim().length === 0 ? l : l.slice(minIndent)))
+      .join("\n");
+  };
 
-  const normalizedFind = removeIndent(find)
-  const contentLines = content.split("\n")
-  const findLines = find.split("\n")
+  const normalizedFind = removeIndent(find);
+  const contentLines = content.split("\n");
+  const findLines = find.split("\n");
 
   for (let i = 0; i <= contentLines.length - findLines.length; i++) {
-    const block = contentLines.slice(i, i + findLines.length).join("\n")
+    const block = contentLines.slice(i, i + findLines.length).join("\n");
     if (removeIndent(block) === normalizedFind) {
-      let start = 0
-      for (let k = 0; k < i; k++) start += contentLines[k].length + 1
-      let end = start
+      let start = 0;
+      for (let k = 0; k < i; k++) start += contentLines[k].length + 1;
+      let end = start;
       for (let k = 0; k < findLines.length; k++) {
-        end += contentLines[i + k].length
-        if (k < findLines.length - 1) end += 1
+        end += contentLines[i + k].length;
+        if (k < findLines.length - 1) end += 1;
       }
-      results.push({ match: block, startIndex: start, endIndex: end })
+      results.push({ match: block, startIndex: start, endIndex: end });
     }
   }
 
-  return results
+  return results;
 }
 
-function escapedNormalizedReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
+function escapedNormalizedReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
   // Simple unescape using a map
   const unescapeMap: Record<string, string> = {
     n: "\n",
     t: "\t",
     r: "\r",
     "'": "'",
-    '"': "\"",
+    '"': '"',
     "`": "`",
     "\\": "\\",
     "\n": "\n",
-    "$": "$",
-  }
-  const unescape = (s: string): string => s.replace(/\\(.)/g, (_, c) => unescapeMap[c] ?? c)
+    $: "$",
+  };
+  const unescape = (s: string): string =>
+    s.replace(/\\(.)/g, (_, c) => unescapeMap[c] ?? c);
 
-  const unescapedFind = unescape(find)
+  const unescapedFind = unescape(find);
   if (content.includes(unescapedFind)) {
-    const idx = content.indexOf(unescapedFind)
-    results.push({ match: unescapedFind, startIndex: idx, endIndex: idx + unescapedFind.length })
+    const idx = content.indexOf(unescapedFind);
+    results.push({
+      match: unescapedFind,
+      startIndex: idx,
+      endIndex: idx + unescapedFind.length,
+    });
   }
 
-  const lines = content.split("\n")
-  const findLines = unescapedFind.split("\n")
+  const lines = content.split("\n");
+  const findLines = unescapedFind.split("\n");
   for (let i = 0; i <= lines.length - findLines.length; i++) {
-    const block = lines.slice(i, i + findLines.length).join("\n")
+    const block = lines.slice(i, i + findLines.length).join("\n");
     if (unescape(block) === unescapedFind) {
-      let start = 0
-      for (let k = 0; k < i; k++) start += lines[k].length + 1
-      let end = start
+      let start = 0;
+      for (let k = 0; k < i; k++) start += lines[k].length + 1;
+      let end = start;
       for (let k = 0; k < findLines.length; k++) {
-        end += lines[i + k].length
-        if (k < findLines.length - 1) end += 1
+        end += lines[i + k].length;
+        if (k < findLines.length - 1) end += 1;
       }
-      results.push({ match: block, startIndex: start, endIndex: end })
+      results.push({ match: block, startIndex: start, endIndex: end });
     }
   }
 
-  return results
+  return results;
 }
 
-function multiOccurrenceReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  let start = 0
+function multiOccurrenceReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  let start = 0;
   while (true) {
-    const idx = content.indexOf(find, start)
-    if (idx === -1) break
-    results.push({ match: find, startIndex: idx, endIndex: idx + find.length })
-    start = idx + find.length
+    const idx = content.indexOf(find, start);
+    if (idx === -1) break;
+    results.push({ match: find, startIndex: idx, endIndex: idx + find.length });
+    start = idx + find.length;
   }
-  return results
+  return results;
 }
 
-function trimmedBoundaryReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  const trimmed = find.trim()
-  if (trimmed === find) return results
+function trimmedBoundaryReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  const trimmed = find.trim();
+  if (trimmed === find) return results;
 
   if (content.includes(trimmed)) {
-    const idx = content.indexOf(trimmed)
-    results.push({ match: trimmed, startIndex: idx, endIndex: idx + trimmed.length })
+    const idx = content.indexOf(trimmed);
+    results.push({
+      match: trimmed,
+      startIndex: idx,
+      endIndex: idx + trimmed.length,
+    });
   }
 
-  const lines = content.split("\n")
-  const findLines = find.split("\n")
+  const lines = content.split("\n");
+  const findLines = find.split("\n");
   for (let i = 0; i <= lines.length - findLines.length; i++) {
-    const block = lines.slice(i, i + findLines.length).join("\n")
+    const block = lines.slice(i, i + findLines.length).join("\n");
     if (block.trim() === trimmed) {
-      let start = 0
-      for (let k = 0; k < i; k++) start += lines[k].length + 1
-      let end = start
+      let start = 0;
+      for (let k = 0; k < i; k++) start += lines[k].length + 1;
+      let end = start;
       for (let k = 0; k < findLines.length; k++) {
-        end += lines[i + k].length
-        if (k < findLines.length - 1) end += 1
+        end += lines[i + k].length;
+        if (k < findLines.length - 1) end += 1;
       }
-      results.push({ match: block, startIndex: start, endIndex: end })
+      results.push({ match: block, startIndex: start, endIndex: end });
     }
   }
 
-  return results
+  return results;
 }
 
-function contextAwareReplacer(content: string, find: string): ReplacerCandidate[] {
-  const results: ReplacerCandidate[] = []
-  const findLines = find.split("\n")
-  if (findLines.length < 3) return results
-  if (findLines[findLines.length - 1] === "") findLines.pop()
+function contextAwareReplacer(
+  content: string,
+  find: string,
+): ReplacerCandidate[] {
+  const results: ReplacerCandidate[] = [];
+  const findLines = find.split("\n");
+  if (findLines.length < 3) return results;
+  if (findLines[findLines.length - 1] === "") findLines.pop();
 
-  const contentLines = content.split("\n")
-  const first = findLines[0].trim()
-  const last = findLines[findLines.length - 1].trim()
+  const contentLines = content.split("\n");
+  const first = findLines[0].trim();
+  const last = findLines[findLines.length - 1].trim();
 
   for (let i = 0; i < contentLines.length; i++) {
-    if (contentLines[i].trim() !== first) continue
+    if (contentLines[i].trim() !== first) continue;
     for (let j = i + 2; j < contentLines.length; j++) {
       if (contentLines[j].trim() === last) {
-        const blockLines = contentLines.slice(i, j + 1)
+        const blockLines = contentLines.slice(i, j + 1);
         if (blockLines.length === findLines.length) {
-          let matching = 0
-          let total = 0
+          let matching = 0;
+          let total = 0;
           for (let k = 1; k < blockLines.length - 1; k++) {
-            const bl = blockLines[k].trim()
-            const sl = findLines[k].trim()
+            const bl = blockLines[k].trim();
+            const sl = findLines[k].trim();
             if (bl.length > 0 || sl.length > 0) {
-              total++
-              if (bl === sl) matching++
+              total++;
+              if (bl === sl) matching++;
             }
           }
           if (total === 0 || matching / total >= 0.5) {
-            let start = 0
-            for (let k = 0; k < i; k++) start += contentLines[k].length + 1
-            let end = start
+            let start = 0;
+            for (let k = 0; k < i; k++) start += contentLines[k].length + 1;
+            let end = start;
             for (let k = i; k <= j; k++) {
-              end += contentLines[k].length
-              if (k < j) end += 1
+              end += contentLines[k].length;
+              if (k < j) end += 1;
             }
-            results.push({ match: blockLines.join("\n"), startIndex: start, endIndex: end })
-            return results
+            results.push({
+              match: blockLines.join("\n"),
+              startIndex: start,
+              endIndex: end,
+            });
+            return results;
           }
         }
-        break
+        break;
       }
     }
   }
 
-  return results
+  return results;
 }
 
 // =============================================================================
 // applyEdit
 // =============================================================================
 
-function applyEdit(content: string, oldString: string, newString: string, replaceAll: boolean): string {
+function applyEdit(
+  content: string,
+  oldString: string,
+  newString: string,
+  replaceAll: boolean,
+): string {
   if (oldString === newString) {
-    throw new Error("No changes to apply: oldString and newString are identical.")
+    throw new Error(
+      "No changes to apply: oldString and newString are identical.",
+    );
   }
 
   const replacers = [
@@ -433,29 +517,36 @@ function applyEdit(content: string, oldString: string, newString: string, replac
     trimmedBoundaryReplacer,
     contextAwareReplacer,
     multiOccurrenceReplacer,
-  ]
+  ];
 
   for (const replacer of replacers) {
-    const candidates = replacer(content, oldString)
+    const candidates = replacer(content, oldString);
     for (const { match, startIndex, endIndex } of candidates) {
       if (replaceAll) {
-        let result = content
-        let pos = 0
+        let result = content;
+        let pos = 0;
         while (true) {
-          const idx = result.indexOf(match, pos)
-          if (idx === -1) break
-          result = result.substring(0, idx) + newString + result.substring(idx + match.length)
-          pos = idx + newString.length
+          const idx = result.indexOf(match, pos);
+          if (idx === -1) break;
+          result =
+            result.substring(0, idx) +
+            newString +
+            result.substring(idx + match.length);
+          pos = idx + newString.length;
         }
-        return result
+        return result;
       }
-      const lastIndex = content.lastIndexOf(match)
-      if (startIndex !== lastIndex) continue
-      return content.substring(0, startIndex) + newString + content.substring(endIndex)
+      const lastIndex = content.lastIndexOf(match);
+      if (startIndex !== lastIndex) continue;
+      return (
+        content.substring(0, startIndex) +
+        newString +
+        content.substring(endIndex)
+      );
     }
   }
 
-  throw new Error("Could not find oldString in the file.")
+  throw new Error("Could not find oldString in the file.");
 }
 
 // =============================================================================
@@ -464,51 +555,64 @@ function applyEdit(content: string, oldString: string, newString: string, replac
 
 async function executeEdit(
   params: EditParams,
-  ctx: ToolContext
-): Promise<ToolExecutionResult<{ title: string; output: string; metadata?: Record<string, unknown> }>> {
+  ctx: ToolContext,
+): Promise<
+  ToolExecutionResult<{
+    title: string;
+    output: string;
+    metadata?: Record<string, unknown>;
+  }>
+> {
   try {
-    let filepath = params.filePath
+    let filepath = params.filePath;
     if (!path.isAbsolute(filepath)) {
-      filepath = path.resolve(ctx.cwd, filepath)
+      filepath = path.resolve(ctx.cwd, filepath);
     }
 
     if (params.oldString === params.newString) {
       return {
         success: false,
         error: "oldString and newString are identical - no changes to apply",
-      }
+      };
     }
 
     if (!fs.existsSync(filepath)) {
       return {
         success: false,
         error: `File not found: ${filepath}`,
-      }
+      };
     }
 
-    const stat = fs.statSync(filepath)
+    const stat = fs.statSync(filepath);
     if (stat.isDirectory()) {
       return {
         success: false,
         error: `Path is a directory: ${filepath}`,
-      }
+      };
     }
 
-    const content = fs.readFileSync(filepath, "utf-8")
-    const ending = detectLineEnding(content)
-    const oldNormalized = params.oldString.replace(/\r\n/g, "\n").replace(/\n/g, ending === "\r\n" ? "\r\n" : "\n")
+    const content = fs.readFileSync(filepath, "utf-8");
+    const ending = detectLineEnding(content);
+    const oldNormalized = params.oldString
+      .replace(/\r\n/g, "\n")
+      .replace(/\n/g, ending === "\r\n" ? "\r\n" : "\n");
 
-    let newContent: string
+    let newContent: string;
     try {
-      newContent = applyEdit(content, oldNormalized, params.newString, params.replaceAll ?? false)
+      newContent = applyEdit(
+        content,
+        oldNormalized,
+        params.newString,
+        params.replaceAll ?? false,
+      );
     } catch (err) {
       return {
         success: false,
         error: err instanceof Error ? err.message : String(err),
-      }
+      };
     }
 
-    fs.writeFileSync(filepath, newContent, "utf-8")
+    fs.writeFileSync(filepath, newContent, "utf-8");
 
     return {
       success: true,
@@ -517,12 +621,12 @@ async function executeEdit(
         output: "Edit applied successfully.",
         metadata: { filepath },
       },
-    }
+    };
   } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),
-    }
+    };
   }
 }
 
@@ -552,4 +656,4 @@ export const EditTool: Tool<EditParams> = buildTool({
   validateInput: validateEditInput,
   isSearchOrReadCommand: () => ({ isSearch: false, isRead: false }),
   getPath: (params) => params.filePath,
-})
+});

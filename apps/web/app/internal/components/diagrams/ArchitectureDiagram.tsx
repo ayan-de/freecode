@@ -1,4 +1,4 @@
-import styles from './ArchitectureDiagram.module.css';
+import styles from "./ArchitectureDiagram.module.css";
 
 interface NodeData {
   id: string;

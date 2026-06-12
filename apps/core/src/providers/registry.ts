@@ -1,28 +1,31 @@
-import { AIProvider, ProviderInfo } from './types'
-import { ProviderId } from './config'
+import { AIProvider, ProviderInfo } from "./types";
+import { ProviderId } from "./config";
 
 export interface ProviderDefinition {
-  info: ProviderInfo
-  create(apiKey: string): AIProvider
+  info: ProviderInfo;
+  create(apiKey: string): AIProvider;
 }
 
-const registry = new Map<ProviderId, ProviderDefinition>()
+const registry = new Map<ProviderId, ProviderDefinition>();
 
-export function registerProvider(id: ProviderId, def: ProviderDefinition): void {
-  registry.set(id, def)
+export function registerProvider(
+  id: ProviderId,
+  def: ProviderDefinition,
+): void {
+  registry.set(id, def);
 }
 
 export function getProvider(id: ProviderId): AIProvider {
-  const def = registry.get(id)
+  const def = registry.get(id);
   if (!def) {
-    const available = Array.from(registry.keys()).join(', ')
-    throw new Error(`Provider "${id}" not registered. Available: ${available}`)
+    const available = Array.from(registry.keys()).join(", ");
+    throw new Error(`Provider "${id}" not registered. Available: ${available}`);
   }
-  return def.create("")
+  return def.create("");
 }
 
 export function listProviders(): ProviderInfo[] {
-  return Array.from(registry.values()).map(def => def.info)
+  return Array.from(registry.values()).map((def) => def.info);
 }
 
 export async function initProviders(): Promise<void> {
@@ -30,9 +33,9 @@ export async function initProviders(): Promise<void> {
   // Import each to trigger registerProvider() call
   // Use Promise.all to wait for all registrations to complete
   await Promise.all([
-    import('./anthropic'),
-    import('./openai'),
-    import('./gemini'),
-    import('./minimax'),
-  ])
+    import("./anthropic"),
+    import("./openai"),
+    import("./gemini"),
+    import("./minimax"),
+  ]);
 }

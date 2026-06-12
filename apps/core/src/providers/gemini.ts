@@ -1,9 +1,9 @@
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { generateText } from 'ai'
-import { AIProvider, ExecuteOptions, ExecuteResult } from './types.js'
-import { getApiKey } from './config.js'
-import { registerProvider } from './registry.js'
-import { convertToCoreMessages } from './utils.js'
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { generateText } from "ai";
+import { AIProvider, ExecuteOptions, ExecuteResult } from "./types.js";
+import { getApiKey } from "./config.js";
+import { registerProvider } from "./registry.js";
+import { convertToCoreMessages } from "./utils.js";
 
 const PROVIDER_INFO = {
   id: "gemini" as const,
@@ -11,27 +11,34 @@ const PROVIDER_INFO = {
   defaultModel: "gemini-2.0-flash",
   supportsStreaming: true,
   supportsTools: true,
-}
+};
 
 function createGeminiProvider(_apiKey: string): AIProvider {
-  const gemini = createGoogleGenerativeAI({ apiKey: getApiKey("gemini") })
+  const gemini = createGoogleGenerativeAI({ apiKey: getApiKey("gemini") });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-    const model = opts.model || PROVIDER_INFO.defaultModel
+    const model = opts.model || PROVIDER_INFO.defaultModel;
 
-    const tools = opts.tools?.reduce((acc, t) => {
-      acc[t.name] = {
-        description: t.description,
-        inputSchema: t.parameters as Record<string, unknown>,
-      }
-      return acc
-    }, {} as Record<string, { description: string; inputSchema: Record<string, unknown> }>)
+    const tools = opts.tools?.reduce(
+      (acc, t) => {
+        acc[t.name] = {
+          description: t.description,
+          inputSchema: t.parameters as Record<string, unknown>,
+        };
+        return acc;
+      },
+      {} as Record<
+        string,
+        { description: string; inputSchema: Record<string, unknown> }
+      >,
+    );
 
     // Cast to any to satisfy AI SDK's ToolSet type which expects FlexibleSchema<never>
     // The underlying implementation accepts plain JSON schema objects
-    const systemPrompt = typeof opts.system === 'string'
-      ? opts.system
-      : opts.system?.map(b => b.text).join('\n\n')
+    const systemPrompt =
+      typeof opts.system === "string"
+        ? opts.system
+        : opts.system?.map((b) => b.text).join("\n\n");
 
     const generateOptions: any = {
       model: gemini.languageModel(model),
@@ -39,45 +46,53 @@ function createGeminiProvider(_apiKey: string): AIProvider {
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
-    }
+    };
 
     if (opts.messages) {
-      generateOptions.messages = convertToCoreMessages(opts.messages)
+      generateOptions.messages = convertToCoreMessages(opts.messages);
     } else {
-      generateOptions.prompt = opts.prompt
+      generateOptions.prompt = opts.prompt;
     }
 
-    const result = await generateText(generateOptions)
+    const result = await generateText(generateOptions);
 
-    const toolCalls = result.toolCalls?.map((tc): { name: string; args: Record<string, unknown>; id: string } => {
-      const input = (tc as unknown as { input: Record<string, unknown> }).input
-      return {
-        name: tc.toolName,
-        args: input,
-        id: tc.toolCallId,
-      }
-    })
+    const toolCalls = result.toolCalls?.map(
+      (tc): { name: string; args: Record<string, unknown>; id: string } => {
+        const input = (tc as unknown as { input: Record<string, unknown> })
+          .input;
+        return {
+          name: tc.toolName,
+          args: input,
+          id: tc.toolCallId,
+        };
+      },
+    );
 
     return {
       content: result.text || "",
-      thinking: undefined,  // Gemini doesn't expose thinking blocks
+      thinking: undefined, // Gemini doesn't expose thinking blocks
       toolCalls: toolCalls?.length ? toolCalls : undefined,
-      usage: result.usage ? {
-        inputTokens: result.usage.inputTokens ?? 0,
-        outputTokens: result.usage.outputTokens ?? 0,
-      } : undefined,
-      stopReason: result.finishReason === "tool-calls" ? "tool_use"
-        : result.finishReason === "length" ? "max_tokens"
-        : "stop",
+      usage: result.usage
+        ? {
+            inputTokens: result.usage.inputTokens ?? 0,
+            outputTokens: result.usage.outputTokens ?? 0,
+          }
+        : undefined,
+      stopReason:
+        result.finishReason === "tool-calls"
+          ? "tool_use"
+          : result.finishReason === "length"
+            ? "max_tokens"
+            : "stop",
       provider: PROVIDER_INFO.id,
       model,
-    }
+    };
   }
 
-  return { info: PROVIDER_INFO, execute }
+  return { info: PROVIDER_INFO, execute };
 }
 
 registerProvider("gemini", {
   info: PROVIDER_INFO,
   create: createGeminiProvider,
-})
+});

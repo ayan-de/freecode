@@ -7,6 +7,7 @@ FreeCode is a CLI tool that uses the user's existing ChatGPT/Claude browser sess
 The original design spec describes a TypeScript REPL CLI that drives a browser controller. This spec adds a **React + xterm.js TUI layer** on top, providing a rich, scalable interface similar to opencode but without SST ecosystem coupling.
 
 **Why React + xterm.js:**
+
 - Monorepo already has Next.js/web stack — patterns transfer directly
 - xterm.js provides mature terminal rendering (colors, cursor, scrolling, keyboard handling)
 - React gives full component model: composable, testable, extensible
@@ -92,11 +93,13 @@ The original design spec describes a TypeScript REPL CLI that drives a browser c
 The prompt follows a two-state UX pattern:
 
 **Initial State (idle):**
+
 - Logo displayed centered above the input area
 - `<PromptInput>` at the bottom, always visible
 - Cursor blinks in the textarea, ready for input
 
 **Active State (user is typing):**
+
 - Logo fades out and is removed from the DOM
 - `<PromptInput>` remains at the bottom — it's a `<textarea>` that auto-resizes to fit content
   - Starts as single-line, grows up to ~5 rows
@@ -104,6 +107,7 @@ The prompt follows a two-state UX pattern:
 - Messages begin appearing above the input as the conversation grows
 
 **State transitions:**
+
 ```
 [Initial] ──user starts typing──> [Logo fades out]
 [Initial] ──messages exist──────> [Logo hidden, messages visible]
@@ -111,6 +115,7 @@ The prompt follows a two-state UX pattern:
 ```
 
 **PromptInput implementation:**
+
 - Textarea element, not a div
 - `onChange` handler tracks content height
 - CSS: `field-sizing: content` for native auto-resize, with fallback JS resize
@@ -121,17 +126,17 @@ This pattern mirrors opencode's approach: logo visible when idle, disappears on 
 
 ### Component Responsibilities
 
-| Component | Responsibility |
-|-----------|----------------|
-| `<TerminalView>` | xterm.js lifecycle, keyboard/mouse event forwarding, cursor management |
-| `<UIOverlay>` | Positioned absolutely over terminal, pointer events passthrough control |
-| `<ChatLayout>` | Flex-column layout: messages fill space, prompt at bottom |
-| `<MessageList>` | Virtualized scrolling, auto-scroll to bottom on new messages |
-| `<Message>` | Renders user/assistant messages with typed parts (text, code, tool) |
-| `<PromptInput>` | Textarea with history, autocomplete hooks, submit handling, logo visibility toggle |
-| `<Logo>` | Centered ASCII/text logo, fades out on first user input |
-| `<PanelManager>` | Manages open/closed state of side panels (diff, files, settings) |
-| `<LayerStack>` | Z-index management for toasts, dialogs, context menus |
+| Component        | Responsibility                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `<TerminalView>` | xterm.js lifecycle, keyboard/mouse event forwarding, cursor management             |
+| `<UIOverlay>`    | Positioned absolutely over terminal, pointer events passthrough control            |
+| `<ChatLayout>`   | Flex-column layout: messages fill space, prompt at bottom                          |
+| `<MessageList>`  | Virtualized scrolling, auto-scroll to bottom on new messages                       |
+| `<Message>`      | Renders user/assistant messages with typed parts (text, code, tool)                |
+| `<PromptInput>`  | Textarea with history, autocomplete hooks, submit handling, logo visibility toggle |
+| `<Logo>`         | Centered ASCII/text logo, fades out on first user input                            |
+| `<PanelManager>` | Manages open/closed state of side panels (diff, files, settings)                   |
+| `<LayerStack>`   | Z-index management for toasts, dialogs, context menus                              |
 
 ---
 
@@ -143,7 +148,7 @@ This pattern mirrors opencode's approach: logo visible when idle, disappears on 
 // ChatStore - messages and conversation state
 interface ChatStore {
   messages: Message[];
-  status: 'idle' | 'streaming' | 'error';
+  status: "idle" | "streaming" | "error";
   appendMessage: (msg: Message) => void;
   updateMessage: (id: string, patch: Partial<Message>) => void;
 }
@@ -169,13 +174,13 @@ interface SessionStore {
 
 ```typescript
 type MessagePart =
-  | { type: 'text'; content: string }
-  | { type: 'code'; language: string; content: string }
-  | { type: 'tool'; tool: ToolCall; result?: string };
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; content: string }
+  | { type: "tool"; tool: ToolCall; result?: string };
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   parts: MessagePart[];
   timestamp: number;
 }
@@ -195,6 +200,7 @@ interface ToolCall {
 The TUI and CLI backend communicate via JSON-RPC over stdin/stdout (or a socket).
 
 **TUI → Backend:**
+
 ```json
 { "method": "prompt", "params": { "text": "fix the bug in utils.ts" }, "id": 1 }
 { "method": "interrupt", "params": {}, "id": 2 }
@@ -202,6 +208,7 @@ The TUI and CLI backend communicate via JSON-RPC over stdin/stdout (or a socket)
 ```
 
 **Backend → TUI:**
+
 ```json
 { "event": "message", "data": { "role": "assistant", "parts": [...] } }
 { "event": "status", "data": { "status": "streaming" } }
@@ -210,13 +217,13 @@ The TUI and CLI backend communicate via JSON-RPC over stdin/stdout (or a socket)
 
 ### Events
 
-| Event | Direction | Payload |
-|-------|-----------|---------|
-| `message` | Backend → TUI | Full message or streamed parts |
-| `status` | Backend → TUI | Current status (idle, streaming, error) |
-| `tool_result` | Backend → TUI | Tool execution output |
-| `diff_preview` | Backend → TUI | Formatted diff for review |
-| `error` | Backend → TUI | Error details |
+| Event          | Direction     | Payload                                 |
+| -------------- | ------------- | --------------------------------------- |
+| `message`      | Backend → TUI | Full message or streamed parts          |
+| `status`       | Backend → TUI | Current status (idle, streaming, error) |
+| `tool_result`  | Backend → TUI | Tool execution output                   |
+| `diff_preview` | Backend → TUI | Formatted diff for review               |
+| `error`        | Backend → TUI | Error details                           |
 
 ---
 
@@ -236,6 +243,7 @@ interface DiffPanelProps {
 ```
 
 **Rendering approach:**
+
 - Parse unified diff into hunks
 - Render with `react-syntax-highlighter` or Shiki for syntax coloring
 - Line-level click handlers for partial accept
@@ -249,47 +257,48 @@ This keeps diff rendering testable and independent of terminal constraints.
 
 Keybindings follow a familiar pattern (like opencode):
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Submit prompt |
-| `Ctrl+C` | Interrupt current operation |
-| `Ctrl+Z` | Undo last change |
-| `Tab` | Autocomplete |
-| `↑/↓` | History navigation |
+| Key      | Action                        |
+| -------- | ----------------------------- |
+| `Enter`  | Submit prompt                 |
+| `Ctrl+C` | Interrupt current operation   |
+| `Ctrl+Z` | Undo last change              |
+| `Tab`    | Autocomplete                  |
+| `↑/↓`    | History navigation            |
 | `Ctrl+P` | Toggle panel (cycles through) |
-| `Ctrl+D` | Toggle diff panel |
-| `Escape` | Close topmost layer/dialog |
+| `Ctrl+D` | Toggle diff panel             |
+| `Escape` | Close topmost layer/dialog    |
 
 Keybindings are registered in a central keymap module:
+
 ```typescript
 const keymap = createKeymap();
-keymap.bind('ctrl+c', interruptHandler);
-keymap.bind('ctrl+p', cyclePanelHandler);
-keymap.bind('escape', closeTopLayerHandler);
+keymap.bind("ctrl+c", interruptHandler);
+keymap.bind("ctrl+p", cyclePanelHandler);
+keymap.bind("escape", closeTopLayerHandler);
 ```
 
 ---
 
 ## Error Handling
 
-| Layer | Error Handling |
-|-------|----------------|
-| Terminal output | Render errors in terminal view with ANSI red |
-| UI overlay | Toast notifications for recoverable errors |
-| IPC bridge | Auto-reconnect with exponential backoff |
-| Backend | Structured error events to TUI |
-| Panel state | Graceful degradation if panel data is incomplete |
+| Layer           | Error Handling                                   |
+| --------------- | ------------------------------------------------ |
+| Terminal output | Render errors in terminal view with ANSI red     |
+| UI overlay      | Toast notifications for recoverable errors       |
+| IPC bridge      | Auto-reconnect with exponential backoff          |
+| Backend         | Structured error events to TUI                   |
+| Panel state     | Graceful degradation if panel data is incomplete |
 
 ---
 
 ## Testing Strategy
 
-| Layer | Testing Approach |
-|-------|-----------------|
+| Layer      | Testing Approach                                               |
+| ---------- | -------------------------------------------------------------- |
 | Components | React Testing Library — render with mock stores, assert output |
-| Stores | Unit tests for state transitions |
-| IPC Bridge | Integration tests with mock backend |
-| E2E | Playwright for full TUI flow |
+| Stores     | Unit tests for state transitions                               |
+| IPC Bridge | Integration tests with mock backend                            |
+| E2E        | Playwright for full TUI flow                                   |
 
 ---
 
@@ -313,6 +322,7 @@ The TUI is a **separate app** in the monorepo (similar to how `apps/web` is sepa
 2. A bundled Node.js app with a WebView (Electron or neutral bundler)
 
 For MVP, we start with a simple architecture:
+
 - React app in `apps/tui`
 - xterm.js for terminal rendering
 - Zustand for state

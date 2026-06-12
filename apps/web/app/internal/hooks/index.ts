@@ -1,2 +1,2 @@
-export { useArchitectureTabs, type TabId } from './useArchitectureTabs';
-export { useDiagramAnimation } from './useDiagramAnimation';
+export { useArchitectureTabs, type TabId } from "./useArchitectureTabs";
+export { useDiagramAnimation } from "./useDiagramAnimation";

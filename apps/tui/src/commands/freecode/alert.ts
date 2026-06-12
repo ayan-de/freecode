@@ -12,7 +12,9 @@ export function playAlert(): void {
   stopAlert();
   const soundPath = join(__dirname, "../../assets/alert.mp3");
   currentAlertProcess = spawn("mpg123", ["-q", soundPath]);
-  currentAlertProcess.on("error", () => { currentAlertProcess = null; });
+  currentAlertProcess.on("error", () => {
+    currentAlertProcess = null;
+  });
 }
 
 export function stopAlert(): void {

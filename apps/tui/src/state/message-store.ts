@@ -1,5 +1,9 @@
 import type { Component } from "@earendil-works/pi-tui";
-import type { MessageInstance, MessageType, MessageStoreOptions } from "../components/message-types.js";
+import type {
+  MessageInstance,
+  MessageType,
+  MessageStoreOptions,
+} from "../components/message-types.js";
 
 type Subscriber = (messages: MessageInstance[]) => void;
 
@@ -20,7 +24,11 @@ class MessageStoreImpl {
   /**
    * Add a new message to the store
    */
-  add(type: MessageType, content: string, component: Component): MessageInstance {
+  add(
+    type: MessageType,
+    content: string,
+    component: Component,
+  ): MessageInstance {
     const message: MessageInstance = {
       id: this.generateId(),
       type,
@@ -55,7 +63,11 @@ class MessageStoreImpl {
   /**
    * Update a message's content and component by ID
    */
-  update(id: number, content: string, component: Component): MessageInstance | undefined {
+  update(
+    id: number,
+    content: string,
+    component: Component,
+  ): MessageInstance | undefined {
     const message = this.messages.find((m) => m.id === id);
     if (!message) return undefined;
 
@@ -132,7 +144,11 @@ class MessageStoreImpl {
 export const messageStore = new MessageStoreImpl();
 
 // Helper functions that delegate to the store
-export function addMessage(type: MessageType, content: string, component: Component): MessageInstance {
+export function addMessage(
+  type: MessageType,
+  content: string,
+  component: Component,
+): MessageInstance {
   return messageStore.add(type, content, component);
 }
 
@@ -148,7 +164,11 @@ export function getInProgress(): MessageInstance | undefined {
   return messageStore.getInProgress();
 }
 
-export function updateMessage(id: number, content: string, component: Component): MessageInstance | undefined {
+export function updateMessage(
+  id: number,
+  content: string,
+  component: Component,
+): MessageInstance | undefined {
   return messageStore.update(id, content, component);
 }
 

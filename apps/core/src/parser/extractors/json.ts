@@ -3,16 +3,16 @@
 // Matches { "changes": [{ "path": "...", "content": "..." }] }
 // =============================================================================
 
-import type { ParserStrategy, ParserResult, FileChange } from '../types.js';
+import type { ParserStrategy, ParserResult, FileChange } from "../types.js";
 
 export class JsonExtractor implements ParserStrategy {
-  name = 'json';
+  name = "json";
 
   parse(raw: string): ParserResult {
     // Try to find a JSON object with changes array
     const jsonMatch = raw.match(/\{[\s\S]*"changes"\s*:\s*\[[\s\S]*\]/);
     if (!jsonMatch) {
-      return { success: false, error: 'No JSON changes structure found' };
+      return { success: false, error: "No JSON changes structure found" };
     }
 
     try {
@@ -24,7 +24,7 @@ export class JsonExtractor implements ParserStrategy {
           if (item.path) {
             changes.push({
               path: item.path,
-              action: item.action || 'create',
+              action: item.action || "create",
               content: item.content,
             });
           }
@@ -32,20 +32,20 @@ export class JsonExtractor implements ParserStrategy {
       }
 
       if (changes.length === 0) {
-        return { success: false, error: 'No valid changes found in JSON' };
+        return { success: false, error: "No valid changes found in JSON" };
       }
 
       return {
         success: true,
         response: {
-          summary: parsed.summary || 'Files from JSON',
+          summary: parsed.summary || "Files from JSON",
           changes,
           raw,
           parserUsed: this.name,
         },
       };
     } catch {
-      return { success: false, error: 'Failed to parse JSON' };
+      return { success: false, error: "Failed to parse JSON" };
     }
   }
 }

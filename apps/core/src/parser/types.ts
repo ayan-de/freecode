@@ -2,7 +2,7 @@
 // Parser Types
 // =============================================================================
 
-export type FileAction = 'create' | 'write' | 'delete';
+export type FileAction = "create" | "write" | "delete";
 
 export interface FileChange {
   path: string;

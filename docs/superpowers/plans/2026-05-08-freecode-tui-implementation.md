@@ -64,6 +64,7 @@ packages/store/                    # New shared store package (extracted later)
 ## Task 1: Scaffold TUI App
 
 **Files:**
+
 - Create: `apps/tui/package.json`
 - Create: `apps/tui/tsconfig.json`
 - Create: `apps/tui/next.config.js`
@@ -123,32 +124,32 @@ packages/store/                    # New shared store package (extracted later)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-}
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
 ```
 
 - [ ] **Step 4: Create `apps/tui/app/layout.tsx`**
 
 ```tsx
-import type { Metadata } from 'next'
-import './globals.css'
+import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: 'FreeCode',
-  description: 'AI-assisted coding via your ChatGPT/Claude session',
-}
+  title: "FreeCode",
+  description: "AI-assisted coding via your ChatGPT/Claude session",
+};
 
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
     <html lang="en">
       <body>{children}</body>
     </html>
-  )
+  );
 }
 ```
 
@@ -176,14 +177,16 @@ export default function RootLayout({
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: 'Geist Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-family: "Geist Mono", "Fira Code", "Cascadia Code", monospace;
 }
 
-#__next, main {
+#__next,
+main {
   height: 100%;
 }
 ```
@@ -191,18 +194,19 @@ html, body {
 - [ ] **Step 6: Create `apps/tui/app/page.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { ChatLayout } from '../components/ChatLayout'
+import { ChatLayout } from "../components/ChatLayout";
 
 export default function TUIPage() {
-  return <ChatLayout />
+  return <ChatLayout />;
 }
 ```
 
 - [ ] **Step 7: Modify `package.json` root to add workspace reference**
 
 Add to root `package.json` `workspaces`:
+
 ```json
 "workspaces": [
   "apps/*",
@@ -217,6 +221,7 @@ Or ensure `apps/tui` is listed in turbo pipeline in `turbo.json`.
 ## Task 2: Create Zustand Stores
 
 **Files:**
+
 - Create: `apps/tui/stores/chat-store.ts`
 - Create: `apps/tui/stores/ui-panel-store.ts`
 - Create: `apps/tui/stores/session-store.ts`
@@ -225,34 +230,38 @@ Or ensure `apps/tui` is listed in turbo pipeline in `turbo.json`.
 - [ ] **Step 1: Create `apps/tui/stores/chat-store.ts`**
 
 ```typescript
-import { create } from 'zustand'
+import { create } from "zustand";
 
 export type MessagePart =
-  | { type: 'text'; content: string }
-  | { type: 'code'; language: string; content: string }
-  | { type: 'tool'; tool: { name: string; args: Record<string, unknown> }; result?: string }
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; content: string }
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+    };
 
 export interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  parts: MessagePart[]
-  timestamp: number
+  id: string;
+  role: "user" | "assistant" | "system";
+  parts: MessagePart[];
+  timestamp: number;
 }
 
 interface ChatStore {
-  messages: Message[]
-  status: 'idle' | 'streaming' | 'error'
-  hasStartedTyping: boolean
-  appendMessage: (msg: Message) => void
-  updateMessage: (id: string, patch: Partial<Message>) => void
-  setStatus: (status: 'idle' | 'streaming' | 'error') => void
-  setHasStartedTyping: (value: boolean) => void
-  clearMessages: () => void
+  messages: Message[];
+  status: "idle" | "streaming" | "error";
+  hasStartedTyping: boolean;
+  appendMessage: (msg: Message) => void;
+  updateMessage: (id: string, patch: Partial<Message>) => void;
+  setStatus: (status: "idle" | "streaming" | "error") => void;
+  setHasStartedTyping: (value: boolean) => void;
+  clearMessages: () => void;
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
   messages: [],
-  status: 'idle',
+  status: "idle",
   hasStartedTyping: false,
 
   appendMessage: (msg) =>
@@ -261,7 +270,7 @@ export const useChatStore = create<ChatStore>((set) => ({
   updateMessage: (id, patch) =>
     set((state) => ({
       messages: state.messages.map((m) =>
-        m.id === id ? { ...m, ...patch } : m
+        m.id === id ? { ...m, ...patch } : m,
       ),
     })),
 
@@ -270,41 +279,41 @@ export const useChatStore = create<ChatStore>((set) => ({
   setHasStartedTyping: (value) => set({ hasStartedTyping: value }),
 
   clearMessages: () => set({ messages: [], hasStartedTyping: false }),
-}))
+}));
 ```
 
 - [ ] **Step 2: Create `apps/tui/stores/ui-panel-store.ts`**
 
 ```typescript
-import { create } from 'zustand'
+import { create } from "zustand";
 
 interface DiffPanelState {
-  open: boolean
-  diff: string
-  originalFile?: string
+  open: boolean;
+  diff: string;
+  originalFile?: string;
 }
 
 interface FileTreePanelState {
-  open: boolean
-  files: { path: string; modified: boolean }[]
+  open: boolean;
+  files: { path: string; modified: boolean }[];
 }
 
 interface UIPanelStore {
-  diffPanel: DiffPanelState
-  fileTreePanel: FileTreePanelState
-  settingsOpen: boolean
-  toggleDiffPanel: () => void
-  openDiffPanel: (diff: string, originalFile?: string) => void
-  closeDiffPanel: () => void
-  toggleFileTreePanel: () => void
-  openFileTreePanel: (files: { path: string; modified: boolean }[]) => void
-  closeFileTreePanel: () => void
-  toggleSettings: () => void
-  closeSettings: () => void
+  diffPanel: DiffPanelState;
+  fileTreePanel: FileTreePanelState;
+  settingsOpen: boolean;
+  toggleDiffPanel: () => void;
+  openDiffPanel: (diff: string, originalFile?: string) => void;
+  closeDiffPanel: () => void;
+  toggleFileTreePanel: () => void;
+  openFileTreePanel: (files: { path: string; modified: boolean }[]) => void;
+  closeFileTreePanel: () => void;
+  toggleSettings: () => void;
+  closeSettings: () => void;
 }
 
 export const useUIPanelStore = create<UIPanelStore>((set) => ({
-  diffPanel: { open: false, diff: '' },
+  diffPanel: { open: false, diff: "" },
   fileTreePanel: { open: false, files: [] },
   settingsOpen: false,
 
@@ -321,33 +330,37 @@ export const useUIPanelStore = create<UIPanelStore>((set) => ({
 
   toggleFileTreePanel: () =>
     set((state) => ({
-      fileTreePanel: { ...state.fileTreePanel, open: !state.fileTreePanel.open },
+      fileTreePanel: {
+        ...state.fileTreePanel,
+        open: !state.fileTreePanel.open,
+      },
     })),
 
-  openFileTreePanel: (files) =>
-    set({ fileTreePanel: { open: true, files } }),
+  openFileTreePanel: (files) => set({ fileTreePanel: { open: true, files } }),
 
   closeFileTreePanel: () =>
-    set((state) => ({ fileTreePanel: { ...state.fileTreePanel, open: false } })),
+    set((state) => ({
+      fileTreePanel: { ...state.fileTreePanel, open: false },
+    })),
 
   toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
 
   closeSettings: () => set({ settingsOpen: false }),
-}))
+}));
 ```
 
 - [ ] **Step 3: Create `apps/tui/stores/session-store.ts`**
 
 ```typescript
-import { create } from 'zustand'
+import { create } from "zustand";
 
 interface SessionStore {
-  connected: boolean
-  sessionId: string | null
-  connect: () => Promise<void>
-  disconnect: () => void
-  setConnected: (connected: boolean) => void
-  setSessionId: (id: string | null) => void
+  connected: boolean;
+  sessionId: string | null;
+  connect: () => Promise<void>;
+  disconnect: () => void;
+  setConnected: (connected: boolean) => void;
+  setSessionId: (id: string | null) => void;
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -356,24 +369,24 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   connect: async () => {
     // IPC connection will be initialized here
-    set({ connected: true, sessionId: crypto.randomUUID() })
+    set({ connected: true, sessionId: crypto.randomUUID() });
   },
 
   disconnect: () => {
-    set({ connected: false, sessionId: null })
+    set({ connected: false, sessionId: null });
   },
 
   setConnected: (connected) => set({ connected }),
   setSessionId: (id) => set({ sessionId: id }),
-}))
+}));
 ```
 
 - [ ] **Step 4: Create `apps/tui/stores/index.ts`**
 
 ```typescript
-export { useChatStore, type Message, type MessagePart } from './chat-store'
-export { useUIPanelStore } from './ui-panel-store'
-export { useSessionStore } from './session-store'
+export { useChatStore, type Message, type MessagePart } from "./chat-store";
+export { useUIPanelStore } from "./ui-panel-store";
+export { useSessionStore } from "./session-store";
 ```
 
 ---
@@ -381,6 +394,7 @@ export { useSessionStore } from './session-store'
 ## Task 3: Build ChatLayout and PromptInput
 
 **Files:**
+
 - Create: `apps/tui/components/ChatLayout.tsx`
 - Create: `apps/tui/components/PromptInput.tsx`
 - Create: `apps/tui/hooks/useAutoResize.ts`
@@ -389,143 +403,143 @@ export { useSessionStore } from './session-store'
 - [ ] **Step 1: Create `apps/tui/hooks/useAutoResize.ts`**
 
 ```typescript
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from "react";
 
 interface UseAutoResizeOptions {
-  minRows?: number
-  maxRows?: number
-  onHeightChange?: (height: number) => void
+  minRows?: number;
+  maxRows?: number;
+  onHeightChange?: (height: number) => void;
 }
 
 export function useAutoResize(options: UseAutoResizeOptions = {}) {
-  const { minRows = 1, maxRows = 5 } = options
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const { minRows = 1, maxRows = 5 } = options;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const resize = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
     // Reset height to auto to get correct scrollHeight
-    textarea.style.height = 'auto'
+    textarea.style.height = "auto";
 
     // Calculate desired height based on line count
-    const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 24
-    const computedHeight = textarea.scrollHeight
-    const maxHeight = lineHeight * maxRows
+    const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 24;
+    const computedHeight = textarea.scrollHeight;
+    const maxHeight = lineHeight * maxRows;
 
     // Cap at maxRows
     if (computedHeight > maxHeight) {
-      textarea.style.height = `${maxHeight}px`
-      textarea.style.overflow = 'auto'
+      textarea.style.height = `${maxHeight}px`;
+      textarea.style.overflow = "auto";
     } else {
-      textarea.style.height = `${computedHeight}px`
-      textarea.style.overflow = 'hidden'
+      textarea.style.height = `${computedHeight}px`;
+      textarea.style.overflow = "hidden";
     }
-  }, [maxRows])
+  }, [maxRows]);
 
   const reset = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = 'auto'
-    textarea.style.overflow = 'hidden'
-  }, [])
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.overflow = "hidden";
+  }, []);
 
-  return { textareaRef, resize, reset }
+  return { textareaRef, resize, reset };
 }
 ```
 
 - [ ] **Step 2: Create `apps/tui/components/Logo.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { useChatStore } from '../stores'
+import { useChatStore } from "../stores";
 
 export function Logo() {
-  const hasStartedTyping = useChatStore((s) => s.hasStartedTyping)
+  const hasStartedTyping = useChatStore((s) => s.hasStartedTyping);
 
-  if (hasStartedTyping) return null
+  if (hasStartedTyping) return null;
 
   return (
     <div
       style={{
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        textAlign: 'center',
-        color: '#e4e4e4',
-        pointerEvents: 'none',
-        userSelect: 'none',
+        position: "fixed",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        textAlign: "center",
+        color: "#e4e4e4",
+        pointerEvents: "none",
+        userSelect: "none",
       }}
     >
-      <pre style={{ fontSize: '14px', lineHeight: 1.4, color: '#3b82f6' }}>
-{`  ██████╗ ██████╗ ███████╗██╗███████╗██╗     ██╗
+      <pre style={{ fontSize: "14px", lineHeight: 1.4, color: "#3b82f6" }}>
+        {`  ██████╗ ██████╗ ███████╗██╗███████╗██╗     ██╗
  ██╔════╝██╔═══██╗██╔════╝██║██╔════╝██║     ██║
  ██║     ██║   ██║███████╗██║███████╗██║     ██║
  ██║     ██║   ██║╚════██║██║╚════██║██║     ██║
  ╚██████╗╚██████╔╝███████║██║███████║███████╗██║
   ╚═════╝ ╚═════╝ ╚══════╝██║╚══════╝╚══════╝╚═╝`}
       </pre>
-      <div style={{ marginTop: '16px', color: '#6b6b6b', fontSize: '12px' }}>
+      <div style={{ marginTop: "16px", color: "#6b6b6b", fontSize: "12px" }}>
         AI-assisted coding — no API costs
       </div>
     </div>
-  )
+  );
 }
 ```
 
 - [ ] **Step 3: Create `apps/tui/components/PromptInput.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { useState, useCallback, KeyboardEvent } from 'react'
-import { useChatStore } from '../stores'
-import { useAutoResize } from '../hooks/useAutoResize'
+import { useState, useCallback, KeyboardEvent } from "react";
+import { useChatStore } from "../stores";
+import { useAutoResize } from "../hooks/useAutoResize";
 
 interface PromptInputProps {
-  onSubmit: (text: string) => void
+  onSubmit: (text: string) => void;
 }
 
 export function PromptInput({ onSubmit }: PromptInputProps) {
-  const [value, setValue] = useState('')
-  const setHasStartedTyping = useChatStore((s) => s.setHasStartedTyping)
-  const { textareaRef, resize } = useAutoResize({ minRows: 1, maxRows: 5 })
+  const [value, setValue] = useState("");
+  const setHasStartedTyping = useChatStore((s) => s.setHasStartedTyping);
+  const { textareaRef, resize } = useAutoResize({ minRows: 1, maxRows: 5 });
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const text = e.target.value
-      setValue(text)
-      resize()
+      const text = e.target.value;
+      setValue(text);
+      resize();
       if (text.length > 0) {
-        setHasStartedTyping(true)
+        setHasStartedTyping(true);
       }
     },
-    [resize, setHasStartedTyping]
-  )
+    [resize, setHasStartedTyping],
+  );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        const trimmed = value.trim()
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const trimmed = value.trim();
         if (trimmed) {
-          onSubmit(trimmed)
-          setValue('')
-          resize()
+          onSubmit(trimmed);
+          setValue("");
+          resize();
         }
       }
     },
-    [value, onSubmit, resize]
-  )
+    [value, onSubmit, resize],
+  );
 
   return (
     <div
       style={{
-        padding: '12px 16px',
-        borderTop: '1px solid #2a2a2a',
-        background: '#141414',
+        padding: "12px 16px",
+        borderTop: "1px solid #2a2a2a",
+        background: "#141414",
       }}
     >
       <textarea
@@ -536,90 +550,102 @@ export function PromptInput({ onSubmit }: PromptInputProps) {
         placeholder="Ask FreeCode to help with your code..."
         rows={1}
         style={{
-          width: '100%',
-          background: '#1e1e1e',
-          border: '1px solid #2a2a2a',
-          borderRadius: '6px',
-          padding: '10px 14px',
-          color: '#e4e4e4',
-          fontSize: '14px',
-          fontFamily: 'inherit',
-          resize: 'none',
-          outline: 'none',
+          width: "100%",
+          background: "#1e1e1e",
+          border: "1px solid #2a2a2a",
+          borderRadius: "6px",
+          padding: "10px 14px",
+          color: "#e4e4e4",
+          fontSize: "14px",
+          fontFamily: "inherit",
+          resize: "none",
+          outline: "none",
           lineHeight: 1.5,
-          minHeight: '42px',
-          overflow: 'hidden',
-          fieldSizing: 'content',
+          minHeight: "42px",
+          overflow: "hidden",
+          fieldSizing: "content",
         }}
         onFocus={(e) => {
-          e.target.style.borderColor = '#3b82f6'
+          e.target.style.borderColor = "#3b82f6";
         }}
         onBlur={(e) => {
-          e.target.style.borderColor = '#2a2a2a'
+          e.target.style.borderColor = "#2a2a2a";
         }}
       />
     </div>
-  )
+  );
 }
 ```
 
 - [ ] **Step 4: Create `apps/tui/components/ChatLayout.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { Logo } from './Logo'
-import { PromptInput } from './PromptInput'
-import { useChatStore } from '../stores'
+import { Logo } from "./Logo";
+import { PromptInput } from "./PromptInput";
+import { useChatStore } from "../stores";
 
 export function ChatLayout() {
-  const messages = useChatStore((s) => s.messages)
-  const status = useChatStore((s) => s.status)
-  const hasStartedTyping = useChatStore((s) => s.hasStartedTyping)
+  const messages = useChatStore((s) => s.messages);
+  const status = useChatStore((s) => s.status);
+  const hasStartedTyping = useChatStore((s) => s.hasStartedTyping);
 
   const handleSubmit = (text: string) => {
     // IPC call to backend will go here
-    console.log('Submit:', text)
-  }
+    console.log("Submit:", text);
+  };
 
   return (
     <div
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        background: '#0a0a0a',
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        background: "#0a0a0a",
       }}
     >
       {/* Messages area */}
       <div
         style={{
           flex: 1,
-          overflowY: 'auto',
-          padding: '16px',
-          paddingBottom: hasStartedTyping ? '16px' : '100px',
+          overflowY: "auto",
+          padding: "16px",
+          paddingBottom: hasStartedTyping ? "16px" : "100px",
         }}
       >
         {messages.length === 0 ? null : (
-          <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+          <div style={{ maxWidth: "800px", margin: "0 auto" }}>
             {messages.map((msg) => (
               <div
                 key={msg.id}
                 style={{
-                  marginBottom: '16px',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  background: msg.role === 'user' ? '#1e1e1e' : 'transparent',
+                  marginBottom: "16px",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  background: msg.role === "user" ? "#1e1e1e" : "transparent",
                 }}
               >
-                <div style={{ color: '#6b6b6b', fontSize: '11px', marginBottom: '4px' }}>
+                <div
+                  style={{
+                    color: "#6b6b6b",
+                    fontSize: "11px",
+                    marginBottom: "4px",
+                  }}
+                >
                   {msg.role.toUpperCase()}
                 </div>
-                <div style={{ color: '#e4e4e4', fontSize: '14px', lineHeight: 1.6 }}>
+                <div
+                  style={{
+                    color: "#e4e4e4",
+                    fontSize: "14px",
+                    lineHeight: 1.6,
+                  }}
+                >
                   {msg.parts.map((part, i) =>
-                    part.type === 'text' ? (
+                    part.type === "text" ? (
                       <span key={i}>{part.content}</span>
-                    ) : null
+                    ) : null,
                   )}
                 </div>
               </div>
@@ -634,18 +660,18 @@ export function ChatLayout() {
       {/* Input fixed at bottom */}
       <div
         style={{
-          position: hasStartedTyping ? 'relative' : 'fixed',
+          position: hasStartedTyping ? "relative" : "fixed",
           bottom: 0,
           left: 0,
           right: 0,
         }}
       >
-        <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+        <div style={{ maxWidth: "800px", margin: "0 auto" }}>
           <PromptInput onSubmit={handleSubmit} />
         </div>
       </div>
     </div>
-  )
+  );
 }
 ```
 
@@ -654,6 +680,7 @@ export function ChatLayout() {
 ## Task 4: Build Message Components
 
 **Files:**
+
 - Create: `apps/tui/components/messages/UserMessage.tsx`
 - Create: `apps/tui/components/messages/AssistantMessage.tsx`
 - Create: `apps/tui/components/messages/parts/TextPart.tsx`
@@ -663,276 +690,293 @@ export function ChatLayout() {
 - [ ] **Step 1: Create `apps/tui/components/messages/parts/TextPart.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
 interface TextPartProps {
-  content: string
+  content: string;
 }
 
 export function TextPart({ content }: TextPartProps) {
-  return <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
+  return <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>;
 }
 ```
 
 - [ ] **Step 2: Create `apps/tui/components/messages/parts/CodePart.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { useState } from 'react'
+import { useState } from "react";
 
 interface CodePartProps {
-  language: string
-  content: string
+  language: string;
+  content: string;
 }
 
 export function CodePart({ language, content }: CodePartProps) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <div
       style={{
-        margin: '8px 0',
-        borderRadius: '6px',
-        overflow: 'hidden',
-        border: '1px solid #2a2a2a',
+        margin: "8px 0",
+        borderRadius: "6px",
+        overflow: "hidden",
+        border: "1px solid #2a2a2a",
       }}
     >
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '6px 12px',
-          background: '#1e1e1e',
-          borderBottom: '1px solid #2a2a2a',
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "6px 12px",
+          background: "#1e1e1e",
+          borderBottom: "1px solid #2a2a2a",
         }}
       >
-        <span style={{ color: '#6b6b6b', fontSize: '11px' }}>{language}</span>
+        <span style={{ color: "#6b6b6b", fontSize: "11px" }}>{language}</span>
         <button
           onClick={handleCopy}
           style={{
-            background: 'none',
-            border: 'none',
-            color: copied ? '#22c55e' : '#6b6b6b',
-            fontSize: '11px',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
+            background: "none",
+            border: "none",
+            color: copied ? "#22c55e" : "#6b6b6b",
+            fontSize: "11px",
+            cursor: "pointer",
+            fontFamily: "inherit",
           }}
         >
-          {copied ? 'Copied!' : 'Copy'}
+          {copied ? "Copied!" : "Copy"}
         </button>
       </div>
       <pre
         style={{
           margin: 0,
-          padding: '12px',
-          background: '#0a0a0a',
-          overflow: 'auto',
-          fontSize: '13px',
+          padding: "12px",
+          background: "#0a0a0a",
+          overflow: "auto",
+          fontSize: "13px",
           lineHeight: 1.5,
-          color: '#e4e4e4',
+          color: "#e4e4e4",
         }}
       >
         <code>{content}</code>
       </pre>
     </div>
-  )
+  );
 }
 ```
 
 - [ ] **Step 3: Create `apps/tui/components/messages/parts/ToolPart.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
 interface ToolPartProps {
-  tool: { name: string; args: Record<string, unknown> }
-  result?: string
+  tool: { name: string; args: Record<string, unknown> };
+  result?: string;
 }
 
 const toolColors: Record<string, string> = {
-  Read: '#3b82f6',
-  Write: '#22c55e',
-  Edit: '#f59e0b',
-  Shell: '#ef4444',
-  Glob: '#a855f7',
-  Grep: '#ec4899',
-}
+  Read: "#3b82f6",
+  Write: "#22c55e",
+  Edit: "#f59e0b",
+  Shell: "#ef4444",
+  Glob: "#a855f7",
+  Grep: "#ec4899",
+};
 
 export function ToolPart({ tool, result }: ToolPartProps) {
-  const color = toolColors[tool.name] || '#6b6b6b'
+  const color = toolColors[tool.name] || "#6b6b6b";
 
   return (
     <div
       style={{
-        margin: '8px 0',
-        padding: '10px 12px',
-        borderRadius: '6px',
+        margin: "8px 0",
+        padding: "10px 12px",
+        borderRadius: "6px",
         border: `1px solid ${color}30`,
         background: `${color}10`,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "4px",
+        }}
+      >
         <span
           style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
+            width: "8px",
+            height: "8px",
+            borderRadius: "50%",
             background: color,
           }}
         />
-        <span style={{ color, fontSize: '12px', fontWeight: 600 }}>{tool.name}</span>
+        <span style={{ color, fontSize: "12px", fontWeight: 600 }}>
+          {tool.name}
+        </span>
       </div>
       {tool.args && Object.keys(tool.args).length > 0 && (
-        <div style={{ color: '#a3a3a3', fontSize: '12px', marginLeft: '16px' }}>
+        <div style={{ color: "#a3a3a3", fontSize: "12px", marginLeft: "16px" }}>
           {JSON.stringify(tool.args)}
         </div>
       )}
       {result && (
         <pre
           style={{
-            margin: '8px 0 0 0',
-            padding: '8px',
-            background: '#0a0a0a',
-            borderRadius: '4px',
-            fontSize: '12px',
-            color: '#e4e4e4',
-            overflow: 'auto',
-            maxHeight: '200px',
+            margin: "8px 0 0 0",
+            padding: "8px",
+            background: "#0a0a0a",
+            borderRadius: "4px",
+            fontSize: "12px",
+            color: "#e4e4e4",
+            overflow: "auto",
+            maxHeight: "200px",
           }}
         >
           {result}
         </pre>
       )}
     </div>
-  )
+  );
 }
 ```
 
 - [ ] **Step 4: Create `apps/tui/components/messages/UserMessage.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { Message } from '../../stores'
-import { TextPart } from './parts/TextPart'
+import { Message } from "../../stores";
+import { TextPart } from "./parts/TextPart";
 
 interface UserMessageProps {
-  message: Message
+  message: Message;
 }
 
 export function UserMessage({ message }: UserMessageProps) {
   return (
     <div
       style={{
-        padding: '12px 16px',
-        background: '#1e1e1e',
-        borderRadius: '8px',
-        border: '1px solid #2a2a2a',
+        padding: "12px 16px",
+        background: "#1e1e1e",
+        borderRadius: "8px",
+        border: "1px solid #2a2a2a",
       }}
     >
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '8px',
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "8px",
         }}
       >
         <span
           style={{
-            width: '20px',
-            height: '20px',
-            borderRadius: '50%',
-            background: '#3b82f6',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '11px',
-            color: '#fff',
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            background: "#3b82f6",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "11px",
+            color: "#fff",
             fontWeight: 600,
           }}
         >
           U
         </span>
-        <span style={{ color: '#6b6b6b', fontSize: '11px' }}>You</span>
+        <span style={{ color: "#6b6b6b", fontSize: "11px" }}>You</span>
       </div>
-      <div style={{ fontSize: '14px', lineHeight: 1.6, color: '#e4e4e4' }}>
+      <div style={{ fontSize: "14px", lineHeight: 1.6, color: "#e4e4e4" }}>
         {message.parts.map((part, i) =>
-          part.type === 'text' ? <TextPart key={i} content={part.content} /> : null
+          part.type === "text" ? (
+            <TextPart key={i} content={part.content} />
+          ) : null,
         )}
       </div>
     </div>
-  )
+  );
 }
 ```
 
 - [ ] **Step 5: Create `apps/tui/components/messages/AssistantMessage.tsx`**
 
 ```tsx
-'use client'
+"use client";
 
-import { Message } from '../../stores'
-import { TextPart } from './parts/TextPart'
-import { CodePart } from './parts/CodePart'
-import { ToolPart } from './parts/ToolPart'
+import { Message } from "../../stores";
+import { TextPart } from "./parts/TextPart";
+import { CodePart } from "./parts/CodePart";
+import { ToolPart } from "./parts/ToolPart";
 
 interface AssistantMessageProps {
-  message: Message
+  message: Message;
 }
 
 export function AssistantMessage({ message }: AssistantMessageProps) {
   return (
-    <div style={{ padding: '12px 0' }}>
+    <div style={{ padding: "12px 0" }}>
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          marginBottom: '8px',
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "8px",
         }}
       >
         <span
           style={{
-            width: '20px',
-            height: '20px',
-            borderRadius: '50%',
-            background: '#22c55e',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '11px',
-            color: '#fff',
+            width: "20px",
+            height: "20px",
+            borderRadius: "50%",
+            background: "#22c55e",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "11px",
+            color: "#fff",
             fontWeight: 600,
           }}
         >
           F
         </span>
-        <span style={{ color: '#6b6b6b', fontSize: '11px' }}>FreeCode</span>
+        <span style={{ color: "#6b6b6b", fontSize: "11px" }}>FreeCode</span>
       </div>
-      <div style={{ fontSize: '14px', lineHeight: 1.6, color: '#e4e4e4' }}>
+      <div style={{ fontSize: "14px", lineHeight: 1.6, color: "#e4e4e4" }}>
         {message.parts.map((part, i) => {
           switch (part.type) {
-            case 'text':
-              return <TextPart key={i} content={part.content} />
-            case 'code':
-              return <CodePart key={i} language={part.language} content={part.content} />
-            case 'tool':
-              return <ToolPart key={i} tool={part.tool} result={part.result} />
+            case "text":
+              return <TextPart key={i} content={part.content} />;
+            case "code":
+              return (
+                <CodePart
+                  key={i}
+                  language={part.language}
+                  content={part.content}
+                />
+              );
+            case "tool":
+              return <ToolPart key={i} tool={part.tool} result={part.result} />;
             default:
-              return null
+              return null;
           }
         })}
       </div>
     </div>
-  )
+  );
 }
 ```
 
@@ -941,6 +985,7 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
 ## Task 5: IPC Bridge
 
 **Files:**
+
 - Create: `apps/tui/ipc/protocol.ts`
 - Create: `apps/tui/ipc/bridge.ts`
 - Create: `apps/tui/ipc/client.ts`
@@ -951,85 +996,85 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
 // JSON-RPC message types for TUI ↔ Backend communication
 
 export interface RPCRequest {
-  method: string
-  params: Record<string, unknown>
-  id: number
+  method: string;
+  params: Record<string, unknown>;
+  id: number;
 }
 
 export interface RPCResponse {
-  result?: unknown
-  error?: { code: number; message: string }
-  id: number
+  result?: unknown;
+  error?: { code: number; message: string };
+  id: number;
 }
 
 export interface RPCEvent {
-  event: 'message' | 'status' | 'tool_result' | 'diff_preview' | 'error'
-  data: unknown
+  event: "message" | "status" | "tool_result" | "diff_preview" | "error";
+  data: unknown;
 }
 
 // TUI → Backend methods
 export const Methods = {
-  prompt: 'prompt',
-  interrupt: 'interrupt',
-  apply_diff: 'apply_diff',
-  undo: 'undo',
-  redo: 'redo',
-} as const
+  prompt: "prompt",
+  interrupt: "interrupt",
+  apply_diff: "apply_diff",
+  undo: "undo",
+  redo: "redo",
+} as const;
 
 // Backend → TUI events
 export const Events = {
-  message: 'message',
-  status: 'status',
-  tool_result: 'tool_result',
-  diff_preview: 'diff_preview',
-  error: 'error',
-} as const
+  message: "message",
+  status: "status",
+  tool_result: "tool_result",
+  diff_preview: "diff_preview",
+  error: "error",
+} as const;
 
-export type Method = (typeof Methods)[keyof typeof Methods]
-export type Event = (typeof Events)[keyof typeof Events]
+export type Method = (typeof Methods)[keyof typeof Methods];
+export type Event = (typeof Events)[keyof typeof Events];
 ```
 
 - [ ] **Step 2: Create `apps/tui/ipc/bridge.ts`**
 
 ```typescript
-import { RPCRequest, RPCResponse, RPCEvent } from './protocol'
+import { RPCRequest, RPCResponse, RPCEvent } from "./protocol";
 
-type EventHandler = (event: RPCEvent) => void
-type ResponseHandler = (response: RPCResponse) => void
+type EventHandler = (event: RPCEvent) => void;
+type ResponseHandler = (response: RPCResponse) => void;
 
 export class IPCBridge {
-  private requestId = 0
-  private pendingRequests = new Map<number, ResponseHandler>()
-  private eventHandlers: EventHandler[] = []
+  private requestId = 0;
+  private pendingRequests = new Map<number, ResponseHandler>();
+  private eventHandlers: EventHandler[] = [];
 
   connect(stdin: ReadableStream, stdout: WritableStream) {
-    const reader = stdin.getReader()
-    const writer = stdout.getWriter()
+    const reader = stdin.getReader();
+    const writer = stdout.getWriter();
 
     // Read loop for backend events/responses
     const readLoop = async () => {
-      const decoder = new TextDecoder()
-      let buffer = ''
+      const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (!line.trim()) continue
+          if (!line.trim()) continue;
           try {
-            const msg = JSON.parse(line) as RPCResponse | RPCEvent
-            if ('event' in msg) {
-              this.eventHandlers.forEach((h) => h(msg as RPCEvent))
+            const msg = JSON.parse(line) as RPCResponse | RPCEvent;
+            if ("event" in msg) {
+              this.eventHandlers.forEach((h) => h(msg as RPCEvent));
             } else {
-              const handler = this.pendingRequests.get(msg.id)
+              const handler = this.pendingRequests.get(msg.id);
               if (handler) {
-                handler(msg as RPCResponse)
-                this.pendingRequests.delete(msg.id)
+                handler(msg as RPCResponse);
+                this.pendingRequests.delete(msg.id);
               }
             }
           } catch {
@@ -1037,37 +1082,40 @@ export class IPCBridge {
           }
         }
       }
-    }
+    };
 
-    readLoop()
+    readLoop();
 
     return {
       send: async (req: RPCRequest) => {
-        const data = JSON.stringify(req) + '\n'
-        await writer.write(new TextEncoder().encode(data))
+        const data = JSON.stringify(req) + "\n";
+        await writer.write(new TextEncoder().encode(data));
       },
       close: () => reader.cancel(),
-    }
+    };
   }
 
-  async request(method: string, params: Record<string, unknown>): Promise<unknown> {
-    const id = ++this.requestId
-    const req: RPCRequest = { method, params, id }
+  async request(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
+    const id = ++this.requestId;
+    const req: RPCRequest = { method, params, id };
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, (res) => {
-        if (res.error) reject(new Error(res.error.message))
-        else resolve(res.result)
-      })
+        if (res.error) reject(new Error(res.error.message));
+        else resolve(res.result);
+      });
       // this.send(req) // Called from client
-    })
+    });
   }
 
   onEvent(handler: EventHandler) {
-    this.eventHandlers.push(handler)
+    this.eventHandlers.push(handler);
     return () => {
-      this.eventHandlers = this.eventHandlers.filter((h) => h !== handler)
-    }
+      this.eventHandlers = this.eventHandlers.filter((h) => h !== handler);
+    };
   }
 }
 ```
@@ -1075,63 +1123,68 @@ export class IPCBridge {
 - [ ] **Step 3: Create `apps/tui/ipc/client.ts`**
 
 ```typescript
-import { IPCBridge } from './bridge'
-import { Methods, type RPCEvent } from './protocol'
-import { useChatStore, type Message } from '../stores'
+import { IPCBridge } from "./bridge";
+import { Methods, type RPCEvent } from "./protocol";
+import { useChatStore, type Message } from "../stores";
 
-let bridge: IPCBridge | null = null
+let bridge: IPCBridge | null = null;
 
 export function initIPCClient() {
   // For browser-based TUI, we'll use a WebSocket or postMessage approach
   // This will be connected to the backend via a local server
-  bridge = new IPCBridge()
-  return bridge
+  bridge = new IPCBridge();
+  return bridge;
 }
 
 export function getBridge() {
   if (!bridge) {
-    throw new Error('IPC not initialized')
+    throw new Error("IPC not initialized");
   }
-  return bridge
+  return bridge;
 }
 
 export function submitPrompt(text: string) {
-  const bridge = getBridge()
-  return bridge.request(Methods.prompt, { text })
+  const bridge = getBridge();
+  return bridge.request(Methods.prompt, { text });
 }
 
 export function interrupt() {
-  const bridge = getBridge()
-  return bridge.request(Methods.interrupt, {})
+  const bridge = getBridge();
+  return bridge.request(Methods.interrupt, {});
 }
 
 export function applyDiff(diff: string) {
-  const bridge = getBridge()
-  return bridge.request(Methods.apply_diff, { diff })
+  const bridge = getBridge();
+  return bridge.request(Methods.apply_diff, { diff });
 }
 
 export function setupEventListeners() {
-  const bridge = getBridge()
-  const chatStore = useChatStore.getState()
+  const bridge = getBridge();
+  const chatStore = useChatStore.getState();
 
   bridge.onEvent((event: RPCEvent) => {
     switch (event.event) {
-      case 'message': {
-        const msg = event.data as Message
-        chatStore.appendMessage(msg)
-        break
+      case "message": {
+        const msg = event.data as Message;
+        chatStore.appendMessage(msg);
+        break;
       }
-      case 'status':
-        chatStore.setStatus((event.data as { status: string }).status as 'idle' | 'streaming' | 'error')
-        break
-      case 'tool_result':
+      case "status":
+        chatStore.setStatus(
+          (event.data as { status: string }).status as
+            | "idle"
+            | "streaming"
+            | "error",
+        );
+        break;
+      case "tool_result":
         // Handle tool result
-        break
-      case 'diff_preview':
+        break;
+      case "diff_preview":
         // Handle diff preview
-        break
+        break;
     }
-  })
+  });
 }
 ```
 

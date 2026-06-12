@@ -1,4 +1,4 @@
-import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 // Registry of connected MCP clients, keyed by server name
 const clients = new Map<string, Client>();

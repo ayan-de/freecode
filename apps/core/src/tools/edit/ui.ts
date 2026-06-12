@@ -2,7 +2,7 @@
 // Edit Tool UI - UI rendering for the Edit tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types"
+import type { ToolUI } from "../tool.types";
 
 // =============================================================================
 // Color codes for terminal output
@@ -15,7 +15,7 @@ const COLORS = {
   red: "\x1b[31m",
   dim: "\x1b[2m",
   reset: "\x1b[0m",
-}
+};
 
 // =============================================================================
 // EditToolUI - UI rendering for the Edit tool
@@ -23,32 +23,32 @@ const COLORS = {
 
 export const editToolUI: Partial<ToolUI> = {
   renderToolUseMessage(toolId, args) {
-    const filePath = args.filePath as string
+    const filePath = args.filePath as string;
 
     return {
       type: "tool_use",
       toolId,
       args,
       status: "pending",
-    }
+    };
   },
 
   renderToolResultMessage(toolId, result) {
-    const isError = !!result.error
-    const status = isError ? "error" : "success"
+    const isError = !!result.error;
+    const status = isError ? "error" : "success";
 
     return {
       type: "tool_result",
       toolId,
       result,
       status,
-    }
+    };
   },
 
   renderToolUseTag(toolId, args) {
-    const filePath = args?.filePath as string
-    const basename = filePath?.split("/").pop() || "edit"
-    return { label: basename, color: "yellow" }
+    const filePath = args?.filePath as string;
+    const basename = filePath?.split("/").pop() || "edit";
+    return { label: basename, color: "yellow" };
   },
 
   renderToolUseProgressMessage(toolId, message, percent) {
@@ -57,23 +57,23 @@ export const editToolUI: Partial<ToolUI> = {
       toolId,
       message,
       percent,
-    }
+    };
   },
 
   renderToolUseErrorMessage(toolId, error) {
-    let friendlyError = error
+    let friendlyError = error;
     if (error.includes("ENOENT")) {
-      friendlyError = "File not found"
+      friendlyError = "File not found";
     } else if (error.includes("match") || error.includes("pattern")) {
-      friendlyError = "Pattern not found in file"
+      friendlyError = "Pattern not found in file";
     } else if (error.includes("permission")) {
-      friendlyError = "Permission denied"
+      friendlyError = "Permission denied";
     }
     return {
       type: "tool_error",
       toolId,
       error: friendlyError,
-    }
+    };
   },
 
   renderToolUseRejectedMessage(toolId, reason) {
@@ -81,6 +81,6 @@ export const editToolUI: Partial<ToolUI> = {
       type: "tool_rejected",
       toolId,
       reason,
-    }
+    };
   },
-}
+};

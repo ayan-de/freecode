@@ -3,10 +3,10 @@
 // Matches FILE: path followed by code blocks
 // =============================================================================
 
-import type { ParserStrategy, ParserResult, FileChange } from '../types.js';
+import type { ParserStrategy, ParserResult, FileChange } from "../types.js";
 
 export class StructuredExtractor implements ParserStrategy {
-  name = 'structured';
+  name = "structured";
 
   parse(raw: string): ParserResult {
     const changes: FileChange[] = [];
@@ -17,8 +17,8 @@ export class StructuredExtractor implements ParserStrategy {
     while ((match = codeBlockPattern.exec(raw)) !== null) {
       const path = match[1].trim();
       const content = match[2].trim();
-      if (path && content && !changes.some(c => c.path === path)) {
-        changes.push({ path, action: 'create', content });
+      if (path && content && !changes.some((c) => c.path === path)) {
+        changes.push({ path, action: "create", content });
       }
     }
 
@@ -29,18 +29,27 @@ export class StructuredExtractor implements ParserStrategy {
       let content = match[2];
 
       // Skip if content starts with header-like text that indicates bad match
-      if (content.startsWith('Markdown\n') || content.startsWith('markdown\n') ||
-          content.startsWith('Json\n') || content.startsWith('json\n')) {
-        content = content.replace(/^(?:Markdown|Json)\n*/i, '');
+      if (
+        content.startsWith("Markdown\n") ||
+        content.startsWith("markdown\n") ||
+        content.startsWith("Json\n") ||
+        content.startsWith("json\n")
+      ) {
+        content = content.replace(/^(?:Markdown|Json)\n*/i, "");
       }
 
-      if (path && content && content.length > 5 && !changes.some(c => c.path === path)) {
-        changes.push({ path, action: 'create', content: content.trim() });
+      if (
+        path &&
+        content &&
+        content.length > 5 &&
+        !changes.some((c) => c.path === path)
+      ) {
+        changes.push({ path, action: "create", content: content.trim() });
       }
     }
 
     if (changes.length === 0) {
-      return { success: false, error: 'No structured file blocks found' };
+      return { success: false, error: "No structured file blocks found" };
     }
 
     return {
@@ -56,15 +65,15 @@ export class StructuredExtractor implements ParserStrategy {
 
   private extractSummary(raw: string): string {
     const cleaned = raw
-      .replace(/FILE:\s*[^\n]+\n?/g, '')
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/^#+\s*/gm, '')
+      .replace(/FILE:\s*[^\n]+\n?/g, "")
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/^#+\s*/gm, "")
       .trim();
 
-    const lines = cleaned.split('\n').filter(l => l.trim().length > 10);
+    const lines = cleaned.split("\n").filter((l) => l.trim().length > 10);
     if (lines.length > 0) {
       return lines[0].slice(0, 200);
     }
-    return 'Generated file structure';
+    return "Generated file structure";
   }
 }

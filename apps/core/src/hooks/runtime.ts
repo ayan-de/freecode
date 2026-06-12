@@ -8,7 +8,7 @@
 // PURPOSE: Allows plugins and custom behavior without modifying core loop
 // =============================================================================
 
-import type { ToolCall, ToolResult } from "../agent/types.js"
+import type { ToolCall, ToolResult } from "../agent/types.js";
 import type {
   HookContext,
   HookEventName,
@@ -21,19 +21,19 @@ import type {
   PromptHook,
   CallbackHook,
   HookResult,
-} from "./types.js"
-import { HOOK_EVENT_NAMES } from "./types.js"
-import { runPreToolUseHooks } from "./PreToolUse.js"
-import { runPostToolUseHooks } from "./PostToolUse.js"
-import { runPostToolUseFailureHooks } from "./PostToolUseFailure.js"
-import { runPermissionRequestHooks } from "./PermissionRequest.js"
-import { runSessionStartHooks } from "./SessionStart.js"
-import { runStopHooks } from "./Stop.js"
-import { runPreCompactHooks } from "./PreCompact.js"
-import { runPostCompactHooks } from "./PostCompact.js"
-import { runUserPromptSubmitHooks } from "./UserPromptSubmit.js"
-import { runSubagentStartHooks } from "./SubagentStart.js"
-import { runSubagentStopHooks } from "./SubagentStop.js"
+} from "./types.js";
+import { HOOK_EVENT_NAMES } from "./types.js";
+import { runPreToolUseHooks } from "./PreToolUse.js";
+import { runPostToolUseHooks } from "./PostToolUse.js";
+import { runPostToolUseFailureHooks } from "./PostToolUseFailure.js";
+import { runPermissionRequestHooks } from "./PermissionRequest.js";
+import { runSessionStartHooks } from "./SessionStart.js";
+import { runStopHooks } from "./Stop.js";
+import { runPreCompactHooks } from "./PreCompact.js";
+import { runPostCompactHooks } from "./PostCompact.js";
+import { runUserPromptSubmitHooks } from "./UserPromptSubmit.js";
+import { runSubagentStartHooks } from "./SubagentStart.js";
+import { runSubagentStopHooks } from "./SubagentStop.js";
 import {
   registerHook,
   unregisterHook,
@@ -41,8 +41,8 @@ import {
   getHooksForEvent,
   getMatchingHooks,
   listRegisteredHooks,
-} from "./registry.js"
-import { bus } from "../bus/index.js"
+} from "./registry.js";
+import { bus } from "../bus/index.js";
 
 // =============================================================================
 // HookRuntime Interface
@@ -50,74 +50,92 @@ import { bus } from "../bus/index.js"
 
 export interface HookRuntime {
   // Tool hooks
-  runPreToolUse(tool: ToolCall, ctx: HookContext): Promise<{
-    allowed: boolean
-    modifiedInput?: Record<string, unknown>
-    additionalContext?: string
-    blockReason?: string
-  }>
+  runPreToolUse(
+    tool: ToolCall,
+    ctx: HookContext,
+  ): Promise<{
+    allowed: boolean;
+    modifiedInput?: Record<string, unknown>;
+    additionalContext?: string;
+    blockReason?: string;
+  }>;
   runPostToolUse(
     tool: ToolCall,
     result: ToolResult,
-    ctx: HookContext
+    ctx: HookContext,
   ): Promise<{
-    modifiedOutput?: unknown
-    additionalContext?: string
-  }>
+    modifiedOutput?: unknown;
+    additionalContext?: string;
+  }>;
   runPostToolUseFailure(
     tool: ToolCall,
     error: string,
-    ctx: HookContext
+    ctx: HookContext,
   ): Promise<{
-    additionalContext?: string
-    shouldRetry?: boolean
-    recoveryAction?: "retry" | "skip" | "abort"
-  }>
+    additionalContext?: string;
+    shouldRetry?: boolean;
+    recoveryAction?: "retry" | "skip" | "abort";
+  }>;
   runPermissionRequest(
     tool: ToolCall,
-    ctx: HookContext
+    ctx: HookContext,
   ): Promise<{
-    decision: "allow" | "deny" | "ask"
-    modifiedInput?: Record<string, unknown>
-    reason?: string
-  }>
+    decision: "allow" | "deny" | "ask";
+    modifiedInput?: Record<string, unknown>;
+    reason?: string;
+  }>;
 
   // Session hooks
   runSessionStart(ctx: HookContext): Promise<{
-    additionalContext?: string
-    initialUserMessage?: string
-  }>
-  runStop(reason: string, ctx: HookContext): Promise<{
-    blocked?: boolean
-    blockReason?: string
-  }>
+    additionalContext?: string;
+    initialUserMessage?: string;
+  }>;
+  runStop(
+    reason: string,
+    ctx: HookContext,
+  ): Promise<{
+    blocked?: boolean;
+    blockReason?: string;
+  }>;
 
   // Compact hooks
   runPreCompact(ctx: HookContext): Promise<{
-    allowed: boolean
-    blockReason?: string
-  }>
-  runPostCompact(ctx: HookContext, success: boolean): Promise<{
-    additionalContext?: string
-  }>
+    allowed: boolean;
+    blockReason?: string;
+  }>;
+  runPostCompact(
+    ctx: HookContext,
+    success: boolean,
+  ): Promise<{
+    additionalContext?: string;
+  }>;
 
   // Prompt hooks
-  runUserPromptSubmit(prompt: string, ctx: HookContext): Promise<{
-    modifiedPrompt?: string
-    additionalContext?: string
-  }>
+  runUserPromptSubmit(
+    prompt: string,
+    ctx: HookContext,
+  ): Promise<{
+    modifiedPrompt?: string;
+    additionalContext?: string;
+  }>;
 
   // Subagent hooks
-  runSubagentStart(name: string, ctx: HookContext): Promise<{
-    additionalContext?: string
-  }>
-  runSubagentStop(name: string, ctx: HookContext): Promise<{
-    additionalContext?: string
-  }>
+  runSubagentStart(
+    name: string,
+    ctx: HookContext,
+  ): Promise<{
+    additionalContext?: string;
+  }>;
+  runSubagentStop(
+    name: string,
+    ctx: HookContext,
+  ): Promise<{
+    additionalContext?: string;
+  }>;
 
   // Utility
-  getHooksForEvent(event: HookEventName): ReturnType<typeof getHooksForEvent>
-  listHooks(): string
+  getHooksForEvent(event: HookEventName): ReturnType<typeof getHooksForEvent>;
+  listHooks(): string;
 }
 
 // =============================================================================
@@ -132,14 +150,14 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runPreToolUse(
       tool: ToolCall,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      allowed: boolean
-      modifiedInput?: Record<string, unknown>
-      additionalContext?: string
-      blockReason?: string
+      allowed: boolean;
+      modifiedInput?: Record<string, unknown>;
+      additionalContext?: string;
+      blockReason?: string;
     }> {
-      return runPreToolUseHooks(tool, ctx)
+      return runPreToolUseHooks(tool, ctx);
     },
 
     // =========================================================================
@@ -149,12 +167,12 @@ export function createHookRuntime(): HookRuntime {
     async runPostToolUse(
       tool: ToolCall,
       result: ToolResult,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      modifiedOutput?: unknown
-      additionalContext?: string
+      modifiedOutput?: unknown;
+      additionalContext?: string;
     }> {
-      return runPostToolUseHooks(tool, result, ctx)
+      return runPostToolUseHooks(tool, result, ctx);
     },
 
     // =========================================================================
@@ -164,13 +182,13 @@ export function createHookRuntime(): HookRuntime {
     async runPostToolUseFailure(
       tool: ToolCall,
       error: string,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      additionalContext?: string
-      shouldRetry?: boolean
-      recoveryAction?: "retry" | "skip" | "abort"
+      additionalContext?: string;
+      shouldRetry?: boolean;
+      recoveryAction?: "retry" | "skip" | "abort";
     }> {
-      return runPostToolUseFailureHooks(tool, error, ctx)
+      return runPostToolUseFailureHooks(tool, error, ctx);
     },
 
     // =========================================================================
@@ -179,26 +197,24 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runPermissionRequest(
       tool: ToolCall,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      decision: "allow" | "deny" | "ask"
-      modifiedInput?: Record<string, unknown>
-      reason?: string
+      decision: "allow" | "deny" | "ask";
+      modifiedInput?: Record<string, unknown>;
+      reason?: string;
     }> {
-      return runPermissionRequestHooks(tool, ctx)
+      return runPermissionRequestHooks(tool, ctx);
     },
 
     // =========================================================================
     // SessionStart Hook - Called when session begins
     // Can: initialize session state, load context
     // =========================================================================
-    async runSessionStart(
-      ctx: HookContext
-    ): Promise<{
-      additionalContext?: string
-      initialUserMessage?: string
+    async runSessionStart(ctx: HookContext): Promise<{
+      additionalContext?: string;
+      initialUserMessage?: string;
     }> {
-      return runSessionStartHooks(ctx)
+      return runSessionStartHooks(ctx);
     },
 
     // =========================================================================
@@ -207,25 +223,23 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runStop(
       reason: string,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      blocked?: boolean
-      blockReason?: string
+      blocked?: boolean;
+      blockReason?: string;
     }> {
-      return runStopHooks(reason, ctx)
+      return runStopHooks(reason, ctx);
     },
 
     // =========================================================================
     // PreCompact Hook - Called before memory compaction
     // Can: inspect context, modify before compaction
     // =========================================================================
-    async runPreCompact(
-      ctx: HookContext
-    ): Promise<{
-      allowed: boolean
-      blockReason?: string
+    async runPreCompact(ctx: HookContext): Promise<{
+      allowed: boolean;
+      blockReason?: string;
     }> {
-      return runPreCompactHooks(ctx)
+      return runPreCompactHooks(ctx);
     },
 
     // =========================================================================
@@ -234,11 +248,11 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runPostCompact(
       ctx: HookContext,
-      success: boolean
+      success: boolean,
     ): Promise<{
-      additionalContext?: string
+      additionalContext?: string;
     }> {
-      return runPostCompactHooks(ctx, success)
+      return runPostCompactHooks(ctx, success);
     },
 
     // =========================================================================
@@ -247,12 +261,12 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runUserPromptSubmit(
       prompt: string,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      modifiedPrompt?: string
-      additionalContext?: string
+      modifiedPrompt?: string;
+      additionalContext?: string;
     }> {
-      return runUserPromptSubmitHooks(prompt, ctx)
+      return runUserPromptSubmitHooks(prompt, ctx);
     },
 
     // =========================================================================
@@ -261,11 +275,11 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runSubagentStart(
       name: string,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      additionalContext?: string
+      additionalContext?: string;
     }> {
-      return runSubagentStartHooks(name, ctx)
+      return runSubagentStartHooks(name, ctx);
     },
 
     // =========================================================================
@@ -274,41 +288,41 @@ export function createHookRuntime(): HookRuntime {
     // =========================================================================
     async runSubagentStop(
       name: string,
-      ctx: HookContext
+      ctx: HookContext,
     ): Promise<{
-      additionalContext?: string
+      additionalContext?: string;
     }> {
-      return runSubagentStopHooks(name, ctx)
+      return runSubagentStopHooks(name, ctx);
     },
 
     // =========================================================================
     // Utility Methods
     // =========================================================================
     getHooksForEvent(event: HookEventName) {
-      return getHooksForEvent(event)
+      return getHooksForEvent(event);
     },
 
     listHooks() {
-      return listRegisteredHooks()
+      return listRegisteredHooks();
     },
-  }
+  };
 }
 
 // =============================================================================
 // Global Hook Runtime Instance
 // =============================================================================
 
-let hookRuntime: HookRuntime | null = null
+let hookRuntime: HookRuntime | null = null;
 
 export function getHookRuntime(): HookRuntime {
   if (!hookRuntime) {
-    hookRuntime = createHookRuntime()
+    hookRuntime = createHookRuntime();
   }
-  return hookRuntime
+  return hookRuntime;
 }
 
 export function resetHookRuntime(): void {
-  hookRuntime = null
+  hookRuntime = null;
 }
 
 // =============================================================================
@@ -346,4 +360,4 @@ export {
   runSubagentStartHooks,
   runSubagentStopHooks,
   runStopHooks,
-}
+};

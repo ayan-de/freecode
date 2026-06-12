@@ -1,9 +1,9 @@
-import * as React from 'react';
-import { createRoot, type Root } from 'react-dom/client';
-import { App } from './App';
-import './index.css';
+import * as React from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { App } from "./App";
+import "./index.css";
 
-const container = document.getElementById('root');
+const container = document.getElementById("root");
 if (container) {
   const root: Root = createRoot(container);
   root.render(React.createElement(App));

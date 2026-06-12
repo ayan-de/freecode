@@ -2,7 +2,7 @@
 // Agent Tool UI - UI rendering for the Agent tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types"
+import type { ToolUI } from "../tool.types";
 
 // =============================================================================
 // Color codes for terminal output
@@ -15,7 +15,7 @@ const COLORS = {
   red: "\x1b[31m",
   dim: "\x1b[2m",
   reset: "\x1b[0m",
-}
+};
 
 // =============================================================================
 // AgentToolUI - UI rendering for the Agent tool
@@ -23,32 +23,32 @@ const COLORS = {
 
 export const agentToolUI: Partial<ToolUI> = {
   renderToolUseMessage(toolId, args) {
-    const description = args.description as string
-    const prompt = args.prompt as string
+    const description = args.description as string;
+    const prompt = args.prompt as string;
 
     return {
       type: "tool_use",
       toolId,
       args,
       status: "pending",
-    }
+    };
   },
 
   renderToolResultMessage(toolId, result) {
-    const isError = !!result.error
-    const status = isError ? "error" : "success"
+    const isError = !!result.error;
+    const status = isError ? "error" : "success";
 
     return {
       type: "tool_result",
       toolId,
       result,
       status,
-    }
+    };
   },
 
   renderToolUseTag(toolId, args) {
-    const description = args?.description as string
-    return { label: description?.slice(0, 15) || "agent", color: "red" }
+    const description = args?.description as string;
+    return { label: description?.slice(0, 15) || "agent", color: "red" };
   },
 
   renderToolUseProgressMessage(toolId, message, percent) {
@@ -57,21 +57,21 @@ export const agentToolUI: Partial<ToolUI> = {
       toolId,
       message,
       percent,
-    }
+    };
   },
 
   renderToolUseErrorMessage(toolId, error) {
-    let friendlyError = error
+    let friendlyError = error;
     if (error.includes("loop")) {
-      friendlyError = "Agent loop detected"
+      friendlyError = "Agent loop detected";
     } else if (error.includes("timeout")) {
-      friendlyError = "Agent timed out"
+      friendlyError = "Agent timed out";
     }
     return {
       type: "tool_error",
       toolId,
       error: friendlyError,
-    }
+    };
   },
 
   renderToolUseRejectedMessage(toolId, reason) {
@@ -79,6 +79,6 @@ export const agentToolUI: Partial<ToolUI> = {
       type: "tool_rejected",
       toolId,
       reason,
-    }
+    };
   },
-}
+};

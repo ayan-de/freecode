@@ -14,10 +14,14 @@ export function err<E>(error: E): Result<never, E> {
   return { success: false, error };
 }
 
-export function isOk<T, E>(result: Result<T, E>): result is { success: true; value: T } {
+export function isOk<T, E>(
+  result: Result<T, E>,
+): result is { success: true; value: T } {
   return result.success === true;
 }
 
-export function isErr<T, E>(result: Result<T, E>): result is { success: false; error: E } {
+export function isErr<T, E>(
+  result: Result<T, E>,
+): result is { success: false; error: E } {
   return result.success === false;
 }

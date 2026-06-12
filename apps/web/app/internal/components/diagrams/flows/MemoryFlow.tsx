@@ -1,5 +1,5 @@
-import React from 'react';
-import styles from '../FreeCodeInternalDiagram.module.css';
+import React from "react";
+import styles from "../FreeCodeInternalDiagram.module.css";
 
 export function MemoryFlow() {
   return (
@@ -23,7 +23,15 @@ export function MemoryFlow() {
         className={styles.flowLineSlow}
       />
       <polygon points="520,380 528,386 521,389" fill="#f97316" />
-      <text x="640" y="420" className={styles.connectionLabel} fill="#f59e0b" textAnchor="middle">read / write context</text>
+      <text
+        x="640"
+        y="420"
+        className={styles.connectionLabel}
+        fill="#f59e0b"
+        textAnchor="middle"
+      >
+        read / write context
+      </text>
     </g>
   );
 }

@@ -37,20 +37,68 @@ packages/shared/
 
 ```typescript
 // types.ts
-export interface Message { id: string; role: "user" | "assistant"; parts: MessagePart[]; timestamp: number }
-export type MessagePart = { type: "text"; content: string } | { type: "code"; language: string; content: string } | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string }
-export interface ToolDef { id: string; description: string; parameters: JsonSchema }
-export interface ToolResult { title: string; output: string; metadata?: Record<string, unknown> }
-export interface ToolContext { cwd: string; abort?: AbortSignal }
-export interface FileChange { path: string; action: "create" | "update" | "delete"; content?: string; diff?: string }
-export interface JsonSchema { type: string; properties?: Record<string, { description?: string; type?: string }>; required?: string[] }
+export interface Message {
+  id: string;
+  role: "user" | "assistant";
+  parts: MessagePart[];
+  timestamp: number;
+}
+export type MessagePart =
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; content: string }
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+    };
+export interface ToolDef {
+  id: string;
+  description: string;
+  parameters: JsonSchema;
+}
+export interface ToolResult {
+  title: string;
+  output: string;
+  metadata?: Record<string, unknown>;
+}
+export interface ToolContext {
+  cwd: string;
+  abort?: AbortSignal;
+}
+export interface FileChange {
+  path: string;
+  action: "create" | "update" | "delete";
+  content?: string;
+  diff?: string;
+}
+export interface JsonSchema {
+  type: string;
+  properties?: Record<string, { description?: string; type?: string }>;
+  required?: string[];
+}
 ```
 
 ```typescript
 // ipc/protocol.ts
-export interface JsonRpcRequest { jsonrpc: "2.0"; id: number | string; method: string; params?: Record<string, unknown> }
-export interface JsonRpcResponse { jsonrpc: "2.0"; id: number | string; result?: unknown; error?: { code: number; message: string; data?: unknown } }
-export interface StreamResponse { type: "text" | "code" | "tool" | "done" | "error"; content: string; toolName?: string; toolArgs?: unknown; toolResult?: string }
+export interface JsonRpcRequest {
+  jsonrpc: "2.0";
+  id: number | string;
+  method: string;
+  params?: Record<string, unknown>;
+}
+export interface JsonRpcResponse {
+  jsonrpc: "2.0";
+  id: number | string;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+}
+export interface StreamResponse {
+  type: "text" | "code" | "tool" | "done" | "error";
+  content: string;
+  toolName?: string;
+  toolArgs?: unknown;
+  toolResult?: string;
+}
 ```
 
 ### Methods to define
@@ -125,6 +173,7 @@ apps/core/src/
 ### 2.2 Copy/move code from TUI
 
 **From `apps/tui/src/lib/browser/` → `apps/core/src/browser/`**
+
 - `controller.ts`
 - `providers/index.ts`
 - `providers/chatgpt.ts`
@@ -132,6 +181,7 @@ apps/core/src/
 - `types.ts`
 
 **From `apps/tui/src/lib/parser/` → `apps/core/src/parser/`**
+
 - `registry.ts`
 - `extractors/index.ts`
 - `extractors/structured.ts`
@@ -140,11 +190,13 @@ apps/core/src/
 - `types.ts`
 
 **From `apps/tui/src/lib/context/` → `apps/core/src/context/`**
+
 - `collector.ts`
 - `strategies/index.ts`
 - `types.ts`
 
 **From `apps/tui/src/commands/freecode/` → `apps/core/src/agent/`**
+
 - Move `executor.ts` logic to `agent/loop.ts`
 - Move `file-applier.ts` logic to `applier/`
 
@@ -157,11 +209,16 @@ Add `bash`, `edit`, `grep`, `find`, `glob` tools to match spec.
 Expand from simple tool executor to full agent server:
 
 ```typescript
-const methodHandlers: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
+const methodHandlers: Record<
+  string,
+  (params: Record<string, unknown>) => Promise<unknown>
+> = {
   "tools.list": async () => listTools(),
-  "tools.call": async (params) => { /* existing */ },
+  "tools.call": async (params) => {
+    /* existing */
+  },
   "session.start": async (params) => startSession(params),
-  "session.send": async (params) => sendMessage(params),  // streams responses
+  "session.send": async (params) => sendMessage(params), // streams responses
   "session.stop": async (params) => stopSession(params),
   "providers.list": async () => listProviders(),
 };
@@ -170,6 +227,7 @@ const methodHandlers: Record<string, (params: Record<string, unknown>) => Promis
 ### 2.5 Wire up the agent loop
 
 `agent/loop.ts` orchestrates:
+
 1. Collect context (file tree)
 2. Send prompt to browser
 3. Parse response
@@ -194,6 +252,7 @@ const methodHandlers: Record<string, (params: Record<string, unknown>) => Promis
 ### 3.1 Remove moved code
 
 Delete:
+
 - `apps/tui/src/lib/browser/` (moved to CLI)
 - `apps/tui/src/lib/parser/` (moved to CLI)
 - `apps/tui/src/lib/context/` (moved to CLI)
@@ -202,6 +261,7 @@ Delete:
 ### 3.2 Refactor IPC client
 
 Update `apps/tui/src/ipc/client.ts`:
+
 - Remove duplicate protocol types — import from `@freecode/shared`
 - Methods stay the same (already JSON-RPC based)
 
@@ -212,7 +272,7 @@ Target: spawns CLI → sends IPC messages → renders responses
 
 ```typescript
 // Target behavior
-startCli();  // spawn node apps/core/src/server.ts
+startCli(); // spawn node apps/core/src/server.ts
 
 editor.onSubmit = async (value) => {
   const response = await sendMessage(sessionId, value);
@@ -226,6 +286,7 @@ editor.onSubmit = async (value) => {
 ### 3.4 Commands
 
 Keep `apps/tui/src/commands/` for TUI-only commands:
+
 - Model selection
 - Theme switching
 - Help, exit
@@ -248,6 +309,7 @@ Remove `/freecode` command — this logic moves to CLI `session.send`.
 ### 4.1 Remove duplicated logic
 
 Delete/empty:
+
 - Any browser code
 - Any parser code
 - Any context collection code

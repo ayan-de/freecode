@@ -8,9 +8,9 @@
 // Thread State Machine
 // ============================================================================
 
-export type ThreadStatus = "active" | "archived" | "deleted"
+export type ThreadStatus = "active" | "archived" | "deleted";
 
-export type ThreadGoalStatus = "pending" | "active" | "completed" | "failed"
+export type ThreadGoalStatus = "pending" | "active" | "completed" | "failed";
 
 // ============================================================================
 // StoredThread - Full thread data stored in database
@@ -18,27 +18,27 @@ export type ThreadGoalStatus = "pending" | "active" | "completed" | "failed"
 
 export interface StoredThread {
   // Identity
-  id: string
-  title: string
+  id: string;
+  title: string;
 
   // Metadata
-  createdAt: number
-  updatedAt: number
-  lastTurnAt: number
-  status: ThreadStatus
+  createdAt: number;
+  updatedAt: number;
+  lastTurnAt: number;
+  status: ThreadStatus;
 
   // Context
-  projectPath: string
-  provider: string
+  projectPath: string;
+  provider: string;
 
   // State
-  turnCount: number
-  iterationCount: number
+  turnCount: number;
+  iterationCount: number;
 
   // Goal tracking
-  goal?: string
-  goalStatus?: ThreadGoalStatus
-  goalUpdatedAt?: number
+  goal?: string;
+  goalStatus?: ThreadGoalStatus;
+  goalUpdatedAt?: number;
 }
 
 // ============================================================================
@@ -47,21 +47,21 @@ export interface StoredThread {
 
 export interface StoredTurn {
   // Identity
-  id: string
-  threadId: string
-  turnNumber: number
+  id: string;
+  threadId: string;
+  turnNumber: number;
 
   // Content
-  prompt: string
-  response?: string
+  prompt: string;
+  response?: string;
 
   // Timing
-  createdAt: number
-  durationMs?: number
+  createdAt: number;
+  durationMs?: number;
 
   // Results
-  toolCallCount: number
-  toolCalls?: StoredToolCall[]
+  toolCallCount: number;
+  toolCalls?: StoredToolCall[];
 }
 
 // ============================================================================
@@ -69,13 +69,13 @@ export interface StoredTurn {
 // ============================================================================
 
 export interface StoredToolCall {
-  id: string
-  toolName: string
-  args: Record<string, unknown>
-  result?: string
-  error?: string
-  durationMs?: number
-  sequence: number
+  id: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  result?: string;
+  error?: string;
+  durationMs?: number;
+  sequence: number;
 }
 
 // ============================================================================
@@ -83,18 +83,18 @@ export interface StoredToolCall {
 // ============================================================================
 
 export interface StoredTurnItemsView {
-  threadId: string
-  turnNumber: number
-  prompt: string
-  response?: string
-  createdAt: number
+  threadId: string;
+  turnNumber: number;
+  prompt: string;
+  response?: string;
+  createdAt: number;
   toolCalls: Array<{
-    id: string
-    toolName: string
-    result?: string
-    error?: string
-    durationMs?: number
-  }>
+    id: string;
+    toolName: string;
+    result?: string;
+    error?: string;
+    durationMs?: number;
+  }>;
 }
 
 // ============================================================================
@@ -102,11 +102,11 @@ export interface StoredTurnItemsView {
 // ============================================================================
 
 export interface ThreadFilter {
-  status?: ThreadStatus
-  projectPath?: string
-  provider?: string
-  limit?: number
-  offset?: number
+  status?: ThreadStatus;
+  projectPath?: string;
+  provider?: string;
+  limit?: number;
+  offset?: number;
 }
 
 // ============================================================================
@@ -115,25 +115,33 @@ export interface ThreadFilter {
 
 export interface ThreadStore {
   // Thread CRUD
-  createThread(thread: Omit<StoredThread, "id" | "createdAt" | "updatedAt">): Promise<string>
-  getThread(threadId: string): Promise<StoredThread | null>
-  updateThread(threadId: string, updates: Partial<StoredThread>): Promise<void>
-  archiveThread(threadId: string): Promise<void>
-  deleteThread(threadId: string): Promise<void>
-  listThreads(filter?: ThreadFilter): Promise<StoredThread[]>
-  searchThreads(query: string): Promise<StoredThread[]>
+  createThread(
+    thread: Omit<StoredThread, "id" | "createdAt" | "updatedAt">,
+  ): Promise<string>;
+  getThread(threadId: string): Promise<StoredThread | null>;
+  updateThread(threadId: string, updates: Partial<StoredThread>): Promise<void>;
+  archiveThread(threadId: string): Promise<void>;
+  deleteThread(threadId: string): Promise<void>;
+  listThreads(filter?: ThreadFilter): Promise<StoredThread[]>;
+  searchThreads(query: string): Promise<StoredThread[]>;
 
   // Turn operations
-  createTurn(turn: Omit<StoredTurn, "id" | "createdAt">): Promise<string>
-  getTurn(turnId: string): Promise<StoredTurn | null>
-  getTurnsForThread(threadId: string): Promise<StoredTurn[]>
-  getTurnItemsView(threadId: string, limit?: number): Promise<StoredTurnItemsView[]>
+  createTurn(turn: Omit<StoredTurn, "id" | "createdAt">): Promise<string>;
+  getTurn(turnId: string): Promise<StoredTurn | null>;
+  getTurnsForThread(threadId: string): Promise<StoredTurn[]>;
+  getTurnItemsView(
+    threadId: string,
+    limit?: number,
+  ): Promise<StoredTurnItemsView[]>;
 
   // Tool call operations
-  addToolCall(turnId: string, toolCall: Omit<StoredToolCall, "id" | "sequence">): Promise<string>
+  addToolCall(
+    turnId: string,
+    toolCall: Omit<StoredToolCall, "id" | "sequence">,
+  ): Promise<string>;
 
   // Utility
-  close(): Promise<void>
+  close(): Promise<void>;
 }
 
 // ============================================================================
@@ -141,10 +149,10 @@ export interface ThreadStore {
 // ============================================================================
 
 export interface JsonThreadStore {
-  threads: Record<string, StoredThread>
-  turns: Record<string, StoredTurn[]>
+  threads: Record<string, StoredThread>;
+  turns: Record<string, StoredTurn[]>;
   metadata: {
-    version: number
-    lastUpdated: number
-  }
+    version: number;
+    lastUpdated: number;
+  };
 }

@@ -2,14 +2,14 @@
 // Parser Extractors Registry
 // =============================================================================
 
-export { StructuredExtractor } from './structured.js';
-export { MarkdownExtractor } from './markdown.js';
-export { JsonExtractor } from './json.js';
+export { StructuredExtractor } from "./structured.js";
+export { MarkdownExtractor } from "./markdown.js";
+export { JsonExtractor } from "./json.js";
 
-import type { ParserStrategy } from '../types.js';
-import { StructuredExtractor } from './structured.js';
-import { MarkdownExtractor } from './markdown.js';
-import { JsonExtractor } from './json.js';
+import type { ParserStrategy } from "../types.js";
+import { StructuredExtractor } from "./structured.js";
+import { MarkdownExtractor } from "./markdown.js";
+import { JsonExtractor } from "./json.js";
 
 const extractors: Map<string, ParserStrategy> = new Map();
 

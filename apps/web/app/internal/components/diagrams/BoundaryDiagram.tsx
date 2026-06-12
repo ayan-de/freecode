@@ -1,4 +1,4 @@
-import styles from './BoundaryDiagram.module.css';
+import styles from "./BoundaryDiagram.module.css";
 
 interface Layer {
   name: string;
@@ -12,10 +12,10 @@ interface BoundaryDiagramProps {
 }
 
 const DEFAULT_COLORS = [
-  'rgba(99, 102, 241, 0.3)',
-  'rgba(168, 85, 247, 0.3)',
-  'rgba(236, 72, 153, 0.3)',
-  'rgba(34, 211, 238, 0.3)',
+  "rgba(99, 102, 241, 0.3)",
+  "rgba(168, 85, 247, 0.3)",
+  "rgba(236, 72, 153, 0.3)",
+  "rgba(34, 211, 238, 0.3)",
 ];
 
 export function BoundaryDiagram({ layers, title }: BoundaryDiagramProps) {
@@ -28,7 +28,9 @@ export function BoundaryDiagram({ layers, title }: BoundaryDiagramProps) {
             key={layerIndex}
             className={styles.layer}
             style={{
-              borderColor: layer.color || DEFAULT_COLORS[layerIndex % DEFAULT_COLORS.length],
+              borderColor:
+                layer.color ||
+                DEFAULT_COLORS[layerIndex % DEFAULT_COLORS.length],
             }}
           >
             <div className={styles.layerHeader}>
@@ -40,7 +42,9 @@ export function BoundaryDiagram({ layers, title }: BoundaryDiagramProps) {
                   key={compIndex}
                   className={styles.component}
                   style={{
-                    borderColor: layer.color || DEFAULT_COLORS[layerIndex % DEFAULT_COLORS.length],
+                    borderColor:
+                      layer.color ||
+                      DEFAULT_COLORS[layerIndex % DEFAULT_COLORS.length],
                   }}
                 >
                   {comp}

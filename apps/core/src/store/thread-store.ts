@@ -11,39 +11,39 @@ import type {
   StoredToolCall,
   ThreadFilter,
   StoredTurnItemsView,
-} from "./types"
-import { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store"
+} from "./types";
+import { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store";
 
 // ============================================================================
 // Store Factory - Try SQLite first, fall back to JSON
 // ============================================================================
 
-let globalStore: ThreadStore | null = null
+let globalStore: ThreadStore | null = null;
 
 /**
  * Get or create the global thread store instance.
  * Uses SQLite if available, falls back to JSON file storage.
  */
 export async function getThreadStore(): Promise<ThreadStore> {
-  if (globalStore) return globalStore
+  if (globalStore) return globalStore;
 
   // Try SQLite first
   try {
-    const { SqliteThreadStoreImpl } = await import("./sqlite-store")
-    const sqliteStore = await SqliteThreadStoreImpl.create()
+    const { SqliteThreadStoreImpl } = await import("./sqlite-store");
+    const sqliteStore = await SqliteThreadStoreImpl.create();
     if (sqliteStore.isAvailable()) {
-      globalStore = sqliteStore
-      console.log("[ThreadStore] Using SQLite backend")
-      return globalStore
+      globalStore = sqliteStore;
+      console.log("[ThreadStore] Using SQLite backend");
+      return globalStore;
     }
   } catch (error) {
-    console.warn(`[ThreadStore] SQLite not available: ${error}`)
+    console.warn(`[ThreadStore] SQLite not available: ${error}`);
   }
 
   // Fall back to JSON store
-  globalStore = createJsonThreadStore()
-  console.log("[ThreadStore] Using JSON file backend")
-  return globalStore
+  globalStore = createJsonThreadStore();
+  console.log("[ThreadStore] Using JSON file backend");
+  return globalStore;
 }
 
 /**
@@ -51,15 +51,15 @@ export async function getThreadStore(): Promise<ThreadStore> {
  */
 export async function createThreadStore(): Promise<ThreadStore> {
   try {
-    const { SqliteThreadStoreImpl } = await import("./sqlite-store")
-    const sqliteStore = await SqliteThreadStoreImpl.create()
+    const { SqliteThreadStoreImpl } = await import("./sqlite-store");
+    const sqliteStore = await SqliteThreadStoreImpl.create();
     if (sqliteStore.isAvailable()) {
-      return sqliteStore
+      return sqliteStore;
     }
   } catch (error) {
-    console.warn(`[ThreadStore] SQLite not available: ${error}`)
+    console.warn(`[ThreadStore] SQLite not available: ${error}`);
   }
-  return createJsonThreadStore()
+  return createJsonThreadStore();
 }
 
 /**
@@ -67,8 +67,8 @@ export async function createThreadStore(): Promise<ThreadStore> {
  */
 export async function closeThreadStore(): Promise<void> {
   if (globalStore) {
-    await globalStore.close()
-    globalStore = null
+    await globalStore.close();
+    globalStore = null;
   }
 }
 
@@ -77,10 +77,10 @@ export async function closeThreadStore(): Promise<void> {
 // ============================================================================
 
 export class ThreadStoreService {
-  private store: ThreadStore
+  private store: ThreadStore;
 
   constructor(store: ThreadStore) {
-    this.store = store
+    this.store = store;
   }
 
   // ===========================================================================
@@ -94,7 +94,7 @@ export class ThreadStoreService {
     title: string,
     projectPath: string,
     provider: string,
-    goal?: string
+    goal?: string,
   ): Promise<string> {
     return this.store.createThread({
       title,
@@ -106,49 +106,52 @@ export class ThreadStoreService {
       turnCount: 0,
       iterationCount: 0,
       lastTurnAt: Date.now(),
-    })
+    });
   }
 
   /**
    * Get a thread by ID
    */
   async get(threadId: string): Promise<StoredThread | null> {
-    return this.store.getThread(threadId)
+    return this.store.getThread(threadId);
   }
 
   /**
    * Update thread metadata
    */
-  async update(threadId: string, updates: Partial<StoredThread>): Promise<void> {
-    return this.store.updateThread(threadId, updates)
+  async update(
+    threadId: string,
+    updates: Partial<StoredThread>,
+  ): Promise<void> {
+    return this.store.updateThread(threadId, updates);
   }
 
   /**
    * Archive a thread (soft delete)
    */
   async archive(threadId: string): Promise<void> {
-    return this.store.archiveThread(threadId)
+    return this.store.archiveThread(threadId);
   }
 
   /**
    * Delete a thread permanently
    */
   async delete(threadId: string): Promise<void> {
-    return this.store.deleteThread(threadId)
+    return this.store.deleteThread(threadId);
   }
 
   /**
    * List threads with optional filtering
    */
   async list(filter?: ThreadFilter): Promise<StoredThread[]> {
-    return this.store.listThreads(filter)
+    return this.store.listThreads(filter);
   }
 
   /**
    * Search threads by title, project, or goal
    */
   async search(query: string): Promise<StoredThread[]> {
-    return this.store.searchThreads(query)
+    return this.store.searchThreads(query);
   }
 
   // ===========================================================================
@@ -163,7 +166,7 @@ export class ThreadStoreService {
     turnNumber: number,
     prompt: string,
     response?: string,
-    toolCallCount?: number
+    toolCallCount?: number,
   ): Promise<string> {
     return this.store.createTurn({
       threadId,
@@ -172,21 +175,24 @@ export class ThreadStoreService {
       response,
       toolCallCount: toolCallCount || 0,
       toolCalls: [],
-    })
+    });
   }
 
   /**
    * Get all turns for a thread
    */
   async getTurns(threadId: string): Promise<StoredTurn[]> {
-    return this.store.getTurnsForThread(threadId)
+    return this.store.getTurnsForThread(threadId);
   }
 
   /**
    * Get turns with tool calls as a view (for display)
    */
-  async getTurnItemsView(threadId: string, limit?: number): Promise<StoredTurnItemsView[]> {
-    return this.store.getTurnItemsView(threadId, limit)
+  async getTurnItemsView(
+    threadId: string,
+    limit?: number,
+  ): Promise<StoredTurnItemsView[]> {
+    return this.store.getTurnItemsView(threadId, limit);
   }
 
   // ===========================================================================
@@ -202,7 +208,7 @@ export class ThreadStoreService {
     args: Record<string, unknown>,
     result?: string,
     error?: string,
-    durationMs?: number
+    durationMs?: number,
   ): Promise<string> {
     return this.store.addToolCall(turnId, {
       toolName,
@@ -210,7 +216,7 @@ export class ThreadStoreService {
       result,
       error,
       durationMs,
-    })
+    });
   }
 
   // ===========================================================================
@@ -222,12 +228,12 @@ export class ThreadStoreService {
    */
   async updateGoalStatus(
     threadId: string,
-    goalStatus: "pending" | "active" | "completed" | "failed"
+    goalStatus: "pending" | "active" | "completed" | "failed",
   ): Promise<void> {
     return this.store.updateThread(threadId, {
       goalStatus,
       goalUpdatedAt: Date.now(),
-    })
+    });
   }
 
   // ===========================================================================
@@ -237,15 +243,18 @@ export class ThreadStoreService {
   /**
    * List recent threads for a project
    */
-  async recentForProject(projectPath: string, limit: number = 10): Promise<StoredThread[]> {
-    return this.store.listThreads({ projectPath, limit })
+  async recentForProject(
+    projectPath: string,
+    limit: number = 10,
+  ): Promise<StoredThread[]> {
+    return this.store.listThreads({ projectPath, limit });
   }
 
   /**
    * List all active threads
    */
   async activeThreads(): Promise<StoredThread[]> {
-    return this.store.listThreads({ status: "active" })
+    return this.store.listThreads({ status: "active" });
   }
 }
 
@@ -257,8 +266,8 @@ export class ThreadStoreService {
  * Create a ThreadStoreService with automatic backend selection
  */
 export async function createThreadStoreService(): Promise<ThreadStoreService> {
-  const store = await getThreadStore()
-  return new ThreadStoreService(store)
+  const store = await getThreadStore();
+  return new ThreadStoreService(store);
 }
 
 // ============================================================================
@@ -272,4 +281,4 @@ export type {
   ThreadFilter,
   StoredTurnItemsView,
   ThreadStore,
-} from "./types"
+} from "./types";

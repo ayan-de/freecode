@@ -1,4 +1,4 @@
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 export interface StdioTransportConfig {
   command: string;
@@ -6,7 +6,9 @@ export interface StdioTransportConfig {
   env?: Record<string, string>;
 }
 
-export function createStdioTransport(config: StdioTransportConfig): StdioClientTransport {
+export function createStdioTransport(
+  config: StdioTransportConfig,
+): StdioClientTransport {
   return new StdioClientTransport({
     command: config.command,
     args: config.args || [],

@@ -1,4 +1,10 @@
-import { Box, Markdown, Text, truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import {
+  Box,
+  Markdown,
+  Text,
+  truncateToWidth,
+  type Component,
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
@@ -17,7 +23,14 @@ class InProgressMessage implements Component {
   private contextLimit: number;
   private turns: number;
 
-  constructor(phrase: string, startTime: number, baseInputTokens: number, outputTokens: number, contextLimit: number, turns: number) {
+  constructor(
+    phrase: string,
+    startTime: number,
+    baseInputTokens: number,
+    outputTokens: number,
+    contextLimit: number,
+    turns: number,
+  ) {
     this.phrase = phrase;
     this.startTime = startTime;
     this.baseInputTokens = baseInputTokens;
@@ -29,7 +42,7 @@ class InProgressMessage implements Component {
   render(width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
     // Estimate: ~1k tokens per second of processing (rough approximation)
-    const estimatedInputTokens = this.baseInputTokens + (elapsed * 1000);
+    const estimatedInputTokens = this.baseInputTokens + elapsed * 1000;
     const inStr = formatTokenCount(estimatedInputTokens);
     const outStr = formatTokenCount(this.outputTokens);
     let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)} ${chalk.dim(`(x${this.turns})`)}`;
@@ -39,7 +52,7 @@ class InProgressMessage implements Component {
       const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
       const filled = Math.round(pct * barWidth);
       const empty = barWidth - filled;
-      const bar = '█'.repeat(filled) + '░'.repeat(empty);
+      const bar = "█".repeat(filled) + "░".repeat(empty);
       const current = formatTokenCount(estimatedInputTokens);
       const limit = formatTokenCount(this.contextLimit);
       display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
@@ -88,7 +101,9 @@ class WidthBounded implements Component {
 
   render(width: number): string[] {
     const safeWidth = Math.max(20, width - 1);
-    return this.inner.render(safeWidth).map((line) => truncateToWidth(line, safeWidth));
+    return this.inner
+      .render(safeWidth)
+      .map((line) => truncateToWidth(line, safeWidth));
   }
 
   invalidate(): void {
@@ -106,7 +121,10 @@ export function createUserMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
   const box = new Box(0, 0, (text: string) => {
-    return text.split("\n").map((line) => chalk.bgRgb(80, 80, 80)(line)).join("\n");
+    return text
+      .split("\n")
+      .map((line) => chalk.bgRgb(80, 80, 80)(line))
+      .join("\n");
   });
   const markdown = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
   box.addChild(markdown);
@@ -182,8 +200,22 @@ export function createSystemMessageComponent(content: string): Component {
 /**
  * Create an in-progress message component — dimmed yellow text (for "Simmering...", etc.)
  */
-export function createInProgressMessageComponent(phrase: string, startTime: number, inputTokens: number, outputTokens: number, contextLimit: number, turns: number): Component {
-  return new InProgressMessage(phrase, startTime, inputTokens, outputTokens, contextLimit, turns);
+export function createInProgressMessageComponent(
+  phrase: string,
+  startTime: number,
+  inputTokens: number,
+  outputTokens: number,
+  contextLimit: number,
+  turns: number,
+): Component {
+  return new InProgressMessage(
+    phrase,
+    startTime,
+    inputTokens,
+    outputTokens,
+    contextLimit,
+    turns,
+  );
 }
 
 /**
@@ -196,7 +228,7 @@ export function createMessageComponent(
   inputTokens?: number,
   outputTokens?: number,
   contextLimit?: number,
-  turns?: number
+  turns?: number,
 ): Component {
   switch (type) {
     case "user":
@@ -214,7 +246,7 @@ export function createMessageComponent(
         inputTokens ?? 0,
         outputTokens ?? 0,
         contextLimit ?? 0,
-        turns ?? 1
+        turns ?? 1,
       );
     default:
       return createSystemMessageComponent(content);

@@ -2,10 +2,10 @@
 // Context Strategies Registry
 // =============================================================================
 
-export { FileTreeStrategy } from './file-tree.js';
+export { FileTreeStrategy } from "./file-tree.js";
 
-import type { ContextStrategy } from '../types.js';
-import { FileTreeStrategy } from './file-tree.js';
+import type { ContextStrategy } from "../types.js";
+import { FileTreeStrategy } from "./file-tree.js";
 
 const strategies: Map<string, ContextStrategy> = new Map();
 

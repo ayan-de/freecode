@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 export interface SessionMeta {
   id: string;
@@ -15,7 +15,7 @@ export interface SessionMeta {
 }
 
 function getSessionsDir(): string {
-  return path.join(os.homedir(), '.freecode', 'sessions');
+  return path.join(os.homedir(), ".freecode", "sessions");
 }
 
 export function readSessionsDir(): SessionMeta[] {
@@ -38,11 +38,11 @@ export function readSessionsDir(): SessionMeta[] {
       const sessionPath = path.join(projectPath, sessionDir);
       if (!fs.statSync(sessionPath).isDirectory()) continue;
 
-      const metaPath = path.join(sessionPath, 'meta.json');
+      const metaPath = path.join(sessionPath, "meta.json");
       if (!fs.existsSync(metaPath)) continue;
 
       try {
-        const content = fs.readFileSync(metaPath, 'utf-8');
+        const content = fs.readFileSync(metaPath, "utf-8");
         const meta = JSON.parse(content) as SessionMeta;
         sessions.push(meta);
       } catch {

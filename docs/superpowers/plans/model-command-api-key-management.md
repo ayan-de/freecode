@@ -61,7 +61,10 @@ export async function hasApiKey(provider: string): Promise<boolean> {
   return (await sendRequest("config.has", { provider })) as boolean;
 }
 
-export async function writeApiKey(provider: string, apiKey: string): Promise<void> {
+export async function writeApiKey(
+  provider: string,
+  apiKey: string,
+): Promise<void> {
   await sendRequest("config.write", { provider, apiKey });
 }
 ```
@@ -78,7 +81,7 @@ Add secure API key input method:
 export interface CommandContext {
   showMessage(content: string): void;
   showModelSelector?(): void;
-  showApiKeyInput?(providerId: string): Promise<string | null>;  // NEW
+  showApiKeyInput?(providerId: string): Promise<string | null>; // NEW
 }
 ```
 
@@ -181,8 +184,8 @@ Add to `apps/core/src/providers/config.ts` Config interface:
 ```typescript
 interface Config {
   providers?: Record<ProviderId, ProviderCredentials>;
-  selectedProvider?: ProviderId;  // NEW
-  selectedModel?: string;          // NEW
+  selectedProvider?: ProviderId; // NEW
+  selectedModel?: string; // NEW
 }
 ```
 

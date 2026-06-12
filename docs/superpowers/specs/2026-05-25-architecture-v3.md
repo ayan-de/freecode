@@ -106,33 +106,34 @@ FreeCode v3 uses the **Effect** framework for dependency injection and async ope
 
 ```typescript
 // apps/core/src/effect/
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect";
 
 // Service interface
 interface AgentLoop {
-  readonly process: (input: StreamInput) => Effect.Effect<ProcessResult>
-  readonly stop: () => Effect.Effect<void>
+  readonly process: (input: StreamInput) => Effect.Effect<ProcessResult>;
+  readonly stop: () => Effect.Effect<void>;
 }
 
 // Live implementation
 const AgentLoopLive = Layer.effect(
   AgentLoop,
   Effect.gen(function* () {
-    const session = yield* SessionService
-    const llm = yield* LLMService
+    const session = yield* SessionService;
+    const llm = yield* LLMService;
     // ...
-    return { process, stop }
-  })
-)
+    return { process, stop };
+  }),
+);
 
 // Composition root
 const AppLayer = Layer.provideMerge(
   AgentLoopLive,
-  Layer.provideMerge(SessionServiceLive, LLMServiceLive)
-)
+  Layer.provideMerge(SessionServiceLive, LLMServiceLive),
+);
 ```
 
 **Benefits:**
+
 - Testable services with `Effect.gen` and `Effect.fn`
 - Composable layers for different environments (test, production)
 - `yield*` pattern for clean async/await
@@ -161,6 +162,7 @@ The core of FreeCode is an **agent loop**: instead of a single request-response,
 ```
 
 **Flow:**
+
 1. Model decides what tool to call (read, write, bash, grep, agent, skill, etc.)
 2. **Hooks intercept** — pre-check input, post-check output, can block/modify
 3. Tool executes (file system, shell, search, sub-agent, etc.)
@@ -177,18 +179,18 @@ Agents are formally defined with modes and permission profiles:
 ```typescript
 // apps/core/src/agent/definitions.ts
 
-export type AgentMode = "primary" | "subagent" | "orchestration"
+export type AgentMode = "primary" | "subagent" | "orchestration";
 
 export interface AgentDefinition {
-  name: string
-  description: string
-  mode: AgentMode
-  permission: PermissionProfile
+  name: string;
+  description: string;
+  mode: AgentMode;
+  permission: PermissionProfile;
   options?: {
-    maxTurns?: number
-    timeout?: number
-    spawnPermission?: PermissionProfile
-  }
+    maxTurns?: number;
+    timeout?: number;
+    spawnPermission?: PermissionProfile;
+  };
 }
 
 export const agents = {
@@ -243,7 +245,7 @@ export const agents = {
     mode: "subagent",
     permission: PROFILES.standard,
   },
-} as const satisfies Record<string, AgentDefinition>
+} as const satisfies Record<string, AgentDefinition>;
 ```
 
 ---
@@ -254,27 +256,28 @@ Every tool call and session lifecycle event passes through hooks. FreeCode adopt
 
 ```typescript
 const HOOK_EVENT_NAMES = [
-  "PreToolUse",       // Before tool execution — modify input or block
-  "PostToolUse",      // After tool execution — modify output, log
+  "PreToolUse", // Before tool execution — modify input or block
+  "PostToolUse", // After tool execution — modify output, log
   "PermissionRequest", // When tool requires user approval
-  "PreCompact",       // Before memory compaction — inspect/modify context
-  "PostCompact",      // After memory compaction — verify result
-  "SessionStart",     // When session begins — initialize session state
-  "UserPromptSubmit",  // Before user prompt goes to model
-  "SubagentStart",    // When a sub-agent is spawned
-  "SubagentStop",     // When a sub-agent completes
-  "Stop",             // When agent loop terminates
+  "PreCompact", // Before memory compaction — inspect/modify context
+  "PostCompact", // After memory compaction — verify result
+  "SessionStart", // When session begins — initialize session state
+  "UserPromptSubmit", // Before user prompt goes to model
+  "SubagentStart", // When a sub-agent is spawned
+  "SubagentStop", // When a sub-agent completes
+  "Stop", // When agent loop terminates
 ] as const;
 
 interface Hook {
   name: string;
-  event: typeof HOOK_EVENT_NAMES[number];
+  event: (typeof HOOK_EVENT_NAMES)[number];
   preExecute?: (context: HookContext) => HookResult | null;
   postExecute?: (context: HookContext, result: unknown) => HookResult;
 }
 ```
 
 **HookResult:**
+
 - `continue` — proceed normally
 - `block(reason)` — halt with explanation
 - `inject(context)` — add additional context to the flow
@@ -286,14 +289,14 @@ interface Hook {
 
 export const runPreToolUseHooks = Effect.fn("Hooks.runPreToolUse")(function* (
   toolCall: ToolCall,
-  context: HookContext
+  context: HookContext,
 ) {
-  const hooks = yield* HookRegistry.getHooks("PreToolUse")
-  let result: HookResult = { action: "continue" }
+  const hooks = yield* HookRegistry.getHooks("PreToolUse");
+  let result: HookResult = { action: "continue" };
 
   for (const hook of hooks) {
     if (hook.preExecute) {
-      result = yield* Effect.promise(() => hook.preExecute(context))
+      result = yield* Effect.promise(() => hook.preExecute(context));
       if (result.action === "block") {
         yield* rollout.record({
           type: "HookTriggered",
@@ -301,36 +304,41 @@ export const runPreToolUseHooks = Effect.fn("Hooks.runPreToolUse")(function* (
           event: "PreToolUse",
           blocked: true,
           reason: result.reason,
-        })
-        return result
+        });
+        return result;
       }
       if (result.action === "inject") {
-        context = { ...context, ...result.injectContext }
+        context = { ...context, ...result.injectContext };
       }
     }
   }
 
-  return { action: "continue" as const, context }
-})
+  return { action: "continue" as const, context };
+});
 
 export const runPostToolUseHooks = Effect.fn("Hooks.runPostToolUse")(function* (
   toolCall: ToolCall,
   result: ToolResult,
-  context: HookContext
+  context: HookContext,
 ) {
-  const hooks = yield* HookRegistry.getHooks("PostToolUse")
+  const hooks = yield* HookRegistry.getHooks("PostToolUse");
 
   for (const hook of hooks) {
     if (hook.postExecute) {
-      const hookResult = yield* Effect.promise(() => hook.postExecute(context, result))
+      const hookResult = yield* Effect.promise(() =>
+        hook.postExecute(context, result),
+      );
       if (hookResult.action === "inject") {
-        result = { ...result, metadata: { ...result.metadata, ...hookResult.injectContext } }
+        result = {
+          ...result,
+          metadata: { ...result.metadata, ...hookResult.injectContext },
+        };
       }
     }
   }
 
-  return result
-})
+  return result;
+});
 ```
 
 ### Core Hook Modules
@@ -363,59 +371,67 @@ The Bus is a decoupled event system separate from Hooks. It publishes session ev
 export interface Bus {
   readonly publish: <E extends BusEvent>(
     event: E,
-    data: BusEventData<E>
-  ) => Effect.Effect<void>
+    data: BusEventData<E>,
+  ) => Effect.Effect<void>;
   readonly subscribe: <E extends BusEvent>(
     event: E,
-    handler: (data: BusEventData<E>) => void
-  ) => Effect.Effect<Unsubscribe>
+    handler: (data: BusEventData<E>) => void,
+  ) => Effect.Effect<Unsubscribe>;
   readonly subscribeAll: (
-    handler: (event: BusEvent, data: unknown) => void
-  ) => Effect.Effect<Unsubscribe>
+    handler: (event: BusEvent, data: unknown) => void,
+  ) => Effect.Effect<Unsubscribe>;
   readonly subscribeCallback: (
     event: BusEvent,
-    callback: BusCallback
-  ) => Effect.Effect<void>
+    callback: BusCallback,
+  ) => Effect.Effect<void>;
 }
 
 // Bus events (decoupled from hooks)
 export const BusEvents = {
   SessionDiff: BusEvent.define(
     "session.diff",
-    Schema.Struct({ sessionId: SessionID, diff: Schema.Array(FileDiff) })
+    Schema.Struct({ sessionId: SessionID, diff: Schema.Array(FileDiff) }),
   ),
   SessionError: BusEvent.define(
     "session.error",
-    Schema.Struct({ sessionId: SessionID, error: ErrorData })
+    Schema.Struct({ sessionId: SessionID, error: ErrorData }),
   ),
   MCPToolsChanged: BusEvent.define(
     "mcp.tools.changed",
-    Schema.Struct({ server: Schema.String })
+    Schema.Struct({ server: Schema.String }),
   ),
   SessionCreated: BusEvent.define(
     "session.created",
-    Schema.Struct({ sessionId: SessionID, projectPath: Schema.String })
+    Schema.Struct({ sessionId: SessionID, projectPath: Schema.String }),
   ),
   SessionUpdated: BusEvent.define(
     "session.updated",
-    Schema.Struct({ sessionId: SessionID })
+    Schema.Struct({ sessionId: SessionID }),
   ),
   ToolsChanged: BusEvent.define(
     "tools.changed",
-    Schema.Struct({ added: Schema.Array(ToolDef), removed: Schema.Array(Schema.String) })
+    Schema.Struct({
+      added: Schema.Array(ToolDef),
+      removed: Schema.Array(Schema.String),
+    }),
   ),
   SubagentStarted: BusEvent.define(
     "subagent.started",
-    Schema.Struct({ subagentId: Schema.String, parentId: SessionID })
+    Schema.Struct({ subagentId: Schema.String, parentId: SessionID }),
   ),
   SubagentCompleted: BusEvent.define(
     "subagent.completed",
-    Schema.Struct({ subagentId: Schema.String, parentId: SessionID, result: Schema.String })
+    Schema.Struct({
+      subagentId: Schema.String,
+      parentId: SessionID,
+      result: Schema.String,
+    }),
   ),
-} as const
+} as const;
 ```
 
 **Why separate Bus from Hooks:**
+
 - Hooks: Safety/transform middleware (PreToolUse blocks, PostToolUse modifies)
 - Bus: Event distribution to external consumers (TUI shows toast on error, web updates session list)
 
@@ -454,7 +470,7 @@ Skills are reusable instruction sets that extend the agent's capabilities. In v3
 ---
 name: commit
 description: Generate a well-structured git commit message
-scope: user      # user | repo | system | admin
+scope: user # user | repo | system | admin
 trigger: /\b(commit|git commit)\b/i
 version: 1.0.0
 ---
@@ -479,7 +495,10 @@ Types: feat, fix, docs, style, refactor, test, chore
     {
       "id": "my-custom-tool",
       "description": "Does something custom",
-      "inputSchema": { "type": "object", "properties": { "input": { "type": "string" } } }
+      "inputSchema": {
+        "type": "object",
+        "properties": { "input": { "type": "string" } }
+      }
     }
   ],
   "hooks": {
@@ -514,8 +533,8 @@ Types: feat, fix, docs, style, refactor, test, chore
 // apps/core/src/skills/loader.ts
 
 const discoverSkills = Effect.fnUntraced(function* () {
-  const config = yield* ConfigService
-  const matches: SkillMatch[] = []
+  const config = yield* ConfigService;
+  const matches: SkillMatch[] = [];
 
   // Search patterns for each scope
   const searchPaths = [
@@ -523,20 +542,23 @@ const discoverSkills = Effect.fnUntraced(function* () {
     { pattern: "~/.freecode/skills/**/*.skill.md", scope: "user" },
     { pattern: "{installDir}/.system/skills/**/*.skill.md", scope: "system" },
     // Support URL-based skills
-    { pattern: "https://raw.githubusercontent.com/**/skills/*.skill.md", scope: "system" },
-  ]
+    {
+      pattern: "https://raw.githubusercontent.com/**/skills/*.skill.md",
+      scope: "system",
+    },
+  ];
 
   for (const { pattern, scope } of searchPaths) {
-    const paths = yield* Effect.promise(() => glob(pattern))
+    const paths = yield* Effect.promise(() => glob(pattern));
     for (const path of paths) {
-      const content = yield* Effect.promise(() => fs.readFile(path, "utf-8"))
-      const metadata = parseFrontmatter(content)
-      matches.push({ path, scope, metadata, content })
+      const content = yield* Effect.promise(() => fs.readFile(path, "utf-8"));
+      const metadata = parseFrontmatter(content);
+      matches.push({ path, scope, metadata, content });
     }
   }
 
-  return matches
-})
+  return matches;
+});
 ```
 
 ---
@@ -552,25 +574,75 @@ Every session action is written to an append-only JSONL log for debugging, repla
 
 // Base event with aggregate + sequence
 interface BaseEvent {
-  id: string           // ULID for globally unique ordering
-  seq: number          // Sequence number within aggregate
-  aggregateID: string  // sessionId, subagentId, etc.
-  timestamp: number
+  id: string; // ULID for globally unique ordering
+  seq: number; // Sequence number within aggregate
+  aggregateID: string; // sessionId, subagentId, etc.
+  timestamp: number;
 }
 
 export type RolloutEvent =
-  | { type: "TurnStarted"; sessionId: string; turnId: string; timestamp: number }
+  | {
+      type: "TurnStarted";
+      sessionId: string;
+      turnId: string;
+      timestamp: number;
+    }
   | { type: "TurnAborted"; sessionId: string; turnId: string; reason: string }
-  | { type: "FunctionCall"; sessionId: string; turnId: string; tool: string; args: Record<string, unknown> }
-  | { type: "FunctionOutput"; sessionId: string; turnId: string; tool: string; output: string; duration_ms: number }
-  | { type: "CompactOccurred"; sessionId: string; beforeTokens: number; afterTokens: number }
-  | { type: "SubagentStart"; sessionId: string; subagentId: string; task: string }
-  | { type: "SubagentStop"; sessionId: string; subagentId: string; result: string }
-  | { type: "SkillInvoked"; sessionId: string; skillName: string; implicit: boolean }
-  | { type: "HookTriggered"; sessionId: string; hookName: string; event: string; blocked: boolean }
+  | {
+      type: "FunctionCall";
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      args: Record<string, unknown>;
+    }
+  | {
+      type: "FunctionOutput";
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      output: string;
+      duration_ms: number;
+    }
+  | {
+      type: "CompactOccurred";
+      sessionId: string;
+      beforeTokens: number;
+      afterTokens: number;
+    }
+  | {
+      type: "SubagentStart";
+      sessionId: string;
+      subagentId: string;
+      task: string;
+    }
+  | {
+      type: "SubagentStop";
+      sessionId: string;
+      subagentId: string;
+      result: string;
+    }
+  | {
+      type: "SkillInvoked";
+      sessionId: string;
+      skillName: string;
+      implicit: boolean;
+    }
+  | {
+      type: "HookTriggered";
+      sessionId: string;
+      hookName: string;
+      event: string;
+      blocked: boolean;
+    }
   | { type: "HookBlocked"; sessionId: string; hookName: string; reason: string }
   | { type: "ContextOverflow"; sessionId: string; beforeTokens: number }
-  | { type: "ParseError"; sessionId: string; turnId: string; parser: string; error: string }
+  | {
+      type: "ParseError";
+      sessionId: string;
+      turnId: string;
+      parser: string;
+      error: string;
+    };
 
 // Aggregate event definitions for proper event sourcing
 export const RolloutEventDefs = {
@@ -607,7 +679,7 @@ export const RolloutEventDefs = {
     }),
   }),
   // ...
-}
+};
 ```
 
 ### Event Storage
@@ -661,19 +733,26 @@ apps/core/src/store/
 ```typescript
 interface ThreadStore {
   // CRUD operations
-  createThread(thread: StoredThread): Effect.Effect<string>
-  getThread(threadId: string): Effect.Effect<StoredThread | null>
-  updateThread(threadId: string, updates: Partial<StoredThread>): Effect.Effect<void>
-  archiveThread(threadId: string): Effect.Effect<void>
-  listThreads(filter?: ThreadFilter): Effect.Effect<StoredThread[]>
-  searchThreads(query: string): Effect.Effect<StoredThread[]>
+  createThread(thread: StoredThread): Effect.Effect<string>;
+  getThread(threadId: string): Effect.Effect<StoredThread | null>;
+  updateThread(
+    threadId: string,
+    updates: Partial<StoredThread>,
+  ): Effect.Effect<void>;
+  archiveThread(threadId: string): Effect.Effect<void>;
+  listThreads(filter?: ThreadFilter): Effect.Effect<StoredThread[]>;
+  searchThreads(query: string): Effect.Effect<StoredThread[]>;
 
   // Turn operations
-  appendTurnItem(threadId: string, turnId: string, item: TurnItem): Effect.Effect<void>
-  getTurnItems(threadId: string, turnId: string): Effect.Effect<TurnItem[]>
+  appendTurnItem(
+    threadId: string,
+    turnId: string,
+    item: TurnItem,
+  ): Effect.Effect<void>;
+  getTurnItems(threadId: string, turnId: string): Effect.Effect<TurnItem[]>;
 
   // Fork operations
-  forkThread(threadId: string, point?: string): Effect.Effect<string>
+  forkThread(threadId: string, point?: string): Effect.Effect<string>;
 }
 ```
 
@@ -738,10 +817,10 @@ CREATE INDEX idx_events_aggregate ON events(aggregate_id, seq);
 // When SQLite unavailable, use JSON files
 
 const sessionPath = (sessionId: string) =>
-  `${Global.Path.data}/sessions/${sessionId}/metadata.json`
+  `${Global.Path.data}/sessions/${sessionId}/metadata.json`;
 
 const messagesPath = (sessionId: string) =>
-  `${Global.Path.data}/sessions/${sessionId}/messages.jsonl`
+  `${Global.Path.data}/sessions/${sessionId}/messages.jsonl`;
 ```
 
 ---
@@ -759,8 +838,8 @@ interface AgentTool {
   name: "agent";
   description: "Spawn a sub-agent to handle a focused task in parallel";
   parameters: {
-    task: string;           // Task description for the sub-agent
-    agent?: "explore" | "scout" | "review" | "test" | "build" | "plan";  // Agent type
+    task: string; // Task description for the sub-agent
+    agent?: "explore" | "scout" | "review" | "test" | "build" | "plan"; // Agent type
     contextFiles?: string[]; // Files to make available to sub-agent
   };
 }
@@ -803,13 +882,13 @@ Sub-agents can fork sessions at any point:
 
 ```typescript
 interface ForkResult {
-  newSessionId: string
-  turnCount: number
-  messageCount: number
+  newSessionId: string;
+  turnCount: number;
+  messageCount: number;
 }
 
-session.fork({ sessionId, point: "current" }) // Fork at current position
-session.fork({ sessionId, point: turnId })    // Fork at specific turn
+session.fork({ sessionId, point: "current" }); // Fork at current position
+session.fork({ sessionId, point: turnId }); // Fork at specific turn
 ```
 
 ---
@@ -820,16 +899,17 @@ Before the agent loop begins, context is assembled from multiple sources:
 
 ```typescript
 interface PreLoopContext {
-  projectConventions: string;    // from AGENTS.md (priority) or CLAUDE.md
-  skills: Skill[];              // from .freecode/skills/ (system + user + repo)
-  activeSkills: Skill[];        // skills triggered implicitly by prompt patterns
-  recentHistory: string;        // recent actions for orientation
-  permissionProfile: PermissionProfile;  // current sandbox permissions
-  vcsInfo: VCSInfo;            // git remote, branch, worktree info
+  projectConventions: string; // from AGENTS.md (priority) or CLAUDE.md
+  skills: Skill[]; // from .freecode/skills/ (system + user + repo)
+  activeSkills: Skill[]; // skills triggered implicitly by prompt patterns
+  recentHistory: string; // recent actions for orientation
+  permissionProfile: PermissionProfile; // current sandbox permissions
+  vcsInfo: VCSInfo; // git remote, branch, worktree info
 }
 ```
 
 **Loading order:**
+
 1. **Project Bootstrap** — detect git worktree, load VCS info
 2. **AGENTS.md** (priority) or **CLAUDE.md** — project conventions, preferences
 3. **System skills** — bundled skills from `.system/`
@@ -844,18 +924,18 @@ interface PreLoopContext {
 // apps/core/src/project/bootstrap.ts
 
 export interface VCSInfo {
-  root: string           // Git root directory
-  worktree: string        // Current worktree (or root if not in worktree)
-  branch: string           // Current branch
-  remote: string | null    // Remote URL (e.g., github.com/user/repo)
-  isDirty: boolean         // Uncommitted changes
+  root: string; // Git root directory
+  worktree: string; // Current worktree (or root if not in worktree)
+  branch: string; // Current branch
+  remote: string | null; // Remote URL (e.g., github.com/user/repo)
+  isDirty: boolean; // Uncommitted changes
 }
 
 export interface ProjectBootstrap {
-  directory: string       // Working directory
-  vcs: VCSInfo             // VCS information
-  config: ConfigInfo       // .freecode.json contents
-  conventions: string     // AGENTS.md or CLAUDE.md content
+  directory: string; // Working directory
+  vcs: VCSInfo; // VCS information
+  config: ConfigInfo; // .freecode.json contents
+  conventions: string; // AGENTS.md or CLAUDE.md content
 }
 ```
 
@@ -878,46 +958,46 @@ Tasks can run for hundreds of steps. To avoid hitting context limits:
 // apps/core/src/agent/compact.ts
 
 interface CompactionResult {
-  success: boolean
-  beforeTokens: number
-  afterTokens: number
-  summary: string
+  success: boolean;
+  beforeTokens: number;
+  afterTokens: number;
+  summary: string;
 }
 
 const runCompaction = Effect.gen(function* () {
-  const session = yield* SessionService
-  const history = yield* session.getHistory()
+  const session = yield* SessionService;
+  const history = yield* session.getHistory();
 
   // Pre-compaction hook
-  const preResult = yield* hooks.runPreCompact(history)
+  const preResult = yield* hooks.runPreCompact(history);
   if (preResult.action === "block") {
-    return { success: false, reason: preResult.reason }
+    return { success: false, reason: preResult.reason };
   }
 
   // Generate summary using compaction agent
-  const summaryAgent = agents.compaction
-  const summary = yield* LLMService.summarize(summaryAgent, history)
+  const summaryAgent = agents.compaction;
+  const summary = yield* LLMService.summarize(summaryAgent, history);
 
   // Replace old history with compressed version
-  const newHistory = yield* session.compactWith(summary)
+  const newHistory = yield* session.compactWith(summary);
 
   // Post-compaction hook
-  yield* hooks.runPostCompact(newHistory)
+  yield* hooks.runPostCompact(newHistory);
 
   // Record event
   yield* rollout.record({
     type: "CompactOccurred",
     beforeTokens: preResult.context.tokenCount,
     afterTokens: newHistory.tokenCount,
-  })
+  });
 
   return {
     success: true,
     beforeTokens: preResult.context.tokenCount,
     afterTokens: newHistory.tokenCount,
     summary,
-  }
-})
+  };
+});
 ```
 
 ---
@@ -926,20 +1006,20 @@ const runCompaction = Effect.gen(function* () {
 
 ### Built-in Tools
 
-| Tool | Description |
-|------|-------------|
-| `read` | Read file contents |
-| `write` | Write/create files |
-| `edit` | Apply edits to files |
-| `bash` | Execute shell commands |
-| `grep` | Search file contents |
-| `find` | Find files by name pattern |
-| `glob` | Glob pattern matching |
-| `agent` | Spawn a sub-agent |
-| `skill` | Explicitly invoke a skill |
-| `apply_patch` | Apply a diff/patch |
+| Tool                 | Description                  |
+| -------------------- | ---------------------------- |
+| `read`               | Read file contents           |
+| `write`              | Write/create files           |
+| `edit`               | Apply edits to files         |
+| `bash`               | Execute shell commands       |
+| `grep`               | Search file contents         |
+| `find`               | Find files by name pattern   |
+| `glob`               | Glob pattern matching        |
+| `agent`              | Spawn a sub-agent            |
+| `skill`              | Explicitly invoke a skill    |
+| `apply_patch`        | Apply a diff/patch           |
 | `request_permission` | Request elevated permissions |
-| `request_user_input` | Elicit user input mid-loop |
+| `request_user_input` | Elicit user input mid-loop   |
 
 ### Tool Execution Pipeline
 
@@ -968,7 +1048,7 @@ interface PermissionProfile {
   network: boolean;
   shell: boolean;
   subprocess: boolean;
-  mcpServers: string[];  // allowed MCP server names
+  mcpServers: string[]; // allowed MCP server names
 }
 
 const PROFILES = {
@@ -1004,7 +1084,7 @@ const PROFILES = {
     subprocess: true,
     mcpServers: ["*"],
   },
-} as const
+} as const;
 ```
 
 ---
@@ -1028,11 +1108,11 @@ freecode mcp --connect https://server.example.com/mcp
 
 ### MCP Transport Support
 
-| Transport | Use Case | opencode Reference |
-|-----------|----------|-------------------|
-| `stdio` | Local processes, CLI tools | `StdioClientTransport` |
-| `streamable-http` | Remote servers, production | `StreamableHTTPClientTransport` |
-| `sse` | Server-Sent Events fallback | `SSEClientTransport` |
+| Transport         | Use Case                    | opencode Reference              |
+| ----------------- | --------------------------- | ------------------------------- |
+| `stdio`           | Local processes, CLI tools  | `StdioClientTransport`          |
+| `streamable-http` | Remote servers, production  | `StreamableHTTPClientTransport` |
+| `sse`             | Server-Sent Events fallback | `SSEClientTransport`            |
 
 ### MCP OAuth (Remote Servers)
 
@@ -1040,18 +1120,19 @@ freecode mcp --connect https://server.example.com/mcp
 // apps/core/src/mcp/oauth-provider.ts
 
 interface OAuthConfig {
-  clientId: string
-  clientSecret?: string
-  authorizationUrl: string
-  tokenUrl: string
-  scopes: string[]
+  clientId: string;
+  clientSecret?: string;
+  authorizationUrl: string;
+  tokenUrl: string;
+  scopes: string[];
 }
 
-const createOAuthProvider = (config: OAuthConfig) => Effect.gen(function* () {
-  // OAuth 2.0 with PKCE support for secure auth
-  const provider = yield* OAuthProvider.create(config)
-  return provider
-})
+const createOAuthProvider = (config: OAuthConfig) =>
+  Effect.gen(function* () {
+    // OAuth 2.0 with PKCE support for secure auth
+    const provider = yield* OAuthProvider.create(config);
+    return provider;
+  });
 ```
 
 ### MCP Tool Conversion
@@ -1062,7 +1143,7 @@ const createOAuthProvider = (config: OAuthConfig) => Effect.gen(function* () {
 function convertMcpTool(
   mcpTool: MCPToolDef,
   client: MCPClient,
-  timeout?: number
+  timeout?: number,
 ): Tool {
   return dynamicTool({
     id: `mcp.${client.name}.${mcpTool.name}`,
@@ -1072,11 +1153,11 @@ function convertMcpTool(
       const result = await client.callTool(
         { name: mcpTool.name, arguments: args },
         CallToolResultSchema,
-        { timeout }
-      )
-      return formatToolResult(result)
+        { timeout },
+      );
+      return formatToolResult(result);
     },
-  })
+  });
 }
 ```
 
@@ -1089,22 +1170,22 @@ When MCP server tools change, Bus publishes event:
 
 // Periodically poll MCP servers for tool changes
 const pollMcpTools = Effect.gen(function* () {
-  const previousTools = new Map<string, MCPToolDef[]>()
+  const previousTools = new Map<string, MCPToolDef[]>();
 
   while (true) {
-    yield* Effect.sleep(5000) // Poll every 5 seconds
+    yield* Effect.sleep(5000); // Poll every 5 seconds
 
     for (const [serverName, client] of mcpClients) {
-      const currentTools = await client.listTools()
-      const prev = previousTools.get(serverName) ?? []
+      const currentTools = await client.listTools();
+      const prev = previousTools.get(serverName) ?? [];
 
       if (!deepEqual(prev, currentTools)) {
-        yield* Bus.publish(BusEvents.MCPToolsChanged, { server: serverName })
-        previousTools.set(serverName, currentTools)
+        yield* Bus.publish(BusEvents.MCPToolsChanged, { server: serverName });
+        previousTools.set(serverName, currentTools);
       }
     }
   }
-})
+});
 ```
 
 ---
@@ -1173,16 +1254,16 @@ export const MessagePart = Schema.Union({
 export const NamedError = {
   create: <Name extends string, const Data extends Schema.Schema.Type<any>>(
     name: Name,
-    dataSchema: Data
+    dataSchema: Data,
   ) => {
     return class extends Error {
-      readonly name = name
+      readonly name = name;
       constructor(readonly data: Schema.Schema.Type<Data>) {
-        super(name)
+        super(name);
       }
-    }
-  }
-}
+    };
+  },
+};
 
 // Defined errors
 export const ContextOverflowError = NamedError.create(
@@ -1191,8 +1272,8 @@ export const ContextOverflowError = NamedError.create(
     beforeTokens: Schema.Number,
     threshold: Schema.Number,
     message: Schema.String,
-  })
-)
+  }),
+);
 
 export const ParseError = NamedError.create(
   "ParseError",
@@ -1200,8 +1281,8 @@ export const ParseError = NamedError.create(
     parser: Schema.String,
     raw: Schema.String,
     error: Schema.String,
-  })
-)
+  }),
+);
 
 export const PermissionDeniedError = NamedError.create(
   "PermissionDeniedError",
@@ -1209,8 +1290,8 @@ export const PermissionDeniedError = NamedError.create(
     tool: Schema.String,
     profile: Schema.String,
     reason: Schema.String,
-  })
-)
+  }),
+);
 
 export const SubagentFailedError = NamedError.create(
   "SubagentFailedError",
@@ -1218,8 +1299,8 @@ export const SubagentFailedError = NamedError.create(
     subagentId: Schema.String,
     agentType: Schema.String,
     error: Schema.String,
-  })
-)
+  }),
+);
 
 export const MCPToolError = NamedError.create(
   "MCPToolError",
@@ -1227,8 +1308,8 @@ export const MCPToolError = NamedError.create(
     server: Schema.String,
     tool: Schema.String,
     error: Schema.String,
-  })
-)
+  }),
+);
 ```
 
 ---
@@ -1257,26 +1338,28 @@ apps/core/src/session/prompt/
 
 const loadProviderPrompt = Effect.fn("Prompt.loadProvider")(function* (
   provider: ProviderID,
-  mode: "primary" | "subagent" | "plan" | "compaction"
+  mode: "primary" | "subagent" | "plan" | "compaction",
 ) {
-  const promptPath = `${__dirname}/${provider}.txt`
-  const fallbackPath = `${__dirname}/default.txt`
+  const promptPath = `${__dirname}/${provider}.txt`;
+  const fallbackPath = `${__dirname}/default.txt`;
 
-  let content: string
+  let content: string;
   try {
-    content = yield* Effect.promise(() => fs.readFile(promptPath, "utf-8"))
+    content = yield* Effect.promise(() => fs.readFile(promptPath, "utf-8"));
   } catch {
-    content = yield* Effect.promise(() => fs.readFile(fallbackPath, "utf-8"))
+    content = yield* Effect.promise(() => fs.readFile(fallbackPath, "utf-8"));
   }
 
   if (mode !== "primary") {
-    const modePath = `${__dirname}/${mode}.txt`
-    const modeContent = yield* Effect.promise(() => fs.readFile(modePath, "utf-8"))
-    content = content + "\n\n" + modeContent
+    const modePath = `${__dirname}/${mode}.txt`;
+    const modeContent = yield* Effect.promise(() =>
+      fs.readFile(modePath, "utf-8"),
+    );
+    content = content + "\n\n" + modeContent;
   }
 
-  return content
-})
+  return content;
+});
 ```
 
 ---
@@ -1288,7 +1371,7 @@ Config files are validated at runtime using Zod:
 ```typescript
 // apps/core/src/config/config.ts
 
-import { z } from "zod"
+import { z } from "zod";
 
 const PermissionProfileSchema = z.object({
   fileRead: z.boolean(),
@@ -1297,7 +1380,7 @@ const PermissionProfileSchema = z.object({
   shell: z.boolean(),
   subprocess: z.boolean(),
   mcpServers: z.array(z.string()),
-})
+});
 
 const McpServerSchema = z.object({
   name: z.string(),
@@ -1305,20 +1388,22 @@ const McpServerSchema = z.object({
   args: z.array(z.string()).optional(),
   env: z.record(z.string()).optional(),
   transport: z.enum(["stdio", "streamable-http", "sse"]).default("stdio"),
-  auth: z.object({
-    type: z.literal("oauth"),
-    clientId: z.string(),
-    authorizationUrl: z.string(),
-    tokenUrl: z.string(),
-  }).optional(),
-})
+  auth: z
+    .object({
+      type: z.literal("oauth"),
+      clientId: z.string(),
+      authorizationUrl: z.string(),
+      tokenUrl: z.string(),
+    })
+    .optional(),
+});
 
 const ModelInfoSchema = z.object({
   provider: z.string(),
   model: z.string(),
   apiKey: z.string().optional(),
   baseUrl: z.string().optional(),
-})
+});
 
 export const ConfigSchema = z.object({
   shell: z.string().default("/bin/bash"),
@@ -1350,9 +1435,9 @@ export const ConfigSchema = z.object({
     enabled: z.boolean().default(true),
     maxSessionEvents: z.number().default(10000),
   }),
-})
+});
 
-export type Config = z.infer<typeof ConfigSchema>
+export type Config = z.infer<typeof ConfigSchema>;
 ```
 
 ---
@@ -1619,39 +1704,48 @@ interface JsonRpcResponse {
 
 ### Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `tools.list` | — | `ToolListItem[]` | List available tools |
-| `tools.call` | `{ name: string, args: Record<string, unknown> }` | `ToolResult` | Execute a tool |
-| `session.start` | `{ projectPath: string, provider?: string }` | `{ sessionId: string }` | Start a new session |
-| `session.send` | `{ sessionId: string, message: string }` | `StreamResponse` (streaming) | Send a message |
-| `session.stop` | `{ sessionId: string }` | `void` | Abort current turn |
-| `session.resume` | `{ sessionId: string }` | `{ sessionId: string }` | Resume existing session |
-| `session.fork` | `{ sessionId: string, point?: string }` | `{ newSessionId: string }` | Fork session at point |
-| `session.list` | `{ filter?: ThreadFilter }` | `StoredThread[]` | List sessions |
-| `providers.list` | — | `ProviderInfo[]` | List available AI providers |
-| `skills.list` | `{ scope?: SkillScope }` | `SkillMetadata[]` | List available skills |
-| `skills.invoke` | `{ name: string, context?: object }` | `SkillResult` | Invoke a skill |
-| `hooks.list` | — | `HookDefinition[]` | List registered hooks |
-| `rollout.getEvents` | `{ sessionId: string, fromSeq?: number }` | `RolloutEvent[]` | Get session events (from sequence) |
-| `config.get` | — | `Config` | Get current config |
-| `config.set` | `{ patch: Partial<Config> }` | `Config` | Update config |
-| `mcp.listServers` | — | `McpServerInfo[]` | List configured MCP servers |
-| `mcp.addServer` | `{ config: McpServerConfig }` | `void` | Add MCP server |
-| `mcp.removeServer` | `{ name: string }` | `void` | Remove MCP server |
+| Method              | Params                                            | Returns                      | Description                        |
+| ------------------- | ------------------------------------------------- | ---------------------------- | ---------------------------------- |
+| `tools.list`        | —                                                 | `ToolListItem[]`             | List available tools               |
+| `tools.call`        | `{ name: string, args: Record<string, unknown> }` | `ToolResult`                 | Execute a tool                     |
+| `session.start`     | `{ projectPath: string, provider?: string }`      | `{ sessionId: string }`      | Start a new session                |
+| `session.send`      | `{ sessionId: string, message: string }`          | `StreamResponse` (streaming) | Send a message                     |
+| `session.stop`      | `{ sessionId: string }`                           | `void`                       | Abort current turn                 |
+| `session.resume`    | `{ sessionId: string }`                           | `{ sessionId: string }`      | Resume existing session            |
+| `session.fork`      | `{ sessionId: string, point?: string }`           | `{ newSessionId: string }`   | Fork session at point              |
+| `session.list`      | `{ filter?: ThreadFilter }`                       | `StoredThread[]`             | List sessions                      |
+| `providers.list`    | —                                                 | `ProviderInfo[]`             | List available AI providers        |
+| `skills.list`       | `{ scope?: SkillScope }`                          | `SkillMetadata[]`            | List available skills              |
+| `skills.invoke`     | `{ name: string, context?: object }`              | `SkillResult`                | Invoke a skill                     |
+| `hooks.list`        | —                                                 | `HookDefinition[]`           | List registered hooks              |
+| `rollout.getEvents` | `{ sessionId: string, fromSeq?: number }`         | `RolloutEvent[]`             | Get session events (from sequence) |
+| `config.get`        | —                                                 | `Config`                     | Get current config                 |
+| `config.set`        | `{ patch: Partial<Config> }`                      | `Config`                     | Update config                      |
+| `mcp.listServers`   | —                                                 | `McpServerInfo[]`            | List configured MCP servers        |
+| `mcp.addServer`     | `{ config: McpServerConfig }`                     | `void`                       | Add MCP server                     |
+| `mcp.removeServer`  | `{ name: string }`                                | `void`                       | Remove MCP server                  |
 
 ### Streaming Response
 
 ```typescript
 interface StreamResponse {
-  type: "text" | "reasoning" | "code" | "tool" | "done" | "error" | "skill" | "subagent" | "patch";
+  type:
+    | "text"
+    | "reasoning"
+    | "code"
+    | "tool"
+    | "done"
+    | "error"
+    | "skill"
+    | "subagent"
+    | "patch";
   content: string;
-  toolName?: string;      // when type === "tool"
-  toolArgs?: unknown;     // when type === "tool"
-  toolResult?: string;    // when type === "tool" (after execution)
-  skillName?: string;     // when type === "skill"
-  subagentId?: string;    // when type === "subagent"
-  patchFiles?: string[];  // when type === "patch"
+  toolName?: string; // when type === "tool"
+  toolArgs?: unknown; // when type === "tool"
+  toolResult?: string; // when type === "tool" (after execution)
+  skillName?: string; // when type === "skill"
+  subagentId?: string; // when type === "subagent"
+  patchFiles?: string[]; // when type === "patch"
 }
 ```
 
@@ -1671,9 +1765,19 @@ export type MessagePart =
   | { type: "text"; content: string }
   | { type: "reasoning"; content: string; signature?: string }
   | { type: "code"; language: string; content: string }
-  | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string; state?: ToolState }
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+      state?: ToolState;
+    }
   | { type: "patch"; hash: string; files: string[]; diff?: string }
-  | { type: "snapshot"; description: string; timestamp: number; tokenCount: number };
+  | {
+      type: "snapshot";
+      description: string;
+      timestamp: number;
+      tokenCount: number;
+    };
 
 export interface ToolDef {
   id: string;
@@ -1713,10 +1817,10 @@ export interface Skill {
   name: string;
   description: string;
   scope: SkillScope;
-  content: string;           // Raw skill markdown
-  trigger?: string;           // Implicit trigger pattern (regex string)
-  parameters?: JsonSchema;    // Optional expected parameters
-  version?: string;          // Semantic version
+  content: string; // Raw skill markdown
+  trigger?: string; // Implicit trigger pattern (regex string)
+  parameters?: JsonSchema; // Optional expected parameters
+  version?: string; // Semantic version
 }
 
 export interface Plugin {
@@ -1724,7 +1828,7 @@ export interface Plugin {
   version: string;
   description: string;
   tools?: PluginTool[];
-  hooks?: Record<string, string>;  // hook name → module path
+  hooks?: Record<string, string>; // hook name → module path
   mcp?: {
     command: string;
     args?: string[];
@@ -1742,18 +1846,118 @@ export interface PluginTool {
 }
 
 export type RolloutEvent =
-  | { type: "TurnStarted"; id: string; seq: number; aggregateID: string; sessionId: string; turnId: string; timestamp: number }
-  | { type: "TurnAborted"; id: string; seq: number; aggregateID: string; sessionId: string; turnId: string; reason: string }
-  | { type: "FunctionCall"; id: string; seq: number; aggregateID: string; sessionId: string; turnId: string; tool: string; args: Record<string, unknown> }
-  | { type: "FunctionOutput"; id: string; seq: number; aggregateID: string; sessionId: string; turnId: string; tool: string; output: string; duration_ms: number }
-  | { type: "CompactOccurred"; id: string; seq: number; aggregateID: string; sessionId: string; beforeTokens: number; afterTokens: number }
-  | { type: "SubagentStart"; id: string; seq: number; aggregateID: string; sessionId: string; subagentId: string; task: string }
-  | { type: "SubagentStop"; id: string; seq: number; aggregateID: string; sessionId: string; subagentId: string; result: string }
-  | { type: "SkillInvoked"; id: string; seq: number; aggregateID: string; sessionId: string; skillName: string; implicit: boolean }
-  | { type: "HookTriggered"; id: string; seq: number; aggregateID: string; sessionId: string; hookName: string; event: string; blocked: boolean }
-  | { type: "HookBlocked"; id: string; seq: number; aggregateID: string; sessionId: string; hookName: string; reason: string }
-  | { type: "ContextOverflow"; id: string; seq: number; aggregateID: string; sessionId: string; beforeTokens: number }
-  | { type: "ParseError"; id: string; seq: number; aggregateID: string; sessionId: string; turnId: string; parser: string; error: string };
+  | {
+      type: "TurnStarted";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      turnId: string;
+      timestamp: number;
+    }
+  | {
+      type: "TurnAborted";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      turnId: string;
+      reason: string;
+    }
+  | {
+      type: "FunctionCall";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      args: Record<string, unknown>;
+    }
+  | {
+      type: "FunctionOutput";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      output: string;
+      duration_ms: number;
+    }
+  | {
+      type: "CompactOccurred";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      beforeTokens: number;
+      afterTokens: number;
+    }
+  | {
+      type: "SubagentStart";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      subagentId: string;
+      task: string;
+    }
+  | {
+      type: "SubagentStop";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      subagentId: string;
+      result: string;
+    }
+  | {
+      type: "SkillInvoked";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      skillName: string;
+      implicit: boolean;
+    }
+  | {
+      type: "HookTriggered";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      hookName: string;
+      event: string;
+      blocked: boolean;
+    }
+  | {
+      type: "HookBlocked";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      hookName: string;
+      reason: string;
+    }
+  | {
+      type: "ContextOverflow";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      beforeTokens: number;
+    }
+  | {
+      type: "ParseError";
+      id: string;
+      seq: number;
+      aggregateID: string;
+      sessionId: string;
+      turnId: string;
+      parser: string;
+      error: string;
+    };
 
 export interface StoredThread {
   id: string;
@@ -1768,9 +1972,16 @@ export interface StoredThread {
 }
 
 export type HookEventType =
-  | "PreToolUse" | "PostToolUse" | "PermissionRequest"
-  | "PreCompact" | "PostCompact" | "SessionStart"
-  | "UserPromptSubmit" | "SubagentStart" | "SubagentStop" | "Stop";
+  | "PreToolUse"
+  | "PostToolUse"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
+  | "SessionStart"
+  | "UserPromptSubmit"
+  | "SubagentStart"
+  | "SubagentStop"
+  | "Stop";
 
 export interface HookResult {
   action: "continue" | "block" | "inject";
@@ -1805,31 +2016,31 @@ export interface VCSInfo {
 
 ## Boundary: What Lives Where
 
-| Concern | CLI | TUI | VSCode |
-|---------|-----|-----|--------|
-| Effect/Layer DI | ✅ | ❌ | ❌ |
-| Browser automation (Playwright/CDP) | ✅ | ❌ | ❌ |
-| Provider adapters (ChatGPT, Claude) | ✅ | ❌ | ❌ |
-| Agent loop + session management | ✅ | ❌ | ❌ |
-| Context collection (file tree) | ✅ | ❌ | ❌ |
-| Response parsing | ✅ | ❌ | ❌ |
-| Tool execution | ✅ | ❌ | ❌ |
-| File diff + writing | ✅ | ❌ | ❌ |
-| Skills loading + injection | ✅ | ❌ | ❌ |
-| Plugin loading + tool registration | ✅ | ❌ | ❌ |
-| Hooks (10 event types) | ✅ | ❌ | ❌ |
-| Bus PubSub events | ✅ | ❌ | ❌ |
-| Rollout event logging | ✅ | ❌ | ❌ |
-| Thread store (SQLite + JSON) | ✅ | ❌ | ❌ |
-| MCP server/client | ✅ | ❌ | ❌ |
-| Provider-specific prompts | ✅ | ❌ | ❌ |
-| Config Zod validation | ✅ | ❌ | ❌ |
-| Project VCS bootstrap | ✅ | ❌ | ❌ |
-| TUI rendering | ❌ | ✅ | ❌ |
-| VS Code webview | ❌ | ❌ | ✅ |
-| UI state (messages, status, theme) | ❌ | ✅ (Zustand) | ✅ (Zustand) |
-| Bus event subscription (toasts, etc.) | ❌ | ✅ | ✅ |
-| IPC client | ❌ | ✅ | ✅ |
+| Concern                               | CLI | TUI          | VSCode       |
+| ------------------------------------- | --- | ------------ | ------------ |
+| Effect/Layer DI                       | ✅  | ❌           | ❌           |
+| Browser automation (Playwright/CDP)   | ✅  | ❌           | ❌           |
+| Provider adapters (ChatGPT, Claude)   | ✅  | ❌           | ❌           |
+| Agent loop + session management       | ✅  | ❌           | ❌           |
+| Context collection (file tree)        | ✅  | ❌           | ❌           |
+| Response parsing                      | ✅  | ❌           | ❌           |
+| Tool execution                        | ✅  | ❌           | ❌           |
+| File diff + writing                   | ✅  | ❌           | ❌           |
+| Skills loading + injection            | ✅  | ❌           | ❌           |
+| Plugin loading + tool registration    | ✅  | ❌           | ❌           |
+| Hooks (10 event types)                | ✅  | ❌           | ❌           |
+| Bus PubSub events                     | ✅  | ❌           | ❌           |
+| Rollout event logging                 | ✅  | ❌           | ❌           |
+| Thread store (SQLite + JSON)          | ✅  | ❌           | ❌           |
+| MCP server/client                     | ✅  | ❌           | ❌           |
+| Provider-specific prompts             | ✅  | ❌           | ❌           |
+| Config Zod validation                 | ✅  | ❌           | ❌           |
+| Project VCS bootstrap                 | ✅  | ❌           | ❌           |
+| TUI rendering                         | ❌  | ✅           | ❌           |
+| VS Code webview                       | ❌  | ❌           | ✅           |
+| UI state (messages, status, theme)    | ❌  | ✅ (Zustand) | ✅ (Zustand) |
+| Bus event subscription (toasts, etc.) | ❌  | ✅           | ✅           |
+| IPC client                            | ❌  | ✅           | ✅           |
 
 ---
 
@@ -1862,6 +2073,7 @@ export interface VCSInfo {
 **Decision:** Separate concerns — Hooks for safety/transform middleware, Bus for event distribution.
 
 **Rationale:**
+
 - Hooks: `PreToolUse` blocks dangerous calls, `PostToolUse` modifies output
 - Bus: Publishes `session.diff`, `tools.changed`, `session.error` to subscribers (TUI, web)
 
@@ -1872,6 +2084,7 @@ export interface VCSInfo {
 **Decision:** Primary storage in SQLite for structured queries; JSON fallback for simplicity or when SQLite unavailable.
 
 **Rationale:**
+
 - SQLite: Efficient for large sessions, supports joins, indexes
 - JSON: Simple, portable, no database setup required
 
@@ -1929,23 +2142,23 @@ export interface VCSInfo {
 
 ## Deferred Items (v1 → v3 Status)
 
-| Item | v1 Status | v2 Status | v3 Status | Notes |
-|------|-----------|-----------|-----------|-------|
-| MCP server integration | Deferred | Planned | **Implemented** | stdio + HTTP + OAuth |
-| Storage layer | Deferred | Planned | **Implemented** | SQLite + JSON fallback |
-| Sub-agent implementation | Deferred | Planned | **Expanded** | Formal agent definitions |
-| Memory compaction | Deferred | Planned | **Implemented** | PreCompact/PostCompact hooks |
-| Hook middleware | Basic (2) | Expanded (10) | **Expanded + Refactored** | Bus decoupled |
-| Rust TUI | Deferred | Deferred | Deferred | Still deferred |
-| Effect/Layer DI | None | None | **New in v3** | Service composition |
-| Plugin architecture | None | None | **New in v3** | Extends skills |
-| Event sourcing | None | Basic | **New in v3** | Aggregates + seq |
-| Provider prompts | None | None | **New in v3** | Per-provider templates |
-| Config validation | None | None | **New in v3** | Zod schemas |
-| VCS awareness | None | None | **New in v3** | Git worktree detection |
-| Structured errors | None | None | **New in v3** | NamedError factory |
-| Auto skill discovery | None | None | **New in v3** | Glob + URL patterns |
-| MCP polling | None | None | **New in v3** | Tools changed events |
+| Item                     | v1 Status | v2 Status     | v3 Status                 | Notes                        |
+| ------------------------ | --------- | ------------- | ------------------------- | ---------------------------- |
+| MCP server integration   | Deferred  | Planned       | **Implemented**           | stdio + HTTP + OAuth         |
+| Storage layer            | Deferred  | Planned       | **Implemented**           | SQLite + JSON fallback       |
+| Sub-agent implementation | Deferred  | Planned       | **Expanded**              | Formal agent definitions     |
+| Memory compaction        | Deferred  | Planned       | **Implemented**           | PreCompact/PostCompact hooks |
+| Hook middleware          | Basic (2) | Expanded (10) | **Expanded + Refactored** | Bus decoupled                |
+| Rust TUI                 | Deferred  | Deferred      | Deferred                  | Still deferred               |
+| Effect/Layer DI          | None      | None          | **New in v3**             | Service composition          |
+| Plugin architecture      | None      | None          | **New in v3**             | Extends skills               |
+| Event sourcing           | None      | Basic         | **New in v3**             | Aggregates + seq             |
+| Provider prompts         | None      | None          | **New in v3**             | Per-provider templates       |
+| Config validation        | None      | None          | **New in v3**             | Zod schemas                  |
+| VCS awareness            | None      | None          | **New in v3**             | Git worktree detection       |
+| Structured errors        | None      | None          | **New in v3**             | NamedError factory           |
+| Auto skill discovery     | None      | None          | **New in v3**             | Glob + URL patterns          |
+| MCP polling              | None      | None          | **New in v3**             | Tools changed events         |
 
 ---
 
@@ -1953,24 +2166,24 @@ export interface VCSInfo {
 
 Every pattern in FreeCode v3 has roots in familiar systems:
 
-| FreeCode Pattern | Analogous System | Why It Matters |
-|-----------------|------------------|----------------|
-| Agent loop | Worker processing a task queue | Model drives workflow decisions |
-| Tools | Service interface layer | Separation of thinking vs doing |
-| Hooks (10 types) | Web middleware + event sourcing | Safety + observability + lifecycle |
-| Bus (PubSub) | Message queue / event bus | Decoupled event distribution |
-| Memory compaction | Log rotation | Handles unbounded session length |
-| Sub-agents | Worker nodes / map-reduce | Parallel distributed processing |
-| Skills | Reusable scripts / templates | Pre-packaged behaviors with implicit detection |
-| Plugins | OS plugins / browser extensions | Arbitrary code injection + tools |
-| Rollout events | Event sourcing / audit log | Debugging, replay, analytics |
-| Thread Store | Persistent queue | Sessions survive restarts |
-| MCP integration | Plugin architecture | Interoperability with other AI tools |
-| Permission profiles | Capability-based security | Granular sandbox control |
-| Effect/Layers | Dependency injection containers | Testable, composable services |
-| Provider prompts | Template method pattern | Model-specific formatting |
-| Named errors | Tagged union errors | Structured error data |
-| Zod validation | Schema validation | Runtime type safety |
+| FreeCode Pattern    | Analogous System                | Why It Matters                                 |
+| ------------------- | ------------------------------- | ---------------------------------------------- |
+| Agent loop          | Worker processing a task queue  | Model drives workflow decisions                |
+| Tools               | Service interface layer         | Separation of thinking vs doing                |
+| Hooks (10 types)    | Web middleware + event sourcing | Safety + observability + lifecycle             |
+| Bus (PubSub)        | Message queue / event bus       | Decoupled event distribution                   |
+| Memory compaction   | Log rotation                    | Handles unbounded session length               |
+| Sub-agents          | Worker nodes / map-reduce       | Parallel distributed processing                |
+| Skills              | Reusable scripts / templates    | Pre-packaged behaviors with implicit detection |
+| Plugins             | OS plugins / browser extensions | Arbitrary code injection + tools               |
+| Rollout events      | Event sourcing / audit log      | Debugging, replay, analytics                   |
+| Thread Store        | Persistent queue                | Sessions survive restarts                      |
+| MCP integration     | Plugin architecture             | Interoperability with other AI tools           |
+| Permission profiles | Capability-based security       | Granular sandbox control                       |
+| Effect/Layers       | Dependency injection containers | Testable, composable services                  |
+| Provider prompts    | Template method pattern         | Model-specific formatting                      |
+| Named errors        | Tagged union errors             | Structured error data                          |
+| Zod validation      | Schema validation               | Runtime type safety                            |
 
 ---
 
@@ -1980,7 +2193,7 @@ Every pattern in FreeCode v3 has roots in familiar systems:
 - [ ] Effect/Layer architecture composes all CLI services
 - [ ] Bus publishes session.diff, tools.changed, session.error events
 - [ ] Hooks intercept tool calls (PreToolUse, PostToolUse) independently of Bus
-- [ ] Skills system auto-discovers **/*.skill.md via glob patterns
+- [ ] Skills system auto-discovers \*_/_.skill.md via glob patterns
 - [ ] Plugins can provide tools, hooks, and MCP server definitions
 - [ ] Rollout events written with aggregateID and seq for replay
 - [ ] ThreadStore persists sessions to SQLite (with JSON fallback)

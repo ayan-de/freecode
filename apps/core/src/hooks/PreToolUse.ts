@@ -2,11 +2,11 @@
 // PreToolUse Hooks - Run before tool execution
 // =============================================================================
 
-import type { ToolCall } from "../agent/types.js"
-import type { ToolCallInput, HookContext } from "./types.js"
-import { getMatchingHooks } from "./registry.js"
-import { executeHooks, type AggregatedHookResult } from "./executors/index.js"
-import { bus } from "../bus/index.js"
+import type { ToolCall } from "../agent/types.js";
+import type { ToolCallInput, HookContext } from "./types.js";
+import { getMatchingHooks } from "./registry.js";
+import { executeHooks, type AggregatedHookResult } from "./executors/index.js";
+import { bus } from "../bus/index.js";
 
 // =============================================================================
 // Run PreToolUse hooks for a tool call
@@ -14,25 +14,25 @@ import { bus } from "../bus/index.js"
 
 export async function runPreToolUseHooks(
   toolCall: ToolCall,
-  context: HookContext
+  context: HookContext,
 ): Promise<{
-  allowed: boolean
-  modifiedInput?: Record<string, unknown>
-  additionalContext?: string
-  blockReason?: string
+  allowed: boolean;
+  modifiedInput?: Record<string, unknown>;
+  additionalContext?: string;
+  blockReason?: string;
 }> {
   const input: ToolCallInput = {
     toolName: toolCall.tool,
     toolInput: toolCall.args as Record<string, unknown>,
-  }
+  };
 
-  const matchingHooks = getMatchingHooks("PreToolUse", input, context)
+  const matchingHooks = getMatchingHooks("PreToolUse", input, context);
 
   if (matchingHooks.length === 0) {
-    return { allowed: true }
+    return { allowed: true };
   }
 
-  const result = await executeHooks(matchingHooks, input, context)
+  const result = await executeHooks(matchingHooks, input, context);
 
   if (result.blocked) {
     bus.publish({
@@ -41,19 +41,19 @@ export async function runPreToolUseHooks(
       event: "PreToolUse",
       sessionId: context.sessionId,
       reason: result.blockReason,
-    } as any)
+    } as any);
 
     return {
       allowed: false,
       blockReason: result.blockReason,
-    }
+    };
   }
 
   return {
     allowed: true,
     modifiedInput: result.modifiedInput,
     additionalContext: result.additionalContexts.join("\n") || undefined,
-  }
+  };
 }
 
 // =============================================================================
@@ -62,10 +62,10 @@ export async function runPreToolUseHooks(
 
 export function createPreToolUseInput(
   toolCall: ToolCall,
-  context: HookContext
+  context: HookContext,
 ): ToolCallInput {
   return {
     toolName: toolCall.tool,
     toolInput: toolCall.args as Record<string, unknown>,
-  }
+  };
 }

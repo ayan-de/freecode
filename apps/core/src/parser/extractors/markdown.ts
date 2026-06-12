@@ -3,10 +3,10 @@
 // Matches code blocks without FILE: prefix
 // =============================================================================
 
-import type { ParserStrategy, ParserResult, FileChange } from '../types.js';
+import type { ParserStrategy, ParserResult, FileChange } from "../types.js";
 
 export class MarkdownExtractor implements ParserStrategy {
-  name = 'markdown';
+  name = "markdown";
 
   parse(raw: string): ParserResult {
     const changes: FileChange[] = [];
@@ -19,19 +19,19 @@ export class MarkdownExtractor implements ParserStrategy {
       const content = match[2].trim();
 
       // Skip if it doesn't look like a filename
-      if (filename && !filename.startsWith('#') && content.length > 5) {
-        changes.push({ path: filename, action: 'create', content });
+      if (filename && !filename.startsWith("#") && content.length > 5) {
+        changes.push({ path: filename, action: "create", content });
       }
     }
 
     if (changes.length === 0) {
-      return { success: false, error: 'No markdown code blocks found' };
+      return { success: false, error: "No markdown code blocks found" };
     }
 
     return {
       success: true,
       response: {
-        summary: 'Files from markdown code blocks',
+        summary: "Files from markdown code blocks",
         changes,
         raw,
         parserUsed: this.name,

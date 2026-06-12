@@ -2,7 +2,6 @@
 
 <img src="logo.svg" alt="FreeCode Logo" width="286" height="60" />
 
-
 **Open source CLI tool that drives AI coding assistants via browser automation**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -25,41 +24,47 @@
 
 ## Supported Tools
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `read` | Read file or directory contents | `filePath`, `offset?`, `limit?` |
-| `write` | Create or overwrite files | `filePath`, `content` |
-| `edit` | Edit files in-place with smart matching | `filePath`, `oldString`, `newString`, `replaceAll?` |
-| `glob` | Find files matching glob patterns | `pattern`, `path?` |
-| `grep` | Search file contents via regex | `pattern`, `path?`, `include?`, `-n?`, `-i?`, `-C?` |
-| `bash` | Execute shell commands | `command`, `timeout?`, `workdir?` |
-| `skill` | Load specialized skills from SKILL.md | `name` |
-| `question` | Ask user clarifying questions | `questions` (JSON array) |
+| Tool       | Description                             | Parameters                                          |
+| ---------- | --------------------------------------- | --------------------------------------------------- |
+| `read`     | Read file or directory contents         | `filePath`, `offset?`, `limit?`                     |
+| `write`    | Create or overwrite files               | `filePath`, `content`                               |
+| `edit`     | Edit files in-place with smart matching | `filePath`, `oldString`, `newString`, `replaceAll?` |
+| `glob`     | Find files matching glob patterns       | `pattern`, `path?`                                  |
+| `grep`     | Search file contents via regex          | `pattern`, `path?`, `include?`, `-n?`, `-i?`, `-C?` |
+| `bash`     | Execute shell commands                  | `command`, `timeout?`, `workdir?`                   |
+| `skill`    | Load specialized skills from SKILL.md   | `name`                                              |
+| `question` | Ask user clarifying questions           | `questions` (JSON array)                            |
 
 ### Tool Execution Modes
 
-| Mode | Tools | Behavior |
-|------|-------|----------|
-| **Sequential** | `edit`, `write` | One at a time, in order |
-| **Parallel-safe** | `read`, `glob`, `grep` | Batch concurrently |
+| Mode              | Tools                  | Behavior                |
+| ----------------- | ---------------------- | ----------------------- |
+| **Sequential**    | `edit`, `write`        | One at a time, in order |
+| **Parallel-safe** | `read`, `glob`, `grep` | Batch concurrently      |
 
 ## Skills
 
 Skills are specialized instruction sets loaded from `SKILL.md` files. They provide structured workflows for specific tasks.
 
 **Skill locations:**
+
 - `~/.claude/skills/` — Global skills
 - `~/.agents/skills/` — Agent skills
 - `.claude/skills/` — Project skills
 - `.freecode/skills/` — Project skills
 
 **Example skill structure:**
+
 ```markdown
 # .freecode/skills/brainstorming/SKILL.md
+
 ---
+
 name: brainstorming
 description: Explore requirements before building features
+
 ---
+
 # Brainstorming Skill
 
 1. Clarify the goal - what problem are we solving?

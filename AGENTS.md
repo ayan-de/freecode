@@ -9,20 +9,21 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v3.md`. Be
 
 The full v3 architecture spec defines these systems that must be properly implemented:
 
-| System | Required Components |
-|--------|-------------------|
-| **Effect/Layer DI** | `effect/context.ts`, `effect/layers.ts`, `effect/runtime.ts` using Effect framework |
-| **Bus (PubSub)** | `bus/index.ts`, `bus/events.ts`, `bus/subscriber.ts`, `bus/global-bus.ts` — SessionDiff, SessionError, MCPToolsChanged, ToolsChanged, SubagentStarted, SubagentCompleted events |
-| **Hooks (10 types)** | `hooks/runtime.ts`, `hooks/registry.ts`, `hooks/PreToolUse.ts`, `hooks/PostToolUse.ts`, `hooks/PermissionRequest.ts`, `hooks/PreCompact.ts`, `hooks/PostCompact.ts`, `hooks/SessionStart.ts`, `hooks/UserPromptSubmit.ts`, `hooks/SubagentStart.ts`, `hooks/SubagentStop.ts`, `hooks/Stop.ts` |
-| **Skills System** | `skills/manager.ts`, `skills/loader.ts`, `skills/registry.ts`, `skills/injection.ts`, `skills/detection.ts`, `skills/plugin.ts`, `skills/plugin-registry.ts`, `skills/types.ts` |
-| **Rollout/Event Sourcing** | `rollout/recorder.ts`, `rollout/types.ts`, `rollout/history.ts`, `rollout/replay.ts` with aggregateID + seq |
-| **Thread Store** | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/migrations/` |
-| **MCP Server** | `mcp/server.ts`, `mcp/client.ts`, `mcp/oauth-provider.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts` |
-| **Config** | `config/config.ts`, `config/loader.ts`, `config/defaults.ts` with Zod validation |
-| **Errors** | `errors/named-error.ts` with NamedError factory |
-| **Project Bootstrap** | `project/bootstrap.ts`, `project/vcs.ts`, `project/conventions.ts` |
+| System                     | Required Components                                                                                                                                                                                                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Effect/Layer DI**        | `effect/context.ts`, `effect/layers.ts`, `effect/runtime.ts` using Effect framework                                                                                                                                                                                                           |
+| **Bus (PubSub)**           | `bus/index.ts`, `bus/events.ts`, `bus/subscriber.ts`, `bus/global-bus.ts` — SessionDiff, SessionError, MCPToolsChanged, ToolsChanged, SubagentStarted, SubagentCompleted events                                                                                                               |
+| **Hooks (10 types)**       | `hooks/runtime.ts`, `hooks/registry.ts`, `hooks/PreToolUse.ts`, `hooks/PostToolUse.ts`, `hooks/PermissionRequest.ts`, `hooks/PreCompact.ts`, `hooks/PostCompact.ts`, `hooks/SessionStart.ts`, `hooks/UserPromptSubmit.ts`, `hooks/SubagentStart.ts`, `hooks/SubagentStop.ts`, `hooks/Stop.ts` |
+| **Skills System**          | `skills/manager.ts`, `skills/loader.ts`, `skills/registry.ts`, `skills/injection.ts`, `skills/detection.ts`, `skills/plugin.ts`, `skills/plugin-registry.ts`, `skills/types.ts`                                                                                                               |
+| **Rollout/Event Sourcing** | `rollout/recorder.ts`, `rollout/types.ts`, `rollout/history.ts`, `rollout/replay.ts` with aggregateID + seq                                                                                                                                                                                   |
+| **Thread Store**           | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/migrations/`                                                                                                                                                                                                  |
+| **MCP Server**             | `mcp/server.ts`, `mcp/client.ts`, `mcp/oauth-provider.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                                                                                                                                                                                          |
+| **Config**                 | `config/config.ts`, `config/loader.ts`, `config/defaults.ts` with Zod validation                                                                                                                                                                                                              |
+| **Errors**                 | `errors/named-error.ts` with NamedError factory                                                                                                                                                                                                                                               |
+| **Project Bootstrap**      | `project/bootstrap.ts`, `project/vcs.ts`, `project/conventions.ts`                                                                                                                                                                                                                            |
 
 **Current known deviations from spec:**
+
 - Bus only has question events, not full SessionDiff/SessionError/etc.
 - Hooks only implement PreToolUse/PostToolUse, missing PermissionRequest, SubagentStart, SubagentStop, Stop
 - No skills system (only a basic skill tool)
@@ -42,7 +43,6 @@ The system uses a two-phase approach: the AI first returns which files it needs,
 ---
 
 ## Architecture
-
 
 > **TUI Framework**: For pi-tui customization, see [`pi-tui.md`](pi-tui.md).
 
@@ -184,18 +184,18 @@ freecode/
 
 ## Boundary: What Lives Where
 
-| Concern | CLI | TUI | VSCode |
-|---------|-----|-----|--------|
-| Browser automation (Playwright/CDP) | ✅ | ❌ | ❌ |
-| Provider adapters (ChatGPT, Claude) | ✅ | ❌ | ❌ |
-| Agent loop + session management | ✅ | ❌ | ❌ |
-| Context collection (file tree) | ✅ | ❌ | ❌ |
-| Response parsing | ✅ | ❌ | ❌ |
-| Tool execution | ✅ | ❌ | ❌ |
-| File diff + writing | ✅ | ❌ | ❌ |
-| TUI rendering (pi-tui) | ❌ | ✅ | ❌ |
-| VS Code webview | ❌ | ❌ | ✅ |
-| IPC client | ❌ | ✅ | ✅ |
+| Concern                             | CLI | TUI | VSCode |
+| ----------------------------------- | --- | --- | ------ |
+| Browser automation (Playwright/CDP) | ✅  | ❌  | ❌     |
+| Provider adapters (ChatGPT, Claude) | ✅  | ❌  | ❌     |
+| Agent loop + session management     | ✅  | ❌  | ❌     |
+| Context collection (file tree)      | ✅  | ❌  | ❌     |
+| Response parsing                    | ✅  | ❌  | ❌     |
+| Tool execution                      | ✅  | ❌  | ❌     |
+| File diff + writing                 | ✅  | ❌  | ❌     |
+| TUI rendering (pi-tui)              | ❌  | ✅  | ❌     |
+| VS Code webview                     | ❌  | ❌  | ✅     |
+| IPC client                          | ❌  | ✅  | ✅     |
 
 ---
 
@@ -205,14 +205,14 @@ CLI exposes a JSON-RPC 2.0 interface over stdin/stdout. Both TUI and VSCode use 
 
 ### Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `tools.list` | — | `ToolListItem[]` | List available tools |
-| `tools.call` | `{ name: string, args: Record<string, unknown> }` | `ToolResult` | Execute a tool |
-| `session.start` | `{ projectPath: string, provider?: string }` | `{ sessionId: string }` | Start a new session |
-| `session.send` | `{ sessionId: string, message: string }` | `StreamResponse` (streaming) | Send a message |
-| `session.stop` | `{ sessionId: string }` | `void` | Abort current turn |
-| `providers.list` | — | `ProviderInfo[]` | List available AI providers |
+| Method           | Params                                            | Returns                      | Description                 |
+| ---------------- | ------------------------------------------------- | ---------------------------- | --------------------------- |
+| `tools.list`     | —                                                 | `ToolListItem[]`             | List available tools        |
+| `tools.call`     | `{ name: string, args: Record<string, unknown> }` | `ToolResult`                 | Execute a tool              |
+| `session.start`  | `{ projectPath: string, provider?: string }`      | `{ sessionId: string }`      | Start a new session         |
+| `session.send`   | `{ sessionId: string, message: string }`          | `StreamResponse` (streaming) | Send a message              |
+| `session.stop`   | `{ sessionId: string }`                           | `void`                       | Abort current turn          |
+| `providers.list` | —                                                 | `ProviderInfo[]`             | List available AI providers |
 
 ### Streaming Response
 
@@ -220,9 +220,9 @@ CLI exposes a JSON-RPC 2.0 interface over stdin/stdout. Both TUI and VSCode use 
 interface StreamResponse {
   type: "text" | "code" | "tool" | "done" | "error";
   content: string;
-  toolName?: string;      // when type === "tool"
-  toolArgs?: unknown;     // when type === "tool"
-  toolResult?: string;    // when type === "tool" (after execution)
+  toolName?: string; // when type === "tool"
+  toolArgs?: unknown; // when type === "tool"
+  toolResult?: string; // when type === "tool" (after execution)
 }
 ```
 
@@ -243,7 +243,11 @@ export interface Message {
 export type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; language: string; content: string }
-  | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string };
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+    };
 
 export interface ToolDef {
   id: string;
@@ -293,13 +297,13 @@ File changes are shown as a diff to the user for approval before writing. Preven
 
 ## File Naming Conventions
 
-| Type | Convention | Example |
-|------|-----------|---------|
-| Components | PascalCase | `ChatLayout.tsx`, `CodePart.tsx` |
-| Stores | kebab-case | `chat-store.ts` |
-| IPC client | camelCase | `ipc/client.ts` |
-| Provider adapters | camelCase | `chatgpt.ts` |
-| Tool implementations | camelCase | `read.ts`, `write.ts` |
+| Type                 | Convention | Example                          |
+| -------------------- | ---------- | -------------------------------- |
+| Components           | PascalCase | `ChatLayout.tsx`, `CodePart.tsx` |
+| Stores               | kebab-case | `chat-store.ts`                  |
+| IPC client           | camelCase  | `ipc/client.ts`                  |
+| Provider adapters    | camelCase  | `chatgpt.ts`                     |
+| Tool implementations | camelCase  | `read.ts`, `write.ts`            |
 
 ---
 
@@ -317,6 +321,7 @@ File changes are shown as a diff to the user for approval before writing. Preven
 ### 2. Check existing patterns
 
 Before adding code, verify:
+
 - Does a similar pattern exist? Follow it.
 - Is this functionality needed in more than one place? Extract to shared.
 - Does this component do more than one thing? Decompose.
@@ -324,6 +329,7 @@ Before adding code, verify:
 ### 3. File limits
 
 If a file exceeds ~150 lines, decompose:
+
 - Extract sub-components
 - Move helper functions to utils
 - Split store logic into separate files
@@ -348,6 +354,7 @@ If a file exceeds ~150 lines, decompose:
 - **Rust TUI** — Higher-fidelity terminal rendering (only if performance demands)
 
 Don't implement these unless explicitly requested.
+
 # CLAUDE.md
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
@@ -359,6 +366,7 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
 Before implementing:
+
 - State your assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them - don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
@@ -381,12 +389,14 @@ Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, sim
 **Touch only what you must. Clean up only your own mess.**
 
 When editing existing code:
+
 - Don't "improve" adjacent code, comments, or formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
 - If you notice unrelated dead code, mention it - don't delete it.
 
 When your changes create orphans:
+
 - Remove imports/variables/functions that YOUR changes made unused.
 - Don't remove pre-existing dead code unless asked.
 
@@ -397,11 +407,13 @@ The test: Every changed line should trace directly to the user's request.
 **Define success criteria. Loop until verified.**
 
 Transform tasks into verifiable goals:
+
 - "Add validation" → "Write tests for invalid inputs, then make them pass"
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
+
 ```
 1. [Step] → verify: [check]
 2. [Step] → verify: [check]

@@ -109,15 +109,17 @@ export const McpServerSchema = z.object({
   // Common config
   enabled: z.boolean().default(true),
   timeout: z.number().default(5000),
-})
+});
 
 export const ConfigSchema = z.object({
   // ... existing fields
-  mcp: z.object({
-    servers: z.array(McpServerSchema).default([]),
-    pollInterval: z.number().default(5000),
-  }).optional(),
-})
+  mcp: z
+    .object({
+      servers: z.array(McpServerSchema).default([]),
+      pollInterval: z.number().default(5000),
+    })
+    .optional(),
+});
 ```
 
 ---
@@ -195,32 +197,34 @@ freecode mcp add
 ```typescript
 // apps/core/src/mcp/service.ts
 
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect";
 
 export interface MCPClient {
-  readonly name: string
-  readonly status: "connected" | "disconnected" | "starting" | "failed"
-  readonly tools: Map<string, Tool>
-  readonly start: () => Effect.Effect<void>
-  readonly stop: () => Effect.Effect<void>
+  readonly name: string;
+  readonly status: "connected" | "disconnected" | "starting" | "failed";
+  readonly tools: Map<string, Tool>;
+  readonly start: () => Effect.Effect<void>;
+  readonly stop: () => Effect.Effect<void>;
 }
 
 export interface MCPService {
-  readonly status: () => Effect.Effect<Map<string, { status: string; toolCount: number }>>
-  readonly clients: () => Effect.Effect<Map<string, MCPClient>>
-  readonly tools: () => Effect.Effect<Map<string, Tool>>
-  readonly connect: (name: string) => Effect.Effect<void>
-  readonly disconnect: (name: string) => Effect.Effect<void>
+  readonly status: () => Effect.Effect<
+    Map<string, { status: string; toolCount: number }>
+  >;
+  readonly clients: () => Effect.Effect<Map<string, MCPClient>>;
+  readonly tools: () => Effect.Effect<Map<string, Tool>>;
+  readonly connect: (name: string) => Effect.Effect<void>;
+  readonly disconnect: (name: string) => Effect.Effect<void>;
 }
 
-export const MCPService = Context.GenericTag<MCPService>("MCPService")
+export const MCPService = Context.GenericTag<MCPService>("MCPService");
 
 export const MCPLive = Layer.effect(
   MCPService,
   Effect.gen(function* () {
     // Implementation
-  })
-)
+  }),
+);
 ```
 
 ---
@@ -232,13 +236,13 @@ MCP tools are converted to FreeCode tools with server-name prefix:
 ```typescript
 // apps/core/src/mcp/convert-tool.ts
 
-import type { Tool } from "../tools/tool.types"
+import type { Tool } from "../tools/tool.types";
 
 export function convertMcpTool(
   mcpTool: { name: string; description?: string; inputSchema: unknown },
-  serverName: string
+  serverName: string,
 ): Tool {
-  const prefixedName = `${serverName}_${mcpTool.name}`
+  const prefixedName = `${serverName}_${mcpTool.name}`;
 
   return {
     id: prefixedName,
@@ -259,14 +263,14 @@ export function convertMcpTool(
       requiresApproval: false,
     },
     execute: async (params, ctx) => {
-      const client = yield* getMcpClient(serverName)
+      const client = yield * getMcpClient(serverName);
       const result = await client.callTool({
         name: mcpTool.name,
         arguments: params,
-      })
-      return formatToolResult(result)
+      });
+      return formatToolResult(result);
     },
-  }
+  };
 }
 ```
 
@@ -286,7 +290,7 @@ export const BusEvents = {
       server: Schema.String,
       added: Schema.Array(ToolDef),
       removed: Schema.Array(Schema.String),
-    })
+    }),
   ),
 
   MCPServerStarted: BusEvent.define(
@@ -294,7 +298,7 @@ export const BusEvents = {
     Schema.Struct({
       server: Schema.String,
       toolCount: Schema.Number,
-    })
+    }),
   ),
 
   MCPServerStopped: BusEvent.define(
@@ -302,7 +306,7 @@ export const BusEvents = {
     Schema.Struct({
       server: Schema.String,
       reason: Schema.String.optional(),
-    })
+    }),
   ),
 
   MCPServerError: BusEvent.define(
@@ -310,9 +314,9 @@ export const BusEvents = {
     Schema.Struct({
       server: Schema.String,
       error: Schema.String,
-    })
+    }),
   ),
-}
+};
 ```
 
 ---
@@ -324,34 +328,34 @@ export const BusEvents = {
 ```typescript
 // apps/core/src/mcp/transport.ts
 
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 export const createStdioTransport = (config: {
-  command: string
-  args: string[]
-  env?: Record<string, string>
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
 }) => {
   return new StdioClientTransport({
     command: config.command,
     args: config.args,
     env: config.env,
-  })
-}
+  });
+};
 ```
 
 ### HTTP Transport (Remote MCP Servers)
 
 ```typescript
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamable-http.js";
 
 export const createHttpTransport = (config: {
-  url: string
-  headers?: Record<string, string>
+  url: string;
+  headers?: Record<string, string>;
 }) => {
   return new StreamableHTTPClientTransport(config.url, {
     headers: config.headers,
-  })
-}
+  });
+};
 ```
 
 ---
@@ -359,30 +363,35 @@ export const createHttpTransport = (config: {
 ## Implementation Phases
 
 ### Phase 1: Core Infrastructure
+
 - [ ] Create `apps/core/src/mcp/` directory structure
 - [ ] Define MCP types and schemas (Zod validation)
 - [ ] Implement `MCPService` with Effect/Layer DI
 - [ ] Implement StdioClientTransport for local servers
 
 ### Phase 2: CLI Integration
+
 - [ ] Add `freecode mcp` command with yargs
 - [ ] Implement `mcp list`, `mcp add`, `mcp remove` subcommands
 - [ ] Implement `mcp start`, `mcp stop` subcommands
 - [ ] Update config loading to include MCP servers
 
 ### Phase 3: Tool Integration
+
 - [ ] Implement `convertMcpTool()` function
 - [ ] Integrate MCP tools into agent tool system
 - [ ] Add tool prefixing (`servername_toolname`)
 - [ ] Handle tool result formatting
 
 ### Phase 4: Events and Polish
+
 - [ ] Implement Bus events (MCPToolsChanged, etc.)
 - [ ] Handle ToolListChanged notifications from servers
 - [ ] Add connection status tracking
 - [ ] Implement graceful shutdown
 
 ### Phase 5: Remote Support (Future)
+
 - [ ] HTTP transport for remote MCP servers
 - [ ] OAuth support for authenticated servers
 - [ ] SSE fallback transport
@@ -403,13 +412,13 @@ Added to `apps/core/package.json`.
 
 ## Error Handling
 
-| Error | Handling |
-|-------|----------|
-| MCP server not found | Show error with install suggestion |
+| Error                | Handling                                |
+| -------------------- | --------------------------------------- |
+| MCP server not found | Show error with install suggestion      |
 | Server process exits | Mark server as disconnected, emit event |
-| Tool call timeout | Return error with timeout message |
-| Invalid tool schema | Log warning, skip tool registration |
-| Config parse error | Show Zod validation errors |
+| Tool call timeout    | Return error with timeout message       |
+| Invalid tool schema  | Log warning, skip tool registration     |
+| Config parse error   | Show Zod validation errors              |
 
 ---
 
@@ -424,6 +433,7 @@ Added to `apps/core/package.json`.
 ## Reference Implementation
 
 opencode's MCP implementation was used as reference:
+
 - `packages/opencode/src/mcp/index.ts` — Service pattern
 - `packages/opencode/src/cli/cmd/mcp.ts` — CLI structure
 - `packages/core/src/v1/config/mcp.ts` — Config schema

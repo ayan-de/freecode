@@ -1,5 +1,5 @@
-import React from 'react';
-import styles from '../FreeCodeInternalDiagram.module.css';
+import React from "react";
+import styles from "../FreeCodeInternalDiagram.module.css";
 
 export function HooksFlow() {
   return (
@@ -12,7 +12,15 @@ export function HooksFlow() {
         strokeWidth="2"
         className={styles.flowLine}
       />
-      <text x="590" y="240" className={styles.connectionLabel} fill="#f97316" textAnchor="end">call</text>
+      <text
+        x="590"
+        y="240"
+        className={styles.connectionLabel}
+        fill="#f97316"
+        textAnchor="end"
+      >
+        call
+      </text>
 
       {/* Hooks -> Tools */}
       <path

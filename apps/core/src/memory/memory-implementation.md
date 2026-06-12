@@ -74,12 +74,12 @@ that solves the problem. Avoid unnecessary abstraction layers.
 
 ### Memory Types
 
-| Type | Scope | Purpose | Example |
-|------|-------|---------|---------|
-| `user` | private only | User's role, goals, preferences, knowledge | "User is a Go developer" |
-| `feedback` | private or team | Guidance on what to avoid/repeat | "Don't use mocks in integration tests" |
-| `project` | private or team | Non-derivabl context (deadlines, decisions) | "API v2 launching June 2026" |
-| `reference` | usually team | External system pointers | "Bugs tracked in Linear project ENG" |
+| Type        | Scope           | Purpose                                     | Example                                |
+| ----------- | --------------- | ------------------------------------------- | -------------------------------------- |
+| `user`      | private only    | User's role, goals, preferences, knowledge  | "User is a Go developer"               |
+| `feedback`  | private or team | Guidance on what to avoid/repeat            | "Don't use mocks in integration tests" |
+| `project`   | private or team | Non-derivabl context (deadlines, decisions) | "API v2 launching June 2026"           |
+| `reference` | usually team    | External system pointers                    | "Bugs tracked in Linear project ENG"   |
 
 ---
 
@@ -87,38 +87,38 @@ that solves the problem. Avoid unnecessary abstraction layers.
 
 ### Core Files
 
-| File | Description |
-|------|-------------|
-| `memory/mem-types.ts` | `MemoryType`, `MemoryEntry`, frontmatter parsing |
-| `memory/mem-store.ts` | `MemoryStore` class - file-based CRUD operations |
-| `memory/mem-query.ts` | `findRelevantMemories()` - keyword-based relevance |
+| File                   | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| `memory/mem-types.ts`  | `MemoryType`, `MemoryEntry`, frontmatter parsing      |
+| `memory/mem-store.ts`  | `MemoryStore` class - file-based CRUD operations      |
+| `memory/mem-query.ts`  | `findRelevantMemories()` - keyword-based relevance    |
 | `memory/mem-prompt.ts` | `buildMemoryPrompt()` - system prompt context builder |
-| `session/manager.ts` | `SessionManager` - session lifecycle |
-| `store/remote.ts` | `RemoteSessionSync` - cross-device sync |
+| `session/manager.ts`   | `SessionManager` - session lifecycle                  |
+| `store/remote.ts`      | `RemoteSessionSync` - cross-device sync               |
 
 ### MemoryStore Class
 
 ```typescript
 export class MemoryStore {
-  constructor(projectPath: string)
+  constructor(projectPath: string);
 
   // Get memory directory for this project
-  getMemoryDir(): string
+  getMemoryDir(): string;
 
   // Save a memory entry (creates or updates)
-  save(entry: MemoryEntry): void
+  save(entry: MemoryEntry): void;
 
   // Load a specific memory by name and type
-  load(name: string, type: MemoryType): MemoryEntry | undefined
+  load(name: string, type: MemoryType): MemoryEntry | undefined;
 
   // List all memories, optionally filtered by type
-  list(type?: MemoryType): MemoryEntry[]
+  list(type?: MemoryType): MemoryEntry[];
 
   // Delete a memory
-  delete(name: string, type: MemoryType): boolean
+  delete(name: string, type: MemoryType): boolean;
 
   // Update MEMORY.md index
-  updateIndex(): void
+  updateIndex(): void;
 }
 ```
 
@@ -126,12 +126,12 @@ export class MemoryStore {
 
 ```typescript
 interface MemoryEntry {
-  name: string           // Unique identifier within type
-  description: string    // One-line for relevance matching
-  type: MemoryType       // user | feedback | project | reference
-  content: string       // Full memory content
-  createdAt: number     // Unix timestamp
-  updatedAt: number // Unix timestamp
+  name: string; // Unique identifier within type
+  description: string; // One-line for relevance matching
+  type: MemoryType; // user | feedback | project | reference
+  content: string; // Full memory content
+  createdAt: number; // Unix timestamp
+  updatedAt: number; // Unix timestamp
 }
 ```
 
@@ -153,33 +153,33 @@ All methods are exposed via JSON-RPC over stdin/stdout.
 
 ### Memory Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `memory.list` | `{ projectPath?, type? }` | `MemoryEntry[]` | List all memories |
-| `memory.get` | `{ name, type, projectPath? }` | `MemoryEntry \| null` | Get specific memory |
-| `memory.save` | `{ entry, projectPath? }` | `void` | Save memory entry |
-| `memory.delete` | `{ name, type, projectPath? }` | `boolean` | Delete memory |
-| `memory.query` | `{ query, projectPath?, limit?, types? }` | `MemoryEntry[]` | Find relevant memories |
-| `memory.buildPrompt` | `{ projectPath?, includeAll?, types?, limit? }` | `string` | Build prompt context |
+| Method               | Params                                          | Returns               | Description            |
+| -------------------- | ----------------------------------------------- | --------------------- | ---------------------- |
+| `memory.list`        | `{ projectPath?, type? }`                       | `MemoryEntry[]`       | List all memories      |
+| `memory.get`         | `{ name, type, projectPath? }`                  | `MemoryEntry \| null` | Get specific memory    |
+| `memory.save`        | `{ entry, projectPath? }`                       | `void`                | Save memory entry      |
+| `memory.delete`      | `{ name, type, projectPath? }`                  | `boolean`             | Delete memory          |
+| `memory.query`       | `{ query, projectPath?, limit?, types? }`       | `MemoryEntry[]`       | Find relevant memories |
+| `memory.buildPrompt` | `{ projectPath?, includeAll?, types?, limit? }` | `string`              | Build prompt context   |
 
 ### Session Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `session.list` | `{ projectPath?, status? }` | `SessionContext[]` | List sessions |
-| `session.resume` | `{ sessionId }` | `SessionContext` | Resume session |
-| `session.switch` | `{ sessionId }` | `void` | Switch to session |
-| `session.fork` | `{ sessionId, point? }` | `string` | Fork session |
-| `session.archive` | `{ sessionId }` | `void` | Archive session |
-| `session.delete` | `{ sessionId }` | `void` | Delete session |
+| Method            | Params                      | Returns            | Description       |
+| ----------------- | --------------------------- | ------------------ | ----------------- |
+| `session.list`    | `{ projectPath?, status? }` | `SessionContext[]` | List sessions     |
+| `session.resume`  | `{ sessionId }`             | `SessionContext`   | Resume session    |
+| `session.switch`  | `{ sessionId }`             | `void`             | Switch to session |
+| `session.fork`    | `{ sessionId, point? }`     | `string`           | Fork session      |
+| `session.archive` | `{ sessionId }`             | `void`             | Archive session   |
+| `session.delete`  | `{ sessionId }`             | `void`             | Delete session    |
 
 ### Remote Sync Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `session.export` | `{ sessionId }` | `ExportedSession` | Export session to JSON |
-| `session.upload` | `{ sessionId, endpoint, apiKey? }` | `string` | Upload to remote URL |
-| `session.download` | `{ url, endpoint?, apiKey? }` | `string` | Download and import |
+| Method             | Params                             | Returns           | Description            |
+| ------------------ | ---------------------------------- | ----------------- | ---------------------- |
+| `session.export`   | `{ sessionId }`                    | `ExportedSession` | Export session to JSON |
+| `session.upload`   | `{ sessionId, endpoint, apiKey? }` | `string`          | Upload to remote URL   |
+| `session.download` | `{ url, endpoint?, apiKey? }`      | `string`          | Download and import    |
 
 ---
 
@@ -198,28 +198,28 @@ FreeCode's unique selling point is the ability to **continue sessions on differe
 
 ```typescript
 interface ExportedSession {
-  version: 1
+  version: 1;
   metadata: {
-    id: string
-    title: string
-    projectPath: string
-    provider: string
-    status: "active" | "archived" | "deleted"
-    createdAt: number
-    updatedAt: number
-    lastTurnAt: number
-    turnCount: number
-    parentId?: string
-  }
+    id: string;
+    title: string;
+    projectPath: string;
+    provider: string;
+    status: "active" | "archived" | "deleted";
+    createdAt: number;
+    updatedAt: number;
+    lastTurnAt: number;
+    turnCount: number;
+    parentId?: string;
+  };
   messages: Array<{
-    id: string
-    role: "user" | "assistant"
-    content: string
-    timestamp: number
-  }>
-  memories: MemoryEntry[]
-  exportedAt: number
-  expiresAt?: number
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    timestamp: number;
+  }>;
+  memories: MemoryEntry[];
+  exportedAt: number;
+  expiresAt?: number;
 }
 ```
 
@@ -238,17 +238,17 @@ interface ExportedSession {
 function findRelevantMemories(
   query: string,
   store: MemoryStore,
-  options: { limit?: number; types?: MemoryType[] }
-): MemoryEntry[]
+  options: { limit?: number; types?: MemoryType[] },
+): MemoryEntry[];
 ```
 
 ### Scoring
 
-| Match Type | Points | Example |
-|------------|--------|---------|
-| Name match | 10 | query "user_role" matches memory named "user_role" |
-| Description match | 5 | query "go engineer" matches description containing "Go engineer" |
-| Content match | 1 | query "testing" found in memory content |
+| Match Type        | Points | Example                                                          |
+| ----------------- | ------ | ---------------------------------------------------------------- |
+| Name match        | 10     | query "user_role" matches memory named "user_role"               |
+| Description match | 5      | query "go engineer" matches description containing "Go engineer" |
+| Content match     | 1      | query "testing" found in memory content                          |
 
 ### Tokenization
 
@@ -306,20 +306,21 @@ Don't use mocks in integration tests...
 
 ## Comparison with Claude Code
 
-| Feature | Claude Code | FreeCode |
-|---------|-------------|----------|
-| Storage | File-based | File-based |
-| Memory types | 4 (user, feedback, project, reference) | 4 (same) |
-| Index | MEMORY.md | MEMORY.md |
-| Query | LLM-based relevance | Keyword-based |
-| Session storage | JSONL | JSONL |
-| Remote sync | CCR (proprietary) | Simple file upload (USP) |
+| Feature         | Claude Code                            | FreeCode                 |
+| --------------- | -------------------------------------- | ------------------------ |
+| Storage         | File-based                             | File-based               |
+| Memory types    | 4 (user, feedback, project, reference) | 4 (same)                 |
+| Index           | MEMORY.md                              | MEMORY.md                |
+| Query           | LLM-based relevance                    | Keyword-based            |
+| Session storage | JSONL                                  | JSONL                    |
+| Remote sync     | CCR (proprietary)                      | Simple file upload (USP) |
 
 ---
 
 ## Usage Examples
 
 ### Save a memory
+
 ```typescript
 memoryStore.save({
   name: "go_preferences",
@@ -328,32 +329,34 @@ memoryStore.save({
   content: "User prefers clean, idiomatic Go code...",
   createdAt: Date.now(),
   updatedAt: Date.now(),
-})
+});
 ```
 
 ### Query relevant memories
+
 ```typescript
-const memories = findRelevantMemories(
-  "go testing preferences",
-  memoryStore,
-  { limit: 5, types: ["user", "feedback"] }
-)
+const memories = findRelevantMemories("go testing preferences", memoryStore, {
+  limit: 5,
+  types: ["user", "feedback"],
+});
 ```
 
 ### Upload session for cross-device resume
+
 ```typescript
-const remoteSync = await getRemoteSync()
+const remoteSync = await getRemoteSync();
 const url = await remoteSync.upload(sessionId, {
   endpoint: "https://storage.example.com/sessions",
-  apiKey: "your-api-key"
-})
+  apiKey: "your-api-key",
+});
 // Share `url` to download on another computer
 ```
 
 ### Download and resume session
+
 ```typescript
 const newSessionId = await remoteSync.download(url, {
-  endpoint: "https://storage.example.com/sessions"
-})
-const context = await sessionManager.resume(newSessionId)
+  endpoint: "https://storage.example.com/sessions",
+});
+const context = await sessionManager.resume(newSessionId);
 ```

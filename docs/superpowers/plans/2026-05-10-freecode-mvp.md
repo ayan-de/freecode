@@ -56,20 +56,21 @@ apps/tui/src/
 
 ## Scalability Principles Applied
 
-| Principle | Implementation |
-|-----------|----------------|
-| **Interface Segregation** | `BrowserProvider`, `ParserStrategy`, `ContextStrategy` — small focused interfaces |
-| **Dependency Inversion** | High-level modules (executor) depend on abstractions, not concretions |
+| Principle                 | Implementation                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Interface Segregation** | `BrowserProvider`, `ParserStrategy`, `ContextStrategy` — small focused interfaces               |
+| **Dependency Inversion**  | High-level modules (executor) depend on abstractions, not concretions                           |
 | **Single Responsibility** | Each file does one thing — controller handles CDP, provider handles DOM, parser handles parsing |
-| **Strategy Pattern** | Parser registry lets you chain multiple parsing strategies |
-| **Factory Pattern** | Provider registry creates providers without coupling to concrete classes |
-| **Result Type** | No exceptions thrown across module boundaries — explicit `Result<T, E>` types |
+| **Strategy Pattern**      | Parser registry lets you chain multiple parsing strategies                                      |
+| **Factory Pattern**       | Provider registry creates providers without coupling to concrete classes                        |
+| **Result Type**           | No exceptions thrown across module boundaries — explicit `Result<T, E>` types                   |
 
 ---
 
 ## Task 1: Add Playwright Dependency
 
 **Files:**
+
 - Modify: `apps/tui/package.json`
 
 - [ ] **Step 1: Add Playwright to dependencies**
@@ -103,6 +104,7 @@ cd apps/tui && git add -A && git commit -m "feat: add playwright dependency"
 ## Task 2: Utility Types (Result, Logger)
 
 **Files:**
+
 - Create: `apps/tui/src/lib/utils/result.ts`
 - Create: `apps/tui/src/lib/utils/logger.ts`
 
@@ -122,17 +124,21 @@ export function err<E>(error: E): Result<never, E> {
   return { success: false, error };
 }
 
-export function isOk<T, E>(result: Result<T, E>): result is { success: true; value: T } {
+export function isOk<T, E>(
+  result: Result<T, E>,
+): result is { success: true; value: T } {
   return result.success === true;
 }
 
-export function isErr<T, E>(result: Result<T, E>): result is { success: false; error: E } {
+export function isErr<T, E>(
+  result: Result<T, E>,
+): result is { success: false; error: E } {
   return result.success === false;
 }
 
 export function map<T, U, E>(
   result: Result<T, E>,
-  fn: (value: T) => U
+  fn: (value: T) => U,
 ): Result<U, E> {
   if (isOk(result)) {
     return ok(fn(result.value));
@@ -142,7 +148,7 @@ export function map<T, U, E>(
 
 export function flatMap<T, U, E>(
   result: Result<T, E>,
-  fn: (value: T) => Result<U, E>
+  fn: (value: T) => Result<U, E>,
 ): Result<U, E> {
   if (isOk(result)) {
     return fn(result.value);
@@ -155,7 +161,7 @@ export function flatMap<T, U, E>(
 
 ```typescript
 // apps/tui/src/lib/utils/logger.ts
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface Logger {
   debug(message: string, meta?: Record<string, unknown>): void;
@@ -167,33 +173,37 @@ export interface Logger {
 export class ConsoleLogger implements Logger {
   private prefix: string;
 
-  constructor(prefix = '') {
-    this.prefix = prefix ? `[${prefix}] ` : '';
+  constructor(prefix = "") {
+    this.prefix = prefix ? `[${prefix}] ` : "";
   }
 
-  private log(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
-    const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
+  private log(
+    level: LogLevel,
+    message: string,
+    meta?: Record<string, unknown>,
+  ): void {
+    const metaStr = meta ? ` ${JSON.stringify(meta)}` : "";
     console.log(`${this.prefix}${level.toUpperCase()}: ${message}${metaStr}`);
   }
 
   debug(message: string, meta?: Record<string, unknown>): void {
-    this.log('debug', message, meta);
+    this.log("debug", message, meta);
   }
 
   info(message: string, meta?: Record<string, unknown>): void {
-    this.log('info', message, meta);
+    this.log("info", message, meta);
   }
 
   warn(message: string, meta?: Record<string, unknown>): void {
-    this.log('warn', message, meta);
+    this.log("warn", message, meta);
   }
 
   error(message: string, meta?: Record<string, unknown>): void {
-    this.log('error', message, meta);
+    this.log("error", message, meta);
   }
 }
 
-export const logger = new ConsoleLogger('freecode');
+export const logger = new ConsoleLogger("freecode");
 ```
 
 - [ ] **Step 3: Commit**
@@ -207,6 +217,7 @@ cd apps/tui && git add -A && git commit -m "feat: add Result type and Logger uti
 ## Task 3: Browser Layer (Scalable Provider System)
 
 **Files:**
+
 - Create: `apps/tui/src/lib/browser/types.ts`
 - Create: `apps/tui/src/lib/browser/providers/types.ts`
 - Create: `apps/tui/src/lib/browser/providers/chatgpt.ts`
@@ -217,7 +228,7 @@ cd apps/tui && git add -A && git commit -m "feat: add Result type and Logger uti
 
 ```typescript
 // apps/tui/src/lib/browser/types.ts
-import type { Page, Browser } from 'playwright';
+import type { Page, Browser } from "playwright";
 
 export interface BrowserController {
   connect(): Promise<void>;
@@ -255,14 +266,14 @@ export interface ProviderConfig {
 
 ```typescript
 // apps/tui/src/lib/browser/providers/chatgpt.ts
-import type { Page, Locator } from 'playwright';
-import type { PageAdapter } from './types.js';
+import type { Page, Locator } from "playwright";
+import type { PageAdapter } from "./types.js";
 
 export class ChatGPTAdapter implements PageAdapter {
-  name = 'chatgpt';
+  name = "chatgpt";
 
   getInputLocator(page: Page): Locator {
-    return page.locator('textarea');
+    return page.locator("textarea");
   }
 
   getSubmitButton(page: Page): Locator {
@@ -279,7 +290,7 @@ export class ChatGPTAdapter implements PageAdapter {
   }
 
   async waitForLoadState(page: Page): Promise<void> {
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState("networkidle");
   }
 }
 ```
@@ -288,8 +299,8 @@ export class ChatGPTAdapter implements PageAdapter {
 
 ```typescript
 // apps/tui/src/lib/browser/providers/index.ts
-import type { PageAdapter } from './types.js';
-import { ChatGPTAdapter } from './chatgpt.js';
+import type { PageAdapter } from "./types.js";
+import { ChatGPTAdapter } from "./chatgpt.js";
 
 export interface ProviderDefinition {
   id: string;
@@ -316,11 +327,11 @@ export function listProviders(): ProviderDefinition[] {
 
 export function createDefaultProviders(): void {
   registerProvider({
-    id: 'chatgpt',
-    name: 'ChatGPT',
+    id: "chatgpt",
+    name: "ChatGPT",
     adapter: new ChatGPTAdapter(),
     config: {
-      url: 'https://chatgpt.com',
+      url: "https://chatgpt.com",
     },
   });
 }
@@ -330,10 +341,10 @@ export function createDefaultProviders(): void {
 
 ```typescript
 // apps/tui/src/lib/browser/controller.ts
-import { chromium, type Browser, type Page } from 'playwright';
-import type { BrowserController, BrowserConfig } from './types.js';
-import type { PageAdapter } from './providers/types.js';
-import { logger } from '../utils/logger.js';
+import { chromium, type Browser, type Page } from "playwright";
+import type { BrowserController, BrowserConfig } from "./types.js";
+import type { PageAdapter } from "./providers/types.js";
+import { logger } from "../utils/logger.js";
 
 export class PlaywrightBrowserController implements BrowserController {
   private browser: Browser | null = null;
@@ -343,7 +354,7 @@ export class PlaywrightBrowserController implements BrowserController {
 
   constructor(config: BrowserConfig = {}) {
     this.config = {
-      cdpUrl: config.cdpUrl || process.env.CDP_URL || 'http://localhost:9222',
+      cdpUrl: config.cdpUrl || process.env.CDP_URL || "http://localhost:9222",
       headless: config.headless ?? false,
     };
   }
@@ -354,23 +365,23 @@ export class PlaywrightBrowserController implements BrowserController {
 
   async connect(): Promise<void> {
     try {
-      logger.info('Connecting to Chrome via CDP', { url: this.config.cdpUrl });
+      logger.info("Connecting to Chrome via CDP", { url: this.config.cdpUrl });
       this.browser = await chromium.connectOverCDP(this.config.cdpUrl);
       const context = this.browser.contexts()[0];
-      this.page = context.pages()[0] || await context.newPage();
-      logger.info('Browser connected successfully');
+      this.page = context.pages()[0] || (await context.newPage());
+      logger.info("Browser connected successfully");
     } catch (error) {
-      logger.error('Failed to connect to Chrome', { error: String(error) });
+      logger.error("Failed to connect to Chrome", { error: String(error) });
       throw new Error(
         `Failed to connect to Chrome at ${this.config.cdpUrl}. ` +
-        'Ensure Chrome is running with: chrome --remote-debugging-port=9222'
+          "Ensure Chrome is running with: chrome --remote-debugging-port=9222",
       );
     }
   }
 
   async disconnect(): Promise<void> {
     if (this.browser) {
-      logger.info('Disconnecting browser');
+      logger.info("Disconnecting browser");
       await this.browser.close();
       this.browser = null;
       this.page = null;
@@ -386,7 +397,7 @@ export class PlaywrightBrowserController implements BrowserController {
   }
 
   async navigate(provider: PageAdapter): Promise<void> {
-    if (!this.page) throw new Error('Not connected');
+    if (!this.page) throw new Error("Not connected");
     await this.page.goto(provider.config.url);
     await provider.waitForLoadState(this.page);
     this.adapter = provider;
@@ -394,7 +405,7 @@ export class PlaywrightBrowserController implements BrowserController {
 
   async sendPrompt(prompt: string): Promise<void> {
     if (!this.page || !this.adapter) {
-      throw new Error('Not connected or adapter not set');
+      throw new Error("Not connected or adapter not set");
     }
     const input = this.adapter.getInputLocator(this.page);
     await input.fill(prompt);
@@ -404,10 +415,10 @@ export class PlaywrightBrowserController implements BrowserController {
 
   async waitForResponse(): Promise<string> {
     if (!this.page || !this.adapter) {
-      throw new Error('Not connected or adapter not set');
+      throw new Error("Not connected or adapter not set");
     }
 
-    logger.debug('Waiting for streaming to complete');
+    logger.debug("Waiting for streaming to complete");
     while (await this.adapter.isStreaming(this.page)) {
       await this.page.waitForTimeout(500);
     }
@@ -436,6 +447,7 @@ cd apps/tui && git add -A && git commit -m "feat: add scalable browser layer wit
 ## Task 4: Context Layer (Strategy Pattern)
 
 **Files:**
+
 - Create: `apps/tui/src/lib/context/types.ts`
 - Create: `apps/tui/src/lib/context/collector.ts`
 - Create: `apps/tui/src/lib/context/strategies/file-tree.ts`
@@ -461,7 +473,10 @@ export interface ContextMetadata {
 
 export interface ContextStrategy {
   name: string;
-  collect(projectPath: string, options?: ContextOptions): Promise<ProjectContext>;
+  collect(
+    projectPath: string,
+    options?: ContextOptions,
+  ): Promise<ProjectContext>;
 }
 
 export interface ContextOptions {
@@ -475,26 +490,40 @@ export interface ContextOptions {
 
 ```typescript
 // apps/tui/src/lib/context/strategies/file-tree.ts
-import * as fs from 'fs';
-import * as path from 'path';
-import type { ContextStrategy, ContextOptions, ProjectContext } from '../types.js';
-import { logger } from '../../utils/logger.js';
+import * as fs from "fs";
+import * as path from "path";
+import type {
+  ContextStrategy,
+  ContextOptions,
+  ProjectContext,
+} from "../types.js";
+import { logger } from "../../utils/logger.js";
 
 const DEFAULT_IGNORE = [
-  'node_modules', '.git', 'dist', 'build', '.next', '.turbo',
-  '.vscode', '.idea', '*.lock', '*.log', '.cache', '.temp',
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".turbo",
+  ".vscode",
+  ".idea",
+  "*.lock",
+  "*.log",
+  ".cache",
+  ".temp",
 ];
 
 export class FileTreeStrategy implements ContextStrategy {
-  name = 'file-tree';
+  name = "file-tree";
 
-  async collect(projectPath: string, options: ContextOptions = {}): Promise<ProjectContext> {
-    const {
-      maxDepth = 3,
-      ignorePatterns = DEFAULT_IGNORE,
-    } = options;
+  async collect(
+    projectPath: string,
+    options: ContextOptions = {},
+  ): Promise<ProjectContext> {
+    const { maxDepth = 3, ignorePatterns = DEFAULT_IGNORE } = options;
 
-    logger.info('Collecting project context', { projectPath, maxDepth });
+    logger.info("Collecting project context", { projectPath, maxDepth });
 
     const tree = this.generateTree(projectPath, ignorePatterns, maxDepth);
     const files = this.collectFiles(projectPath, ignorePatterns, maxDepth);
@@ -502,10 +531,13 @@ export class FileTreeStrategy implements ContextStrategy {
     const metadata: ContextMetadata = {
       collectedAt: Date.now(),
       fileCount: Object.keys(files).length,
-      totalSize: Object.values(files).reduce((acc, content) => acc + content.length, 0),
+      totalSize: Object.values(files).reduce(
+        (acc, content) => acc + content.length,
+        0,
+      ),
     };
 
-    logger.info('Context collected', { fileCount: metadata.fileCount });
+    logger.info("Context collected", { fileCount: metadata.fileCount });
 
     return {
       projectPath,
@@ -520,11 +552,11 @@ export class FileTreeStrategy implements ContextStrategy {
     dirPath: string,
     patterns: string[],
     maxDepth: number,
-    currentDepth = 0
+    currentDepth = 0,
   ): string {
-    if (currentDepth > maxDepth) return '';
+    if (currentDepth > maxDepth) return "";
 
-    let tree = '';
+    let tree = "";
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
@@ -532,12 +564,17 @@ export class FileTreeStrategy implements ContextStrategy {
         const fullPath = path.join(dirPath, entry.name);
         if (this.shouldIgnore(fullPath, patterns)) continue;
 
-        const indent = currentDepth > 0 ? '  '.repeat(currentDepth) : '';
-        const icon = entry.isDirectory() ? '📁 ' : '📄 ';
-        tree += `${indent}${icon}${entry.name}${entry.isDirectory() ? '/' : ''}\n`;
+        const indent = currentDepth > 0 ? "  ".repeat(currentDepth) : "";
+        const icon = entry.isDirectory() ? "📁 " : "📄 ";
+        tree += `${indent}${icon}${entry.name}${entry.isDirectory() ? "/" : ""}\n`;
 
         if (entry.isDirectory()) {
-          tree += this.generateTree(fullPath, patterns, maxDepth, currentDepth + 1);
+          tree += this.generateTree(
+            fullPath,
+            patterns,
+            maxDepth,
+            currentDepth + 1,
+          );
         }
       }
     } catch {
@@ -550,7 +587,7 @@ export class FileTreeStrategy implements ContextStrategy {
   private shouldIgnore(filePath: string, patterns: string[]): boolean {
     const basename = path.basename(filePath);
     return patterns.some((pattern) => {
-      if (pattern.startsWith('*')) return basename.endsWith(pattern.slice(1));
+      if (pattern.startsWith("*")) return basename.endsWith(pattern.slice(1));
       return basename === pattern;
     });
   }
@@ -559,7 +596,7 @@ export class FileTreeStrategy implements ContextStrategy {
     dirPath: string,
     patterns: string[],
     maxDepth: number,
-    currentDepth = 0
+    currentDepth = 0,
   ): Record<string, string> {
     const files: Record<string, string> = {};
 
@@ -576,7 +613,12 @@ export class FileTreeStrategy implements ContextStrategy {
           const relativePath = path.relative(process.cwd(), fullPath);
           files[relativePath] = this.readFile(fullPath);
         } else if (entry.isDirectory()) {
-          const childFiles = this.collectFiles(fullPath, patterns, maxDepth, currentDepth + 1);
+          const childFiles = this.collectFiles(
+            fullPath,
+            patterns,
+            maxDepth,
+            currentDepth + 1,
+          );
           Object.assign(files, childFiles);
         }
       }
@@ -589,7 +631,7 @@ export class FileTreeStrategy implements ContextStrategy {
 
   private readFile(filePath: string): string {
     try {
-      return fs.readFileSync(filePath, 'utf-8');
+      return fs.readFileSync(filePath, "utf-8");
     } catch {
       return `// Error reading: ${filePath}`;
     }
@@ -601,10 +643,10 @@ export class FileTreeStrategy implements ContextStrategy {
 
 ```typescript
 // apps/tui/src/lib/context/strategies/index.ts
-export * from './file-tree.js';
+export * from "./file-tree.js";
 
-import type { ContextStrategy } from '../types.js';
-import { FileTreeStrategy } from './file-tree.js';
+import type { ContextStrategy } from "../types.js";
+import { FileTreeStrategy } from "./file-tree.js";
 
 const strategies: Map<string, ContextStrategy> = new Map();
 
@@ -623,15 +665,15 @@ export function createDefaultStrategies(): void {
 
 ```typescript
 // apps/tui/src/lib/context/collector.ts
-import type { ProjectContext, ContextOptions } from './types.js';
-import { getStrategy } from './strategies/index.js';
-import { logger } from '../utils/logger.js';
-import { ok, err, type Result } from '../utils/result.js';
+import type { ProjectContext, ContextOptions } from "./types.js";
+import { getStrategy } from "./strategies/index.js";
+import { logger } from "../utils/logger.js";
+import { ok, err, type Result } from "../utils/result.js";
 
 export async function collectContext(
   projectPath: string,
-  strategyName = 'file-tree',
-  options?: ContextOptions
+  strategyName = "file-tree",
+  options?: ContextOptions,
 ): Promise<Result<ProjectContext, string>> {
   try {
     const strategy = getStrategy(strategyName);
@@ -642,8 +684,10 @@ export async function collectContext(
     const context = await strategy.collect(projectPath, options);
     return ok(context);
   } catch (error) {
-    logger.error('Context collection failed', { error: String(error) });
-    return err(`Failed to collect context: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error("Context collection failed", { error: String(error) });
+    return err(
+      `Failed to collect context: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 ```
@@ -659,6 +703,7 @@ cd apps/tui && git add -A && git commit -m "feat: add context layer with strateg
 ## Task 5: Parser Layer (Strategy Chain)
 
 **Files:**
+
 - Create: `apps/tui/src/lib/parser/types.ts`
 - Create: `apps/tui/src/lib/parser/extractors/markdown.ts`
 - Create: `apps/tui/src/lib/parser/extractors/json.ts`
@@ -671,7 +716,7 @@ cd apps/tui && git add -A && git commit -m "feat: add context layer with strateg
 
 ```typescript
 // apps/tui/src/lib/parser/types.ts
-export type FileAction = 'create' | 'write' | 'delete';
+export type FileAction = "create" | "write" | "delete";
 
 export interface FileChange {
   path: string;
@@ -700,12 +745,17 @@ export interface ParserResult {
 
 - [ ] **Step 2: Create markdown extractor**
 
-```typescript
+````typescript
 // apps/tui/src/lib/parser/extractors/markdown.ts
-import type { ParserStrategy, ParserResult, ParsedResponse, FileChange } from '../types.js';
+import type {
+  ParserStrategy,
+  ParserResult,
+  ParsedResponse,
+  FileChange,
+} from "../types.js";
 
 export class MarkdownExtractor implements ParserStrategy {
-  name = 'markdown';
+  name = "markdown";
 
   parse(raw: string): ParserResult {
     const changes: FileChange[] = [];
@@ -715,13 +765,13 @@ export class MarkdownExtractor implements ParserStrategy {
     while ((match = fileBlockRegex.exec(raw)) !== null) {
       changes.push({
         path: match[1].trim(),
-        action: 'create',
+        action: "create",
         content: match[2].trim(),
       });
     }
 
     if (changes.length === 0) {
-      return { success: false, error: 'No file blocks found' };
+      return { success: false, error: "No file blocks found" };
     }
 
     const summary = this.extractSummary(raw);
@@ -738,52 +788,62 @@ export class MarkdownExtractor implements ParserStrategy {
   }
 
   private extractSummary(raw: string): string {
-    const lines = raw.split('\n');
+    const lines = raw.split("\n");
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('```') && !trimmed.startsWith('FILE:')) {
-        const cleaned = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '');
+      if (
+        trimmed &&
+        !trimmed.startsWith("```") &&
+        !trimmed.startsWith("FILE:")
+      ) {
+        const cleaned = trimmed.replace(/^#+\s*/, "").replace(/\*\*/g, "");
         if (cleaned.length > 10) {
           return cleaned.slice(0, 200);
         }
       }
     }
-    return 'Generated file structure';
+    return "Generated file structure";
   }
 }
-```
+````
 
 - [ ] **Step 3: Create JSON extractor**
 
 ```typescript
 // apps/tui/src/lib/parser/extractors/json.ts
-import type { ParserStrategy, ParserResult, ParsedResponse, FileChange } from '../types.js';
+import type {
+  ParserStrategy,
+  ParserResult,
+  ParsedResponse,
+  FileChange,
+} from "../types.js";
 
 export class JsonExtractor implements ParserStrategy {
-  name = 'json';
+  name = "json";
 
   parse(raw: string): ParserResult {
     try {
       const match = raw.match(/\{[\s\S]*\}/);
       if (!match) {
-        return { success: false, error: 'No JSON found' };
+        return { success: false, error: "No JSON found" };
       }
 
       const parsed = JSON.parse(match[0]);
       const changes: FileChange[] = (parsed.changes || []).map((c: any) => ({
         path: c.file || c.path,
-        action: (c.action || 'create') as FileChange['action'],
+        action: (c.action || "create") as FileChange["action"],
         content: c.content || c.code,
       }));
 
       if (changes.length === 0) {
-        return { success: false, error: 'No changes in JSON' };
+        return { success: false, error: "No changes in JSON" };
       }
 
       return {
         success: true,
         response: {
-          summary: parsed.summary || parsed.description || 'Generated structure',
+          summary:
+            parsed.summary || parsed.description || "Generated structure",
           changes,
           raw,
           parserUsed: this.name,
@@ -798,12 +858,12 @@ export class JsonExtractor implements ParserStrategy {
 
 - [ ] **Step 4: Create structured output extractor**
 
-```typescript
+````typescript
 // apps/tui/src/lib/parser/extractors/structured.ts
-import type { ParserStrategy, ParserResult, FileChange } from '../types.js';
+import type { ParserStrategy, ParserResult, FileChange } from "../types.js";
 
 export class StructuredExtractor implements ParserStrategy {
-  name = 'structured';
+  name = "structured";
 
   parse(raw: string): ParserResult {
     const changes: FileChange[] = [];
@@ -820,14 +880,14 @@ export class StructuredExtractor implements ParserStrategy {
         const path = match[1].trim();
         const content = match[2].trim();
 
-        if (path && content && !changes.some(c => c.path === path)) {
-          changes.push({ path, action: 'create', content });
+        if (path && content && !changes.some((c) => c.path === path)) {
+          changes.push({ path, action: "create", content });
         }
       }
     }
 
     if (changes.length === 0) {
-      return { success: false, error: 'No structured file blocks found' };
+      return { success: false, error: "No structured file blocks found" };
     }
 
     return {
@@ -843,21 +903,25 @@ export class StructuredExtractor implements ParserStrategy {
 
   private extractSummary(raw: string): string {
     const match = raw.match(/^(?!```|FILE:|>|\s)(.+)/m);
-    return match ? match[1].trim().slice(0, 200) : 'Generated file structure';
+    return match ? match[1].trim().slice(0, 200) : "Generated file structure";
   }
 }
-```
+````
 
 - [ ] **Step 5: Create extractor registry**
 
 ```typescript
 // apps/tui/src/lib/parser/extractors/index.ts
-export { MarkdownExtractor } from './markdown.js';
-export { JsonExtractor } from './json.js';
-export { StructuredExtractor } from './structured.js';
+export { MarkdownExtractor } from "./markdown.js";
+export { JsonExtractor } from "./json.js";
+export { StructuredExtractor } from "./structured.js";
 
-import type { ParserStrategy } from '../types.js';
-import { MarkdownExtractor, JsonExtractor, StructuredExtractor } from './index.js';
+import type { ParserStrategy } from "../types.js";
+import {
+  MarkdownExtractor,
+  JsonExtractor,
+  StructuredExtractor,
+} from "./index.js";
 
 const extractors: Map<string, ParserStrategy> = new Map();
 
@@ -880,9 +944,9 @@ export function createDefaultExtractors(): void {
 
 ```typescript
 // apps/tui/src/lib/parser/registry.ts
-import type { ParserResult, ParsedResponse } from './types.js';
-import { getExtractor, createDefaultExtractors } from './extractors/index.js';
-import { logger } from '../utils/logger.js';
+import type { ParserResult, ParsedResponse } from "./types.js";
+import { getExtractor, createDefaultExtractors } from "./extractors/index.js";
+import { logger } from "../utils/logger.js";
 
 createDefaultExtractors();
 
@@ -892,7 +956,7 @@ export interface ParserRegistryOptions {
 
 export function parseWithStrategy(
   raw: string,
-  strategyName: string
+  strategyName: string,
 ): ParserResult {
   const extractor = getExtractor(strategyName);
   if (!extractor) {
@@ -901,12 +965,15 @@ export function parseWithStrategy(
 
   const result = extractor.parse(raw);
   if (result.success) {
-    logger.debug('Parsing succeeded', { strategy: strategyName });
+    logger.debug("Parsing succeeded", { strategy: strategyName });
   }
   return result;
 }
 
-export function parseWithChain(raw: string, strategies: string[]): ParserResult {
+export function parseWithChain(
+  raw: string,
+  strategies: string[],
+): ParserResult {
   for (const strategy of strategies) {
     const result = parseWithStrategy(raw, strategy);
     if (result.success) {
@@ -916,14 +983,14 @@ export function parseWithChain(raw: string, strategies: string[]): ParserResult 
 
   return {
     success: false,
-    error: 'No parser succeeded',
+    error: "No parser succeeded",
   };
 }
 
-export const DEFAULT_PARSER_CHAIN = ['structured', 'markdown', 'json'];
+export const DEFAULT_PARSER_CHAIN = ["structured", "markdown", "json"];
 
 export function parse(raw: string, chain = DEFAULT_PARSER_CHAIN): ParserResult {
-  logger.debug('Parsing response', { chain });
+  logger.debug("Parsing response", { chain });
   return parseWithChain(raw, chain);
 }
 ```
@@ -932,8 +999,8 @@ export function parse(raw: string, chain = DEFAULT_PARSER_CHAIN): ParserResult {
 
 ```typescript
 // apps/tui/src/lib/parser/index.ts
-export * from './types.js';
-export { parse, parseWithStrategy, parseWithChain } from './registry.js';
+export * from "./types.js";
+export { parse, parseWithStrategy, parseWithChain } from "./registry.js";
 ```
 
 - [ ] **Step 8: Commit**
@@ -947,17 +1014,18 @@ cd apps/tui && git add -A && git commit -m "feat: add parser layer with strategy
 ## Task 6: File Applicator
 
 **Files:**
+
 - Create: `apps/tui/src/commands/freecode/file-applier.ts`
 
 - [ ] **Step 1: Create file applicator**
 
 ```typescript
 // apps/tui/src/commands/freecode/file-applier.ts
-import * as fs from 'fs';
-import * as path from 'path';
-import type { FileChange } from '../../lib/parser/types.js';
-import { logger } from '../../lib/utils/logger.js';
-import { ok, err, type Result } from '../../lib/utils/result.js';
+import * as fs from "fs";
+import * as path from "path";
+import type { FileChange } from "../../lib/parser/types.js";
+import { logger } from "../../lib/utils/logger.js";
+import { ok, err, type Result } from "../../lib/utils/result.js";
 
 export interface ApplyResult {
   path: string;
@@ -967,15 +1035,15 @@ export interface ApplyResult {
 
 export async function applyFileChange(
   change: FileChange,
-  basePath: string
+  basePath: string,
 ): Promise<Result<ApplyResult, string>> {
   const fullPath = path.join(basePath, change.path);
 
   try {
-    if (change.action === 'delete') {
+    if (change.action === "delete") {
       if (fs.existsSync(fullPath)) {
         fs.unlinkSync(fullPath);
-        logger.info('Deleted file', { path: change.path });
+        logger.info("Deleted file", { path: change.path });
       }
       return ok({ path: change.path, success: true });
     }
@@ -986,28 +1054,38 @@ export async function applyFileChange(
     }
 
     if (change.content !== undefined) {
-      fs.writeFileSync(fullPath, change.content, 'utf-8');
-      logger.info('Wrote file', { path: change.path, size: change.content.length });
+      fs.writeFileSync(fullPath, change.content, "utf-8");
+      logger.info("Wrote file", {
+        path: change.path,
+        size: change.content.length,
+      });
       return ok({ path: change.path, success: true });
     }
 
-    return err('No content provided for write/create');
+    return err("No content provided for write/create");
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to apply change', { path: change.path, error: errorMessage });
+    logger.error("Failed to apply change", {
+      path: change.path,
+      error: errorMessage,
+    });
     return err(`Failed to ${change.action} ${change.path}: ${errorMessage}`);
   }
 }
 
 export async function applyChanges(
   changes: FileChange[],
-  basePath: string
+  basePath: string,
 ): Promise<ApplyResult[]> {
   const results: ApplyResult[] = [];
 
   for (const change of changes) {
     const result = await applyFileChange(change, basePath);
-    results.push(result.success ? result.value : { path: change.path, success: false, error: result.error });
+    results.push(
+      result.success
+        ? result.value
+        : { path: change.path, success: false, error: result.error },
+    );
   }
 
   return results;
@@ -1025,6 +1103,7 @@ cd apps/tui && git add -A && git commit -m "feat: add file applicator"
 ## Task 7: Freecode Command (Composable Orchestration)
 
 **Files:**
+
 - Create: `apps/tui/src/commands/freecode/provider-mgr.ts`
 - Create: `apps/tui/src/commands/freecode/executor.ts`
 - Create: `apps/tui/src/commands/freecode/index.ts`
@@ -1033,8 +1112,11 @@ cd apps/tui && git add -A && git commit -m "feat: add file applicator"
 
 ```typescript
 // apps/tui/src/commands/freecode/provider-mgr.ts
-import { listProviders, type ProviderDefinition } from '../../lib/browser/providers/index.js';
-import { logger } from '../../lib/utils/logger.js';
+import {
+  listProviders,
+  type ProviderDefinition,
+} from "../../lib/browser/providers/index.js";
+import { logger } from "../../lib/utils/logger.js";
 
 export interface SelectedProvider {
   id: string;
@@ -1046,12 +1128,12 @@ export function selectProvider(providerId?: string): SelectedProvider | null {
   const providers = listProviders();
 
   if (providers.length === 0) {
-    logger.error('No providers registered');
+    logger.error("No providers registered");
     return null;
   }
 
   if (providerId) {
-    const found = providers.find(p => p.id === providerId);
+    const found = providers.find((p) => p.id === providerId);
     if (found) {
       return { id: found.id, name: found.name, definition: found };
     }
@@ -1059,25 +1141,29 @@ export function selectProvider(providerId?: string): SelectedProvider | null {
   }
 
   const defaultProvider = providers[0];
-  return { id: defaultProvider.id, name: defaultProvider.name, definition: defaultProvider };
+  return {
+    id: defaultProvider.id,
+    name: defaultProvider.name,
+    definition: defaultProvider,
+  };
 }
 
 export function formatProviderList(): string {
   const providers = listProviders();
-  return providers.map(p => `- **${p.id}** - ${p.name}`).join('\n');
+  return providers.map((p) => `- **${p.id}** - ${p.name}`).join("\n");
 }
 ```
 
 - [ ] **Step 2: Create executor (the main orchestration logic)**
 
-```typescript
+````typescript
 // apps/tui/src/commands/freecode/executor.ts
-import { PlaywrightBrowserController } from '../../lib/browser/controller.js';
-import { collectContext } from '../../lib/context/collector.js';
-import { parse } from '../../lib/parser/index.js';
-import { applyChanges } from './file-applier.js';
-import { type SelectedProvider } from './provider-mgr.js';
-import { logger } from '../../lib/utils/logger.js';
+import { PlaywrightBrowserController } from "../../lib/browser/controller.js";
+import { collectContext } from "../../lib/context/collector.js";
+import { parse } from "../../lib/parser/index.js";
+import { applyChanges } from "./file-applier.js";
+import { type SelectedProvider } from "./provider-mgr.js";
+import { logger } from "../../lib/utils/logger.js";
 
 export interface ExecutorOptions {
   prompt: string;
@@ -1098,7 +1184,7 @@ export interface ExecutorResult {
 
 export async function executePromptCycle(
   options: ExecutorOptions,
-  onStatus: (message: string) => void
+  onStatus: (message: string) => void,
 ): Promise<ExecutorResult> {
   const { prompt, provider, projectPath, contextOptions } = options;
   const errors: string[] = [];
@@ -1106,16 +1192,20 @@ export async function executePromptCycle(
   const controller = new PlaywrightBrowserController();
 
   try {
-    onStatus('🔄 **Connecting to browser...**');
+    onStatus("🔄 **Connecting to browser...**");
     await controller.connect();
-    onStatus('✅ **Browser connected**');
+    onStatus("✅ **Browser connected**");
 
-    onStatus('✅ **Loading ChatGPT...**');
+    onStatus("✅ **Loading ChatGPT...**");
     await controller.navigate(provider.definition.adapter);
     onStatus(`✅ **${provider.name} loaded**`);
 
-    onStatus('📁 **Collecting project context...**');
-    const contextResult = await collectContext(projectPath, 'file-tree', contextOptions);
+    onStatus("📁 **Collecting project context...**");
+    const contextResult = await collectContext(
+      projectPath,
+      "file-tree",
+      contextOptions,
+    );
 
     if (!contextResult.success) {
       errors.push(`Context collection failed: ${contextResult.error}`);
@@ -1140,19 +1230,19 @@ FILE: <relative-path>
 
 Create or modify files as needed to complete the task.`;
 
-    onStatus('📤 **Sending to ChatGPT...**');
+    onStatus("📤 **Sending to ChatGPT...**");
     await controller.sendPrompt(fullPrompt);
-    onStatus('⏳ **Waiting for response...**');
+    onStatus("⏳ **Waiting for response...**");
 
     const response = await controller.waitForResponse();
-    onStatus('✅ **Response received**');
+    onStatus("✅ **Response received**");
 
     const parseResult = parse(response);
 
     if (!parseResult.success) {
       errors.push(`Parse failed: ${parseResult.error}`);
-      onStatus('⚠️ **Could not parse response**');
-      onStatus('```\n' + response.slice(0, 500) + '...\n```');
+      onStatus("⚠️ **Could not parse response**");
+      onStatus("```\n" + response.slice(0, 500) + "...\n```");
       return { success: false, filesCreated: 0, errors };
     }
 
@@ -1163,11 +1253,11 @@ Create or modify files as needed to complete the task.`;
     onStatus(`📋 **Applying ${fileChanges.length} file(s)...**`);
 
     const applyResults = await applyChanges(fileChanges, projectPath);
-    const succeeded = applyResults.filter(r => r.success).length;
-    const failed = applyResults.filter(r => !r.success);
+    const succeeded = applyResults.filter((r) => r.success).length;
+    const failed = applyResults.filter((r) => !r.success);
 
     if (failed.length > 0) {
-      failed.forEach(f => {
+      failed.forEach((f) => {
         if (f.error) errors.push(f.error);
       });
     }
@@ -1182,31 +1272,35 @@ Create or modify files as needed to complete the task.`;
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Executor failed', { error: errorMessage });
+    logger.error("Executor failed", { error: errorMessage });
     errors.push(errorMessage);
     return { success: false, filesCreated: 0, errors };
   } finally {
     await controller.disconnect();
   }
 }
-```
+````
 
 - [ ] **Step 3: Create /freecode command**
 
 ```typescript
 // apps/tui/src/commands/freecode/index.ts
-import { registerCommand, type Command, type CommandContext } from '../index.js';
-import { selectProvider, formatProviderList } from './provider-mgr.js';
-import { executePromptCycle } from './executor.js';
-import { createDefaultProviders } from '../../lib/browser/providers/index.js';
+import {
+  registerCommand,
+  type Command,
+  type CommandContext,
+} from "../index.js";
+import { selectProvider, formatProviderList } from "./provider-mgr.js";
+import { executePromptCycle } from "./executor.js";
+import { createDefaultProviders } from "../../lib/browser/providers/index.js";
 
 createDefaultProviders();
 
 const freecodeCommand: Command = {
-  name: 'freecode',
-  description: 'Send prompt to ChatGPT and apply file changes',
+  name: "freecode",
+  description: "Send prompt to ChatGPT and apply file changes",
   execute: async (args, ctx) => {
-    const userPrompt = args.join(' ');
+    const userPrompt = args.join(" ");
 
     if (!userPrompt.trim()) {
       ctx.showMessage(`**Usage:** /freecode <your prompt>
@@ -1220,7 +1314,7 @@ ${formatProviderList()}`);
 
     const provider = selectProvider();
     if (!provider) {
-      ctx.showMessage('❌ **No provider available**');
+      ctx.showMessage("❌ **No provider available**");
       return;
     }
 
@@ -1228,11 +1322,13 @@ ${formatProviderList()}`);
 
     const result = await executePromptCycle(
       { prompt: userPrompt, provider, projectPath },
-      (status) => ctx.showMessage(status)
+      (status) => ctx.showMessage(status),
     );
 
     if (!result.success && result.errors.length > 0) {
-      ctx.showMessage(`❌ **Errors:**\n${result.errors.map(e => `- ${e}`).join('\n')}`);
+      ctx.showMessage(
+        `❌ **Errors:**\n${result.errors.map((e) => `- ${e}`).join("\n")}`,
+      );
     }
   },
 };
@@ -1294,6 +1390,7 @@ cd apps/tui && git add -A && git commit -m "feat: add scalable /freecode command
 ## Task 8: Test MVP Flow
 
 **Prerequisites:**
+
 - Chrome running with: `chrome --remote-debugging-port=9222`
 - User logged into chatgpt.com
 
@@ -1306,6 +1403,7 @@ Run: `cd apps/tui && pnpm dev`
 Type: `/freecode summarize this project and write at project.md`
 
 Expected flow:
+
 1. Connecting to browser... ✅
 2. Browser connected ✅
 3. Loading ChatGPT... ✅
@@ -1324,13 +1422,13 @@ Run: `cat project.md`
 
 ## Scalability Verification
 
-| Scalability Concern | How Addressed |
-|---------------------|---------------|
-| Add new provider (Claude, Gemini) | Implement `PageAdapter`, call `registerProvider()` |
-| Add new parser | Implement `ParserStrategy`, call `registerExtractor()` |
-| Add new context strategy | Implement `ContextStrategy`, call `registerStrategy()` |
-| Change file operations | Modify only `file-applier.ts` |
-| Test components | Each module has single responsibility, easy to mock |
+| Scalability Concern               | How Addressed                                          |
+| --------------------------------- | ------------------------------------------------------ |
+| Add new provider (Claude, Gemini) | Implement `PageAdapter`, call `registerProvider()`     |
+| Add new parser                    | Implement `ParserStrategy`, call `registerExtractor()` |
+| Add new context strategy          | Implement `ContextStrategy`, call `registerStrategy()` |
+| Change file operations            | Modify only `file-applier.ts`                          |
+| Test components                   | Each module has single responsibility, easy to mock    |
 
 ---
 

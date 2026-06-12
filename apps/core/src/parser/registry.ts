@@ -2,9 +2,9 @@
 // Parser Registry
 // =============================================================================
 
-import type { ParserResult } from './types.js';
-import { getExtractor, createDefaultExtractors } from './extractors/index.js';
-import { logger } from '../utils/logger.js';
+import type { ParserResult } from "./types.js";
+import { getExtractor, createDefaultExtractors } from "./extractors/index.js";
+import { logger } from "../utils/logger.js";
 
 createDefaultExtractors();
 
@@ -14,7 +14,7 @@ export interface ParserRegistryOptions {
 
 export function parseWithStrategy(
   raw: string,
-  strategyName: string
+  strategyName: string,
 ): ParserResult {
   const extractor = getExtractor(strategyName);
   if (!extractor) {
@@ -23,12 +23,15 @@ export function parseWithStrategy(
 
   const result = extractor.parse(raw);
   if (result.success) {
-    logger.debug('Parsing succeeded', { strategy: strategyName });
+    logger.debug("Parsing succeeded", { strategy: strategyName });
   }
   return result;
 }
 
-export function parseWithChain(raw: string, strategies: string[]): ParserResult {
+export function parseWithChain(
+  raw: string,
+  strategies: string[],
+): ParserResult {
   for (const strategy of strategies) {
     const result = parseWithStrategy(raw, strategy);
     if (result.success) {
@@ -38,13 +41,13 @@ export function parseWithChain(raw: string, strategies: string[]): ParserResult 
 
   return {
     success: false,
-    error: 'No parser succeeded',
+    error: "No parser succeeded",
   };
 }
 
-export const DEFAULT_PARSER_CHAIN = ['structured', 'markdown', 'json'];
+export const DEFAULT_PARSER_CHAIN = ["structured", "markdown", "json"];
 
 export function parse(raw: string, chain = DEFAULT_PARSER_CHAIN): ParserResult {
-  logger.debug('Parsing response', { chain });
+  logger.debug("Parsing response", { chain });
   return parseWithChain(raw, chain);
 }

@@ -16,6 +16,7 @@ FreeCode's memory/session system provides persistent, resumable conversation his
 ### Central Storage (`~/.freecode/`)
 
 All session data lives centrally, not in project directories. This enables:
+
 - Sessions persist across machines
 - Project roots stay clean (no `.freecode/` cluttering git)
 - Easy backup/sync of all conversation history
@@ -39,6 +40,7 @@ All session data lives centrally, not in project directories. This enables:
 ### Project-Level `.freecode/` (Optional)
 
 Project roots may contain a lightweight `.freecode/` for:
+
 - Project-specific config (`provider`, `model`, `customInstructions`)
 - Session refs (pointer to central session ID, not full data)
 - This is NOT where session history lives
@@ -46,24 +48,26 @@ Project roots may contain a lightweight `.freecode/` for:
 ### Session Data Structure
 
 **`meta.json`** — Session metadata:
+
 ```typescript
 interface SessionMeta {
-  id: string                    // UUID
-  title: string                 // Auto-generated or user-set
-  projectPath: string           // Absolute path
-  provider: string              // e.g., "claude", "chatgpt"
-  model?: string                // e.g., "claude-opus-4-6"
-  status: "active" | "interrupted" | "archived" | "deleted"
-  createdAt: number             // Unix timestamp ms
-  updatedAt: number
-  lastTurnAt: number
-  turnCount: number
-  parentId?: string             // If forked from another session
-  aggregatedTokenCount?: number
+  id: string; // UUID
+  title: string; // Auto-generated or user-set
+  projectPath: string; // Absolute path
+  provider: string; // e.g., "claude", "chatgpt"
+  model?: string; // e.g., "claude-opus-4-6"
+  status: "active" | "interrupted" | "archived" | "deleted";
+  createdAt: number; // Unix timestamp ms
+  updatedAt: number;
+  lastTurnAt: number;
+  turnCount: number;
+  parentId?: string; // If forked from another session
+  aggregatedTokenCount?: number;
 }
 ```
 
 **`messages.jsonl`** — One JSON object per message, appended as produced:
+
 ```
 {"id":"msg-1","role":"user","parts":[{"type":"text","content":"hello"}],"timestamp":1700000000000}
 {"id":"msg-2","role":"assistant","parts":[{"type":"tool","tool":{"name":"Read","args":{"path":"/foo.txt"}}}],"timestamp":1700000001000}
@@ -71,14 +75,15 @@ interface SessionMeta {
 ```
 
 **`memory.json`** — Session compaction state (created after first compaction):
+
 ```typescript
 interface SessionMemory {
-  sessionId: string
-  summaries: CompactionSummary[]  // Summarized message ranges
-  tokenCount: number
-  totalCompactions: number
-  lastCompactionAt?: number
-  preservedRecentMessages: SerializedMessage[]  // Last 2 turns uncompacted
+  sessionId: string;
+  summaries: CompactionSummary[]; // Summarized message ranges
+  tokenCount: number;
+  totalCompactions: number;
+  lastCompactionAt?: number;
+  preservedRecentMessages: SerializedMessage[]; // Last 2 turns uncompacted
 }
 ```
 
@@ -100,6 +105,7 @@ session.start(projectPath, provider?, title?) → { sessionId }
 ### Turn Execution
 
 Each turn:
+
 1. Append user message to `messages.jsonl`
 2. Run agent loop, streaming assistant messages to `messages.jsonl`
 3. On tool call: append tool request
@@ -109,6 +115,7 @@ Each turn:
 ### Interrupt Handling (Ctrl+C)
 
 On interrupt signal:
+
 1. Mark current message in `messages.jsonl` with `"interrupted": true`
 2. Update `meta.json` status → `"interrupted"`
 3. Store interrupt point for resume detection
@@ -120,6 +127,7 @@ session.resume(sessionId) → SessionContext
 ```
 
 Resume flow:
+
 1. Load `meta.json` for session metadata
 2. Stream-read `messages.jsonl` to reconstruct full history
 3. Detect interrupted state:
@@ -170,6 +178,7 @@ session.import(url) → { sessionId }
 
 Default: `https://sync.freecode.dev`
 Configurable via `config.json`:
+
 ```typescript
 {
   "syncEndpoint": "https://sync.freecode.dev",
@@ -185,6 +194,7 @@ Configurable via `config.json`:
 For structured queries (search, list, aggregation):
 
 **SQLite primary** (`~/.freecode/state/freecode.db`):
+
 ```sql
 CREATE TABLE threads (
   id TEXT PRIMARY KEY,
@@ -223,21 +233,23 @@ CREATE TABLE tool_calls (
 ```
 
 **JSON fallback** (`~/.freecode/state/store.json`) — when SQLite unavailable:
+
 ```typescript
 interface JsonStore {
-  threads: Record<string, StoredThread>
-  turns: Record<string, StoredTurn>
-  metadata: { version: number; lastUpdated: number }
+  threads: Record<string, StoredThread>;
+  turns: Record<string, StoredTurn>;
+  metadata: { version: number; lastUpdated: number };
 }
 ```
 
 **Factory pattern** — always try SQLite first:
+
 ```typescript
 async function getThreadStore(): Promise<ThreadStore> {
   try {
-    return await SQLiteThreadStore.create()
+    return await SQLiteThreadStore.create();
   } catch {
-    return JsonThreadStore.create()
+    return JsonThreadStore.create();
   }
 }
 ```
@@ -257,6 +269,7 @@ On startup (if interrupted session detected or user runs `/resume`):
 3. User selects → `session.resume(selectedId)`
 
 Keyboard navigation:
+
 - `↑/↓` — navigate
 - `Enter` — resume selected
 - `Ctrl+C` — exit picker, start fresh session
@@ -265,36 +278,37 @@ Keyboard navigation:
 
 ## IPC Protocol (Session Operations)
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `session.start` | `{ projectPath, provider?, title? }` | `{ sessionId }` | Start new session |
-| `session.resume` | `{ sessionId }` | `{ sessionId }` | Resume existing session |
-| `session.list` | `{ projectPath?, status? }` | `SessionMeta[]` | List sessions |
-| `session.fork` | `{ sessionId, point? }` | `{ newSessionId }` | Fork session |
-| `session.archive` | `{ sessionId }` | `void` | Archive session |
-| `session.delete` | `{ sessionId }` | `void` | Delete session |
-| `session.export` | `{ sessionId }` | `{ url, expiresAt }` | Upload to URL |
-| `session.import` | `{ url }` | `{ sessionId }` | Download from URL |
-| `memory.query` | `{ query, projectPath? }` | `MemoryEntry[]` | Search memory |
-| `memory.buildPrompt` | `{ projectPath }` | `string` | Build memory context |
+| Method               | Params                               | Returns              | Description             |
+| -------------------- | ------------------------------------ | -------------------- | ----------------------- |
+| `session.start`      | `{ projectPath, provider?, title? }` | `{ sessionId }`      | Start new session       |
+| `session.resume`     | `{ sessionId }`                      | `{ sessionId }`      | Resume existing session |
+| `session.list`       | `{ projectPath?, status? }`          | `SessionMeta[]`      | List sessions           |
+| `session.fork`       | `{ sessionId, point? }`              | `{ newSessionId }`   | Fork session            |
+| `session.archive`    | `{ sessionId }`                      | `void`               | Archive session         |
+| `session.delete`     | `{ sessionId }`                      | `void`               | Delete session          |
+| `session.export`     | `{ sessionId }`                      | `{ url, expiresAt }` | Upload to URL           |
+| `session.import`     | `{ url }`                            | `{ sessionId }`      | Download from URL       |
+| `memory.query`       | `{ query, projectPath? }`            | `MemoryEntry[]`      | Search memory           |
+| `memory.buildPrompt` | `{ projectPath }`                    | `string`             | Build memory context    |
 
 ---
 
 ## Error Handling
 
-| Failure | Recovery |
-|---------|----------|
-| JSONL write fails | Fall back to buffered write, flush on turn end |
-| SQLite unavailable | Fall back to JSON store |
-| Import corrupt data | Reject with validation errors, never partial import |
-| Export endpoint down | Save export locally, queue for retry |
-| Disk full | Warn user, suggest archive/delete old sessions |
+| Failure              | Recovery                                            |
+| -------------------- | --------------------------------------------------- |
+| JSONL write fails    | Fall back to buffered write, flush on turn end      |
+| SQLite unavailable   | Fall back to JSON store                             |
+| Import corrupt data  | Reject with validation errors, never partial import |
+| Export endpoint down | Save export locally, queue for retry                |
+| Disk full            | Warn user, suggest archive/delete old sessions      |
 
 ---
 
 ## v1 Scope
 
 ### Included
+
 - [x] Session storage at `~/.freecode/sessions/`
 - [x] Message streaming to JSONL (append-only)
 - [x] Interrupt handling (Ctrl+C marks session interrupted)
@@ -304,6 +318,7 @@ Keyboard navigation:
 - [x] URL-based export/import
 
 ### Not in v1
+
 - [ ] Compaction service (summarize old messages)
 - [ ] Session memory (auto-extract notes to MEMORY.md)
 - [ ] Teleport (remote session viewing via WebSocket)

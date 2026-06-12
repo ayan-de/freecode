@@ -38,6 +38,7 @@ apps/core/package.json        # MODIFIED: bin points to cli.js, add @modelcontex
 #### Task 1: Add dependency and configure package.json
 
 **Files:**
+
 - Modify: `apps/core/package.json`
 - Test: `pnpm install && pnpm build`
 
@@ -69,31 +70,32 @@ Expected: Package installed
 #### Task 2: Create MCP types and Zod schemas
 
 **Files:**
+
 - Create: `apps/core/src/mcp/types.ts`
 - Test: `apps/core/src/mcp/types.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { McpServerSchema, McpConfigSchema } from './types.js';
+import { describe, it, expect } from "vitest";
+import { McpServerSchema, McpConfigSchema } from "./types.js";
 
-describe('McpServerSchema', () => {
-  it('should parse valid local server config', () => {
+describe("McpServerSchema", () => {
+  it("should parse valid local server config", () => {
     const config = {
-      name: 'contextcarry',
-      type: 'local',
-      command: ['npx', '-y', '@thisisayande/contextcarry-mcp'],
+      name: "contextcarry",
+      type: "local",
+      command: ["npx", "-y", "@thisisayande/contextcarry-mcp"],
       enabled: true,
     };
     const result = McpServerSchema.safeParse(config);
     expect(result.success).toBe(true);
   });
 
-  it('should reject remote server without url', () => {
+  it("should reject remote server without url", () => {
     const config = {
-      name: 'github',
-      type: 'remote',
+      name: "github",
+      type: "remote",
     };
     const result = McpServerSchema.safeParse(config);
     expect(result.success).toBe(false);
@@ -108,11 +110,11 @@ Expected: FAIL with "Cannot find module './types.js'"
 
 ```typescript
 // apps/core/src/mcp/types.ts
-import { z } from 'zod';
+import { z } from "zod";
 
 export const McpServerSchema = z.object({
   name: z.string(),
-  type: z.enum(['local', 'remote']),
+  type: z.enum(["local", "remote"]),
   // Local (stdio) config
   command: z.array(z.string()).optional(),
   args: z.array(z.string()).optional(),
@@ -131,14 +133,20 @@ export const McpConfigSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
-  providers: z.record(z.object({
-    apiKey: z.string(),
-    model: z.string().optional(),
-  })).optional(),
-  current: z.object({
-    provider: z.string(),
-    model: z.string(),
-  }).optional(),
+  providers: z
+    .record(
+      z.object({
+        apiKey: z.string(),
+        model: z.string().optional(),
+      }),
+    )
+    .optional(),
+  current: z
+    .object({
+      provider: z.string(),
+      model: z.string(),
+    })
+    .optional(),
   mcp: McpConfigSchema.optional(),
 });
 
@@ -148,7 +156,7 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 export interface McpClient {
   readonly name: string;
-  readonly status: 'connected' | 'disconnected' | 'starting' | 'failed';
+  readonly status: "connected" | "disconnected" | "starting" | "failed";
   readonly tools: Map<string, unknown>; // Tool
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
@@ -163,19 +171,20 @@ Expected: PASS
 #### Task 3: Create MCP config loader
 
 **Files:**
+
 - Create: `apps/core/src/mcp/config.ts`
 - Modify: `apps/core/src/providers/config.ts` (add MCP config support)
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { loadMcpConfig, saveMcpServer, removeMcpServer } from './config.js';
-import { rmSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { describe, it, expect } from "vitest";
+import { loadMcpConfig, saveMcpServer, removeMcpServer } from "./config.js";
+import { rmSync, mkdirSync } from "fs";
+import { join } from "path";
 
-describe('loadMcpConfig', () => {
-  const testDir = join(process.cwd(), '.freecode-test');
+describe("loadMcpConfig", () => {
+  const testDir = join(process.cwd(), ".freecode-test");
 
   beforeAll(() => {
     mkdirSync(testDir, { recursive: true });
@@ -185,7 +194,7 @@ describe('loadMcpConfig', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should return empty config when no config exists', async () => {
+  it("should return empty config when no config exists", async () => {
     const config = await loadMcpConfig(testDir);
     expect(config.servers).toEqual([]);
   });
@@ -199,11 +208,16 @@ Expected: FAIL with "Cannot find module './config.js'"
 
 ```typescript
 // apps/core/src/mcp/config.ts
-import * as fs from 'fs';
-import * as path from 'path';
-import { McpConfigSchema, type McpConfig, type McpServer, ConfigSchema } from './types.js';
+import * as fs from "fs";
+import * as path from "path";
+import {
+  McpConfigSchema,
+  type McpConfig,
+  type McpServer,
+  ConfigSchema,
+} from "./types.js";
 
-const CONFIG_FILE = 'config.json';
+const CONFIG_FILE = "config.json";
 
 export async function loadMcpConfig(configDir: string): Promise<McpConfig> {
   const configPath = path.join(configDir, CONFIG_FILE);
@@ -212,7 +226,7 @@ export async function loadMcpConfig(configDir: string): Promise<McpConfig> {
     return { servers: [], pollInterval: 5000 };
   }
 
-  const content = fs.readFileSync(configPath, 'utf-8');
+  const content = fs.readFileSync(configPath, "utf-8");
   const config = JSON.parse(content);
 
   if (!config.mcp) {
@@ -222,12 +236,15 @@ export async function loadMcpConfig(configDir: string): Promise<McpConfig> {
   return McpConfigSchema.parse(config.mcp);
 }
 
-export async function saveMcpServer(configDir: string, server: McpServer): Promise<void> {
+export async function saveMcpServer(
+  configDir: string,
+  server: McpServer,
+): Promise<void> {
   const configPath = path.join(configDir, CONFIG_FILE);
   let config: Record<string, unknown> = {};
 
   if (fs.existsSync(configPath)) {
-    const content = fs.readFileSync(configPath, 'utf-8');
+    const content = fs.readFileSync(configPath, "utf-8");
     config = JSON.parse(content);
   }
 
@@ -236,7 +253,9 @@ export async function saveMcpServer(configDir: string, server: McpServer): Promi
   }
 
   const mcpConfig = config.mcp as { servers: McpServer[] };
-  const existingIndex = mcpConfig.servers.findIndex(s => s.name === server.name);
+  const existingIndex = mcpConfig.servers.findIndex(
+    (s) => s.name === server.name,
+  );
 
   if (existingIndex >= 0) {
     mcpConfig.servers[existingIndex] = server;
@@ -244,23 +263,26 @@ export async function saveMcpServer(configDir: string, server: McpServer): Promi
     mcpConfig.servers.push(server);
   }
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
 }
 
-export async function removeMcpServer(configDir: string, name: string): Promise<void> {
+export async function removeMcpServer(
+  configDir: string,
+  name: string,
+): Promise<void> {
   const configPath = path.join(configDir, CONFIG_FILE);
 
   if (!fs.existsSync(configPath)) return;
 
-  const content = fs.readFileSync(configPath, 'utf-8');
+  const content = fs.readFileSync(configPath, "utf-8");
   const config = JSON.parse(content);
 
   if (!config.mcp) return;
 
   const mcpConfig = config.mcp as { servers: McpServer[] };
-  mcpConfig.servers = mcpConfig.servers.filter(s => s.name !== name);
+  mcpConfig.servers = mcpConfig.servers.filter((s) => s.name !== name);
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
 }
 ```
 
@@ -272,19 +294,20 @@ Expected: PASS
 #### Task 4: Create MCP transport implementation
 
 **Files:**
+
 - Create: `apps/core/src/mcp/transport.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { createStdioTransport } from './transport.js';
+import { describe, it, expect } from "vitest";
+import { createStdioTransport } from "./transport.js";
 
-describe('createStdioTransport', () => {
-  it('should create transport with command and args', () => {
+describe("createStdioTransport", () => {
+  it("should create transport with command and args", () => {
     const transport = createStdioTransport({
-      command: 'npx',
-      args: ['-y', '@thisisayande/contextcarry-mcp'],
+      command: "npx",
+      args: ["-y", "@thisisayande/contextcarry-mcp"],
     });
     expect(transport).toBeDefined();
   });
@@ -298,7 +321,7 @@ Expected: FAIL with "Cannot find module './transport.js'"
 
 ```typescript
 // apps/core/src/mcp/transport.ts
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 export interface StdioTransportConfig {
   command: string;
@@ -306,7 +329,9 @@ export interface StdioTransportConfig {
   env?: Record<string, string>;
 }
 
-export function createStdioTransport(config: StdioTransportConfig): StdioClientTransport {
+export function createStdioTransport(
+  config: StdioTransportConfig,
+): StdioClientTransport {
   return new StdioClientTransport({
     command: config.command,
     args: config.args || [],
@@ -323,21 +348,22 @@ Expected: PASS
 #### Task 5: Create MCP service with Effect/Layer
 
 **Files:**
+
 - Create: `apps/core/src/mcp/service.ts`
 - Create: `apps/core/src/mcp/index.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
-import { McpService, MCPService } from './service.js';
-import { Effect } from 'effect';
+import { describe, it, expect, beforeEach } from "vitest";
+import { McpService, MCPService } from "./service.js";
+import { Effect } from "effect";
 
-describe('MCPService', () => {
-  it('should have correct interface', async () => {
-    const service = yield* Effect.runPromise(
-      Effect.provideService(MCPService, McpService.Default)
-    );
+describe("MCPService", () => {
+  it("should have correct interface", async () => {
+    const service =
+      yield *
+      Effect.runPromise(Effect.provideService(MCPService, McpService.Default));
     expect(service.status).toBeDefined();
     expect(service.connect).toBeDefined();
     expect(service.disconnect).toBeDefined();
@@ -352,19 +378,21 @@ Expected: FAIL with "Cannot find module './service.js'"
 
 ```typescript
 // apps/core/src/mcp/service.ts
-import { Context, Effect, Layer } from 'effect';
-import { loadMcpConfig } from './config.js';
-import { createStdioTransport } from './transport.js';
-import type { McpServer, McpClient } from './types.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Context, Effect, Layer } from "effect";
+import { loadMcpConfig } from "./config.js";
+import { createStdioTransport } from "./transport.js";
+import type { McpServer, McpClient } from "./types.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 export interface MCPService {
-  readonly status: () => Effect.Effect<Map<string, { status: string; toolCount: number }>>;
+  readonly status: () => Effect.Effect<
+    Map<string, { status: string; toolCount: number }>
+  >;
   readonly connect: (name: string) => Effect.Effect<void>;
   readonly disconnect: (name: string) => Effect.Effect<void>;
 }
 
-export const MCPService = Context.GenericTag<MCPService>('MCPService');
+export const MCPService = Context.GenericTag<MCPService>("MCPService");
 
 export const MCPLive = Layer.effect(
   MCPService,
@@ -372,69 +400,77 @@ export const MCPLive = Layer.effect(
     const clients = new Map<string, McpClient>();
     let config = yield* Effect.promise(() => loadMcpConfig(getConfigDir()));
 
-    const status = () => Effect.succeed(
-      new Map(
-        config.servers.map(s => [
-          s.name,
+    const status = () =>
+      Effect.succeed(
+        new Map(
+          config.servers.map((s) => [
+            s.name,
+            {
+              status: clients.get(s.name)?.status || "disconnected",
+              toolCount: clients.get(s.name)?.tools.size || 0,
+            },
+          ]),
+        ),
+      );
+
+    const connect = (name: string) =>
+      Effect.gen(function* () {
+        const server = config.servers.find((s) => s.name === name);
+        if (!server) {
+          yield* Effect.fail(new Error(`MCP server not found: ${name}`));
+        }
+
+        if (server.type !== "local") {
+          yield* Effect.fail(new Error("Remote MCP servers not yet supported"));
+        }
+
+        const transport = createStdioTransport({
+          command: server.command?.[0] || "",
+          args: server.command?.slice(1) || [],
+          env: server.env,
+        });
+
+        const client = new Client(
           {
-            status: clients.get(s.name)?.status || 'disconnected',
-            toolCount: clients.get(s.name)?.tools.size || 0,
+            name: server.name,
+            version: "1.0.0",
           },
-        ])
-      )
-    );
+          {
+            capabilities: {},
+          },
+        );
 
-    const connect = (name: string) => Effect.gen(function* () {
-      const server = config.servers.find(s => s.name === name);
-      if (!server) {
-        yield* Effect.fail(new Error(`MCP server not found: ${name}`));
-      }
+        yield* Effect.promise(() => client.connect(transport));
 
-      if (server.type !== 'local') {
-        yield* Effect.fail(new Error('Remote MCP servers not yet supported'));
-      }
+        const mcpClient: McpClient = {
+          name: server.name,
+          status: "connected",
+          tools: new Map(),
+          start: async () => {},
+          stop: async () => {
+            yield * Effect.promise(() => client.close());
+          },
+        };
 
-      const transport = createStdioTransport({
-        command: server.command?.[0] || '',
-        args: server.command?.slice(1) || [],
-        env: server.env,
+        clients.set(name, mcpClient);
       });
 
-      const client = new Client({
-        name: server.name,
-        version: '1.0.0',
-      }, {
-        capabilities: {},
+    const disconnect = (name: string) =>
+      Effect.gen(function* () {
+        const client = clients.get(name);
+        if (client) {
+          yield* Effect.promise(() => client.stop());
+          clients.delete(name);
+        }
       });
-
-      yield* Effect.promise(() => client.connect(transport));
-
-      const mcpClient: McpClient = {
-        name: server.name,
-        status: 'connected',
-        tools: new Map(),
-        start: async () => {},
-        stop: async () => { yield* Effect.promise(() => client.close()); },
-      };
-
-      clients.set(name, mcpClient);
-    });
-
-    const disconnect = (name: string) => Effect.gen(function* () {
-      const client = clients.get(name);
-      if (client) {
-        yield* Effect.promise(() => client.stop());
-        clients.delete(name);
-      }
-    });
 
     return { status, connect, disconnect } as MCPService;
-  })
+  }),
 );
 
 function getConfigDir(): string {
-  const { homedir } = require('os');
-  return require('path').join(homedir(), '.freecode');
+  const { homedir } = require("os");
+  return require("path").join(homedir(), ".freecode");
 }
 ```
 
@@ -442,9 +478,9 @@ function getConfigDir(): string {
 
 ```typescript
 // apps/core/src/mcp/index.ts
-export { MCPService, MCPLive, type MCPService } from './service.js';
-export type { McpServer, McpConfig, McpClient } from './types.js';
-export { loadMcpConfig, saveMcpServer, removeMcpServer } from './config.js';
+export { MCPService, MCPLive, type MCPService } from "./service.js";
+export type { McpServer, McpConfig, McpClient } from "./types.js";
+export { loadMcpConfig, saveMcpServer, removeMcpServer } from "./config.js";
 ```
 
 Run: `pnpm test apps/core/src/mcp/service.test.ts`
@@ -457,6 +493,7 @@ Expected: PASS (or skip if Effect testing is complex)
 #### Task 6: Create CLI entry point with yargs
 
 **Files:**
+
 - Create: `apps/core/src/cli.ts`
 - Modify: `apps/core/package.json` (bin entry)
 
@@ -577,36 +614,37 @@ Expected: Lists MCP servers (empty initially)
 #### Task 7: Implement convertMcpTool function
 
 **Files:**
+
 - Create: `apps/core/src/mcp/convert-tool.ts`
 - Test: `apps/core/src/mcp/convert-tool.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { convertMcpTool } from './convert-tool.js';
+import { describe, it, expect } from "vitest";
+import { convertMcpTool } from "./convert-tool.js";
 
-describe('convertMcpTool', () => {
-  it('should prefix tool name with server name', () => {
+describe("convertMcpTool", () => {
+  it("should prefix tool name with server name", () => {
     const mcpTool = {
-      name: 'save',
-      description: 'Save context',
-      inputSchema: { type: 'object', properties: { key: { type: 'string' } } },
+      name: "save",
+      description: "Save context",
+      inputSchema: { type: "object", properties: { key: { type: "string" } } },
     };
 
-    const tool = convertMcpTool(mcpTool, 'contextcarry');
-    expect(tool.id).toBe('contextcarry_save');
+    const tool = convertMcpTool(mcpTool, "contextcarry");
+    expect(tool.id).toBe("contextcarry_save");
   });
 
-  it('should use server/toolname as userFacingName', () => {
+  it("should use server/toolname as userFacingName", () => {
     const mcpTool = {
-      name: 'load',
-      description: 'Load context',
-      inputSchema: { type: 'object' },
+      name: "load",
+      description: "Load context",
+      inputSchema: { type: "object" },
     };
 
-    const tool = convertMcpTool(mcpTool, 'contextcarry');
-    expect(tool.behavior.userFacingName).toBe('contextcarry/load');
+    const tool = convertMcpTool(mcpTool, "contextcarry");
+    expect(tool.behavior.userFacingName).toBe("contextcarry/load");
   });
 });
 ```
@@ -618,7 +656,7 @@ Expected: FAIL with "Cannot find module './convert-tool.js'"
 
 ```typescript
 // apps/core/src/mcp/convert-tool.ts
-import type { Tool, ToolContext, ToolResult } from '../tools/tool.types.js';
+import type { Tool, ToolContext, ToolResult } from "../tools/tool.types.js";
 
 interface McpToolDef {
   name: string;
@@ -626,59 +664,84 @@ interface McpToolDef {
   inputSchema: unknown;
 }
 
-export function convertMcpTool(
-  mcpTool: McpToolDef,
-  serverName: string
-): Tool {
+export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
   const prefixedName = `${serverName}_${mcpTool.name}`;
 
   return {
     id: prefixedName,
-    description: mcpTool.description ?? '',
+    description: mcpTool.description ?? "",
     schemas: {
       parameters: convertJsonSchema(mcpTool.inputSchema),
     },
     ui: {
-      renderToolUseMessage: () => ({ type: 'tool_use', toolId: prefixedName, args: {}, status: 'pending' }),
-      renderToolResultMessage: () => ({ type: 'tool_result', toolId: prefixedName, result: { title: '', output: '' }, status: 'success' }),
-      renderToolUseTag: () => ({ label: serverName, color: 'cyan' }),
-      renderToolUseProgressMessage: () => ({ type: 'tool_progress', toolId: prefixedName, message: '' }),
-      renderToolUseErrorMessage: () => ({ type: 'tool_error', toolId: prefixedName, error: '' }),
-      renderToolUseRejectedMessage: () => ({ type: 'tool_rejected', toolId: prefixedName, reason: '' }),
+      renderToolUseMessage: () => ({
+        type: "tool_use",
+        toolId: prefixedName,
+        args: {},
+        status: "pending",
+      }),
+      renderToolResultMessage: () => ({
+        type: "tool_result",
+        toolId: prefixedName,
+        result: { title: "", output: "" },
+        status: "success",
+      }),
+      renderToolUseTag: () => ({ label: serverName, color: "cyan" }),
+      renderToolUseProgressMessage: () => ({
+        type: "tool_progress",
+        toolId: prefixedName,
+        message: "",
+      }),
+      renderToolUseErrorMessage: () => ({
+        type: "tool_error",
+        toolId: prefixedName,
+        error: "",
+      }),
+      renderToolUseRejectedMessage: () => ({
+        type: "tool_rejected",
+        toolId: prefixedName,
+        reason: "",
+      }),
     },
     behavior: {
       isConcurrencySafe: true,
       isDestructive: false,
-      interruptBehavior: 'await',
+      interruptBehavior: "await",
       maxResultSizeChars: 50000,
       userFacingName: `${serverName}/${mcpTool.name}`,
     },
     permissions: {
-      operations: ['mcp'],
+      operations: ["mcp"],
       requiresApproval: false,
     },
     execute: async (params, ctx) => {
       // This will be connected to MCP client in Phase 3
-      return { success: true, result: { title: prefixedName, output: 'MCP tool called' } };
+      return {
+        success: true,
+        result: { title: prefixedName, output: "MCP tool called" },
+      };
     },
   };
 }
 
-function convertJsonSchema(schema: unknown): { type: string; properties?: Record<string, unknown> } {
-  if (!schema || typeof schema !== 'object') {
-    return { type: 'object' };
+function convertJsonSchema(schema: unknown): {
+  type: string;
+  properties?: Record<string, unknown>;
+} {
+  if (!schema || typeof schema !== "object") {
+    return { type: "object" };
   }
 
   const s = schema as Record<string, unknown>;
 
-  if (s.type === 'object' && s.properties) {
+  if (s.type === "object" && s.properties) {
     return {
-      type: 'object',
+      type: "object",
       properties: s.properties as Record<string, unknown>,
     };
   }
 
-  return { type: 'object' };
+  return { type: "object" };
 }
 ```
 
@@ -690,6 +753,7 @@ Expected: PASS
 #### Task 8: Integrate MCP tools into agent tool system
 
 **Files:**
+
 - Modify: `apps/core/src/tools/index.ts`
 - Modify: `apps/core/src/mcp/service.ts`
 
@@ -723,7 +787,11 @@ export function getTool(id: string): Tool | undefined {
 }
 
 // Modify listTools to include mcpTools
-export function listTools(): { id: string; description: string; parameters: JsonSchema }[] {
+export function listTools(): {
+  id: string;
+  description: string;
+  parameters: JsonSchema;
+}[] {
   const builtIn = Object.values(tools).map((t) => ({
     id: t.id,
     description: t.description,
@@ -750,6 +818,7 @@ Expected: Build succeeds
 #### Task 9: Add Bus events for MCP
 
 **Files:**
+
 - Modify: `apps/core/src/bus/index.ts`
 
 - [ ] **Step 1: Add new MCP event types and helpers**
@@ -757,19 +826,19 @@ Expected: Build succeeds
 ```typescript
 // Add new event interfaces
 export interface MCPServerStartedEvent {
-  type: 'mcp.server.started';
+  type: "mcp.server.started";
   server: string;
   toolCount: number;
 }
 
 export interface MCPServerStoppedEvent {
-  type: 'mcp.server.stopped';
+  type: "mcp.server.stopped";
   server: string;
   reason?: string;
 }
 
 export interface MCPServerErrorEvent {
-  type: 'mcp.server.error';
+  type: "mcp.server.error";
   server: string;
   error: string;
 }
@@ -777,22 +846,32 @@ export interface MCPServerErrorEvent {
 // Add to BusEvent union
 export type BusEvent =
   // ... existing events
-  | MCPServerStartedEvent
-  | MCPServerStoppedEvent
-  | MCPServerErrorEvent
+  MCPServerStartedEvent | MCPServerStoppedEvent | MCPServerErrorEvent;
 
 // Add to BusEvents helper
 export const BusEvents = {
   // ... existing
   mcpServerStarted: (server: string, toolCount: number) =>
-    bus.publish({ type: 'mcp.server.started', server, toolCount } as MCPServerStartedEvent),
+    bus.publish({
+      type: "mcp.server.started",
+      server,
+      toolCount,
+    } as MCPServerStartedEvent),
 
   mcpServerStopped: (server: string, reason?: string) =>
-    bus.publish({ type: 'mcp.server.stopped', server, reason } as MCPServerStoppedEvent),
+    bus.publish({
+      type: "mcp.server.stopped",
+      server,
+      reason,
+    } as MCPServerStoppedEvent),
 
   mcpServerError: (server: string, error: string) =>
-    bus.publish({ type: 'mcp.server.error', server, error } as MCPServerErrorEvent),
-}
+    bus.publish({
+      type: "mcp.server.error",
+      server,
+      error,
+    } as MCPServerErrorEvent),
+};
 ```
 
 Run: `pnpm build && pnpm test`
@@ -805,6 +884,7 @@ Expected: Build and tests pass
 #### Task 10: End-to-end test with contextcarry MCP
 
 **Files:**
+
 - Test: Manual test
 
 - [ ] **Step 1: Add contextcarry server to config**
@@ -836,13 +916,13 @@ This step requires the MCP server to be running and tools to be integrated into 
 
 ## Error Handling
 
-| Error | Handling |
-|-------|----------|
-| MCP server not found | Show error: `Server "${name}" not found in config` |
+| Error                | Handling                                                   |
+| -------------------- | ---------------------------------------------------------- |
+| MCP server not found | Show error: `Server "${name}" not found in config`         |
 | Server process exits | Mark server as disconnected, emit `MCPServerStopped` event |
-| Tool call timeout | Return error with timeout message after configured timeout |
-| Invalid tool schema | Log warning, skip tool registration |
-| Config parse error | Show Zod validation errors |
+| Tool call timeout    | Return error with timeout message after configured timeout |
+| Invalid tool schema  | Log warning, skip tool registration                        |
+| Config parse error   | Show Zod validation errors                                 |
 
 ---
 

@@ -5,7 +5,7 @@
 // Based on Claude Code's Tool interface architecture
 // =============================================================================
 
-import type { ToolContext } from "./types"
+import type { ToolContext } from "./types";
 
 // =============================================================================
 // ToolUseMessage - Discriminated union for UI rendering
@@ -13,11 +13,21 @@ import type { ToolContext } from "./types"
 // =============================================================================
 
 export type ToolUseMessage =
-  | { type: "tool_use"; toolId: string; args: Record<string, unknown>; status: "pending" | "running" }
-  | { type: "tool_result"; toolId: string; result: ToolResult; status: "success" | "error" }
+  | {
+      type: "tool_use";
+      toolId: string;
+      args: Record<string, unknown>;
+      status: "pending" | "running";
+    }
+  | {
+      type: "tool_result";
+      toolId: string;
+      result: ToolResult;
+      status: "success" | "error";
+    }
   | { type: "tool_progress"; toolId: string; message: string; percent?: number }
   | { type: "tool_error"; toolId: string; error: string }
-  | { type: "tool_rejected"; toolId: string; reason: string }
+  | { type: "tool_rejected"; toolId: string; reason: string };
 
 // =============================================================================
 // ToolUI - UI rendering interface
@@ -26,22 +36,32 @@ export type ToolUseMessage =
 
 export interface ToolUI {
   // Render the tool invocation message (what shows when tool is called)
-  renderToolUseMessage(toolId: string, args: Record<string, unknown>): ToolUseMessage
+  renderToolUseMessage(
+    toolId: string,
+    args: Record<string, unknown>,
+  ): ToolUseMessage;
 
   // Render the result of tool execution
-  renderToolResultMessage(toolId: string, result: ToolResult): ToolUseMessage
+  renderToolResultMessage(toolId: string, result: ToolResult): ToolUseMessage;
 
   // Render a short tag shown after tool name (e.g., "Read" or file count)
-  renderToolUseTag(toolId: string, args?: Record<string, unknown>): { label: string; color: string }
+  renderToolUseTag(
+    toolId: string,
+    args?: Record<string, unknown>,
+  ): { label: string; color: string };
 
   // Render progress during long-running operations
-  renderToolUseProgressMessage(toolId: string, message: string, percent?: number): ToolUseMessage
+  renderToolUseProgressMessage(
+    toolId: string,
+    message: string,
+    percent?: number,
+  ): ToolUseMessage;
 
   // Render error state
-  renderToolUseErrorMessage(toolId: string, error: string): ToolUseMessage
+  renderToolUseErrorMessage(toolId: string, error: string): ToolUseMessage;
 
   // Render rejection (permission denied, etc.)
-  renderToolUseRejectedMessage(toolId: string, reason: string): ToolUseMessage
+  renderToolUseRejectedMessage(toolId: string, reason: string): ToolUseMessage;
 }
 
 // =============================================================================
@@ -50,15 +70,15 @@ export interface ToolUI {
 
 export interface ToolBehavior {
   // Whether this tool can run concurrently with other tools
-  isConcurrencySafe: boolean
+  isConcurrencySafe: boolean;
   // Whether this tool modifies files/system (affects confirmation prompts)
-  isDestructive: boolean
+  isDestructive: boolean;
   // How to handle interruption while this tool is running
-  interruptBehavior: "await" | "ignore" | "error"
+  interruptBehavior: "await" | "ignore" | "error";
   // Maximum result size in characters (results larger than this may be truncated)
-  maxResultSizeChars: number
+  maxResultSizeChars: number;
   // Human-readable name for display in UI
-  userFacingName: string
+  userFacingName: string;
 }
 
 // =============================================================================
@@ -73,16 +93,16 @@ export type PermissionOperation =
   | "shell"
   | "subprocess"
   | "mcp"
-  | "agent.spawn"
+  | "agent.spawn";
 
 // =============================================================================
 // ToolPermissions - Permission requirements for a tool
 // =============================================================================
 
 export interface ToolPermissions {
-  operations: PermissionOperation[]
+  operations: PermissionOperation[];
   // If true, always prompt user for approval even if tool is in allowlist
-  requiresApproval: boolean
+  requiresApproval: boolean;
 }
 
 // =============================================================================
@@ -91,7 +111,7 @@ export interface ToolPermissions {
 
 export type ToolExecutionResult<R> =
   | { success: true; result: R }
-  | { success: false; error: string; code?: string }
+  | { success: false; error: string; code?: string };
 
 // =============================================================================
 // ValidationResult - Result of input validation
@@ -99,16 +119,16 @@ export type ToolExecutionResult<R> =
 
 export type ValidationResult =
   | { valid: true }
-  | { valid: false; error: string; errorCode?: number }
+  | { valid: false; error: string; errorCode?: number };
 
 // =============================================================================
 // PermissionCheckResult - Result of permission check
 // =============================================================================
 
 export interface PermissionCheckResult {
-  allowed: boolean
-  reason?: string
-  updatedInput?: Record<string, unknown>
+  allowed: boolean;
+  reason?: string;
+  updatedInput?: Record<string, unknown>;
 }
 
 // =============================================================================
@@ -118,38 +138,41 @@ export interface PermissionCheckResult {
 
 export interface Tool<P = unknown, R = unknown> {
   // Identity
-  id: string
-  description: string
+  id: string;
+  description: string;
 
   // Schemas for parameters and result
   schemas: {
-    parameters: JsonSchema
-    result?: JsonSchema
-  }
+    parameters: JsonSchema;
+    result?: JsonSchema;
+  };
 
   // UI rendering
-  ui: ToolUI
+  ui: ToolUI;
 
   // Behavior metadata
-  behavior: ToolBehavior
+  behavior: ToolBehavior;
 
   // Permission requirements
-  permissions: ToolPermissions
+  permissions: ToolPermissions;
 
   // Execute the tool
-  execute(params: P, ctx: ToolContext): Promise<ToolExecutionResult<R>>
+  execute(params: P, ctx: ToolContext): Promise<ToolExecutionResult<R>>;
 
   // Optional: Validate input before execution
-  validateInput?(params: unknown): ValidationResult
+  validateInput?(params: unknown): ValidationResult;
 
   // Optional: Check permissions before execution
-  checkPermissions?(params: P, ctx: ToolContext): Promise<PermissionCheckResult>
+  checkPermissions?(
+    params: P,
+    ctx: ToolContext,
+  ): Promise<PermissionCheckResult>;
 
   // Optional: Get file paths this tool operates on (for permission matching)
-  getPath?(params: P): string | string[]
+  getPath?(params: P): string | string[];
 
   // Optional: Check if this is a search/read command (for optimization)
-  isSearchOrReadCommand?(): { isSearch: boolean; isRead: boolean }
+  isSearchOrReadCommand?(): { isSearch: boolean; isRead: boolean };
 }
 
 // =============================================================================
@@ -157,17 +180,17 @@ export interface Tool<P = unknown, R = unknown> {
 // =============================================================================
 
 export interface JsonSchemaProperty {
-  description?: string
-  type?: string
-  enum?: string[]
-  items?: JsonSchemaProperty | JsonSchemaProperty[]
+  description?: string;
+  type?: string;
+  enum?: string[];
+  items?: JsonSchemaProperty | JsonSchemaProperty[];
 }
 
 export interface JsonSchema {
-  type: string
-  properties?: Record<string, JsonSchemaProperty>
-  required?: string[]
-  items?: JsonSchemaProperty | JsonSchemaProperty[]
+  type: string;
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  items?: JsonSchemaProperty | JsonSchemaProperty[];
 }
 
 // =============================================================================
@@ -176,10 +199,10 @@ export interface JsonSchema {
 // =============================================================================
 
 export interface ToolResult {
-  title: string
-  output: string
-  metadata?: Record<string, unknown>
-  error?: string
+  title: string;
+  output: string;
+  metadata?: Record<string, unknown>;
+  error?: string;
 }
 
 // =============================================================================
@@ -196,4 +219,4 @@ export const TOOL_COLORS: Record<string, string> = {
   skill: "white",
   agent: "red",
   question: "gray",
-}
+};

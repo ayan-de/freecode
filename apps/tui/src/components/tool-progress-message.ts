@@ -1,4 +1,10 @@
-import { Component, TUI, Text, Box, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  Component,
+  TUI,
+  Text,
+  Box,
+  truncateToWidth,
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
 
 export interface ToolProgressMessageOptions {
@@ -73,7 +79,9 @@ export class ToolProgressMessage implements Component {
     // Output lines with tree view - account for prefix (3 chars: "│  ")
     const outputWidth = Math.max(20, width - 4);
     for (const outputLine of this.outputLines.slice(-5)) {
-      lines.push(`${chalk.dim("│")} ${chalk.dim(truncateToWidth(outputLine, outputWidth))}`);
+      lines.push(
+        `${chalk.dim("│")} ${chalk.dim(truncateToWidth(outputLine, outputWidth))}`,
+      );
     }
 
     lines.push(""); // Empty line below
@@ -84,7 +92,8 @@ export class ToolProgressMessage implements Component {
     const entries = Object.entries(this.args);
     if (entries.length === 0) return "";
 
-    const truncate = (s: string, max = 40) => s.length > max ? s.slice(0, max) + "..." : s;
+    const truncate = (s: string, max = 40) =>
+      s.length > max ? s.slice(0, max) + "..." : s;
 
     let result = entries
       .map(([k, v]) => {

@@ -2,9 +2,9 @@
 // SubagentStop Hooks - Run when a sub-agent completes
 // =============================================================================
 
-import type { HookContext } from "./types.js"
-import { getHooksForEvent } from "./registry.js"
-import { executeHooks } from "./executors/index.js"
+import type { HookContext } from "./types.js";
+import { getHooksForEvent } from "./registry.js";
+import { executeHooks } from "./executors/index.js";
 
 // =============================================================================
 // Run SubagentStop hooks when sub-agent completes
@@ -12,24 +12,24 @@ import { executeHooks } from "./executors/index.js"
 
 export async function runSubagentStopHooks(
   name: string,
-  ctx: HookContext
+  ctx: HookContext,
 ): Promise<{
-  additionalContext?: string
+  additionalContext?: string;
 }> {
-  const hooks = getHooksForEvent("SubagentStop")
+  const hooks = getHooksForEvent("SubagentStop");
 
   if (hooks.length === 0) {
-    return {}
+    return {};
   }
 
   const input = {
     toolName: "SubagentStop",
     toolInput: { name },
-  }
+  };
 
-  const result = await executeHooks(hooks, input, ctx)
+  const result = await executeHooks(hooks, input, ctx);
 
   return {
     additionalContext: result.additionalContexts.join("\n") || undefined,
-  }
+  };
 }

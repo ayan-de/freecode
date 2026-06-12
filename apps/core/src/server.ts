@@ -7,21 +7,42 @@ import { getTool, listTools } from "./tools/index.js";
 import { createAgentLoop } from "./agent/loop.js";
 import { initProviders, listProviders } from "./providers/index.js";
 import { getProviders, getProviderModels } from "./models-dev.js";
-import { readConfig, writeConfig, setApiKey, setCurrentModel, hasApiKey, getCurrentModel, type ProviderId } from "./providers/config.js";
+import {
+  readConfig,
+  writeConfig,
+  setApiKey,
+  setCurrentModel,
+  hasApiKey,
+  getCurrentModel,
+  type ProviderId,
+} from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import type { ToolContext } from "./tools/types.js";
-import type { JsonRpcRequest, JsonRpcResponse, SessionConfig, StreamEvent } from "@thisisayande/freecode-shared";
-import { getMemoryStore, type MemoryEntry, type MemoryType } from "./memory/index.js";
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  SessionConfig,
+  StreamEvent,
+} from "@thisisayande/freecode-shared";
+import {
+  getMemoryStore,
+  type MemoryEntry,
+  type MemoryType,
+} from "./memory/index.js";
 import { findRelevantMemories } from "./memory/mem-query.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { createSessionStore, type SessionStore } from "./session/store.js";
-import { getRemoteSync, type ExportedSession, type RemoteSessionConfig } from "./store/index.js";
+import {
+  getRemoteSync,
+  type ExportedSession,
+  type RemoteSessionConfig,
+} from "./store/index.js";
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers } from "./mcp/index.js";
 import { homedir } from "os";
-import { randomUUID } from 'crypto'
+import { randomUUID } from "crypto";
 import { join } from "path";
 
 const SESSION_BASE_DIR = join(homedir(), ".freecode");
@@ -83,7 +104,7 @@ function createError(
   id: number | string,
   code: number,
   message: string,
-  data?: unknown
+  data?: unknown,
 ): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message, data } };
 }
@@ -96,8 +117,13 @@ const methodHandlers: Record<
     return listTools();
   },
 
-  "tools.call": async (params: Record<string, unknown>): Promise<ToolCallResult> => {
-    const { name, args } = params as { name: string; args: Record<string, unknown> };
+  "tools.call": async (
+    params: Record<string, unknown>,
+  ): Promise<ToolCallResult> => {
+    const { name, args } = params as {
+      name: string;
+      args: Record<string, unknown>;
+    };
     const tool = getTool(name as string);
     if (!tool) {
       throw new Error(`Tool not found: ${name}`);
@@ -110,30 +136,50 @@ const methodHandlers: Record<
     return result.result as ToolCallResult;
   },
 
-  "session.start": async (params: Record<string, unknown>): Promise<SessionStartResult> => {
+  "session.start": async (
+    params: Record<string, unknown>,
+  ): Promise<SessionStartResult> => {
     const config = params as unknown as SessionConfig;
     const session = createSession(config);
     // Store agentMode on session for later use
     if (config.agentMode) {
-      (session as unknown as Record<string, unknown>).agentMode = config.agentMode;
+      (session as unknown as Record<string, unknown>).agentMode =
+        config.agentMode;
     }
-    logger.info("Session started", { sessionId: session.id, provider: session.provider, agentMode: config.agentMode });
+    logger.info("Session started", {
+      sessionId: session.id,
+      provider: session.provider,
+      agentMode: config.agentMode,
+    });
 
     // Persist session to ~/.freecode/sessions/ via SessionStore
     const store = await getSessionStore();
     // Use the same session ID that was created in createSession()
-    await store.createSession({
-      title: `Session ${session.id}`,
-      projectPath: session.projectPath,
-      provider: session.provider,
-      model: session.model,
-    }, session.id);
+    await store.createSession(
+      {
+        title: `Session ${session.id}`,
+        projectPath: session.projectPath,
+        provider: session.provider,
+        model: session.model,
+      },
+      session.id,
+    );
 
     return { sessionId: session.id };
   },
 
   "session.send": async (params: Record<string, unknown>): Promise<unknown> => {
-    const { sessionId, message, model, agentMode: paramAgentMode } = params as { sessionId: string; message: string; model?: string; agentMode?: string };
+    const {
+      sessionId,
+      message,
+      model,
+      agentMode: paramAgentMode,
+    } = params as {
+      sessionId: string;
+      message: string;
+      model?: string;
+      agentMode?: string;
+    };
     const session = getSession(sessionId);
 
     if (!session) {
@@ -141,8 +187,8 @@ const methodHandlers: Record<
     }
 
     // Get current provider from config, fallback to session.provider
-    const config = readConfig()
-    const currentProvider = config.current?.provider || session.provider
+    const config = readConfig();
+    const currentProvider = config.current?.provider || session.provider;
 
     // Update session with model if provided
     if (model) {
@@ -151,13 +197,27 @@ const methodHandlers: Record<
 
     // Update session with agentMode if provided
     if (paramAgentMode) {
-      (session as unknown as Record<string, unknown>).agentMode = paramAgentMode;
+      (session as unknown as Record<string, unknown>).agentMode =
+        paramAgentMode;
     }
 
     // Get agentMode from session (set during session.start or updated above)
-    const agentMode = (session as unknown as Record<string, unknown>).agentMode as "plan" | "build" | "review" | "explore" | "danger" | undefined;
+    const agentMode = (session as unknown as Record<string, unknown>)
+      .agentMode as
+      | "plan"
+      | "build"
+      | "review"
+      | "explore"
+      | "danger"
+      | undefined;
 
-    logger.info("Session send", { sessionId, messageLength: message.length, model: session.model, provider: currentProvider, agentMode });
+    logger.info("Session send", {
+      sessionId,
+      messageLength: message.length,
+      model: session.model,
+      provider: currentProvider,
+      agentMode,
+    });
 
     // Emit events to stdout immediately for streaming
     const emitEvent = (event: StreamEvent) => {
@@ -171,7 +231,10 @@ const methodHandlers: Record<
     // Get session store for persisting messages
     const store = await getSessionStore();
 
-    const loop = createAgentLoop(sessionId, { maxIterations: 100, sessionStore: store })
+    const loop = createAgentLoop(sessionId, {
+      maxIterations: 100,
+      sessionStore: store,
+    });
     const result = await loop.run({
       prompt: message,
       sessionId,
@@ -180,16 +243,18 @@ const methodHandlers: Record<
       projectPath: session.projectPath,
       agentMode,
       onToolEvent: emitEvent,
-    })
+    });
 
     // Emit done event
     emitEvent({ type: "done", content: result.message || "Done" });
 
     // Extract session title from first response (no extra API call)
     if (result.success && result.turnCount > 0 && result.content) {
-      const titleMatch = result.content.match(/SESSION_TITLE:\s*(.+)/i)
-      const title = titleMatch ? titleMatch[1].trim() : generateTitleFromPrompt(message)
-      await store.updateMeta(sessionId, { title }, session.projectPath)
+      const titleMatch = result.content.match(/SESSION_TITLE:\s*(.+)/i);
+      const title = titleMatch
+        ? titleMatch[1].trim()
+        : generateTitleFromPrompt(message);
+      await store.updateMeta(sessionId, { title }, session.projectPath);
     }
 
     return result;
@@ -205,89 +270,140 @@ const methodHandlers: Record<
   },
 
   "providers.list": async (): Promise<unknown[]> => {
-    const providers = await getProviders()
+    const providers = await getProviders();
     return providers.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
       hasApiKey: hasApiKey(p.id as ProviderId),
-    }))
+    }));
   },
 
-  "models.list": async (params: Record<string, unknown>): Promise<unknown[]> => {
-    const { providerId } = params as { providerId: string }
-    const models = await getProviderModels(providerId)
-    return models
+  "models.list": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    const { providerId } = params as { providerId: string };
+    const models = await getProviderModels(providerId);
+    return models;
   },
 
   "config.get": async (): Promise<unknown> => {
-    return readConfig()
+    return readConfig();
   },
 
-  "config.setApiKey": async (params: Record<string, unknown>): Promise<void> => {
-    const { provider, apiKey, model } = params as { provider: string; apiKey: string; model?: string }
-    setApiKey(provider as ProviderId, apiKey, model)
+  "config.setApiKey": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { provider, apiKey, model } = params as {
+      provider: string;
+      apiKey: string;
+      model?: string;
+    };
+    setApiKey(provider as ProviderId, apiKey, model);
   },
 
-  "config.setCurrentModel": async (params: Record<string, unknown>): Promise<void> => {
-    const { provider, model } = params as { provider: string; model: string }
-    setCurrentModel(provider, model)
+  "config.setCurrentModel": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { provider, model } = params as { provider: string; model: string };
+    setCurrentModel(provider, model);
   },
 
   "config.getCurrentModel": async (): Promise<unknown> => {
-    return getCurrentModel()
+    return getCurrentModel();
   },
 
   // ========== Memory Methods ==========
 
-  "memory.list": async (params: Record<string, unknown>): Promise<MemoryEntry[]> => {
-    const { projectPath, type } = params as { projectPath?: string; type?: MemoryType }
-    const store = getMemoryStore(projectPath || process.cwd())
-    return store.list(type)
+  "memory.list": async (
+    params: Record<string, unknown>,
+  ): Promise<MemoryEntry[]> => {
+    const { projectPath, type } = params as {
+      projectPath?: string;
+      type?: MemoryType;
+    };
+    const store = getMemoryStore(projectPath || process.cwd());
+    return store.list(type);
   },
 
-  "memory.get": async (params: Record<string, unknown>): Promise<MemoryEntry | null> => {
-    const { name, type, projectPath } = params as { name: string; type: MemoryType; projectPath?: string }
-    const store = getMemoryStore(projectPath || process.cwd())
-    return store.load(name, type) || null
+  "memory.get": async (
+    params: Record<string, unknown>,
+  ): Promise<MemoryEntry | null> => {
+    const { name, type, projectPath } = params as {
+      name: string;
+      type: MemoryType;
+      projectPath?: string;
+    };
+    const store = getMemoryStore(projectPath || process.cwd());
+    return store.load(name, type) || null;
   },
 
   "memory.save": async (params: Record<string, unknown>): Promise<void> => {
-    const { entry, projectPath } = params as { entry: MemoryEntry; projectPath?: string }
-    const store = getMemoryStore(projectPath || process.cwd())
-    store.save(entry)
+    const { entry, projectPath } = params as {
+      entry: MemoryEntry;
+      projectPath?: string;
+    };
+    const store = getMemoryStore(projectPath || process.cwd());
+    store.save(entry);
   },
 
-  "memory.delete": async (params: Record<string, unknown>): Promise<boolean> => {
-    const { name, type, projectPath } = params as { name: string; type: MemoryType; projectPath?: string }
-    const store = getMemoryStore(projectPath || process.cwd())
-    return store.delete(name, type)
+  "memory.delete": async (
+    params: Record<string, unknown>,
+  ): Promise<boolean> => {
+    const { name, type, projectPath } = params as {
+      name: string;
+      type: MemoryType;
+      projectPath?: string;
+    };
+    const store = getMemoryStore(projectPath || process.cwd());
+    return store.delete(name, type);
   },
 
-  "memory.query": async (params: Record<string, unknown>): Promise<MemoryEntry[]> => {
-    const { query, projectPath, limit, types } = params as { query: string; projectPath?: string; limit?: number; types?: MemoryType[] }
-    const store = getMemoryStore(projectPath || process.cwd())
-    return findRelevantMemories(query, store, { limit, types })
+  "memory.query": async (
+    params: Record<string, unknown>,
+  ): Promise<MemoryEntry[]> => {
+    const { query, projectPath, limit, types } = params as {
+      query: string;
+      projectPath?: string;
+      limit?: number;
+      types?: MemoryType[];
+    };
+    const store = getMemoryStore(projectPath || process.cwd());
+    return findRelevantMemories(query, store, { limit, types });
   },
 
-  "memory.buildPrompt": async (params: Record<string, unknown>): Promise<string> => {
-    const { projectPath, includeAll, types, limit } = params as { projectPath?: string; includeAll?: boolean; types?: MemoryType[]; limit?: number }
-    const store = getMemoryStore(projectPath || process.cwd())
-    return buildMemoryPrompt(store, { includeAll, types, limit })
+  "memory.buildPrompt": async (
+    params: Record<string, unknown>,
+  ): Promise<string> => {
+    const { projectPath, includeAll, types, limit } = params as {
+      projectPath?: string;
+      includeAll?: boolean;
+      types?: MemoryType[];
+      limit?: number;
+    };
+    const store = getMemoryStore(projectPath || process.cwd());
+    return buildMemoryPrompt(store, { includeAll, types, limit });
   },
 
   // ========== Session Methods ==========
 
-  "session.list": async (params: Record<string, unknown>): Promise<SessionContext[]> => {
-    const { projectPath, status } = params as { projectPath?: string; status?: "active" | "archived" | "deleted" }
-    const manager = await getSessionManager()
-    return manager.list({ projectPath, status })
+  "session.list": async (
+    params: Record<string, unknown>,
+  ): Promise<SessionContext[]> => {
+    const { projectPath, status } = params as {
+      projectPath?: string;
+      status?: "active" | "archived" | "deleted";
+    };
+    const manager = await getSessionManager();
+    return manager.list({ projectPath, status });
   },
 
-  "session.resume": async (params: Record<string, unknown>): Promise<unknown> => {
-    const { sessionId } = params as { sessionId: string }
-    const manager = await getSessionManager()
-    const context = await manager.resume(sessionId)
+  "session.resume": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { sessionId } = params as { sessionId: string };
+    const manager = await getSessionManager();
+    const context = await manager.resume(sessionId);
 
     // Store in-memory session mapping so that subsequent session.send requests can find it
     const session: SessionInfo = {
@@ -303,71 +419,96 @@ const methodHandlers: Record<
     return {
       sessionId: context.id,
       messages: context.messages,
-    }
+    };
   },
 
   "session.switch": async (params: Record<string, unknown>): Promise<void> => {
-    const { sessionId } = params as { sessionId: string }
-    const manager = await getSessionManager()
-    await manager.switch(sessionId)
+    const { sessionId } = params as { sessionId: string };
+    const manager = await getSessionManager();
+    await manager.switch(sessionId);
   },
 
   "session.fork": async (params: Record<string, unknown>): Promise<string> => {
-    const { sessionId } = params as { sessionId: string }
-    const manager = await getSessionManager()
-    return manager.fork(sessionId)
+    const { sessionId } = params as { sessionId: string };
+    const manager = await getSessionManager();
+    return manager.fork(sessionId);
   },
 
   "session.archive": async (params: Record<string, unknown>): Promise<void> => {
-    const { sessionId } = params as { sessionId: string }
-    const manager = await getSessionManager()
-    await manager.archive(sessionId)
+    const { sessionId } = params as { sessionId: string };
+    const manager = await getSessionManager();
+    await manager.archive(sessionId);
   },
 
   "session.delete": async (params: Record<string, unknown>): Promise<void> => {
-    const { sessionId } = params as { sessionId: string }
-    const manager = await getSessionManager()
-    await manager.delete(sessionId)
+    const { sessionId } = params as { sessionId: string };
+    const manager = await getSessionManager();
+    await manager.delete(sessionId);
   },
 
-  "session.getInterrupted": async (): Promise<{ sessionId: string; messageId: string } | null> => {
-    const store = await getSessionStore()
-    return store.getInterruptedSession()
+  "session.getInterrupted": async (): Promise<{
+    sessionId: string;
+    messageId: string;
+  } | null> => {
+    const store = await getSessionStore();
+    return store.getInterruptedSession();
   },
 
   // ========== Remote Sync Methods ==========
 
-  "session.export": async (params: Record<string, unknown>): Promise<ExportedSession> => {
-    const { sessionId } = params as { sessionId: string }
-    const remoteSync = await getRemoteSync()
-    return remoteSync.exportSession(sessionId)
+  "session.export": async (
+    params: Record<string, unknown>,
+  ): Promise<ExportedSession> => {
+    const { sessionId } = params as { sessionId: string };
+    const remoteSync = await getRemoteSync();
+    return remoteSync.exportSession(sessionId);
   },
 
-  "session.import": async (params: Record<string, unknown>): Promise<{ sessionId: string }> => {
-    const { url } = params as { url: string }
-    const manager = await getSessionManager()
-    const sessionId = await manager.import(url)
-    return { sessionId }
+  "session.import": async (
+    params: Record<string, unknown>,
+  ): Promise<{ sessionId: string }> => {
+    const { url } = params as { url: string };
+    const manager = await getSessionManager();
+    const sessionId = await manager.import(url);
+    return { sessionId };
   },
 
-  "session.upload": async (params: Record<string, unknown>): Promise<string> => {
-    const { sessionId, endpoint, apiKey } = params as { sessionId: string; endpoint: string; apiKey?: string }
-    const remoteSync = await getRemoteSync()
-    return remoteSync.upload(sessionId, { endpoint, apiKey })
+  "session.upload": async (
+    params: Record<string, unknown>,
+  ): Promise<string> => {
+    const { sessionId, endpoint, apiKey } = params as {
+      sessionId: string;
+      endpoint: string;
+      apiKey?: string;
+    };
+    const remoteSync = await getRemoteSync();
+    return remoteSync.upload(sessionId, { endpoint, apiKey });
   },
 
-  "session.download": async (params: Record<string, unknown>): Promise<string> => {
-    const { url, endpoint, apiKey } = params as { url: string; endpoint?: string; apiKey?: string }
-    const remoteSync = await getRemoteSync()
-    return remoteSync.download(url, { endpoint: endpoint || url, apiKey })
+  "session.download": async (
+    params: Record<string, unknown>,
+  ): Promise<string> => {
+    const { url, endpoint, apiKey } = params as {
+      url: string;
+      endpoint?: string;
+      apiKey?: string;
+    };
+    const remoteSync = await getRemoteSync();
+    return remoteSync.download(url, { endpoint: endpoint || url, apiKey });
   },
 };
 
-export async function handleRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
+export async function handleRequest(
+  request: JsonRpcRequest,
+): Promise<JsonRpcResponse> {
   try {
     const handler = methodHandlers[request.method];
     if (!handler) {
-      return createError(request.id, -32601, `Method not found: ${request.method}`);
+      return createError(
+        request.id,
+        -32601,
+        `Method not found: ${request.method}`,
+      );
     }
     const result = await handler(request.params ?? {});
     return createResponse(request.id, result);
@@ -382,15 +523,15 @@ export async function startServer() {
   await initMcpServers();
 
   // Set up Ctrl+C interrupt handler for session resumption
-  const handler = getInterruptHandler()
+  const handler = getInterruptHandler();
   handler.setupSignalHandler(async (sessionId: string, messageId: string) => {
     try {
-      const manager = await getSessionManager()
-      await manager.markInterrupted(sessionId, messageId)
+      const manager = await getSessionManager();
+      await manager.markInterrupted(sessionId, messageId);
     } catch (e) {
       // Ignore errors during interrupt handling
     }
-  })
+  });
 
   let buffer = "";
 

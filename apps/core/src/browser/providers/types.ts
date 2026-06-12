@@ -2,7 +2,7 @@
 // Page Adapter Interface
 // =============================================================================
 
-import type { Locator, Page } from 'playwright';
+import type { Locator, Page } from "playwright";
 
 export interface PageAdapter {
   name: string;

@@ -34,7 +34,6 @@ export default function Home() {
         <span className="text-white/30 text-sm font-mono">#Footer</span>
       </div>
 
-
       <div className="px-[max(80px,calc((100vw-1280px)/2))]">
         <Divider />
         <Footer />
@@ -44,7 +43,6 @@ export default function Home() {
       <div className="h-20 flex items-center justify-center">
         <span className="text-white/30 text-sm font-mono">#Freecode</span>
       </div>
-
     </PageWrapper>
   );
 }

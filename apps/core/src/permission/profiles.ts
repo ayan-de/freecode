@@ -9,13 +9,13 @@
 // ============================================================================
 
 export interface PermissionProfile {
-  name: string
-  fileRead: boolean
-  fileWrite: boolean
-  network: boolean
-  shell: boolean
-  subprocess: boolean
-  mcpServers: string[]  // allowed MCP server names, "*" = all
+  name: string;
+  fileRead: boolean;
+  fileWrite: boolean;
+  network: boolean;
+  shell: boolean;
+  subprocess: boolean;
+  mcpServers: string[]; // allowed MCP server names, "*" = all
 }
 
 // ============================================================================
@@ -77,17 +77,17 @@ export const PROFILES = {
     subprocess: true,
     mcpServers: ["*"] as string[], // wildcard = all MCP servers
   } as PermissionProfile,
-} as const
+} as const;
 
 // ============================================================================
 // Permission Check Result
 // ============================================================================
 
 export interface PermissionCheckResult {
-  allowed: boolean
-  reason?: string
-  profile: string
-  operation: string
+  allowed: boolean;
+  reason?: string;
+  profile: string;
+  operation: string;
 }
 
 // ============================================================================
@@ -95,81 +95,83 @@ export interface PermissionCheckResult {
 // ============================================================================
 
 export class PermissionChecker {
-  private profile: PermissionProfile
+  private profile: PermissionProfile;
 
   constructor(profile: PermissionProfile) {
-    this.profile = profile
+    this.profile = profile;
   }
 
   /**
    * Check if a specific operation is allowed
    */
   can(operation: PermissionOperation): PermissionCheckResult {
-    const allowed = this.checkOperation(operation)
+    const allowed = this.checkOperation(operation);
     return {
       allowed,
-      reason: allowed ? undefined : `${operation} is not allowed for profile "${this.profile.name}"`,
+      reason: allowed
+        ? undefined
+        : `${operation} is not allowed for profile "${this.profile.name}"`,
       profile: this.profile.name,
       operation,
-    }
+    };
   }
 
   /**
    * Check if read operations are allowed
    */
   canRead(): boolean {
-    return this.profile.fileRead
+    return this.profile.fileRead;
   }
 
   /**
    * Check if write operations are allowed
    */
   canWrite(): boolean {
-    return this.profile.fileWrite
+    return this.profile.fileWrite;
   }
 
   /**
    * Check if network access is allowed
    */
   canNetwork(): boolean {
-    return this.profile.network
+    return this.profile.network;
   }
 
   /**
    * Check if shell commands are allowed
    */
   canShell(): boolean {
-    return this.profile.shell
+    return this.profile.shell;
   }
 
   /**
    * Check if subprocess spawning is allowed
    */
   canSubprocess(): boolean {
-    return this.profile.subprocess
+    return this.profile.subprocess;
   }
 
   /**
    * Check if a specific MCP server is allowed
    */
   canMcpServer(serverName: string): boolean {
-    if (this.profile.mcpServers.length === 0) return false
-    if (this.profile.mcpServers.includes("*")) return true
-    return this.profile.mcpServers.includes(serverName)
+    if (this.profile.mcpServers.length === 0) return false;
+    if (this.profile.mcpServers.includes("*")) return true;
+    return this.profile.mcpServers.includes(serverName);
   }
 
   /**
    * Get the current profile
    */
   getProfile(): PermissionProfile {
-    return { ...this.profile }
+    return { ...this.profile };
   }
 
   /**
    * Update the profile (for runtime changes)
    */
   updateProfile(updates: Partial<PermissionProfile>): void {
-    this.profile = { ...this.profile, ...updates }
+    this.profile = { ...this.profile, ...updates };
   }
 
   // ===========================================================================
@@ -179,19 +181,19 @@ export class PermissionChecker {
   private checkOperation(operation: PermissionOperation): boolean {
     switch (operation) {
       case "file.read":
-        return this.profile.fileRead
+        return this.profile.fileRead;
       case "file.write":
-        return this.profile.fileWrite
+        return this.profile.fileWrite;
       case "network":
-        return this.profile.network
+        return this.profile.network;
       case "shell":
-        return this.profile.shell
+        return this.profile.shell;
       case "subprocess":
-        return this.profile.subprocess
+        return this.profile.subprocess;
       case "mcp":
-        return this.profile.mcpServers.length > 0
+        return this.profile.mcpServers.length > 0;
       default:
-        return false
+        return false;
     }
   }
 }
@@ -206,7 +208,7 @@ export type PermissionOperation =
   | "network"
   | "shell"
   | "subprocess"
-  | "mcp"
+  | "mcp";
 
 // ============================================================================
 // Factory
@@ -216,28 +218,39 @@ export type PermissionOperation =
  * Get a predefined profile by name
  */
 export function getProfile(name: keyof typeof PROFILES): PermissionProfile {
-  return { ...PROFILES[name] }
+  return { ...PROFILES[name] };
 }
 
 /**
  * Create a custom profile by overriding fields
  */
-export function createProfile(base: keyof typeof PROFILES, overrides: Partial<PermissionProfile>): PermissionProfile {
-  return { ...PROFILES[base], ...overrides, name: overrides.name || PROFILES[base].name }
+export function createProfile(
+  base: keyof typeof PROFILES,
+  overrides: Partial<PermissionProfile>,
+): PermissionProfile {
+  return {
+    ...PROFILES[base],
+    ...overrides,
+    name: overrides.name || PROFILES[base].name,
+  };
 }
 
 /**
  * Create a permission checker from a profile name
  */
-export function createPermissionChecker(profileName: keyof typeof PROFILES): PermissionChecker {
-  return new PermissionChecker(PROFILES[profileName])
+export function createPermissionChecker(
+  profileName: keyof typeof PROFILES,
+): PermissionChecker {
+  return new PermissionChecker(PROFILES[profileName]);
 }
 
 /**
  * Create a permission checker from a custom profile
  */
-export function createPermissionCheckerForProfile(profile: PermissionProfile): PermissionChecker {
-  return new PermissionChecker(profile)
+export function createPermissionCheckerForProfile(
+  profile: PermissionProfile,
+): PermissionChecker {
+  return new PermissionChecker(profile);
 }
 
 // ============================================================================
@@ -258,16 +271,16 @@ export const TOOL_PERMISSIONS: Record<string, PermissionOperation[]> = {
   skill: ["file.read"],
   question: ["network"],
   mcp: ["mcp"],
-}
+};
 
 /**
  * Check if a tool is allowed under a given profile
  */
 export function isToolAllowed(
   toolName: string,
-  profile: PermissionProfile
+  profile: PermissionProfile,
 ): PermissionCheckResult {
-  const required = TOOL_PERMISSIONS[toolName]
+  const required = TOOL_PERMISSIONS[toolName];
   if (!required) {
     // Unknown tools default to minimal permissions
     return {
@@ -275,10 +288,10 @@ export function isToolAllowed(
       reason: `Unknown tool "${toolName}" - requires explicit permission`,
       profile: profile.name,
       operation: toolName,
-    }
+    };
   }
 
-  const checker = new PermissionChecker(profile)
+  const checker = new PermissionChecker(profile);
   for (const op of required) {
     if (!checker.can(op)) {
       return {
@@ -286,7 +299,7 @@ export function isToolAllowed(
         reason: `Tool "${toolName}" requires ${op} permission which is not available in profile "${profile.name}"`,
         profile: profile.name,
         operation: op,
-      }
+      };
     }
   }
 
@@ -294,7 +307,7 @@ export function isToolAllowed(
     allowed: true,
     profile: profile.name,
     operation: toolName,
-  }
+  };
 }
 
 // ============================================================================
@@ -306,19 +319,27 @@ export function isToolAllowed(
  */
 export function validateProfile(profile: unknown): PermissionProfile {
   if (!profile || typeof profile !== "object") {
-    throw new Error("Profile must be an object")
+    throw new Error("Profile must be an object");
   }
 
-  const p = profile as Record<string, unknown>
+  const p = profile as Record<string, unknown>;
 
-  const requiredFields = ["name", "fileRead", "fileWrite", "network", "shell", "subprocess", "mcpServers"]
+  const requiredFields = [
+    "name",
+    "fileRead",
+    "fileWrite",
+    "network",
+    "shell",
+    "subprocess",
+    "mcpServers",
+  ];
   for (const field of requiredFields) {
     if (!(field in p)) {
-      throw new Error(`Profile missing required field: ${field}`)
+      throw new Error(`Profile missing required field: ${field}`);
     }
   }
 
-  return profile as PermissionProfile
+  return profile as PermissionProfile;
 }
 
 /**
@@ -326,9 +347,9 @@ export function validateProfile(profile: unknown): PermissionProfile {
  */
 export function isValidProfile(profile: unknown): profile is PermissionProfile {
   try {
-    validateProfile(profile)
-    return true
+    validateProfile(profile);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }

@@ -18,7 +18,10 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-export function startWebServer(port: number, host: string = "127.0.0.1"): http.Server {
+export function startWebServer(
+  port: number,
+  host: string = "127.0.0.1",
+): http.Server {
   const distDir = path.join(__dirname, "..", "..", "web-app", "dist");
 
   const server = http.createServer(async (req, res) => {
@@ -54,7 +57,7 @@ export function startWebServer(port: number, host: string = "127.0.0.1"): http.S
             JSON.stringify({
               jsonrpc: "2.0",
               error: { code: -32700, message: "Parse error / Invalid JSON" },
-            })
+            }),
           );
         }
       });
@@ -73,7 +76,7 @@ export function startWebServer(port: number, host: string = "127.0.0.1"): http.S
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
       });
 
       // Write heartbeat comment to keep connection alive

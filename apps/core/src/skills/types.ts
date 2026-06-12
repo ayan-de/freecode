@@ -8,7 +8,7 @@
 // Scope - Where skills are stored and who can access them
 // ============================================================================
 
-export type SkillScope = "user" | "repo" | "system" | "admin"
+export type SkillScope = "user" | "repo" | "system" | "admin";
 
 // ============================================================================
 // Skill Metadata - Frontmatter parsed from .skill.md files
@@ -16,17 +16,17 @@ export type SkillScope = "user" | "repo" | "system" | "admin"
 
 export interface SkillMetadata {
   /** Skill name - must be unique within a scope */
-  name: string
+  name: string;
   /** Human-readable description of what the skill does */
-  description?: string
+  description?: string;
   /** Scope determines where the skill is stored and who can access it */
-  scope: SkillScope
+  scope: SkillScope;
   /** Regex pattern for future implicit detection (optional) */
-  trigger?: string
+  trigger?: string;
   /** Semantic version for future compatibility */
-  version?: string
+  version?: string;
   /** Optional expected parameters for the skill */
-  parameters?: Record<string, unknown>
+  parameters?: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -35,13 +35,13 @@ export interface SkillMetadata {
 
 export interface Skill extends SkillMetadata {
   /** Unique identifier: "${scope}/${name}" (e.g., "user/commit") */
-  id: string
+  id: string;
   /** Raw markdown body content (after frontmatter) */
-  content: string
+  content: string;
   /** File path where the skill was discovered */
-  location: string
+  location: string;
   /** Timestamp when skill was loaded (for cache management) */
-  loadedAt: number
+  loadedAt: number;
 }
 
 // ============================================================================
@@ -50,11 +50,11 @@ export interface Skill extends SkillMetadata {
 
 export interface SkillMatch {
   /** The matched skill */
-  skill: Skill
+  skill: Skill;
   /** Relevance score (0-1) for ranking multiple matches */
-  score: number
+  score: number;
   /** What triggered the match: name, trigger regex, or description */
-  matchedOn: "name" | "trigger" | "description"
+  matchedOn: "name" | "trigger" | "description";
 }
 
 // ============================================================================
@@ -63,18 +63,18 @@ export interface SkillMatch {
 
 export interface LoaderOptions {
   /** Project path for repo-scoped skills */
-  projectPath: string
+  projectPath: string;
   /** Installation directory for system skills (defaults to app directory) */
-  installDir?: string
+  installDir?: string;
   /** Force reload even if cached */
-  forceReload?: boolean
+  forceReload?: boolean;
 }
 
 export interface SkillLoadResult {
   /** Successfully loaded skills */
-  skills: Skill[]
+  skills: Skill[];
   /** Errors encountered during loading (non-fatal) */
-  errors: Array<{ path: string; error: string }>
+  errors: Array<{ path: string; error: string }>;
 }
 
 // ============================================================================
@@ -83,7 +83,7 @@ export interface SkillLoadResult {
 
 export interface RegistryOptions {
   /** Allow duplicate skill names across scopes */
-  allowDuplicates?: boolean
+  allowDuplicates?: boolean;
 }
 
 // ============================================================================
@@ -92,13 +92,13 @@ export interface RegistryOptions {
 
 export interface InjectionOptions {
   /** Include skill name and description in output */
-  includeMetadata?: boolean
+  includeMetadata?: boolean;
   /** Truncate skill content if exceeds this length (0 = no limit) */
-  maxLength?: number
+  maxLength?: number;
   /** Custom header format (uses default if not specified) */
-  headerFormat?: string
+  headerFormat?: string;
   /** Custom footer format (uses default if not specified) */
-  footerFormat?: string
+  footerFormat?: string;
 }
 
 // ============================================================================
@@ -107,20 +107,20 @@ export interface InjectionOptions {
 
 export interface ManagerOptions {
   /** Project path for repo-scoped skills */
-  projectPath: string
+  projectPath: string;
   /** Installation directory for system skills */
-  installDir?: string
+  installDir?: string;
   /** Enable caching (default: true) */
-  caching?: boolean
+  caching?: boolean;
   /** Cache TTL in milliseconds (default: 5 minutes) */
-  cacheTtlMs?: number
+  cacheTtlMs?: number;
 }
 
 export interface SkillsInitializationResult {
   /** Whether initialization succeeded */
-  success: boolean
+  success: boolean;
   /** Number of skills loaded */
-  skillCount: number
+  skillCount: number;
   /** Errors encountered (non-fatal) */
-  errors: string[]
+  errors: string[];
 }

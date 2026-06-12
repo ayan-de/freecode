@@ -1,4 +1,4 @@
-import styles from './FlowDiagram.module.css';
+import styles from "./FlowDiagram.module.css";
 
 interface Step {
   id: string;

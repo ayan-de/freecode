@@ -3,7 +3,11 @@
 // =============================================================================
 
 import chalk from "chalk";
-import { registerCommand, type Command, type CommandContext } from "../index.js";
+import {
+  registerCommand,
+  type Command,
+  type CommandContext,
+} from "../index.js";
 import {
   startCli,
   sessionStart,
@@ -12,7 +16,10 @@ import {
   type SessionInfo,
 } from "../../ipc/client.js";
 import { playAlert } from "./alert.js";
-import { getRandomElapsedPhrase, getRandomInProgressPhrase } from "../../utils/elapsed-phrases.js";
+import {
+  getRandomElapsedPhrase,
+  getRandomInProgressPhrase,
+} from "../../utils/elapsed-phrases.js";
 import { getModelContextLimit } from "../../utils/model-limits.js";
 import { formatTokenCount } from "../../utils/format-tokens.js";
 export { stopSound } from "./sound.js";
@@ -40,7 +47,10 @@ async function ensureProviders(): Promise<void> {
 
 function formatProviderList(): string {
   return cachedProviders
-    .map((p) => `- **${p.name}** (${p.id})${p.id === currentProvider ? " *(current)*" : ""}`)
+    .map(
+      (p) =>
+        `- **${p.name}** (${p.id})${p.id === currentProvider ? " *(current)*" : ""}`,
+    )
     .join("\n");
 }
 
@@ -58,7 +68,7 @@ async function ensureSession(ctx: CommandContext): Promise<boolean> {
     return true;
   } catch (error) {
     ctx.showMessage(
-      `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
     );
     return false;
   }
@@ -85,7 +95,9 @@ ${formatProviderList()}`);
     ctx.createUserMessage(`**You:** ${userPrompt}`);
 
     // Show in-progress message and track it for later removal
-    const inProgressMsg = ctx.createInProgressMessage(getRandomInProgressPhrase());
+    const inProgressMsg = ctx.createInProgressMessage(
+      getRandomInProgressPhrase(),
+    );
     const inProgressId = inProgressMsg.id;
     const startTime = Date.now();
 
@@ -98,11 +110,14 @@ ${formatProviderList()}`);
         userPrompt,
         undefined,
         "build",
-        (event: import("@thisisayande/freecode-shared").StreamEvent) => ctx.handleToolEvent?.(event)
+        (event: import("@thisisayande/freecode-shared").StreamEvent) =>
+          ctx.handleToolEvent?.(event),
       );
 
       // Update in-progress message with token counts
-      const contextLimit = getModelContextLimit(`${currentProvider}/MiniMax-M2`);
+      const contextLimit = getModelContextLimit(
+        `${currentProvider}/MiniMax-M2`,
+      );
       ctx.updateInProgressMessage(
         inProgressId,
         getRandomInProgressPhrase(),
@@ -110,11 +125,11 @@ ${formatProviderList()}`);
         result.usage?.outputTokens ?? 0,
         contextLimit,
         startTime,
-        result.turnCount || 1
+        result.turnCount || 1,
       );
 
       // Brief pause so user can see final token state before it disappears
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Remove in-progress message now that response has arrived
       ctx.removeMessageById(inProgressId);
@@ -134,17 +149,21 @@ ${formatProviderList()}`);
         if (contextLimit > 0) {
           tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
         }
-        ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`);
+        ctx.createSystemMessage(
+          `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,
+        );
         playAlert();
       } else {
-        ctx.createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
+        ctx.createSystemMessage(
+          `**Error:** ${result.message || "Unknown error"}`,
+        );
         ctx.createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
         playAlert();
       }
     } catch (error) {
       ctx.removeMessageById(inProgressId);
       ctx.showMessage(
-        `Error: ${error instanceof Error ? error.message : String(error)}`
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
       playAlert();
     }

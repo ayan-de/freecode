@@ -7,61 +7,70 @@
 //   - repo: {projectPath}/.freecode/skills/**/*.skill.md
 // =============================================================================
 
-import * as fs from "fs"
-import * as path from "path"
-import * as os from "os"
-import { fileURLToPath } from "url"
-import fg from "fast-glob"
-import type { Skill, SkillScope, LoaderOptions, SkillLoadResult } from "./types"
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import { fileURLToPath } from "url";
+import fg from "fast-glob";
+import type {
+  Skill,
+  SkillScope,
+  LoaderOptions,
+  SkillLoadResult,
+} from "./types";
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const SKILL_FILENAME = "*.skill.md"
-const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/
+const SKILL_FILENAME = "*.skill.md";
+const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
 
 // ============================================================================
 // YAML Frontmatter Parser (simple, no external dependency)
 // ============================================================================
 
-function parseFrontmatter(content: string): { metadata: Record<string, string>; body: string } | null {
-  const match = content.match(FRONTMATTER_REGEX)
-  if (!match) return null
+function parseFrontmatter(
+  content: string,
+): { metadata: Record<string, string>; body: string } | null {
+  const match = content.match(FRONTMATTER_REGEX);
+  if (!match) return null;
 
-  const frontmatterStr = match[1]
-  const body = match[2].trim()
+  const frontmatterStr = match[1];
+  const body = match[2].trim();
 
   // Simple YAML parsing for flat key-value pairs
-  const metadata: Record<string, string> = {}
-  const lines = frontmatterStr.split("\n")
+  const metadata: Record<string, string> = {};
+  const lines = frontmatterStr.split("\n");
 
   for (const line of lines) {
-    const colonIndex = line.indexOf(":")
-    if (colonIndex === -1) continue
+    const colonIndex = line.indexOf(":");
+    if (colonIndex === -1) continue;
 
-    const key = line.slice(0, colonIndex).trim()
-    const value = line.slice(colonIndex + 1).trim()
+    const key = line.slice(0, colonIndex).trim();
+    const value = line.slice(colonIndex + 1).trim();
 
     // Remove quotes if present
-    const cleanValue = value.replace(/^["']|["']$/g, "")
+    const cleanValue = value.replace(/^["']|["']$/g, "");
 
-    metadata[key] = cleanValue
+    metadata[key] = cleanValue;
   }
 
-  return { metadata, body }
+  return { metadata, body };
 }
 
 // ============================================================================
 // Path Builders
 // ============================================================================
 
-function getSearchPaths(opts: LoaderOptions): Array<{ pattern: string; scope: SkillScope }> {
-  const homedir = os.homedir()
-  const installDir = opts.installDir || path.join(__dirname, "..", "..", "..")
+function getSearchPaths(
+  opts: LoaderOptions,
+): Array<{ pattern: string; scope: SkillScope }> {
+  const homedir = os.homedir();
+  const installDir = opts.installDir || path.join(__dirname, "..", "..", "..");
 
   return [
     // System skills: installed with the application
@@ -76,10 +85,15 @@ function getSearchPaths(opts: LoaderOptions): Array<{ pattern: string; scope: Sk
     },
     // Repo skills: {projectPath}/.freecode/skills/
     {
-      pattern: path.join(opts.projectPath, ".freecode", "skills", SKILL_FILENAME),
+      pattern: path.join(
+        opts.projectPath,
+        ".freecode",
+        "skills",
+        SKILL_FILENAME,
+      ),
       scope: "repo" as SkillScope,
     },
-  ]
+  ];
 }
 
 // ============================================================================
@@ -88,12 +102,12 @@ function getSearchPaths(opts: LoaderOptions): Array<{ pattern: string; scope: Sk
 
 function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
   try {
-    const content = fs.readFileSync(filePath, "utf-8")
-    const parsed = parseFrontmatter(content)
+    const content = fs.readFileSync(filePath, "utf-8");
+    const parsed = parseFrontmatter(content);
 
     if (!parsed) {
       // No frontmatter - use filename-derived name
-      const basename = path.basename(path.dirname(filePath))
+      const basename = path.basename(path.dirname(filePath));
       return {
         name: basename,
         description: undefined,
@@ -102,26 +116,28 @@ function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
         location: filePath,
         id: `${scope}/${basename}`,
         loadedAt: Date.now(),
-      }
+      };
     }
 
-    const { metadata, body } = parsed
-    const name = metadata.name
+    const { metadata, body } = parsed;
+    const name = metadata.name;
 
     if (!name) {
-      console.warn(`[SkillsLoader] Skipping skill without name: ${filePath}`)
-      return null
+      console.warn(`[SkillsLoader] Skipping skill without name: ${filePath}`);
+      return null;
     }
 
     // Parse trigger as regex if present
-    let trigger: string | undefined = metadata.trigger
+    let trigger: string | undefined = metadata.trigger;
     if (trigger) {
       // Validate it's a valid regex
       try {
-        new RegExp(trigger)
+        new RegExp(trigger);
       } catch {
-        console.warn(`[SkillsLoader] Invalid trigger regex in ${filePath}: ${trigger}`)
-        trigger = undefined
+        console.warn(
+          `[SkillsLoader] Invalid trigger regex in ${filePath}: ${trigger}`,
+        );
+        trigger = undefined;
       }
     }
 
@@ -135,10 +151,12 @@ function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
       location: filePath,
       id: `${scope}/${name}`,
       loadedAt: Date.now(),
-    }
+    };
   } catch (error) {
-    console.warn(`[SkillsLoader] Failed to read skill file ${filePath}: ${error}`)
-    return null
+    console.warn(
+      `[SkillsLoader] Failed to read skill file ${filePath}: ${error}`,
+    );
+    return null;
   }
 }
 
@@ -150,10 +168,12 @@ function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
  * Load all skills from all search paths.
  * Non-fatal - returns errors but still returns successfully parsed skills.
  */
-export async function loadAllSkills(opts: LoaderOptions): Promise<SkillLoadResult> {
-  const searchPaths = getSearchPaths(opts)
-  const skills: Skill[] = []
-  const errors: Array<{ path: string; error: string }> = []
+export async function loadAllSkills(
+  opts: LoaderOptions,
+): Promise<SkillLoadResult> {
+  const searchPaths = getSearchPaths(opts);
+  const skills: Skill[] = [];
+  const errors: Array<{ path: string; error: string }> = [];
 
   for (const { pattern, scope } of searchPaths) {
     try {
@@ -161,23 +181,23 @@ export async function loadAllSkills(opts: LoaderOptions): Promise<SkillLoadResul
       const matches = await fg.glob([pattern], {
         absolute: true,
         onlyFiles: true,
-      })
+      });
 
       for (const filePath of matches) {
-        const skill = parseSkillFile(filePath, scope)
+        const skill = parseSkillFile(filePath, scope);
         if (skill) {
-          skills.push(skill)
+          skills.push(skill);
         } else {
-          errors.push({ path: filePath, error: "Failed to parse skill" })
+          errors.push({ path: filePath, error: "Failed to parse skill" });
         }
       }
     } catch (error) {
       // Directory might not exist - that's okay
-      console.debug(`[SkillsLoader] No skills found at ${pattern}: ${error}`)
+      console.debug(`[SkillsLoader] No skills found at ${pattern}: ${error}`);
     }
   }
 
-  return { skills, errors }
+  return { skills, errors };
 }
 
 /**
@@ -187,45 +207,73 @@ export async function loadAllSkills(opts: LoaderOptions): Promise<SkillLoadResul
 export async function loadSkill(
   name: string,
   scope: SkillScope,
-  projectPath: string
+  projectPath: string,
 ): Promise<Skill | null> {
-  const homedir = os.homedir()
-  const installDir = path.join(__dirname, "..", "..", "..")
+  const homedir = os.homedir();
+  const installDir = path.join(__dirname, "..", "..", "..");
 
-  let pattern: string
+  let pattern: string;
   switch (scope) {
     case "system":
-      pattern = path.join(installDir, ".system", "skills", "**", `${name}.skill.md`)
-      break
+      pattern = path.join(
+        installDir,
+        ".system",
+        "skills",
+        "**",
+        `${name}.skill.md`,
+      );
+      break;
     case "user":
-      pattern = path.join(homedir, ".freecode", "skills", "**", `${name}.skill.md`)
-      break
+      pattern = path.join(
+        homedir,
+        ".freecode",
+        "skills",
+        "**",
+        `${name}.skill.md`,
+      );
+      break;
     case "repo":
-      pattern = path.join(projectPath, ".freecode", "skills", "**", `${name}.skill.md`)
-      break
+      pattern = path.join(
+        projectPath,
+        ".freecode",
+        "skills",
+        "**",
+        `${name}.skill.md`,
+      );
+      break;
     case "admin":
       // Admin skills are system skills with restricted access
-      pattern = path.join(installDir, ".system", "skills", "**", `${name}.skill.md`)
-      break
+      pattern = path.join(
+        installDir,
+        ".system",
+        "skills",
+        "**",
+        `${name}.skill.md`,
+      );
+      break;
     default:
-      return null
+      return null;
   }
 
   try {
     const matches = await fg.glob([pattern], {
       absolute: true,
       onlyFiles: true,
-    })
+    });
 
-    if (matches.length === 0) return null
+    if (matches.length === 0) return null;
     if (matches.length > 1) {
-      console.warn(`[SkillsLoader] Multiple skills found for ${scope}/${name}, using first`)
+      console.warn(
+        `[SkillsLoader] Multiple skills found for ${scope}/${name}, using first`,
+      );
     }
 
-    return parseSkillFile(matches[0], scope)
+    return parseSkillFile(matches[0], scope);
   } catch (error) {
-    console.warn(`[SkillsLoader] Failed to load skill ${scope}/${name}: ${error}`)
-    return null
+    console.warn(
+      `[SkillsLoader] Failed to load skill ${scope}/${name}: ${error}`,
+    );
+    return null;
   }
 }
 
@@ -235,14 +283,19 @@ export async function loadSkill(
 export async function skillExists(
   name: string,
   scope: SkillScope,
-  projectPath: string
+  projectPath: string,
 ): Promise<boolean> {
-  const skill = await loadSkill(name, scope, projectPath)
-  return skill !== null
+  const skill = await loadSkill(name, scope, projectPath);
+  return skill !== null;
 }
 
 // ============================================================================
 // Re-export types for convenience
 // ============================================================================
 
-export type { LoaderOptions, SkillLoadResult, Skill, SkillScope } from "./types"
+export type {
+  LoaderOptions,
+  SkillLoadResult,
+  Skill,
+  SkillScope,
+} from "./types";

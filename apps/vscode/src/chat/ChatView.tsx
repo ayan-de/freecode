@@ -1,7 +1,14 @@
-import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
-import { startCli as ipcStartCli, listTools as ipcListTools, sessionStart, sessionSend, callTool as ipcCallTool, stopCli as ipcStopCli } from '../ipc/client.js';
+import * as vscode from "vscode";
+import * as path from "path";
+import * as fs from "fs";
+import {
+  startCli as ipcStartCli,
+  listTools as ipcListTools,
+  sessionStart,
+  sessionSend,
+  callTool as ipcCallTool,
+  stopCli as ipcStopCli,
+} from "../ipc/client.js";
 
 export class ChatView implements vscode.WebviewViewProvider {
   private webview?: vscode.WebviewView;
@@ -14,15 +21,27 @@ export class ChatView implements vscode.WebviewViewProvider {
       enableScripts: true,
     };
 
-    const htmlPath = path.join(this.context.extensionPath, 'dist', 'webview', 'index.html');
-    let html = fs.readFileSync(htmlPath, 'utf-8');
+    const htmlPath = path.join(
+      this.context.extensionPath,
+      "dist",
+      "webview",
+      "index.html",
+    );
+    let html = fs.readFileSync(htmlPath, "utf-8");
 
     // Replace relative URLs with webview URIs
     html = html.replace(
-      'bundle.js',
-      webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'bundle.js')
-      ).toString()
+      "bundle.js",
+      webviewView.webview
+        .asWebviewUri(
+          vscode.Uri.joinPath(
+            this.context.extensionUri,
+            "dist",
+            "webview",
+            "bundle.js",
+          ),
+        )
+        .toString(),
     );
 
     webviewView.webview.html = html;
@@ -30,53 +49,71 @@ export class ChatView implements vscode.WebviewViewProvider {
     // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
-        case 'startCli':
+        case "startCli":
           ipcStartCli();
-          webviewView.webview.postMessage({ type: 'cliStarted' });
+          webviewView.webview.postMessage({ type: "cliStarted" });
           break;
 
-        case 'listTools':
+        case "listTools":
           try {
             const tools = await ipcListTools();
-            webviewView.webview.postMessage({ type: 'toolsList', tools });
+            webviewView.webview.postMessage({ type: "toolsList", tools });
           } catch (err) {
-            webviewView.webview.postMessage({ type: 'error', error: String(err) });
+            webviewView.webview.postMessage({
+              type: "error",
+              error: String(err),
+            });
           }
           break;
 
-        case 'sessionStart':
+        case "sessionStart":
           try {
             const config = message.config;
             const session = await sessionStart(config);
-            webviewView.webview.postMessage({ type: 'sessionStarted', session });
+            webviewView.webview.postMessage({
+              type: "sessionStarted",
+              session,
+            });
           } catch (err) {
-            webviewView.webview.postMessage({ type: 'error', error: String(err) });
+            webviewView.webview.postMessage({
+              type: "error",
+              error: String(err),
+            });
           }
           break;
 
-        case 'sessionSend':
+        case "sessionSend":
           try {
             const { sessionId, message: userMessage } = message;
             const result = await sessionSend(sessionId, userMessage);
-            webviewView.webview.postMessage({ type: 'sessionResponse', result });
+            webviewView.webview.postMessage({
+              type: "sessionResponse",
+              result,
+            });
           } catch (err) {
-            webviewView.webview.postMessage({ type: 'error', error: String(err) });
+            webviewView.webview.postMessage({
+              type: "error",
+              error: String(err),
+            });
           }
           break;
 
-        case 'callTool':
+        case "callTool":
           try {
             const { name, args } = message;
             const result = await ipcCallTool(name, args);
-            webviewView.webview.postMessage({ type: 'toolResult', result });
+            webviewView.webview.postMessage({ type: "toolResult", result });
           } catch (err) {
-            webviewView.webview.postMessage({ type: 'error', error: String(err) });
+            webviewView.webview.postMessage({
+              type: "error",
+              error: String(err),
+            });
           }
           break;
 
-        case 'stopCli':
+        case "stopCli":
           ipcStopCli();
-          webviewView.webview.postMessage({ type: 'cliStopped' });
+          webviewView.webview.postMessage({ type: "cliStopped" });
           break;
       }
     });

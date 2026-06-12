@@ -45,10 +45,18 @@ export function createInProgressMessage(
   inputTokens = 0,
   outputTokens = 0,
   contextLimit = 0,
-  turns = 1
+  turns = 1,
 ): MessageInstance {
   const startTime = Date.now();
-  const component = createMessageComponent("in_progress", phrase, startTime, inputTokens, outputTokens, contextLimit, turns);
+  const component = createMessageComponent(
+    "in_progress",
+    phrase,
+    startTime,
+    inputTokens,
+    outputTokens,
+    contextLimit,
+    turns,
+  );
   return addMessage("in_progress", phrase, component);
 }
 
@@ -69,16 +77,24 @@ export function updateInProgressMessage(
   outputTokens: number,
   contextLimit: number,
   startTime: number,
-  turns: number
+  turns: number,
 ): MessageInstance | undefined {
-  const component = createMessageComponent("in_progress", phrase, startTime, inputTokens, outputTokens, contextLimit, turns);
+  const component = createMessageComponent(
+    "in_progress",
+    phrase,
+    startTime,
+    inputTokens,
+    outputTokens,
+    contextLimit,
+    turns,
+  );
   return updateMessage(id, phrase, component);
 }
 
 export function createToolProgressMessage(
   toolCallId: string,
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
 ): MessageInstance {
   const component = new ToolProgressMessage({
     toolCallId,
@@ -95,7 +111,7 @@ export function createToolResultMessage(
   args: Record<string, unknown>,
   result: string | undefined,
   success: boolean,
-  duration_ms?: number
+  duration_ms?: number,
 ): MessageInstance {
   const component = new ToolResultMessage({
     toolCallId,
@@ -135,7 +151,9 @@ export function getPendingInProgress(): MessageInstance | undefined {
 /**
  * Subscribe to message store changes
  */
-export function onMessagesChange(callback: (messages: MessageInstance[]) => void): () => void {
+export function onMessagesChange(
+  callback: (messages: MessageInstance[]) => void,
+): () => void {
   return subscribeToMessages(callback);
 }
 
@@ -151,30 +169,38 @@ export function clearAllMessages(): void {
 /**
  * Load messages from a resumed session into the UI
  */
-export function loadSessionMessages(messages: Array<{
-  id: string
-  role: 'user' | 'assistant'
-  parts: Array<{
-    type: 'text' | 'code' | 'tool'
-    content?: string
-    language?: string
-    tool?: { name: string; args: Record<string, unknown> }
-    result?: string
-  }>
-  timestamp: number
-}>): void {
+export function loadSessionMessages(
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant";
+    parts: Array<{
+      type: "text" | "code" | "tool";
+      content?: string;
+      language?: string;
+      tool?: { name: string; args: Record<string, unknown> };
+      result?: string;
+    }>;
+    timestamp: number;
+  }>,
+): void {
   for (const msg of messages) {
-    let content = ""
+    let content = "";
     if (msg.role === "user") {
-      content = msg.parts.map(p => p.type === "text" ? p.content || "" : "").join("")
+      content = msg.parts
+        .map((p) => (p.type === "text" ? p.content || "" : ""))
+        .join("");
     } else {
       // assistant message - extract text content
-      const textParts = msg.parts.filter(p => p.type === "text")
-      content = textParts.map(p => p.content || "").join("\n")
+      const textParts = msg.parts.filter((p) => p.type === "text");
+      content = textParts.map((p) => p.content || "").join("\n");
     }
     if (content) {
-      const label = msg.role === "user" ? "**You:**" : "**FreeCode:**"
-      addMessage(msg.role, content, createMessageComponent(msg.role as MessageType, `${label} ${content}`))
+      const label = msg.role === "user" ? "**You:**" : "**FreeCode:**";
+      addMessage(
+        msg.role,
+        content,
+        createMessageComponent(msg.role as MessageType, `${label} ${content}`),
+      );
     }
   }
 }
@@ -183,5 +209,11 @@ export function loadSessionMessages(messages: Array<{
 export type { MessageInstance, MessageType } from "./message-types.js";
 
 // Re-export tool message components
-export { ToolProgressMessage, type ToolProgressMessageOptions } from "./tool-progress-message.js";
-export { ToolResultMessage, type ToolResultMessageOptions } from "./tool-result-message.js";
+export {
+  ToolProgressMessage,
+  type ToolProgressMessageOptions,
+} from "./tool-progress-message.js";
+export {
+  ToolResultMessage,
+  type ToolResultMessageOptions,
+} from "./tool-result-message.js";

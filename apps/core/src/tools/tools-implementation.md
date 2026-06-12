@@ -43,6 +43,7 @@ Early implementations of FreeCode used a simple `ToolDef` interface with basic p
 The tool system is built around several key type definitions:
 
 **ToolUseMessage** — A discriminated union for UI rendering states:
+
 - `tool_use` — Tool invocation with status (pending/running)
 - `tool_result` — Tool completion with result data
 - `tool_progress` — Progress updates during execution
@@ -50,10 +51,12 @@ The tool system is built around several key type definitions:
 - `tool_rejected` — Permission rejections
 
 **ToolExecutionResult** — Discriminated union for execution outcomes:
+
 - `success: true; result: R` — Successful execution with typed result
 - `success: false; error: string; code?: string` — Failed execution with error message
 
 **Tool** — The rich tool interface combining:
+
 - `id` — Unique identifier
 - `description` — Human-readable description
 - `schemas.parameters` — JSON Schema for input validation
@@ -72,12 +75,19 @@ Each tool can provide custom UI rendering:
 
 ```typescript
 interface ToolUI {
-  renderToolUseMessage(toolId: string, args: Record<string, unknown>): ToolUseMessage
-  renderToolResultMessage(toolId: string, result: ToolResult): ToolUseMessage
-  renderToolUseTag(toolId: string): { label: string; color: string }
-  renderToolUseProgressMessage(toolId: string, message: string, percent?: number): ToolUseMessage
-  renderToolUseErrorMessage(toolId: string, error: string): ToolUseMessage
-  renderToolUseRejectedMessage(toolId: string, reason: string): ToolUseMessage
+  renderToolUseMessage(
+    toolId: string,
+    args: Record<string, unknown>,
+  ): ToolUseMessage;
+  renderToolResultMessage(toolId: string, result: ToolResult): ToolUseMessage;
+  renderToolUseTag(toolId: string): { label: string; color: string };
+  renderToolUseProgressMessage(
+    toolId: string,
+    message: string,
+    percent?: number,
+  ): ToolUseMessage;
+  renderToolUseErrorMessage(toolId: string, error: string): ToolUseMessage;
+  renderToolUseRejectedMessage(toolId: string, reason: string): ToolUseMessage;
 }
 ```
 
@@ -87,11 +97,11 @@ Behavioral characteristics:
 
 ```typescript
 interface ToolBehavior {
-  isConcurrencySafe: boolean      // Can run concurrently with other tools
-  isDestructive: boolean         // Modifies filesystem or system state
-  interruptBehavior: "await" | "ignore" | "error"  // How to handle interrupts
-  maxResultSizeChars: number      // Maximum result size for display
-  userFacingName: string          // Display name in UI
+  isConcurrencySafe: boolean; // Can run concurrently with other tools
+  isDestructive: boolean; // Modifies filesystem or system state
+  interruptBehavior: "await" | "ignore" | "error"; // How to handle interrupts
+  maxResultSizeChars: number; // Maximum result size for display
+  userFacingName: string; // Display name in UI
 }
 ```
 
@@ -101,8 +111,8 @@ Permission requirements:
 
 ```typescript
 interface ToolPermissions {
-  operations: PermissionOperation[]  // e.g., ["file.read", "file.write", "shell.exec"]
-  requiresApproval: boolean           // User must approve before execution
+  operations: PermissionOperation[]; // e.g., ["file.read", "file.write", "shell.exec"]
+  requiresApproval: boolean; // User must approve before execution
 }
 ```
 
@@ -116,23 +126,29 @@ The `buildTool()` factory creates tools with sensible defaults:
 
 ```typescript
 function buildTool<P, R>(config: {
-  id: string
-  description: string
-  schemas: { parameters: JsonSchema; result?: JsonSchema }
-  permissions?: Partial<ToolPermissions>
-  behavior?: Partial<ToolBehavior>
-  ui?: Partial<ToolUI>
-  execute: (params: P, ctx: ToolContext) => Promise<ToolExecutionResult<R>>
-  validateInput?: (params: unknown) => { valid: true } | { valid: false; error: string }
-  checkPermissions?: (params: P, ctx: ToolContext) => Promise<{ allowed: boolean; reason?: string }>
-  getPath?: (params: P) => string | string[]
-  isSearchOrReadCommand?: () => boolean
-}): Tool<P, R>
+  id: string;
+  description: string;
+  schemas: { parameters: JsonSchema; result?: JsonSchema };
+  permissions?: Partial<ToolPermissions>;
+  behavior?: Partial<ToolBehavior>;
+  ui?: Partial<ToolUI>;
+  execute: (params: P, ctx: ToolContext) => Promise<ToolExecutionResult<R>>;
+  validateInput?: (
+    params: unknown,
+  ) => { valid: true } | { valid: false; error: string };
+  checkPermissions?: (
+    params: P,
+    ctx: ToolContext,
+  ) => Promise<{ allowed: boolean; reason?: string }>;
+  getPath?: (params: P) => string | string[];
+  isSearchOrReadCommand?: () => boolean;
+}): Tool<P, R>;
 ```
 
 ### 3.2 Default Values
 
 The factory provides defaults for:
+
 - `defaultToolUI` — Basic rendering with type-based coloring
 - `defaultBehavior` — Safe defaults (not concurrent, not destructive, interruptBehavior: "await")
 - `defaultPermissions` — Empty operations, no approval required
@@ -188,17 +204,18 @@ Orchestrator.execute(toolCall, context)
 
 ### 5.1 File Tools
 
-| Tool | Description | Destructive | Permissions |
-|------|-------------|--------------|-------------|
-| `read` | Read file contents | No | file.read |
-| `write` | Create/overwrite files | Yes | file.write |
-| `edit` | In-place text replacement | Yes | file.write |
-| `glob` | Pattern-based file finding | No | file.read |
-| `grep` | Content search in files | No | file.read |
+| Tool    | Description                | Destructive | Permissions |
+| ------- | -------------------------- | ----------- | ----------- |
+| `read`  | Read file contents         | No          | file.read   |
+| `write` | Create/overwrite files     | Yes         | file.write  |
+| `edit`  | In-place text replacement  | Yes         | file.write  |
+| `glob`  | Pattern-based file finding | No          | file.read   |
+| `grep`  | Content search in files    | No          | file.read   |
 
 #### read Tool
 
 Reads files or directories with:
+
 - Binary file detection
 - Line offset and limit support
 - Directory listing with pagination
@@ -207,6 +224,7 @@ Reads files or directories with:
 #### write Tool
 
 Creates new files or overwrites existing:
+
 - Automatic directory creation
 - Conflict detection
 - Atomic write operations
@@ -214,6 +232,7 @@ Creates new files or overwrites existing:
 #### edit Tool
 
 Advanced in-place editing with multiple strategies:
+
 1. **simpleReplacer** — Exact string match
 2. **lineTrimmedReplacer** — Trimmed line comparison
 3. **blockAnchorReplacer** — First/last line anchoring with similarity
@@ -226,11 +245,12 @@ Advanced in-place editing with multiple strategies:
 
 ### 5.2 Shell Tool
 
-| Tool | Description | Destructive | Permissions |
-|------|-------------|--------------|-------------|
-| `bash` | Shell command execution | Yes | shell.exec |
+| Tool   | Description             | Destructive | Permissions |
+| ------ | ----------------------- | ----------- | ----------- |
+| `bash` | Shell command execution | Yes         | shell.exec  |
 
 Executes shell commands with:
+
 - Configurable shell (default: /bin/bash)
 - Timeout enforcement
 - Environment variable control
@@ -239,11 +259,12 @@ Executes shell commands with:
 
 ### 5.3 Agent Tool
 
-| Tool | Description | Destructive | Permissions |
-|------|-------------|--------------|-------------|
-| `agent` | Spawn sub-agent | No | agent.spawn |
+| Tool    | Description     | Destructive | Permissions |
+| ------- | --------------- | ----------- | ----------- |
+| `agent` | Spawn sub-agent | No          | agent.spawn |
 
 Spawns independent agent loops:
+
 - Independent session management
 - Max iterations control
 - Provider specification
@@ -252,11 +273,12 @@ Spawns independent agent loops:
 
 ### 5.4 Skill Tool
 
-| Tool | Description | Destructive | Permissions |
-|------|-------------|--------------|-------------|
-| `skill` | Load specialized skill | No | file.read |
+| Tool    | Description            | Destructive | Permissions |
+| ------- | ---------------------- | ----------- | ----------- |
+| `skill` | Load specialized skill | No          | file.read   |
 
 Loads skills from filesystem:
+
 - Scope-based discovery (user, repo, system)
 - Skill content rendering
 - File listing for skill directories
@@ -264,11 +286,12 @@ Loads skills from filesystem:
 
 ### 5.5 Question Tool
 
-| Tool | Description | Destructive | Permissions |
-|------|-------------|--------------|-------------|
-| `question` | Ask user clarifying questions | No | (none) |
+| Tool       | Description                   | Destructive | Permissions |
+| ---------- | ----------------------------- | ----------- | ----------- |
+| `question` | Ask user clarifying questions | No          | (none)      |
 
 Elicits user input during execution:
+
 - Multiple question support
 - Option descriptions
 - Custom input handling
@@ -284,21 +307,24 @@ The agent loop now properly wires tool schemas to the LLM provider:
 
 ```typescript
 // Before (broken)
-const tools = listTools().map(t => ({
+const tools = listTools().map((t) => ({
   name: t.id,
   description: t.description,
-  parameters: { type: "object", properties: {} }  // Empty!
-}))
+  parameters: { type: "object", properties: {} }, // Empty!
+}));
 
 // After (fixed)
-const tools = listTools().map(t => {
-  const toolDef = getTool(t.id)
+const tools = listTools().map((t) => {
+  const toolDef = getTool(t.id);
   return {
     name: t.id,
     description: t.description,
-    parameters: toolDef?.schemas.parameters ?? { type: "object", properties: {} }
-  }
-})
+    parameters: toolDef?.schemas.parameters ?? {
+      type: "object",
+      properties: {},
+    },
+  };
+});
 ```
 
 ###6.2 Bug Fix: postResult.stdout
@@ -308,6 +334,7 @@ A critical bug was fixed where `postResult.stdout` was used instead of `result.s
 ### 6.3 Result Recording
 
 Tool results are recorded via the rollout system:
+
 - `recordFunctionCall()` — Tool invocation with arguments
 - `recordFunctionOutput()` — Tool result with duration
 
@@ -321,8 +348,8 @@ The `ToolRenderer` transforms `ToolUseMessage` objects into displayable strings 
 
 ```typescript
 interface ToolRenderer {
-  render(message: ToolUseMessage): string
-  renderBatch(messages: ToolUseMessage[]): string
+  render(message: ToolUseMessage): string;
+  renderBatch(messages: ToolUseMessage[]): string;
 }
 ```
 
@@ -344,6 +371,7 @@ tools/
 ### 7.3 Default Rendering
 
 Tools without custom UI fall back to `defaultToolUI` which provides:
+
 - Generic tool use rendering
 - Basic success/error coloring
 - Standard tag formatting
@@ -357,20 +385,22 @@ Tools without custom UI fall back to `defaultToolUI` which provides:
 Each tool implements `validateInput()`:
 
 ```typescript
-function validateToolInput(params: unknown): { valid: true } | { valid: false; error: string } {
+function validateToolInput(
+  params: unknown,
+): { valid: true } | { valid: false; error: string } {
   if (!params || typeof params !== "object") {
-    return { valid: false, error: "Expected object parameters" }
+    return { valid: false, error: "Expected object parameters" };
   }
-  const p = params as Record<string, unknown>
+  const p = params as Record<string, unknown>;
 
   // Type checks
   if (typeof p.filePath !== "string" || p.filePath.length === 0) {
-    return { valid: false, error: "filePath is required" }
+    return { valid: false, error: "filePath is required" };
   }
 
   // ... more validation
 
-  return { valid: true }
+  return { valid: true };
 }
 ```
 
@@ -387,6 +417,7 @@ function validateToolInput(params: unknown): { valid: true } | { valid: false; e
 ### 9.1 tools.call Handler
 
 The JSON-RPC server's `tools.call` handler:
+
 1. Looks up tool by name
 2. Validates input
 3. Executes with `ToolContext`
@@ -449,10 +480,10 @@ TypeScript's discriminated unions enable exhaustive pattern matching:
 function handleResult(result: ToolExecutionResult) {
   if (result.success) {
     // TypeScript knows result.result is valid here
-    console.log(result.result)
+    console.log(result.result);
   } else {
     // TypeScript knows result.error is valid here
-    console.error(result.error)
+    console.error(result.error);
   }
 }
 ```
@@ -467,14 +498,20 @@ const ReadTool: Tool<ReadParams> = {
   id: "read",
   description: "Read file contents",
   schemas: { parameters: readSchema },
-  ui: { /* all6 methods */ },
-  behavior: { /* all 5 fields */ },
-  permissions: { /* all2 fields */ },
+  ui: {
+    /* all6 methods */
+  },
+  behavior: {
+    /* all 5 fields */
+  },
+  permissions: {
+    /* all2 fields */
+  },
   execute: executeRead,
   validateInput: validateReadInput,
   isSearchOrReadCommand: () => true,
   getPath: (params) => params.filePath,
-}
+};
 
 // With factory (concise)
 const ReadTool = buildTool({
@@ -485,12 +522,13 @@ const ReadTool = buildTool({
   validateInput: validateReadInput,
   isSearchOrReadCommand: () => true,
   getPath: (params) => params.filePath,
-})
+});
 ```
 
 ### 11.3 Why Separate UI Files?
 
 Separating UI into `ui.ts` files:
+
 1. **Separation of concerns** — Tool logic vs. rendering
 2. **Easier updates** — Modify UI without touching tool logic
 3. **Consistency** — Same pattern for all tools
@@ -502,34 +540,34 @@ Separating UI into `ui.ts` files:
 
 ### 12.1 Before/After
 
-| Aspect | Before | After |
-|--------|--------|-------|
-| Tool interface | Simple `{ id, description, execute }` | Rich `Tool` with UI, behavior, permissions |
-| Result typing | `{ title, output }` | Discriminated union `ToolExecutionResult` |
-| UI rendering | None | Per-tool `ToolUI` with6 methods |
-| Input validation | Manual in execute | Dedicated `validateInput()` hook |
-| Schema wiring | Empty objects to provider | Actual tool schemas |
-| Error handling | Mixed success/error | Explicit `success: false` branch |
+| Aspect           | Before                                | After                                      |
+| ---------------- | ------------------------------------- | ------------------------------------------ |
+| Tool interface   | Simple `{ id, description, execute }` | Rich `Tool` with UI, behavior, permissions |
+| Result typing    | `{ title, output }`                   | Discriminated union `ToolExecutionResult`  |
+| UI rendering     | None                                  | Per-tool `ToolUI` with6 methods            |
+| Input validation | Manual in execute                     | Dedicated `validateInput()` hook           |
+| Schema wiring    | Empty objects to provider             | Actual tool schemas                        |
+| Error handling   | Mixed success/error                   | Explicit `success: false` branch           |
 
 ### 12.2 Comparison with Claude Code
 
-| Feature | Claude Code | FreeCode |
-|---------|-------------|----------|
-| Tool interface | Rich with UI rendering | Rich with UI rendering |
-| Factory pattern | Not applicable | `buildTool()` factory |
-| Result typing | Discriminated union | Discriminated union |
-| Validation | Per-tool hooks | `validateInput()` hook |
-| Permissions | Permission profiles | `checkPermissions()` hook |
-| Schema format | JSON Schema | JSON Schema |
+| Feature         | Claude Code            | FreeCode                  |
+| --------------- | ---------------------- | ------------------------- |
+| Tool interface  | Rich with UI rendering | Rich with UI rendering    |
+| Factory pattern | Not applicable         | `buildTool()` factory     |
+| Result typing   | Discriminated union    | Discriminated union       |
+| Validation      | Per-tool hooks         | `validateInput()` hook    |
+| Permissions     | Permission profiles    | `checkPermissions()` hook |
+| Schema format   | JSON Schema            | JSON Schema               |
 
 ### 12.3 Comparison with opencode
 
-| Feature | opencode | FreeCode |
-|---------|----------|----------|
+| Feature        | opencode              | FreeCode                 |
+| -------------- | --------------------- | ------------------------ |
 | Tool interface | Effect-based services | Class-based with factory |
-| Result typing | Tagged unions | Discriminated unions |
-| UI rendering | Not centralized | Per-tool `ToolUI` |
-| Orchestration | Effect layers | Orchestrator class |
+| Result typing  | Tagged unions         | Discriminated unions     |
+| UI rendering   | Not centralized       | Per-tool `ToolUI`        |
+| Orchestration  | Effect layers         | Orchestrator class       |
 
 ---
 

@@ -2,7 +2,7 @@
 // Glob Tool UI - UI rendering for the Glob tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types"
+import type { ToolUI } from "../tool.types";
 
 // =============================================================================
 // Color codes for terminal output
@@ -15,7 +15,7 @@ const COLORS = {
   blue: "\x1b[34m",
   dim: "\x1b[2m",
   reset: "\x1b[0m",
-}
+};
 
 // =============================================================================
 // GlobToolUI - UI rendering for the Glob tool
@@ -23,43 +23,43 @@ const COLORS = {
 
 export const globToolUI: Partial<ToolUI> = {
   renderToolUseMessage(toolId, args) {
-    const pattern = args.pattern as string
+    const pattern = args.pattern as string;
 
     return {
       type: "tool_use",
       toolId,
       args,
       status: "pending",
-    }
+    };
   },
 
   renderToolResultMessage(toolId, result) {
-    const isError = !!result.error
-    const status = isError ? "error" : "success"
+    const isError = !!result.error;
+    const status = isError ? "error" : "success";
 
     return {
       type: "tool_result",
       toolId,
       result,
       status,
-    }
+    };
   },
 
   renderToolUseTag(toolId, args) {
-    const pattern = args?.pattern as string
-    return { label: "glob", color: "blue" }
+    const pattern = args?.pattern as string;
+    return { label: "glob", color: "blue" };
   },
 
   renderToolUseErrorMessage(toolId, error) {
-    let friendlyError = error
+    let friendlyError = error;
     if (error.includes("ENOENT")) {
-      friendlyError = "Directory not found"
+      friendlyError = "Directory not found";
     }
     return {
       type: "tool_error",
       toolId,
       error: friendlyError,
-    }
+    };
   },
 
   renderToolUseRejectedMessage(toolId, reason) {
@@ -67,6 +67,6 @@ export const globToolUI: Partial<ToolUI> = {
       type: "tool_rejected",
       toolId,
       reason,
-    }
+    };
   },
-}
+};

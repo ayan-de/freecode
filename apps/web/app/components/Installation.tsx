@@ -6,7 +6,7 @@ import { Copy, Check, Terminal } from "lucide-react";
 const installers = {
   curl: {
     label: "curl",
-    command: 'curl -fsSL https://freecode.ayande.xyz/install | bash',
+    command: "curl -fsSL https://freecode.ayande.xyz/install | bash",
   },
   npm: {
     label: "npm",
@@ -79,7 +79,9 @@ export function Installation() {
         <div className="p-5 text-left">
           <code className="font-mono text-lg">
             <span className="text-white">$ </span>
-            <span className="brand-gradient-text">{installers[active].command}</span>
+            <span className="brand-gradient-text">
+              {installers[active].command}
+            </span>
           </code>
         </div>
       </div>
@@ -87,15 +89,21 @@ export function Installation() {
       <div className="grid grid-cols-3 gap-8 mt-12 text-center">
         <div>
           <div className="text-4xl lg:text-5xl font-bold text-white">No</div>
-          <div className="text-base lg:text-lg text-white/50 mt-2">API Costs</div>
+          <div className="text-base lg:text-lg text-white/50 mt-2">
+            API Costs
+          </div>
         </div>
         <div>
           <div className="text-4xl lg:text-5xl font-bold text-white">3</div>
-          <div className="text-base lg:text-lg text-white/50 mt-2">AI Providers</div>
+          <div className="text-base lg:text-lg text-white/50 mt-2">
+            AI Providers
+          </div>
         </div>
         <div>
           <div className="text-4xl lg:text-5xl font-bold text-white">~30s</div>
-          <div className="text-base lg:text-lg text-white/50 mt-2">Install Time</div>
+          <div className="text-base lg:text-lg text-white/50 mt-2">
+            Install Time
+          </div>
         </div>
       </div>
     </div>

@@ -14,9 +14,15 @@
 // review: code review mode
 // explore: exploration mode
 // =============================================================================
-export type AgentMode = "plan" | "build" | "review" | "explore" | "danger"
+export type AgentMode = "plan" | "build" | "review" | "explore" | "danger";
 
-export const AGENT_MODES: AgentMode[] = ["plan", "build", "review", "explore", "danger"]
+export const AGENT_MODES: AgentMode[] = [
+  "plan",
+  "build",
+  "review",
+  "explore",
+  "danger",
+];
 
 export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
   plan: "Plan",
@@ -24,30 +30,34 @@ export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
   review: "Review",
   explore: "Explore",
   danger: "Danger",
-}
+};
 
 // =============================================================================
 // Subagent Types - Specialized agent roles for delegation
 // =============================================================================
-export type SubagentType = "explorer" | "reviewer" | "tester" | "summarizer"
+export type SubagentType = "explorer" | "reviewer" | "tester" | "summarizer";
 
 export interface SubagentConfig {
-  type: SubagentType
+  type: SubagentType;
   /** Model to use for this subagent (defaults to main model) */
-  model?: string
+  model?: string;
   /** Max iterations for this subagent */
-  maxIterations?: number
+  maxIterations?: number;
   /** Whether this subagent can modify files */
-  readOnly?: boolean
+  readOnly?: boolean;
   /** System prompt additions */
-  systemPrompt?: string
+  systemPrompt?: string;
   /** Task-specific prompt */
-  taskPrompt: string
+  taskPrompt: string;
 }
 
-export const SUBAGENT_DEFINITIONS: Record<SubagentType, { description: string; defaultReadOnly: boolean }> = {
+export const SUBAGENT_DEFINITIONS: Record<
+  SubagentType,
+  { description: string; defaultReadOnly: boolean }
+> = {
   explorer: {
-    description: "Explore codebase structure, find patterns, understand architecture",
+    description:
+      "Explore codebase structure, find patterns, understand architecture",
     defaultReadOnly: true,
   },
   reviewer: {
@@ -62,14 +72,14 @@ export const SUBAGENT_DEFINITIONS: Record<SubagentType, { description: string; d
     description: "Summarize long conversations, documents, or code",
     defaultReadOnly: true,
   },
-}
+};
 
 // =============================================================================
 // Execution Modes
 // Sequential: tools run one after another (edit, write, bash, agent)
 // Parallel-safe: independent tools run concurrently (read, grep, glob)
 // =============================================================================
-export type ExecutionMode = "sequential" | "parallel-safe"
+export type ExecutionMode = "sequential" | "parallel-safe";
 
 // =============================================================================
 // Core Turn Types
@@ -79,58 +89,68 @@ export type ExecutionMode = "sequential" | "parallel-safe"
 // =============================================================================
 
 export interface ModelTurn {
-  id: string
-  provider: ProviderID
-  reasoning?: string
-  content: AssistantContent[]
-  toolCalls: ToolCall[]
-  stopReason: StopReason
-  usage?: { inputTokens?: number; outputTokens?: number }
-  raw?: unknown
+  id: string;
+  provider: ProviderID;
+  reasoning?: string;
+  content: AssistantContent[];
+  toolCalls: ToolCall[];
+  stopReason: StopReason;
+  usage?: { inputTokens?: number; outputTokens?: number };
+  raw?: unknown;
 }
 
-export type StopReason = "tool_use" | "completed" | "max_tokens" | "error" | "interrupted"
+export type StopReason =
+  | "tool_use"
+  | "completed"
+  | "max_tokens"
+  | "error"
+  | "interrupted";
 
 export type AssistantContent =
   | { type: "text"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    };
 
 export interface ToolCall {
-  id: string
-  tool: string
-  args: unknown
-  execution: ExecutionMode
+  id: string;
+  tool: string;
+  args: unknown;
+  execution: ExecutionMode;
 }
 
 export interface ToolResult {
-  id: string
-  toolCallId: string
-  tool: string
-  title: string
+  id: string;
+  toolCallId: string;
+  tool: string;
+  title: string;
   /** Full output for UI display */
-  displayOutput?: string
+  displayOutput?: string;
   /** Truncated output for model (capped at ~500 chars to save tokens) */
-  modelOutput?: string
+  modelOutput?: string;
   /** Path to full artifact file if output was truncated */
-  artifactPath?: string
+  artifactPath?: string;
   /** Legacy field - use displayOutput/modelOutput instead */
-  stdout?: string
-  stderr?: string
-  exitCode?: number
-  duration_ms?: number
-  artifacts?: Artifact[]
-  structuredData?: unknown
-  truncated?: boolean
-  error?: string
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  duration_ms?: number;
+  artifacts?: Artifact[];
+  structuredData?: unknown;
+  truncated?: boolean;
+  error?: string;
 }
 
 export interface Artifact {
-  type: string
-  content: string
-  language?: string
+  type: string;
+  content: string;
+  language?: string;
 }
 
-export type ProviderID = "chatgpt" | "claude" | "gemini" | string
+export type ProviderID = "chatgpt" | "claude" | "gemini" | string;
 
 // =============================================================================
 // Recovery System
@@ -138,11 +158,16 @@ export type ProviderID = "chatgpt" | "claude" | "gemini" | string
 // =============================================================================
 
 export interface RecoveryPolicy {
-  canRecover(error: unknown): boolean
-  strategy: "retry" | "restart-provider" | "restart-browser" | "rollback-turn" | "abort-session"
-  maxAttempts: number
-  initialDelay?: number
-  backoff?: "linear" | "exponential" | "fixed"
+  canRecover(error: unknown): boolean;
+  strategy:
+    | "retry"
+    | "restart-provider"
+    | "restart-browser"
+    | "rollback-turn"
+    | "abort-session";
+  maxAttempts: number;
+  initialDelay?: number;
+  backoff?: "linear" | "exponential" | "fixed";
 }
 
 // =============================================================================
@@ -150,24 +175,24 @@ export interface RecoveryPolicy {
 // =============================================================================
 
 export interface LoopHealth {
-  repeatedTools: number        // Same tool+args repeated
-  stagnantTurns: number         // No progress made
-  oscillationScore: number      // Edit/revert/edit pattern
-  repeatedReasoningScore: number // Similar reasoning repeated
+  repeatedTools: number; // Same tool+args repeated
+  stagnantTurns: number; // No progress made
+  oscillationScore: number; // Edit/revert/edit pattern
+  repeatedReasoningScore: number; // Similar reasoning repeated
 }
 
 export interface LoopHeuristics {
   // A. Repeated identical tool call - same tool + same args 3x → hard stop
-  repeatedIdenticalThreshold: number
+  repeatedIdenticalThreshold: number;
   // B. No state change - 5 turns with no file changes → warning
-  stagnantTurnsThreshold: number
+  stagnantTurnsThreshold: number;
   // C. Oscillation - edit A, revert A, edit A → block
-  oscillationScoreThreshold: number
+  oscillationScoreThreshold: number;
   // D. Repeated reasoning similarity - >90% for N turns → likely stuck
-  reasoningSimilarityThreshold: number
-  reasoningSimilarityTurns: number
+  reasoningSimilarityThreshold: number;
+  reasoningSimilarityTurns: number;
   // E. Hard cap on total iterations
-  totalIterationLimit: number
+  totalIterationLimit: number;
 }
 
 export const DEFAULT_LOOP_HEURISTICS: LoopHeuristics = {
@@ -177,11 +202,11 @@ export const DEFAULT_LOOP_HEURISTICS: LoopHeuristics = {
   reasoningSimilarityThreshold: 0.9,
   reasoningSimilarityTurns: 3,
   totalIterationLimit: 100,
-}
+};
 
 export interface LoopAction {
-  action: "continue" | "warn" | "stop"
-  reason?: string
+  action: "continue" | "warn" | "stop";
+  reason?: string;
 }
 
 // =============================================================================
@@ -190,18 +215,21 @@ export interface LoopAction {
 // =============================================================================
 
 export interface SessionState {
-  status: "idle" | "starting" | "running" | "error" | "stopped"
-  sessionId: string
-  projectPath: string
-  turnCount: number
-  iterationCount: number
-  agentMode: AgentMode
-  loopHealth: LoopHealth
-  pendingToolCalls: ToolCall[]
-  activeToolChain?: string[]  // For compaction awareness
+  status: "idle" | "starting" | "running" | "error" | "stopped";
+  sessionId: string;
+  projectPath: string;
+  turnCount: number;
+  iterationCount: number;
+  agentMode: AgentMode;
+  loopHealth: LoopHealth;
+  pendingToolCalls: ToolCall[];
+  activeToolChain?: string[]; // For compaction awareness
 }
 
-export function createInitialSessionState(sessionId: string, projectPath: string): SessionState {
+export function createInitialSessionState(
+  sessionId: string,
+  projectPath: string,
+): SessionState {
   return {
     status: "idle",
     sessionId,
@@ -216,7 +244,7 @@ export function createInitialSessionState(sessionId: string, projectPath: string
       repeatedReasoningScore: 0,
     },
     pendingToolCalls: [],
-  }
+  };
 }
 
 // =============================================================================
@@ -224,42 +252,42 @@ export function createInitialSessionState(sessionId: string, projectPath: string
 // =============================================================================
 
 export interface Message {
-  id: string
-  role: "user" | "assistant"
-  parts: MessagePart[]
-  timestamp: number
+  id: string;
+  role: "user" | "assistant";
+  parts: MessagePart[];
+  timestamp: number;
 }
 
 export type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; language: string; content: string }
-  | { type: "tool"; tool: ToolCall; result?: string }
+  | { type: "tool"; tool: ToolCall; result?: string };
 
 // =============================================================================
 // User Input / Loop Result - Main entry/exit types
 // =============================================================================
 
-import type { StreamEvent } from "@thisisayande/freecode-shared"
+import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 export interface UserInput {
-  prompt: string
-  sessionId: string
-  provider: string
-  model?: string
-  projectPath: string
-  agentMode?: AgentMode
-  onToolEvent?: (event: StreamEvent) => void
+  prompt: string;
+  sessionId: string;
+  provider: string;
+  model?: string;
+  projectPath: string;
+  agentMode?: AgentMode;
+  onToolEvent?: (event: StreamEvent) => void;
 }
 
 export interface LoopResult {
-  success: boolean
-  message?: string
-  content?: string
-  thinking?: string  // Extended thinking content from provider
-  turnCount: number
-  iterationCount: number
-  finalState: SessionState
-  usage?: { inputTokens: number; outputTokens: number }
+  success: boolean;
+  message?: string;
+  content?: string;
+  thinking?: string; // Extended thinking content from provider
+  turnCount: number;
+  iterationCount: number;
+  finalState: SessionState;
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 // =============================================================================
@@ -267,14 +295,14 @@ export interface LoopResult {
 // =============================================================================
 
 export interface HookContext {
-  sessionId: string
-  turnCount: number
-  toolName?: string
-  [key: string]: unknown
+  sessionId: string;
+  turnCount: number;
+  toolName?: string;
+  [key: string]: unknown;
 }
 
 export interface HookResult {
-  action: "continue" | "block" | "inject"
-  reason?: string
-  injectContext?: Record<string, unknown>
+  action: "continue" | "block" | "inject";
+  reason?: string;
+  injectContext?: Record<string, unknown>;
 }

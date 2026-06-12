@@ -3,64 +3,64 @@
 // Inspired by Claude Code's memdir/ memory system
 // =============================================================================
 
-export type MemoryType = "user" | "feedback" | "project" | "reference"
+export type MemoryType = "user" | "feedback" | "project" | "reference";
 
 export interface MemoryEntry {
-  name: string
-  description: string
-  type: MemoryType
-  content: string
-  createdAt: number
-  updatedAt: number
+  name: string;
+  description: string;
+  type: MemoryType;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface MemoryIndexEntry {
-  name: string
-  description: string
-  type: MemoryType
-  path: string
+  name: string;
+  description: string;
+  type: MemoryType;
+  path: string;
 }
 
 export interface MemoryIndex {
-  entries: MemoryIndexEntry[]
+  entries: MemoryIndexEntry[];
 }
 
 export interface MemoryQueryOptions {
-  limit?: number
-  types?: MemoryType[]
+  limit?: number;
+  types?: MemoryType[];
 }
 
 // =============================================================================
 // Memory Frontmatter Parsing
 // =============================================================================
 
-const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/
+const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
 
 export interface ParsedMemory {
   metadata: {
-    name?: string
-    description?: string
-    type?: MemoryType
-  }
-  content: string
+    name?: string;
+    description?: string;
+    type?: MemoryType;
+  };
+  content: string;
 }
 
 export function parseMemoryFrontmatter(content: string): ParsedMemory {
-  const match = content.match(FRONTMATTER_REGEX)
+  const match = content.match(FRONTMATTER_REGEX);
   if (!match) {
-    return { metadata: {}, content }
+    return { metadata: {}, content };
   }
 
-  const frontmatter = match[1]
-  const body = match[2]
+  const frontmatter = match[1];
+  const body = match[2];
 
-  const metadata: Record<string, string> = {}
+  const metadata: Record<string, string> = {};
   for (const line of frontmatter.split("\n")) {
-    const colonIndex = line.indexOf(":")
-    if (colonIndex === -1) continue
-    const key = line.slice(0, colonIndex).trim()
-    const value = line.slice(colonIndex + 1).trim()
-    metadata[key] = value
+    const colonIndex = line.indexOf(":");
+    if (colonIndex === -1) continue;
+    const key = line.slice(0, colonIndex).trim();
+    const value = line.slice(colonIndex + 1).trim();
+    metadata[key] = value;
   }
 
   return {
@@ -70,7 +70,7 @@ export function parseMemoryFrontmatter(content: string): ParsedMemory {
       type: metadata.type as MemoryType | undefined,
     },
     content: body.trim(),
-  }
+  };
 }
 
 export function serializeMemoryEntry(entry: MemoryEntry): string {
@@ -80,7 +80,7 @@ export function serializeMemoryEntry(entry: MemoryEntry): string {
     `description: ${entry.description}`,
     `type: ${entry.type}`,
     "---",
-  ].join("\n")
+  ].join("\n");
 
-  return `${frontmatter}\n${entry.content}`
+  return `${frontmatter}\n${entry.content}`;
 }

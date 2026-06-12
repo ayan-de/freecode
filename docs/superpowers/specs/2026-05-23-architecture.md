@@ -91,6 +91,7 @@ The core of FreeCode is an **agent loop**: instead of a single request-response,
 ```
 
 **Flow:**
+
 1. Model decides what tool to call (read, write, bash, grep, etc.)
 2. **Hooks intercept** — pre-check input, post-check output, can block/modify
 3. Tool executes (file system, shell, search)
@@ -107,7 +108,7 @@ Every tool call passes through hooks before and after execution:
 ```typescript
 interface Hook {
   name: string;
-  preExecute?: (tool: ToolCall) => ToolCall | null;  // null = blocked
+  preExecute?: (tool: ToolCall) => ToolCall | null; // null = blocked
   postExecute?: (tool: ToolCall, result: ToolResult) => ToolResult;
 }
 ```
@@ -131,8 +132,8 @@ Before the agent loop begins, context is loaded from the project:
 
 ```typescript
 interface PreLoopContext {
-  projectConventions: string;   // from AGENTS.md (priority) or CLAUDE.md
-  skills: Skill[];            // from .claude/skills/
+  projectConventions: string; // from AGENTS.md (priority) or CLAUDE.md
+  skills: Skill[]; // from .claude/skills/
 }
 ```
 
@@ -160,6 +161,7 @@ Sub-agents run their own mini-loop focused on one specific task. Spawning is jus
 **TUI and VS Code are pure presentation layers. All business logic lives in CLI.**
 
 This means:
+
 - No browser automation code in TUI or VSCode
 - No file reading/writing in TUI or VSCode
 - No parsing logic in TUI or VSCode
@@ -287,14 +289,14 @@ interface JsonRpcResponse {
 
 ### Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `tools.list` | — | `ToolListItem[]` | List available tools |
-| `tools.call` | `{ name: string, args: Record<string, unknown> }` | `ToolResult` | Execute a tool |
-| `session.start` | `{ projectPath: string, provider?: string }` | `{ sessionId: string }` | Start a new session |
-| `session.send` | `{ sessionId: string, message: string }` | `StreamResponse` (streaming) | Send a message |
-| `session.stop` | `{ sessionId: string }` | `void` | Abort current turn |
-| `providers.list` | — | `ProviderInfo[]` | List available AI providers |
+| Method           | Params                                            | Returns                      | Description                 |
+| ---------------- | ------------------------------------------------- | ---------------------------- | --------------------------- |
+| `tools.list`     | —                                                 | `ToolListItem[]`             | List available tools        |
+| `tools.call`     | `{ name: string, args: Record<string, unknown> }` | `ToolResult`                 | Execute a tool              |
+| `session.start`  | `{ projectPath: string, provider?: string }`      | `{ sessionId: string }`      | Start a new session         |
+| `session.send`   | `{ sessionId: string, message: string }`          | `StreamResponse` (streaming) | Send a message              |
+| `session.stop`   | `{ sessionId: string }`                           | `void`                       | Abort current turn          |
+| `providers.list` | —                                                 | `ProviderInfo[]`             | List available AI providers |
 
 ### Streaming Response
 
@@ -302,9 +304,9 @@ interface JsonRpcResponse {
 interface StreamResponse {
   type: "text" | "code" | "tool" | "done" | "error";
   content: string;
-  toolName?: string;      // when type === "tool"
-  toolArgs?: unknown;     // when type === "tool"
-  toolResult?: string;   // when type === "tool" (after execution)
+  toolName?: string; // when type === "tool"
+  toolArgs?: unknown; // when type === "tool"
+  toolResult?: string; // when type === "tool" (after execution)
 }
 ```
 
@@ -323,7 +325,11 @@ export interface Message {
 export type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; language: string; content: string }
-  | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string };
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+    };
 
 export interface ToolDef {
   id: string;
@@ -360,19 +366,19 @@ export interface ParsedResponse {
 
 ## Boundary: What Lives Where
 
-| Concern | CLI | TUI | VSCode |
-|---------|-----|-----|--------|
-| Browser automation (Playwright/CDP) | ✅ | ❌ | ❌ |
-| Provider adapters (ChatGPT, Claude) | ✅ | ❌ | ❌ |
-| Agent loop + session management | ✅ | ❌ | ❌ |
-| Context collection (file tree) | ✅ | ❌ | ❌ |
-| Response parsing | ✅ | ❌ | ❌ |
-| Tool execution | ✅ | ❌ | ❌ |
-| File diff + writing | ✅ | ❌ | ❌ |
-| TUI rendering (pi-tui) | ❌ | ✅ | ❌ |
-| VS Code webview | ❌ | ❌ | ✅ |
-| UI state (messages, status, theme) | ❌ | ✅ (Zustand) | ✅ (Zustand) |
-| IPC client | ❌ | ✅ | ✅ |
+| Concern                             | CLI | TUI          | VSCode       |
+| ----------------------------------- | --- | ------------ | ------------ |
+| Browser automation (Playwright/CDP) | ✅  | ❌           | ❌           |
+| Provider adapters (ChatGPT, Claude) | ✅  | ❌           | ❌           |
+| Agent loop + session management     | ✅  | ❌           | ❌           |
+| Context collection (file tree)      | ✅  | ❌           | ❌           |
+| Response parsing                    | ✅  | ❌           | ❌           |
+| Tool execution                      | ✅  | ❌           | ❌           |
+| File diff + writing                 | ✅  | ❌           | ❌           |
+| TUI rendering (pi-tui)              | ❌  | ✅           | ❌           |
+| VS Code webview                     | ❌  | ❌           | ✅           |
+| UI state (messages, status, theme)  | ❌  | ✅ (Zustand) | ✅ (Zustand) |
+| IPC client                          | ❌  | ✅           | ✅           |
 
 ---
 
@@ -385,6 +391,7 @@ export interface ParsedResponse {
 **Rationale:** Avoids code duplication across frontends. Adding a new provider, parser, or tool only requires changing one place.
 
 **Alternatives considered:**
+
 - TUI owns business logic, VSCode delegates to it (couples TUI to backend)
 - Each frontend re-implements everything (duplication, maintenance burden)
 
@@ -403,6 +410,7 @@ export interface ParsedResponse {
 **Rationale:** Token-efficient. Only sends relevant context. Allows LLM to reason about the full codebase before diving into specifics.
 
 **Sequence:**
+
 1. Send prompt + file tree to LLM → LLM returns list of needed files
 2. CLI reads those files
 3. Send files + prompt to LLM → LLM returns structured response
@@ -425,15 +433,15 @@ export interface ParsedResponse {
 
 Every pattern in FreeCode has roots in familiar systems:
 
-| FreeCode Pattern | Analogous System | Why It Matters |
-|-----------------|------------------|----------------|
-| Agent loop | Worker processing a task queue | Model drives workflow decisions |
-| Tools | Service interface layer | Separation of thinking vs doing |
-| Hooks | Web middleware | Safety + observability on every call |
-| Memory compaction | Log rotation | Handles unbounded session length |
-| Sub-agents | Worker nodes / map-reduce | Parallel distributed processing |
-| CLAUDE.md | Project configuration | Agent understands your project |
-| Skills | Reusable scripts / templates | Pre-packaged behaviors |
+| FreeCode Pattern  | Analogous System               | Why It Matters                       |
+| ----------------- | ------------------------------ | ------------------------------------ |
+| Agent loop        | Worker processing a task queue | Model drives workflow decisions      |
+| Tools             | Service interface layer        | Separation of thinking vs doing      |
+| Hooks             | Web middleware                 | Safety + observability on every call |
+| Memory compaction | Log rotation                   | Handles unbounded session length     |
+| Sub-agents        | Worker nodes / map-reduce      | Parallel distributed processing      |
+| CLAUDE.md         | Project configuration          | Agent understands your project       |
+| Skills            | Reusable scripts / templates   | Pre-packaged behaviors               |
 
 None of this is novel. The innovation is applying these patterns to an agent that drives browser automation for coding tasks.
 

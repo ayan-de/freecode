@@ -3,10 +3,10 @@ import { AVAILABLE_MODELS } from "../models.js";
 import { startInteractiveHeatmap } from "@thisisayande/terminal-heatmap";
 
 const helpCommand: Command = {
-	name: "help",
-	description: "Show available commands",
-	execute: (_args, ctx) => {
-		ctx.showMessage(`**Available Commands:**
+  name: "help",
+  description: "Show available commands",
+  execute: (_args, ctx) => {
+    ctx.showMessage(`**Available Commands:**
 
 - **/help** - Show this help message
 - **/clear** - Clear all messages
@@ -16,92 +16,98 @@ const helpCommand: Command = {
 - **/exit** - Exit FreeCode
 
 Just type your prompt to start chatting!`);
-	},
+  },
 };
 
 const clearCommand: Command = {
-	name: "clear",
-	description: "Clear all messages",
-	execute: (_args, ctx) => {
-		ctx.showMessage("*Messages cleared*");
-	},
+  name: "clear",
+  description: "Clear all messages",
+  execute: (_args, ctx) => {
+    ctx.showMessage("*Messages cleared*");
+  },
 };
 
 const exitCommand: Command = {
-	name: "exit",
-	description: "Exit FreeCode",
-	execute: () => {
-		process.exit(0);
-	},
+  name: "exit",
+  description: "Exit FreeCode",
+  execute: () => {
+    process.exit(0);
+  },
 };
 
 const modelCommand: Command = {
-	name: "model",
-	description: "Select AI model",
-	execute: (_args, ctx) => {
-		ctx.showMessage(`**Select AI Model:**\n\nUse the selector below to choose a model.`);
-		ctx.showModelSelector?.();
-	},
+  name: "model",
+  description: "Select AI model",
+  execute: (_args, ctx) => {
+    ctx.showMessage(
+      `**Select AI Model:**\n\nUse the selector below to choose a model.`,
+    );
+    ctx.showModelSelector?.();
+  },
 };
 
 const resumeCommand: Command = {
-	name: "resume",
-	description: "Resume a previous session",
-	execute: (_args, ctx) => {
-		ctx.showMessage(`**Select a session to resume:**`);
-		ctx.showResumePicker?.();
-	},
+  name: "resume",
+  description: "Resume a previous session",
+  execute: (_args, ctx) => {
+    ctx.showMessage(`**Select a session to resume:**`);
+    ctx.showResumePicker?.();
+  },
 };
 
 const usageCommand: Command = {
-	name: "usage",
-	description: "Show daily token usage heatmap",
-	execute: async (_args, ctx) => {
-		let data: any[] = [];
-		try {
-			const fs = await import("fs");
-			const path = await import("path");
-			const os = await import("os");
-			const usagePath = path.join(os.homedir(), ".freecode", "usage.json");
-			
-			if (fs.existsSync(usagePath)) {
-				const content = fs.readFileSync(usagePath, "utf-8");
-				data = JSON.parse(content);
-			} else {
-				ctx.showMessage(`*No usage.json found at .freecode/usage.json. Showing heatmap with {} data.*`);
-				// Show empty heatmap
-				data = [];
-			}
-		} catch (err) {
-			ctx.showMessage(`*Error reading usage.json: ${err}*`);
-			return;
-		}
+  name: "usage",
+  description: "Show daily token usage heatmap",
+  execute: async (_args, ctx) => {
+    let data: any[] = [];
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const os = await import("os");
+      const usagePath = path.join(os.homedir(), ".freecode", "usage.json");
 
-		ctx.showMessage(`*Launching interactive token usage heatmap... Press 'q' or 'Esc' to exit.*`);
+      if (fs.existsSync(usagePath)) {
+        const content = fs.readFileSync(usagePath, "utf-8");
+        data = JSON.parse(content);
+      } else {
+        ctx.showMessage(
+          `*No usage.json found at .freecode/usage.json. Showing heatmap with {} data.*`,
+        );
+        // Show empty heatmap
+        data = [];
+      }
+    } catch (err) {
+      ctx.showMessage(`*Error reading usage.json: ${err}*`);
+      return;
+    }
 
-		await startInteractiveHeatmap(data, {
-			title: "Daily Token Usage",
-			preset: "double-block",
-			allDayLabels: true,
-			theme: {
-				colors: ["#2d2d2d", "#82660a", "#C2990F", "#DCAE15", "#F5C71A"]
-			}
-		});
+    ctx.showMessage(
+      `*Launching interactive token usage heatmap... Press 'q' or 'Esc' to exit.*`,
+    );
 
-		// Restore pi-tui terminal state
-		if (process.stdin.setRawMode) {
-			process.stdin.setRawMode(true);
-		}
-		process.stdin.resume();
-		process.stdout.write('\x1b[?25l'); // hide hardware cursor
-	},
+    await startInteractiveHeatmap(data, {
+      title: "Daily Token Usage",
+      preset: "double-block",
+      allDayLabels: true,
+      theme: {
+        colors: ["#2d2d2d", "#82660a", "#C2990F", "#DCAE15", "#F5C71A"],
+      },
+    });
+
+    // Restore pi-tui terminal state
+    if (process.stdin.setRawMode) {
+      process.stdin.setRawMode(true);
+    }
+    process.stdin.resume();
+    process.stdout.write("\x1b[?25l"); // hide hardware cursor
+  },
 };
 
 export function registerBuiltInCommands(): void {
-	registerCommand(helpCommand);
-	registerCommand(clearCommand);
-	registerCommand(exitCommand);
-	registerCommand(modelCommand);
-	registerCommand(resumeCommand);
-	registerCommand(usageCommand);
+  registerCommand(helpCommand);
+  registerCommand(clearCommand);
+  registerCommand(exitCommand);
+  registerCommand(modelCommand);
+  registerCommand(resumeCommand);
+  registerCommand(usageCommand);
 }

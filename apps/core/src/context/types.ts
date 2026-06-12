@@ -18,7 +18,10 @@ export interface ContextMetadata {
 
 export interface ContextStrategy {
   name: string;
-  collect(projectPath: string, options?: ContextOptions): Promise<ProjectContext>;
+  collect(
+    projectPath: string,
+    options?: ContextOptions,
+  ): Promise<ProjectContext>;
 }
 
 export interface ContextOptions {

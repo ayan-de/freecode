@@ -49,6 +49,7 @@ packages/
 ## Task 1: Project Scaffolding
 
 **Files:**
+
 - Create: `apps/core/package.json`
 - Create: `apps/core/tsconfig.json`
 - Create: `apps/core/src/index.ts`
@@ -91,7 +92,7 @@ packages/
 // packages/shared/src/types.ts
 export interface FileChange {
   path: string;
-  action: 'create' | 'replace' | 'delete';
+  action: "create" | "replace" | "delete";
   content?: string;
 }
 
@@ -104,7 +105,7 @@ export interface ParsedResponse {
 export interface PromptContext {
   prompt: string;
   projectPath: string;
-  phase: 'tree' | 'files';
+  phase: "tree" | "files";
   files?: string[];
 }
 ```
@@ -149,7 +150,7 @@ export interface PromptContext {
 
 ```typescript
 // apps/core/src/index.ts
-import { runCLI } from './cli';
+import { runCLI } from "./cli";
 
 runCLI();
 ```
@@ -159,8 +160,8 @@ runCLI();
 ```yaml
 # pnpm-workspace.yaml
 packages:
-  - 'apps/*'
-  - 'packages/*'
+  - "apps/*"
+  - "packages/*"
 ```
 
 - [ ] **Step 4: Install dependencies**
@@ -179,13 +180,14 @@ git add -A && git commit -m "feat: scaffold freecode CLI project structure"
 ## Task 2: REPL CLI
 
 **Files:**
+
 - Create: `apps/core/src/cli.ts`
 
 - [ ] **Step 1: Write REPL interface**
 
 ```typescript
 // apps/core/src/cli.ts
-import * as readline from 'readline';
+import * as readline from "readline";
 
 export interface CLIConfig {
   projectPath: string;
@@ -199,12 +201,12 @@ export async function runCLI(config: CLIConfig): Promise<void> {
 
   const prompt = () =>
     new Promise<string>((resolve) => {
-      rl.question('\n> ', (answer) => {
+      rl.question("\n> ", (answer) => {
         resolve(answer);
       });
     });
 
-  console.log('�-FreeCode-initialized');
+  console.log("�-FreeCode-initialized");
   console.log(`Project: ${config.projectPath}`);
   console.log('Type your prompt or "exit" to quit\n');
 
@@ -213,9 +215,9 @@ export async function runCLI(config: CLIConfig): Promise<void> {
     const input = await prompt();
     const trimmed = input.trim();
 
-    if (trimmed === 'exit' || trimmed === 'quit') {
+    if (trimmed === "exit" || trimmed === "quit") {
       running = false;
-      console.log('Goodbye!');
+      console.log("Goodbye!");
     } else if (trimmed) {
       console.log(`[DEBUG] Received prompt: ${trimmed}`);
       // TODO: Wire to browser controller
@@ -230,8 +232,8 @@ export async function runCLI(config: CLIConfig): Promise<void> {
 
 ```typescript
 // apps/core/src/index.ts
-import { runCLI } from './cli';
-import * as path from 'path';
+import { runCLI } from "./cli";
+import * as path from "path";
 
 const projectPath = process.cwd();
 runCLI({ projectPath });
@@ -253,6 +255,7 @@ git add -A && git commit -m "feat(cli): add REPL interface"
 ## Task 3: Browser Controller (Playwright + CDP)
 
 **Files:**
+
 - Create: `apps/core/src/browser/types.ts`
 - Create: `apps/core/src/browser/controller.ts`
 - Create: `apps/core/src/browser/chatgpt-adapter.ts`
@@ -283,13 +286,13 @@ export interface ProviderAdapter {
 
 ```typescript
 // apps/core/src/browser/chatgpt-adapter.ts
-import type { ProviderAdapter } from './types';
+import type { ProviderAdapter } from "./types";
 
 export const chatgptAdapter: ProviderAdapter = {
-  name: 'chatgpt',
+  name: "chatgpt",
 
   getInputLocator(page: any) {
-    return page.locator('textarea');
+    return page.locator("textarea");
   },
 
   getSubmitButton(page: any) {
@@ -311,9 +314,9 @@ export const chatgptAdapter: ProviderAdapter = {
 
 ```typescript
 // apps/core/src/browser/controller.ts
-import { chromium, Browser, Page } from 'playwright';
-import type { BrowserController, ProviderAdapter } from './types';
-import { chatgptAdapter } from './chatgpt-adapter';
+import { chromium, Browser, Page } from "playwright";
+import type { BrowserController, ProviderAdapter } from "./types";
+import { chatgptAdapter } from "./chatgpt-adapter";
 
 export class PlaywrightBrowserController implements BrowserController {
   private browser: Browser | null = null;
@@ -322,7 +325,7 @@ export class PlaywrightBrowserController implements BrowserController {
 
   async connect(): Promise<void> {
     // Connect to existing Chrome via CDP
-    const cdpUrl = process.env.CDP_URL || 'http://localhost:9222';
+    const cdpUrl = process.env.CDP_URL || "http://localhost:9222";
     this.browser = await chromium.connectOverCDP(cdpUrl);
     const context = this.browser.contexts()[0];
     this.page = context.pages()[0] || (await context.newPage());
@@ -337,13 +340,13 @@ export class PlaywrightBrowserController implements BrowserController {
   }
 
   async gotoChatGPT(): Promise<void> {
-    if (!this.page) throw new Error('Not connected');
-    await this.page.goto('https://chatgpt.com');
-    await this.page.waitForLoadState('networkidle');
+    if (!this.page) throw new Error("Not connected");
+    await this.page.goto("https://chatgpt.com");
+    await this.page.waitForLoadState("networkidle");
   }
 
   async sendPrompt(prompt: string): Promise<void> {
-    if (!this.page) throw new Error('Not connected');
+    if (!this.page) throw new Error("Not connected");
 
     const input = this.adapter.getInputLocator(this.page);
     await input.fill(prompt);
@@ -358,7 +361,7 @@ export class PlaywrightBrowserController implements BrowserController {
   }
 
   async waitForResponse(): Promise<string> {
-    if (!this.page) throw new Error('Not connected');
+    if (!this.page) throw new Error("Not connected");
 
     // Poll until streaming stops
     while (await this.isStreaming()) {
@@ -395,6 +398,7 @@ git add -A && git commit -m "feat(browser): add Playwright CDP controller with C
 ## Task 4: Context Engine (Two-Phase)
 
 **Files:**
+
 - Create: `apps/core/src/context/file-tree.ts`
 - Create: `apps/core/src/context/engine.ts`
 
@@ -402,26 +406,26 @@ git add -A && git commit -m "feat(browser): add Playwright CDP controller with C
 
 ```typescript
 // apps/core/src/context/file-tree.ts
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
 const IGNORE_PATTERNS = [
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  '.next',
-  '.turbo',
-  '.vscode',
-  '.idea',
-  '*.lock',
-  '*.log',
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".turbo",
+  ".vscode",
+  ".idea",
+  "*.lock",
+  "*.log",
 ];
 
 function shouldIgnore(filePath: string): boolean {
   const relative = path.basename(filePath);
   return IGNORE_PATTERNS.some((pattern) => {
-    if (pattern.startsWith('*')) {
+    if (pattern.startsWith("*")) {
       return relative.endsWith(pattern.slice(1));
     }
     return relative === pattern;
@@ -431,25 +435,28 @@ function shouldIgnore(filePath: string): boolean {
 export function generateFileTree(
   dirPath: string,
   maxDepth: number = 3,
-  currentDepth: number = 0
+  currentDepth: number = 0,
 ): string {
-  if (currentDepth > maxDepth) return '';
+  if (currentDepth > maxDepth) return "";
 
   const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-  let tree = '';
+  let tree = "";
 
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name);
 
     if (shouldIgnore(fullPath)) continue;
 
-    const prefix = currentDepth === 0 ? '' : '  ';
-    const line = `${prefix}${entry.name}${entry.isDirectory() ? '/' : ''}\n`;
+    const prefix = currentDepth === 0 ? "" : "  ";
+    const line = `${prefix}${entry.name}${entry.isDirectory() ? "/" : ""}\n`;
 
     if (currentDepth > 0) {
-      tree += '  '.repeat(currentDepth) + (entry.isDirectory() ? '📁 ' : '📄 ') + line;
+      tree +=
+        "  ".repeat(currentDepth) +
+        (entry.isDirectory() ? "📁 " : "📄 ") +
+        line;
     } else {
-      tree += (entry.isDirectory() ? '📁 ' : '📄 ') + line;
+      tree += (entry.isDirectory() ? "📁 " : "📄 ") + line;
     }
 
     if (entry.isDirectory()) {
@@ -461,7 +468,7 @@ export function generateFileTree(
 }
 
 export function readFileContent(filePath: string): string {
-  return fs.readFileSync(filePath, 'utf-8');
+  return fs.readFileSync(filePath, "utf-8");
 }
 
 export function readFiles(filePaths: string[]): Record<string, string> {
@@ -481,9 +488,9 @@ export function readFiles(filePaths: string[]): Record<string, string> {
 
 ```typescript
 // apps/core/src/context/engine.ts
-import * as path from 'path';
-import { generateFileTree, readFiles } from './file-tree';
-import type { PromptContext } from '@freecode/shared';
+import * as path from "path";
+import { generateFileTree, readFiles } from "./file-tree";
+import type { PromptContext } from "@freecode/shared";
 
 export class ContextEngine {
   private projectPath: string;
@@ -511,16 +518,16 @@ Based on the file tree above, respond with the list of files you need to see in 
 
   generateFilesPrompt(
     prompt: string,
-    requestedFiles: string[]
+    requestedFiles: string[],
   ): { prompt: string; files: Record<string, string> } {
     const absolutePaths = requestedFiles.map((f) =>
-      path.isAbsolute(f) ? f : path.join(this.projectPath, f)
+      path.isAbsolute(f) ? f : path.join(this.projectPath, f),
     );
 
     const fileContents = readFiles(absolutePaths);
     const filesSection = Object.entries(fileContents)
       .map(([filePath, content]) => `=== ${filePath} ===\n${content}\n`)
-      .join('\n');
+      .join("\n");
 
     const fullPrompt = `Project files:
 ${filesSection}
@@ -552,9 +559,9 @@ Respond ONLY with the file changes in this exact JSON format:
     } catch {
       // Try to extract file paths manually
       const filePaths = response
-        .split('\n')
+        .split("\n")
         .filter((line) => line.match(/\.\w+$/) || line.match(/^["']/))
-        .map((line) => line.replace(/["',]/g, '').trim());
+        .map((line) => line.replace(/["',]/g, "").trim());
       return filePaths;
     }
     return [];
@@ -578,6 +585,7 @@ git add -A && git commit -m "feat(context): add two-phase context engine"
 ## Task 5: Response Parser (Format-Agnostic)
 
 **Files:**
+
 - Create: `apps/core/src/parser/types.ts`
 - Create: `apps/core/src/parser/json-parser.ts`
 - Create: `apps/core/src/parser/markdown-parser.ts`
@@ -587,7 +595,7 @@ git add -A && git commit -m "feat(context): add two-phase context engine"
 
 ```typescript
 // apps/core/src/parser/types.ts
-import type { FileChange, ParsedResponse } from '@freecode/shared';
+import type { FileChange, ParsedResponse } from "@freecode/shared";
 
 export interface ParserResult {
   success: boolean;
@@ -600,29 +608,29 @@ export interface ParserResult {
 
 ```typescript
 // apps/core/src/parser/json-parser.ts
-import type { FileChange, ParsedResponse } from '@freecode/shared';
-import type { ParserResult } from './types';
+import type { FileChange, ParsedResponse } from "@freecode/shared";
+import type { ParserResult } from "./types";
 
 export function parseJSONResponse(raw: string): ParserResult {
   try {
     // Try to find JSON object in response
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) {
-      return { success: false, error: 'No JSON found in response' };
+      return { success: false, error: "No JSON found in response" };
     }
 
     const parsed = JSON.parse(match[0]);
 
     const changes: FileChange[] = (parsed.changes || []).map((c: any) => ({
       path: c.file || c.path,
-      action: c.action || 'replace',
+      action: c.action || "replace",
       content: c.content || c.code,
     }));
 
     return {
       success: true,
       response: {
-        summary: parsed.summary || parsed.description || '',
+        summary: parsed.summary || parsed.description || "",
         changes,
         raw,
       },
@@ -635,10 +643,10 @@ export function parseJSONResponse(raw: string): ParserResult {
 
 - [ ] **Step 3: Write markdown parser**
 
-```typescript
+````typescript
 // apps/core/src/parser/markdown-parser.ts
-import type { FileChange, ParsedResponse } from '@freecode/shared';
-import type { ParserResult } from './types';
+import type { FileChange, ParsedResponse } from "@freecode/shared";
+import type { ParserResult } from "./types";
 
 export function parseMarkdownResponse(raw: string): ParserResult {
   const changes: FileChange[] = [];
@@ -654,7 +662,7 @@ export function parseMarkdownResponse(raw: string): ParserResult {
     const content = match[2].trim();
     changes.push({
       path: filePath,
-      action: 'replace',
+      action: "replace",
       content,
     });
   }
@@ -662,16 +670,17 @@ export function parseMarkdownResponse(raw: string): ParserResult {
   // Fallback: try to extract file paths with code blocks
   if (changes.length === 0) {
     const simpleBlockRegex = /```[\w]*\n([\s\S]*?)```/g;
-    const lines = raw.split('\n');
-    let currentFile = '';
+    const lines = raw.split("\n");
+    let currentFile = "";
 
     for (const line of lines) {
-      const fileMatch = line.match(/^FILE:\s*(.+)/i) || line.match(/^(.+?\.\w+):?$/);
+      const fileMatch =
+        line.match(/^FILE:\s*(.+)/i) || line.match(/^(.+?\.\w+):?$/);
       if (fileMatch) {
         currentFile = fileMatch[1].trim();
-      } else if (currentFile && line.startsWith('```')) {
+      } else if (currentFile && line.startsWith("```")) {
         // Skip code block start
-      } else if (currentFile && !line.startsWith('```') && line.trim()) {
+      } else if (currentFile && !line.startsWith("```") && line.trim()) {
         // This is content
       }
     }
@@ -679,10 +688,10 @@ export function parseMarkdownResponse(raw: string): ParserResult {
 
   // Extract summary (first non-code paragraph)
   const summaryMatch = raw.match(/^(?!```)(.+)/);
-  const summary = summaryMatch ? summaryMatch[1].trim() : '';
+  const summary = summaryMatch ? summaryMatch[1].trim() : "";
 
   if (changes.length === 0) {
-    return { success: false, error: 'No file blocks found in markdown' };
+    return { success: false, error: "No file blocks found in markdown" };
   }
 
   return {
@@ -694,16 +703,16 @@ export function parseMarkdownResponse(raw: string): ParserResult {
     },
   };
 }
-```
+````
 
 - [ ] **Step 4: Write parser orchestrator**
 
-```typescript
+````typescript
 // apps/core/src/parser/index.ts
-import type { ParsedResponse } from '@freecode/shared';
-import type { ParserResult } from './types';
-import { parseJSONResponse } from './json-parser';
-import { parseMarkdownResponse } from './markdown-parser';
+import type { ParsedResponse } from "@freecode/shared";
+import type { ParserResult } from "./types";
+import { parseJSONResponse } from "./json-parser";
+import { parseMarkdownResponse } from "./markdown-parser";
 
 export function parseResponse(raw: string): ParserResult {
   // Try JSON first
@@ -717,15 +726,15 @@ export function parseResponse(raw: string): ParserResult {
   // Last resort: return error
   return {
     success: false,
-    error: 'Failed to parse response in any known format',
+    error: "Failed to parse response in any known format",
   };
 }
 
 export function extractSummary(raw: string): string {
-  const lines = raw.split('\n').filter((l) => l.trim() && !l.startsWith('```'));
-  return lines[0] || 'No summary available';
+  const lines = raw.split("\n").filter((l) => l.trim() && !l.startsWith("```"));
+  return lines[0] || "No summary available";
 }
-```
+````
 
 - [ ] **Step 5: Test parser**
 
@@ -743,6 +752,7 @@ git add -A && git commit -m "feat(parser): add format-agnostic response parser"
 ## Task 6: File Applicator (With Diff Preview)
 
 **Files:**
+
 - Create: `apps/core/src/applier/differ.ts`
 - Create: `apps/core/src/applier/writer.ts`
 - Create: `apps/core/src/applier/index.ts`
@@ -751,12 +761,12 @@ git add -A && git commit -m "feat(parser): add format-agnostic response parser"
 
 ```typescript
 // apps/core/src/applier/differ.ts
-import * as fs from 'fs';
-import type { FileChange } from '@freecode/shared';
+import * as fs from "fs";
+import type { FileChange } from "@freecode/shared";
 
 export interface Diff {
   file: string;
-  action: 'create' | 'replace' | 'delete';
+  action: "create" | "replace" | "delete";
   oldContent?: string;
   newContent?: string;
   hasDiff: boolean;
@@ -769,20 +779,20 @@ export function generateDiff(filePath: string, change: FileChange): Diff {
     hasDiff: false,
   };
 
-  if (change.action === 'delete') {
+  if (change.action === "delete") {
     try {
-      result.oldContent = fs.readFileSync(filePath, 'utf-8');
+      result.oldContent = fs.readFileSync(filePath, "utf-8");
       result.hasDiff = true;
     } catch {
-      result.oldContent = '(file not found)';
+      result.oldContent = "(file not found)";
     }
-  } else if (change.action === 'create' || change.action === 'replace') {
+  } else if (change.action === "create" || change.action === "replace") {
     result.newContent = change.content;
     try {
-      result.oldContent = fs.readFileSync(filePath, 'utf-8');
+      result.oldContent = fs.readFileSync(filePath, "utf-8");
       result.hasDiff = result.oldContent !== change.content;
     } catch {
-      result.oldContent = '(file not found)';
+      result.oldContent = "(file not found)";
       result.hasDiff = true;
     }
   }
@@ -795,29 +805,33 @@ export function formatDiff(diff: Diff): string {
   lines.push(`\n📄 ${diff.file} (${diff.action})`);
 
   if (!diff.hasDiff) {
-    lines.push('   (no changes)');
-    return lines.join('\n');
+    lines.push("   (no changes)");
+    return lines.join("\n");
   }
 
   if (diff.oldContent) {
-    lines.push('--- Original:');
-    const oldLines = diff.oldContent.split('\n').slice(0, 10);
+    lines.push("--- Original:");
+    const oldLines = diff.oldContent.split("\n").slice(0, 10);
     oldLines.forEach((l) => lines.push(`- ${l}`));
-    if (diff.oldContent.split('\n').length > 10) {
-      lines.push(`- ... (${diff.oldContent.split('\n').length - 10} more lines)`);
+    if (diff.oldContent.split("\n").length > 10) {
+      lines.push(
+        `- ... (${diff.oldContent.split("\n").length - 10} more lines)`,
+      );
     }
   }
 
   if (diff.newContent) {
-    lines.push('+++ New:');
-    const newLines = diff.newContent.split('\n').slice(0, 10);
+    lines.push("+++ New:");
+    const newLines = diff.newContent.split("\n").slice(0, 10);
     newLines.forEach((l) => lines.push(`+ ${l}`));
-    if (diff.newContent.split('\n').length > 10) {
-      lines.push(`+ ... (${diff.newContent.split('\n').length - 10} more lines)`);
+    if (diff.newContent.split("\n").length > 10) {
+      lines.push(
+        `+ ... (${diff.newContent.split("\n").length - 10} more lines)`,
+      );
     }
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 ```
 
@@ -825,9 +839,9 @@ export function formatDiff(diff: Diff): string {
 
 ```typescript
 // apps/core/src/applier/writer.ts
-import * as fs from 'fs';
-import * as path from 'path';
-import type { FileChange } from '@freecode/shared';
+import * as fs from "fs";
+import * as path from "path";
+import type { FileChange } from "@freecode/shared";
 
 export interface WriteResult {
   file: string;
@@ -837,12 +851,12 @@ export interface WriteResult {
 
 export async function applyChange(
   change: FileChange,
-  basePath: string
+  basePath: string,
 ): Promise<WriteResult> {
   const filePath = path.join(basePath, change.path);
 
   try {
-    if (change.action === 'delete') {
+    if (change.action === "delete") {
       fs.unlinkSync(filePath);
       return { file: change.path, success: true };
     }
@@ -853,12 +867,12 @@ export async function applyChange(
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    if (change.action === 'create' || change.action === 'replace') {
-      fs.writeFileSync(filePath, change.content || '', 'utf-8');
+    if (change.action === "create" || change.action === "replace") {
+      fs.writeFileSync(filePath, change.content || "", "utf-8");
       return { file: change.path, success: true };
     }
 
-    return { file: change.path, success: false, error: 'Unknown action' };
+    return { file: change.path, success: false, error: "Unknown action" };
   } catch (e) {
     return { file: change.path, success: false, error: String(e) };
   }
@@ -866,7 +880,7 @@ export async function applyChange(
 
 export async function applyChanges(
   changes: FileChange[],
-  basePath: string
+  basePath: string,
 ): Promise<WriteResult[]> {
   const results: WriteResult[] = [];
   for (const change of changes) {
@@ -881,10 +895,10 @@ export async function applyChanges(
 
 ```typescript
 // apps/core/src/applier/index.ts
-import * as readline from 'readline';
-import type { FileChange } from '@freecode/shared';
-import { generateDiff, formatDiff, type Diff } from './differ';
-import { applyChanges } from './writer';
+import * as readline from "readline";
+import type { FileChange } from "@freecode/shared";
+import { generateDiff, formatDiff, type Diff } from "./differ";
+import { applyChanges } from "./writer";
 
 export class FileApplier {
   private basePath: string;
@@ -894,15 +908,13 @@ export class FileApplier {
   }
 
   async previewChanges(changes: FileChange[]): Promise<Diff[]> {
-    return changes.map((change) =>
-      generateDiff(change.path, change)
-    );
+    return changes.map((change) => generateDiff(change.path, change));
   }
 
   async displayPreview(changes: FileChange[]): Promise<void> {
     const diffs = await this.previewChanges(changes);
 
-    console.log('\n📋 Proposed changes:');
+    console.log("\n📋 Proposed changes:");
     for (const diff of diffs) {
       console.log(formatDiff(diff));
     }
@@ -918,8 +930,8 @@ export class FileApplier {
 
     const confirm = () =>
       new Promise<boolean>((resolve) => {
-        rl.question('\n❓ Apply these changes? (y/n): ', (answer) => {
-          resolve(answer.toLowerCase() === 'y');
+        rl.question("\n❓ Apply these changes? (y/n): ", (answer) => {
+          resolve(answer.toLowerCase() === "y");
         });
       });
 
@@ -927,7 +939,7 @@ export class FileApplier {
     rl.close();
 
     if (!shouldApply) {
-      console.log('Changes discarded.');
+      console.log("Changes discarded.");
       return false;
     }
 
@@ -962,6 +974,7 @@ git add -A && git commit -m "feat(applier): add file applicator with diff previe
 ## Task 7: Wire Everything Together
 
 **Files:**
+
 - Modify: `apps/core/src/cli.ts`
 - Modify: `apps/core/src/index.ts`
 
@@ -969,11 +982,11 @@ git add -A && git commit -m "feat(applier): add file applicator with diff previe
 
 ```typescript
 // apps/core/src/cli.ts
-import * as readline from 'readline';
-import { PlaywrightBrowserController } from './browser/controller';
-import { ContextEngine } from './context/engine';
-import { parseResponse } from './parser';
-import { FileApplier } from './applier';
+import * as readline from "readline";
+import { PlaywrightBrowserController } from "./browser/controller";
+import { ContextEngine } from "./context/engine";
+import { parseResponse } from "./parser";
+import { FileApplier } from "./applier";
 
 export interface CLIConfig {
   projectPath: string;
@@ -984,19 +997,19 @@ export async function runCLI(config: CLIConfig): Promise<void> {
   const contextEngine = new ContextEngine(config.projectPath);
   const applier = new FileApplier(config.projectPath);
 
-  console.log('�-FreeCode-initialized');
+  console.log("�-FreeCode-initialized");
   console.log(`Project: ${config.projectPath}`);
-  console.log('Connecting to browser...\n');
+  console.log("Connecting to browser...\n");
 
   try {
     await browser.connect();
-    console.log('✅ Browser connected');
+    console.log("✅ Browser connected");
     await browser.gotoChatGPT();
-    console.log('✅ ChatGPT loaded');
+    console.log("✅ ChatGPT loaded");
   } catch (e) {
-    console.error('❌ Failed to connect to browser:', e);
-    console.log('Make sure Chrome is running with CDP enabled:');
-    console.log('  chrome --remote-debugging-port=9222');
+    console.error("❌ Failed to connect to browser:", e);
+    console.log("Make sure Chrome is running with CDP enabled:");
+    console.log("  chrome --remote-debugging-port=9222");
     return;
   }
 
@@ -1007,7 +1020,7 @@ export async function runCLI(config: CLIConfig): Promise<void> {
 
   const prompt = () =>
     new Promise<string>((resolve) => {
-      rl.question('\n> ', (answer) => {
+      rl.question("\n> ", (answer) => {
         resolve(answer);
       });
     });
@@ -1019,7 +1032,7 @@ export async function runCLI(config: CLIConfig): Promise<void> {
     const input = await prompt();
     const trimmed = input.trim();
 
-    if (trimmed === 'exit' || trimmed === 'quit') {
+    if (trimmed === "exit" || trimmed === "quit") {
       running = false;
     } else if (trimmed) {
       await runPromptCycle(trimmed, browser, contextEngine, applier);
@@ -1027,7 +1040,7 @@ export async function runCLI(config: CLIConfig): Promise<void> {
   }
 
   await browser.disconnect();
-  console.log('Goodbye!');
+  console.log("Goodbye!");
   rl.close();
 }
 
@@ -1035,9 +1048,9 @@ async function runPromptCycle(
   userPrompt: string,
   browser: PlaywrightBrowserController,
   contextEngine: ContextEngine,
-  applier: FileApplier
+  applier: FileApplier,
 ): Promise<void> {
-  console.log('\n📤 Sending to ChatGPT (Phase 1: file tree)...');
+  console.log("\n📤 Sending to ChatGPT (Phase 1: file tree)...");
 
   // Phase 1: Get file list
   const treePrompt = contextEngine.generateTreePrompt(userPrompt);
@@ -1047,15 +1060,15 @@ async function runPromptCycle(
   console.log(`📋 ChatGPT requested ${neededFiles.length} files`);
 
   if (neededFiles.length === 0) {
-    console.log('⚠️  No files requested, may need to check response');
+    console.log("⚠️  No files requested, may need to check response");
     return;
   }
 
   // Phase 2: Send files with prompt
-  console.log('\n📤 Sending to ChatGPT (Phase 2: files)...');
+  console.log("\n📤 Sending to ChatGPT (Phase 2: files)...");
   const { prompt: filesPrompt } = contextEngine.generateFilesPrompt(
     userPrompt,
-    neededFiles
+    neededFiles,
   );
   const fullResponse = await browser.executePrompt(filesPrompt);
 
@@ -1063,12 +1076,12 @@ async function runPromptCycle(
   const parseResult = parseResponse(fullResponse);
 
   if (!parseResult.success) {
-    console.error('❌ Failed to parse response:', parseResult.error);
-    console.log('Raw response:\n', fullResponse.slice(0, 500));
+    console.error("❌ Failed to parse response:", parseResult.error);
+    console.log("Raw response:\n", fullResponse.slice(0, 500));
     return;
   }
 
-  console.log('\n📝 Summary:', parseResult.response?.summary);
+  console.log("\n📝 Summary:", parseResult.response?.summary);
 
   // Apply with confirmation
   if (parseResult.response?.changes.length) {

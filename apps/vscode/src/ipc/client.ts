@@ -97,8 +97,8 @@ export function startCli(cwd?: string): void {
       cwd: projectRoot,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    } catch (err) {
-    console.error('[startCli] Spawn failed:', err);
+  } catch (err) {
+    console.error("[startCli] Spawn failed:", err);
     return;
   }
 
@@ -137,7 +137,10 @@ export function startCli(cwd?: string): void {
   });
 }
 
-function sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+function sendRequest(
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
       reject(new Error("CLI not running"));
@@ -146,7 +149,10 @@ function sendRequest(method: string, params?: Record<string, unknown>): Promise<
 
     const id = generateId();
     const request: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
-    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    pendingRequests.set(id, {
+      resolve: resolve as (value: unknown) => void,
+      reject,
+    });
 
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
@@ -167,7 +173,10 @@ export async function listTools(): Promise<ToolListItem[]> {
   return (await sendRequest("tools.list")) as ToolListItem[];
 }
 
-export async function callTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+export async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
   return (await sendRequest("tools.call", { name, args })) as ToolResult;
 }
 
@@ -179,11 +188,19 @@ export interface SessionInfo {
   sessionId: string;
 }
 
-export async function sessionStart(config: SessionConfig): Promise<SessionInfo> {
-  return (await sendRequest("session.start", config as unknown as Record<string, unknown>)) as SessionInfo;
+export async function sessionStart(
+  config: SessionConfig,
+): Promise<SessionInfo> {
+  return (await sendRequest(
+    "session.start",
+    config as unknown as Record<string, unknown>,
+  )) as SessionInfo;
 }
 
-export async function sessionSend(sessionId: string, message: string): Promise<unknown> {
+export async function sessionSend(
+  sessionId: string,
+  message: string,
+): Promise<unknown> {
   return await sendRequest("session.send", { sessionId, message });
 }
 

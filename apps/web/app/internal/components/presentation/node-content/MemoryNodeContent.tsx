@@ -1,86 +1,86 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { Brain, FileText, Zap, Database } from 'lucide-react';
-import styles from '../ArchitectureExplorer.module.css';
-import { NodeHeader } from './NodeHeader';
+import React from "react";
+import { Brain, FileText, Zap, Database } from "lucide-react";
+import styles from "../ArchitectureExplorer.module.css";
+import { NodeHeader } from "./NodeHeader";
 
 const MEMORY_FLOW_STEPS = [
   {
     number: 1,
-    title: 'addMessage(role, content)',
-    description: 'Record each turn in MemoryService',
+    title: "addMessage(role, content)",
+    description: "Record each turn in MemoryService",
   },
   {
     number: 2,
-    title: 'shouldCompact(provider)',
-    description: 'Check if token count exceeds threshold',
+    title: "shouldCompact(provider)",
+    description: "Check if token count exceeds threshold",
   },
   {
     number: 3,
-    title: 'runPreCompact()',
-    description: 'HookRuntime PreCompact hook — can block',
+    title: "runPreCompact()",
+    description: "HookRuntime PreCompact hook — can block",
   },
   {
     number: 4,
-    title: 'selectForCompaction()',
-    description: 'Preserve recent turns, select older for summary',
+    title: "selectForCompaction()",
+    description: "Preserve recent turns, select older for summary",
   },
   {
     number: 5,
-    title: 'summarizeMessages()',
-    description: 'Generate anchored continuation summary',
+    title: "summarizeMessages()",
+    description: "Generate anchored continuation summary",
   },
   {
     number: 6,
-    title: 'runPostCompact()',
-    description: 'HookRuntime PostCompact hook — notify',
+    title: "runPostCompact()",
+    description: "HookRuntime PostCompact hook — notify",
   },
 ];
 
 const memoryComponents = [
   {
-    name: 'MemoryService',
-    file: 'apps/core/src/memory/service.ts',
-    description: 'Orchestrates compaction, recording, persistence',
+    name: "MemoryService",
+    file: "apps/core/src/memory/service.ts",
+    description: "Orchestrates compaction, recording, persistence",
     icon: Brain,
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
   {
-    name: 'FileMemoryStorage',
-    file: 'apps/core/src/memory/storage.ts',
-    description: 'JSON persistence under .freecode/sessions/',
+    name: "FileMemoryStorage",
+    file: "apps/core/src/memory/storage.ts",
+    description: "JSON persistence under .freecode/sessions/",
     icon: Database,
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
   {
-    name: 'tokens.ts',
-    file: 'apps/core/src/memory/tokens.ts',
-    description: 'Token estimation and context budgets',
+    name: "tokens.ts",
+    file: "apps/core/src/memory/tokens.ts",
+    description: "Token estimation and context budgets",
     icon: Zap,
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
   {
-    name: 'selector.ts',
-    file: 'apps/core/src/memory/selector.ts',
-    description: 'selectForCompaction + renderPromptMemoryContext',
+    name: "selector.ts",
+    file: "apps/core/src/memory/selector.ts",
+    description: "selectForCompaction + renderPromptMemoryContext",
     icon: FileText,
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
   {
-    name: 'summarizer.ts',
-    file: 'apps/core/src/memory/summarizer.ts',
-    description: 'Anchored summary with Goal, Progress, Files',
+    name: "summarizer.ts",
+    file: "apps/core/src/memory/summarizer.ts",
+    description: "Anchored summary with Goal, Progress, Files",
     icon: FileText,
-    color: '#f59e0b',
+    color: "#f59e0b",
   },
 ];
 
 const compactionStats = [
-  { label: 'preserveRecentTurns', value: '2' },
-  { label: 'autoCompactBuffer', value: '13,000 tokens' },
-  { label: 'maxPreserveRecent', value: '8,000 tokens' },
-  { label: 'maxToolOutputChars', value: '2,000 chars' },
+  { label: "preserveRecentTurns", value: "2" },
+  { label: "autoCompactBuffer", value: "13,000 tokens" },
+  { label: "maxPreserveRecent", value: "8,000 tokens" },
+  { label: "maxToolOutputChars", value: "2,000 chars" },
 ];
 
 export function MemoryNodeContent() {
@@ -92,9 +92,10 @@ export function MemoryNodeContent() {
         subtext="Session Context Compaction"
       />
       <p className={styles.description}>
-        The <strong>Memory System</strong> prevents context window overflow during long sessions
-        by compacting old messages into anchored summaries while preserving recent turns.
-        Results flow back to the <strong>LLM / Browser Call Boundary</strong> for the next iteration.
+        The <strong>Memory System</strong> prevents context window overflow
+        during long sessions by compacting old messages into anchored summaries
+        while preserving recent turns. Results flow back to the{" "}
+        <strong>LLM / Browser Call Boundary</strong> for the next iteration.
       </p>
 
       {/* Memory Flow */}
@@ -121,7 +122,9 @@ export function MemoryNodeContent() {
           {memoryComponents.map((comp) => (
             <li key={comp.name}>
               <span className={styles.fileBadge}>{comp.name}</span>
-              <span style={{ color: comp.color, fontSize: '12px' }}>{comp.description}</span>
+              <span style={{ color: comp.color, fontSize: "12px" }}>
+                {comp.description}
+              </span>
             </li>
           ))}
         </ul>
@@ -133,7 +136,12 @@ export function MemoryNodeContent() {
         <div className={styles.execList}>
           {compactionStats.map((stat) => (
             <div key={stat.label} className={styles.execItem}>
-              <span className={styles.execMode} style={{ background: '#f59e0b' }}>{stat.label}</span>
+              <span
+                className={styles.execMode}
+                style={{ background: "#f59e0b" }}
+              >
+                {stat.label}
+              </span>
               <span className={styles.execTools}>{stat.value}</span>
             </div>
           ))}

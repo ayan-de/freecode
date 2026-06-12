@@ -34,36 +34,40 @@ apps/core/src/providers/
 
 ```typescript
 export interface ProviderInfo {
-  id: string              // "anthropic" | "openai" | "gemini" | "minimax"
-  name: string            // "Anthropic" | "OpenAI" | "Gemini" | "MiniMax"
-  defaultModel: string    // "claude-sonnet-4-5" | "gpt-4o" | "gemini-2.0-flash" | "MiniMax-text-01"
-  supportsStreaming: boolean
-  supportsTools: boolean
+  id: string; // "anthropic" | "openai" | "gemini" | "minimax"
+  name: string; // "Anthropic" | "OpenAI" | "Gemini" | "MiniMax"
+  defaultModel: string; // "claude-sonnet-4-5" | "gpt-4o" | "gemini-2.0-flash" | "MiniMax-text-01"
+  supportsStreaming: boolean;
+  supportsTools: boolean;
 }
 
 export interface ExecuteOptions {
-  prompt: string
-  system?: string
-  model?: string
-  temperature?: number
-  maxTokens?: number
-  tools?: ToolDef[]
-  stream?: boolean        // default false
+  prompt: string;
+  system?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  tools?: ToolDef[];
+  stream?: boolean; // default false
 }
 
 export interface ExecuteResult {
-  content: string
-  toolCalls?: Array<{ name: string; args: Record<string, unknown>; id: string }>
-  usage?: { inputTokens: number; outputTokens: number }
-  stopReason: "stop" | "tool_use" | "max_tokens" | "unknown"
-  provider: string
-  model: string
+  content: string;
+  toolCalls?: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    id: string;
+  }>;
+  usage?: { inputTokens: number; outputTokens: number };
+  stopReason: "stop" | "tool_use" | "max_tokens" | "unknown";
+  provider: string;
+  model: string;
 }
 
 export interface ToolDef {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
 }
 ```
 
@@ -82,11 +86,11 @@ API keys resolved in priority order:
 **Config file location** uses `os.homedir()` for cross-platform:
 
 ```typescript
-import * as os from 'os'
-import * as path from 'path'
+import * as os from "os";
+import * as path from "path";
 
-export const CONFIG_DIR = path.join(os.homedir(), '.freecode')
-export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
+export const CONFIG_DIR = path.join(os.homedir(), ".freecode");
+export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 ```
 
 **`config.json` schema:**
@@ -107,23 +111,23 @@ export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 All file I/O uses Node.js `fs` with `path.join()` and `os.homedir()`:
 
 ```typescript
-import * as fs from 'fs'
-import * as os from 'os'
-import * as path from 'path'
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 // Config directory: ~/.freecode (Linux/Mac) or %USERPROFILE%\.freecode (Windows)
-const configDir = path.join(os.homedir(), '.freecode')
-const configFile = path.join(configDir, 'config.json')
+const configDir = path.join(os.homedir(), ".freecode");
+const configFile = path.join(configDir, "config.json");
 
 // Ensure directory exists (mkdirSync with recursive: true works on all platforms)
 if (!fs.existsSync(configDir)) {
-  fs.mkdirSync(configDir, { recursive: true })
+  fs.mkdirSync(configDir, { recursive: true });
 }
 
 // Read config
 function readConfig(): Record<string, unknown> {
-  if (!fs.existsSync(configFile)) return {}
-  return JSON.parse(fs.readFileSync(configFile, 'utf-8'))
+  if (!fs.existsSync(configFile)) return {};
+  return JSON.parse(fs.readFileSync(configFile, "utf-8"));
 }
 ```
 
@@ -135,9 +139,11 @@ function readConfig(): Record<string, unknown> {
 
 ```typescript
 export interface AIProvider {
-  info: ProviderInfo
-  execute(opts: ExecuteOptions): Promise<ExecuteResult>
-  executeStream?(opts: ExecuteOptions): AsyncGenerator<ExecuteResult, void, void>
+  info: ProviderInfo;
+  execute(opts: ExecuteOptions): Promise<ExecuteResult>;
+  executeStream?(
+    opts: ExecuteOptions,
+  ): AsyncGenerator<ExecuteResult, void, void>;
 }
 ```
 
@@ -181,16 +187,16 @@ export interface AIProvider {
 
 ```typescript
 interface ProviderDefinition {
-  info: ProviderInfo
-  create(config: ProviderConfig): AIProvider
+  info: ProviderInfo;
+  create(config: ProviderConfig): AIProvider;
 }
 
-const registry = new Map<string, ProviderDefinition>()
+const registry = new Map<string, ProviderDefinition>();
 
-export function registerProvider(def: ProviderDefinition): void
-export function getProvider(id: string): AIProvider
-export function listProviders(): ProviderInfo[]
-export function initProviders(): void   // registers all built-in providers
+export function registerProvider(def: ProviderDefinition): void;
+export function getProvider(id: string): AIProvider;
+export function listProviders(): ProviderInfo[];
+export function initProviders(): void; // registers all built-in providers
 ```
 
 Providers self-register via `initProviders()` called from `index.ts` on module load.
@@ -225,12 +231,12 @@ private async sendToProvider(
 
 ## Error Handling
 
-| Error | Behavior |
-|-------|----------|
-| Missing API key | Clear error: "ANTHROPIC_API_KEY not set. Set in ~/.freecode/config.json or ANTHROPIC_API_KEY environment variable." |
-| API error (rate limit, auth failure) | Propagate as `AgentLoop` error with provider context |
-| Network error | Retry once, then fail |
-| Invalid response format | Log warning, attempt partial parse, fallback to text content |
+| Error                                | Behavior                                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Missing API key                      | Clear error: "ANTHROPIC_API_KEY not set. Set in ~/.freecode/config.json or ANTHROPIC_API_KEY environment variable." |
+| API error (rate limit, auth failure) | Propagate as `AgentLoop` error with provider context                                                                |
+| Network error                        | Retry once, then fail                                                                                               |
+| Invalid response format              | Log warning, attempt partial parse, fallback to text content                                                        |
 
 ---
 

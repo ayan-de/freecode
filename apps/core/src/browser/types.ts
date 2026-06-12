@@ -2,7 +2,7 @@
 // Browser Controller Interface
 // =============================================================================
 
-import type { Page, Browser } from 'playwright';
+import type { Page, Browser } from "playwright";
 
 export interface BrowserController {
   connect(): Promise<void>;

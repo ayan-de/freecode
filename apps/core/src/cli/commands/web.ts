@@ -13,8 +13,8 @@ function openBrowser(url: string) {
     process.platform === "darwin"
       ? "open"
       : process.platform === "win32"
-      ? "start"
-      : "xdg-open";
+        ? "start"
+        : "xdg-open";
   exec(`${start} ${url}`, (err) => {
     if (err) {
       console.error(`Failed to open browser: ${err.message}`);
@@ -48,13 +48,13 @@ export const webCommand: CommandModule<object, WebArgs> = {
     try {
       console.log(`\n  Starting FreeCode Web Interface...`);
       startWebServer(port, host);
-      
+
       const url = `http://${host}:${port}/`;
       if (open) {
         console.log(`  Opening ${url} in your browser...`);
         openBrowser(url);
       }
-      
+
       // Prevent CLI exit
       await new Promise(() => {});
     } catch (err: any) {

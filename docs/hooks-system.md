@@ -46,60 +46,60 @@ The hooks system provides a way to intercept, modify, and respond to events duri
 
 ## 10 Hook Event Types
 
-| Event | Purpose | Can Block | Can Modify |
-|-------|---------|-----------|------------|
-| `SessionStart` | Initialize session state | No | Yes |
-| `UserPromptSubmit` | Modify prompt before sending to model | No | Yes |
-| `PreToolUse` | Validate/modify tool call before execution | Yes | Yes |
-| `PermissionRequest` | Request user approval for risky operations | Yes | Yes |
-| `PostToolUse` | Process tool results, inject context | No | Yes |
-| `PreCompact` | Inspect/modify context before compaction | Yes | No |
-| `PostCompact` | Verify/log compaction results | No | Yes |
-| `SubagentStart` | Initialize subagent context | No | Yes |
-| `SubagentStop` | Collect results from subagent | No | Yes |
-| `Stop` | Cleanup on agent termination | No | No |
+| Event               | Purpose                                    | Can Block | Can Modify |
+| ------------------- | ------------------------------------------ | --------- | ---------- |
+| `SessionStart`      | Initialize session state                   | No        | Yes        |
+| `UserPromptSubmit`  | Modify prompt before sending to model      | No        | Yes        |
+| `PreToolUse`        | Validate/modify tool call before execution | Yes       | Yes        |
+| `PermissionRequest` | Request user approval for risky operations | Yes       | Yes        |
+| `PostToolUse`       | Process tool results, inject context       | No        | Yes        |
+| `PreCompact`        | Inspect/modify context before compaction   | Yes       | No         |
+| `PostCompact`       | Verify/log compaction results              | No        | Yes        |
+| `SubagentStart`     | Initialize subagent context                | No        | Yes        |
+| `SubagentStop`      | Collect results from subagent              | No        | Yes        |
+| `Stop`              | Cleanup on agent termination               | No        | No         |
 
 ## Usage
 
 ### Registering Hooks
 
 ```typescript
-import { registerHook, getHookRuntime } from "./hooks"
+import { registerHook, getHookRuntime } from "./hooks";
 
 // Register a command hook
 registerHook("PreToolUse", "my-hook", {
   type: "command",
   command: "echo 'Blocking Write' && exit 2", // Exit 2 = block
   matcher: "Write",
-})
+});
 
 // Register a callback hook
 registerHook("PostToolUse", "log-tool", {
   type: "callback",
   callback: async (input, context) => {
-    console.log(`Tool ${input.toolName} executed`)
-    return { action: "continue" }
+    console.log(`Tool ${input.toolName} executed`);
+    return { action: "continue" };
   },
-})
+});
 ```
 
 ### Using Hooks in Code
 
 ```typescript
-import { getHookRuntime } from "./hooks"
+import { getHookRuntime } from "./hooks";
 
-const hooks = getHookRuntime()
+const hooks = getHookRuntime();
 
 // Before tool execution
 const preResult = await hooks.runPreToolUse(toolCall, {
   sessionId: "sess-123",
   turnCount: 1,
   toolName: toolCall.tool,
-})
+});
 
 if (!preResult.allowed) {
   // Tool was blocked by hook
-  console.log(`Blocked: ${preResult.blockReason}`)
+  console.log(`Blocked: ${preResult.blockReason}`);
 }
 
 // After tool execution
@@ -107,7 +107,7 @@ const postResult = await hooks.runPostToolUse(toolCall, result, {
   sessionId: "sess-123",
   turnCount: 1,
   toolName: toolCall.tool,
-})
+});
 ```
 
 ## Hook Command Types
@@ -122,7 +122,7 @@ registerHook("PreToolUse", "block-dangerous", {
   command: "./check-permissions.sh",
   shell: "bash",
   timeout: 5000,
-})
+});
 ```
 
 **Environment Variables Passed:**
@@ -159,11 +159,11 @@ registerHook("PreToolUse", "validate-input", {
   type: "callback",
   callback: async (input, context) => {
     if (input.toolName === "Bash" && input.toolInput.command.includes("rm")) {
-      return { action: "block", reason: "No rm commands allowed" }
+      return { action: "block", reason: "No rm commands allowed" };
     }
-    return { action: "continue" }
+    return { action: "continue" };
   },
-})
+});
 ```
 
 **Callback Actions:**
@@ -181,7 +181,7 @@ registerHook("PreToolUse", "llm-approval", {
   type: "prompt",
   prompt: "Should I allow this operation?",
   model: "claude",
-})
+});
 ```
 
 ## Hook Matcher Patterns
@@ -190,19 +190,19 @@ Hooks can use pattern matching to only trigger for specific tools:
 
 ```typescript
 // Match any tool
-matcher: "*"
+matcher: "*";
 
 // Match specific tool
-matcher: "Write"
+matcher: "Write";
 
 // Match tools with pattern
-matcher: "Bash(git *)"
+matcher: "Bash(git *)";
 
 // Match multiple alternatives (pipe-separated)
-matcher: "Write|Edit"
+matcher: "Write|Edit";
 
 // Complex patterns
-matcher: "Bash(npm * | yarn * | pnpm *)"
+matcher: "Bash(npm * | yarn * | pnpm *)";
 ```
 
 ## Integration Points
@@ -211,33 +211,37 @@ matcher: "Bash(npm * | yarn * | pnpm *)"
 
 ```typescript
 // Session Start
-await this.hooks.runSessionStart(ctx)
+await this.hooks.runSessionStart(ctx);
 
 // User Prompt Submit (can modify prompt)
-const result = await this.hooks.runUserPromptSubmit(prompt, ctx)
-const modifiedPrompt = result.modifiedPrompt ?? prompt
+const result = await this.hooks.runUserPromptSubmit(prompt, ctx);
+const modifiedPrompt = result.modifiedPrompt ?? prompt;
 
 // Pre Tool Use (can block or modify)
-const preResult = await this.hooks.runPreToolUse(toolCall, ctx)
-if (!preResult.allowed) { /* blocked */ }
-if (preResult.modifiedInput) { /* apply modifications */ }
+const preResult = await this.hooks.runPreToolUse(toolCall, ctx);
+if (!preResult.allowed) {
+  /* blocked */
+}
+if (preResult.modifiedInput) {
+  /* apply modifications */
+}
 
 // Permission Request (for dangerous operations)
-const permResult = await this.hooks.runPermissionRequest(toolCall, ctx)
+const permResult = await this.hooks.runPermissionRequest(toolCall, ctx);
 
 // Post Tool Use (can modify output)
-const postResult = await this.hooks.runPostToolUse(toolCall, result, ctx)
+const postResult = await this.hooks.runPostToolUse(toolCall, result, ctx);
 
 // Pre/Post Compact (memory compaction)
-const preResult = await this.hooks.runPreCompact(ctx)
-await this.hooks.runPostCompact(ctx, success)
+const preResult = await this.hooks.runPreCompact(ctx);
+await this.hooks.runPostCompact(ctx, success);
 
 // Subagent lifecycle
-await this.hooks.runSubagentStart(name, ctx)
-await this.hooks.runSubagentStop(name, ctx)
+await this.hooks.runSubagentStart(name, ctx);
+await this.hooks.runSubagentStop(name, ctx);
 
 // Stop (cleanup)
-await this.hooks.runStop(reason, ctx)
+await this.hooks.runStop(reason, ctx);
 ```
 
 ## Event Bus Integration
@@ -246,20 +250,20 @@ Hooks publish events to the bus when triggered:
 
 ```typescript
 // Hook triggered
-bus.publish({ type: "hook.triggered", hookName, event, sessionId })
+bus.publish({ type: "hook.triggered", hookName, event, sessionId });
 
 // Hook blocked
-bus.publish({ type: "hook.blocked", hookName, event, sessionId, reason })
+bus.publish({ type: "hook.blocked", hookName, event, sessionId, reason });
 ```
 
 ## HookContext Type
 
 ```typescript
 interface HookContext {
-  sessionId: string      // Current session ID
-  turnCount: number      // Current turn number
-  toolName?: string      // Tool name (for tool hooks)
-  [key: string]: unknown // Additional context
+  sessionId: string; // Current session ID
+  turnCount: number; // Current turn number
+  toolName?: string; // Tool name (for tool hooks)
+  [key: string]: unknown; // Additional context
 }
 ```
 
@@ -269,9 +273,14 @@ interface HookContext {
 
 ```typescript
 type HookExecutionResult =
-  | { success: true; modifiedInput?: object; modifiedOutput?: unknown; additionalContext?: string }
+  | {
+      success: true;
+      modifiedInput?: object;
+      modifiedOutput?: unknown;
+      additionalContext?: string;
+    }
   | { success: false; blocked: true; blockReason?: string }
-  | { success: false; blocked: false; error: string }
+  | { success: false; blocked: false; error: string };
 ```
 
 ### HookResult (Callback)
@@ -280,7 +289,7 @@ type HookExecutionResult =
 type HookResult =
   | { action: "continue" }
   | { action: "block"; reason: string }
-  | { action: "modify"; modifiedInput?: object; modifiedOutput?: unknown }
+  | { action: "modify"; modifiedInput?: object; modifiedOutput?: unknown };
 ```
 
 ## File Structure

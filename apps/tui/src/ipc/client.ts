@@ -106,7 +106,10 @@ export function startCli(onStderr?: (msg: string) => void): void {
   });
 }
 
-function sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+function sendRequest(
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
       reject(new Error("CLI not running"));
@@ -115,7 +118,10 @@ function sendRequest(method: string, params?: Record<string, unknown>): Promise<
 
     const id = generateId();
     const request: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
-    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    pendingRequests.set(id, {
+      resolve: resolve as (value: unknown) => void,
+      reject,
+    });
 
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
@@ -136,7 +142,10 @@ export async function listTools(): Promise<ToolListItem[]> {
   return (await sendRequest("tools.list")) as ToolListItem[];
 }
 
-export async function callTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+export async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<ToolResult> {
   return (await sendRequest("tools.call", { name, args })) as ToolResult;
 }
 
@@ -148,8 +157,13 @@ export interface SessionInfo {
   sessionId: string;
 }
 
-export async function sessionStart(config: SessionConfig): Promise<SessionInfo> {
-  return (await sendRequest("session.start", config as unknown as Record<string, unknown>)) as SessionInfo;
+export async function sessionStart(
+  config: SessionConfig,
+): Promise<SessionInfo> {
+  return (await sendRequest(
+    "session.start",
+    config as unknown as Record<string, unknown>,
+  )) as SessionInfo;
 }
 
 export async function sessionStop(sessionId: string): Promise<void> {
@@ -165,8 +179,16 @@ export interface SessionSendResult {
   usage?: { inputTokens: number; outputTokens: number };
 }
 
-export async function sessionSend(sessionId: string, message: string, model?: string): Promise<SessionSendResult> {
-  return await sendRequest("session.send", { sessionId, message, model }) as SessionSendResult;
+export async function sessionSend(
+  sessionId: string,
+  message: string,
+  model?: string,
+): Promise<SessionSendResult> {
+  return (await sendRequest("session.send", {
+    sessionId,
+    message,
+    model,
+  })) as SessionSendResult;
 }
 
 export async function sessionSendStreaming(
@@ -174,7 +196,7 @@ export async function sessionSendStreaming(
   message: string,
   model: string | undefined,
   agentMode: string | undefined,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
 ): Promise<SessionSendResult> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
@@ -185,8 +207,16 @@ export async function sessionSendStreaming(
     onStreamEvent = onEvent;
 
     const id = generateId();
-    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method: "session.send", params: { sessionId, message, model, agentMode } };
-    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    const request: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id,
+      method: "session.send",
+      params: { sessionId, message, model, agentMode },
+    };
+    pendingRequests.set(id, {
+      resolve: resolve as (value: unknown) => void,
+      reject,
+    });
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
 }
@@ -200,9 +230,9 @@ export async function listProviders(): Promise<ProviderInfo[]> {
 }
 
 export interface ModelInfo {
-  id: string
-  name: string
-  description?: string
+  id: string;
+  name: string;
+  description?: string;
 }
 
 export async function listModels(providerId: string): Promise<ModelInfo[]> {
@@ -210,24 +240,35 @@ export async function listModels(providerId: string): Promise<ModelInfo[]> {
 }
 
 export interface ConfigInfo {
-  providers?: Record<string, { apiKey?: string }>
-  current?: { provider: string; model: string }
+  providers?: Record<string, { apiKey?: string }>;
+  current?: { provider: string; model: string };
 }
 
 export async function getConfig(): Promise<ConfigInfo> {
   return (await sendRequest("config.get")) as ConfigInfo;
 }
 
-export async function setApiKey(provider: string, apiKey: string, model?: string): Promise<void> {
-  await sendRequest("config.setApiKey", { provider, apiKey, model })
+export async function setApiKey(
+  provider: string,
+  apiKey: string,
+  model?: string,
+): Promise<void> {
+  await sendRequest("config.setApiKey", { provider, apiKey, model });
 }
 
-export async function setCurrentModel(provider: string, model: string): Promise<void> {
-  await sendRequest("config.setCurrentModel", { provider, model })
+export async function setCurrentModel(
+  provider: string,
+  model: string,
+): Promise<void> {
+  await sendRequest("config.setCurrentModel", { provider, model });
 }
 
-export async function getCurrentModel(): Promise<{ provider: string; model: string } | undefined> {
-  return (await sendRequest("config.getCurrentModel")) as { provider: string; model: string } | undefined
+export async function getCurrentModel(): Promise<
+  { provider: string; model: string } | undefined
+> {
+  return (await sendRequest("config.getCurrentModel")) as
+    | { provider: string; model: string }
+    | undefined;
 }
 
 // =============================================================================
@@ -235,43 +276,54 @@ export async function getCurrentModel(): Promise<{ provider: string; model: stri
 // =============================================================================
 
 export interface SessionMeta {
-  id: string
-  title: string
-  projectPath: string
-  provider: string
-  model?: string
-  status: 'active' | 'interrupted' | 'archived' | 'deleted'
-  createdAt: number
-  updatedAt: number
-  lastTurnAt: number
-  turnCount: number
-  parentId?: string
-  aggregatedTokenCount?: number
+  id: string;
+  title: string;
+  projectPath: string;
+  provider: string;
+  model?: string;
+  status: "active" | "interrupted" | "archived" | "deleted";
+  createdAt: number;
+  updatedAt: number;
+  lastTurnAt: number;
+  turnCount: number;
+  parentId?: string;
+  aggregatedTokenCount?: number;
 }
 
 export interface SessionFilter {
-  status?: 'active' | 'interrupted' | 'archived' | 'deleted'
-  projectPath?: string
+  status?: "active" | "interrupted" | "archived" | "deleted";
+  projectPath?: string;
 }
 
-export async function sessionList(filter?: SessionFilter): Promise<SessionMeta[]> {
-  return (await sendRequest("session.list", filter as Record<string, unknown>)) as SessionMeta[]
+export async function sessionList(
+  filter?: SessionFilter,
+): Promise<SessionMeta[]> {
+  return (await sendRequest(
+    "session.list",
+    filter as Record<string, unknown>,
+  )) as SessionMeta[];
 }
 
-export async function sessionResume(sessionId: string, agentMode?: string): Promise<{ sessionId: string; messages?: SerializedMessage[] }> {
-  return (await sendRequest("session.resume", { sessionId, agentMode })) as { sessionId: string; messages?: SerializedMessage[] }
+export async function sessionResume(
+  sessionId: string,
+  agentMode?: string,
+): Promise<{ sessionId: string; messages?: SerializedMessage[] }> {
+  return (await sendRequest("session.resume", { sessionId, agentMode })) as {
+    sessionId: string;
+    messages?: SerializedMessage[];
+  };
 }
 
 export interface SerializedMessage {
-  id: string
-  role: 'user' | 'assistant'
+  id: string;
+  role: "user" | "assistant";
   parts: Array<{
-    type: 'text' | 'code' | 'tool'
-    content?: string
-    language?: string
-    tool?: { name: string; args: Record<string, unknown> }
-    result?: string
-  }>
-  timestamp: number
-  interrupted?: boolean
+    type: "text" | "code" | "tool";
+    content?: string;
+    language?: string;
+    tool?: { name: string; args: Record<string, unknown> };
+    result?: string;
+  }>;
+  timestamp: number;
+  interrupted?: boolean;
 }

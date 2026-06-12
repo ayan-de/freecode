@@ -2,31 +2,31 @@
 // Memory Prompt - Build memory context for system prompts
 // =============================================================================
 
-import type { MemoryEntry, MemoryType } from "./mem-types"
-import { MemoryStore } from "./mem-store"
-import { findRelevantMemories } from "./mem-query"
+import type { MemoryEntry, MemoryType } from "./mem-types";
+import { MemoryStore } from "./mem-store";
+import { findRelevantMemories } from "./mem-query";
 
 export interface MemoryPromptOptions {
-  includeAll?: boolean
-  types?: MemoryType[]
-  limit?: number
+  includeAll?: boolean;
+  types?: MemoryType[];
+  limit?: number;
 }
 
 export function buildMemoryPrompt(
   store: MemoryStore,
-  options: MemoryPromptOptions = {}
+  options: MemoryPromptOptions = {},
 ): string {
-  const { includeAll = false, types, limit = 10 } = options
+  const { includeAll = false, types, limit = 10 } = options;
 
-  let entries: MemoryEntry[]
+  let entries: MemoryEntry[];
   if (includeAll) {
-    entries = store.list()
+    entries = store.list();
   } else {
-    entries = findRelevantMemories("", store, { types, limit })
+    entries = findRelevantMemories("", store, { types, limit });
   }
 
   if (entries.length === 0) {
-    return ""
+    return "";
   }
 
   const lines: string[] = [
@@ -55,28 +55,33 @@ export function buildMemoryPrompt(
     "",
     "---",
     "",
-  ]
+  ];
 
   // Group by type
-  const byType = new Map<MemoryType, MemoryEntry[]>()
+  const byType = new Map<MemoryType, MemoryEntry[]>();
   for (const entry of entries) {
-    const list = byType.get(entry.type) ?? []
-    list.push(entry)
-    byType.set(entry.type, list)
+    const list = byType.get(entry.type) ?? [];
+    list.push(entry);
+    byType.set(entry.type, list);
   }
 
-  for (const type of ["user", "feedback", "project", "reference"] as MemoryType[]) {
-    const typeEntries = byType.get(type) ?? []
-    if (typeEntries.length === 0) continue
+  for (const type of [
+    "user",
+    "feedback",
+    "project",
+    "reference",
+  ] as MemoryType[]) {
+    const typeEntries = byType.get(type) ?? [];
+    if (typeEntries.length === 0) continue;
 
-    lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}`)
+    lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}`);
     for (const entry of typeEntries) {
-      lines.push("")
-      lines.push(`### ${entry.name}`)
-      lines.push(entry.content)
+      lines.push("");
+      lines.push(`### ${entry.name}`);
+      lines.push(entry.content);
     }
-    lines.push("")
+    lines.push("");
   }
 
-  return lines.join("\n")
+  return lines.join("\n");
 }

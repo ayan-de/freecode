@@ -25,9 +25,21 @@ Add to `/packages/shared/src/ipc/protocol.ts`:
 
 ```typescript
 export type StreamEvent =
-  | { type: "tool_start"; toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | {
+      type: "tool_start";
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+    }
   | { type: "tool_output"; toolCallId: string; content: string }
-  | { type: "tool_complete"; toolCallId: string; toolName: string; result: string; success: boolean; duration_ms?: number }
+  | {
+      type: "tool_complete";
+      toolCallId: string;
+      toolName: string;
+      result: string;
+      success: boolean;
+      duration_ms?: number;
+    }
   | { type: "text"; content: string }
   | { type: "error"; content: string };
 
@@ -89,6 +101,7 @@ interface RunOptions {
 ```
 
 Emit events in `executeTool()`:
+
 - `tool_start` before executing
 - `tool_output` for live output (buffer and flush periodically)
 - `tool_complete` after execution finishes
@@ -102,7 +115,7 @@ export async function sessionSendStreaming(
   sessionId: string,
   message: string,
   model: string | undefined,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
 ): Promise<LoopResult> {
   // Send request and parse streaming events from response stream
   // For each line, check if it's a StreamEvent or final result
@@ -164,6 +177,7 @@ export class ToolResultMessage implements Component {
 ## 4. Display Format
 
 ### Running Tool
+
 ```
 [●] Read (path: "/src/index.ts")
     └─ Reading...
@@ -171,18 +185,21 @@ export class ToolResultMessage implements Component {
 ```
 
 ### Completed Tool (Success)
+
 ```
 [✓] Read (path: "/src/index.ts") (145ms)
     ⎿ 2453 chars
 ```
 
 ### Completed Tool (Error)
+
 ```
 [✗] Bash (command: "rm -rf /")
     ⎿ Error: Permission denied
 ```
 
 ### Color Coding
+
 - `Read` → blue
 - `Write` → green
 - `Edit` → yellow
@@ -194,18 +211,18 @@ export class ToolResultMessage implements Component {
 
 ## 5. File Changes Summary
 
-| File | Change |
-|------|--------|
-| `packages/shared/src/ipc/protocol.ts` | Add `StreamEvent` types |
-| `apps/core/src/agent/loop.ts` | Add `onToolEvent` callback |
-| `apps/core/src/agent/types.ts` | Add `RunOptions.onToolEvent` |
-| `apps/core/src/server.ts` | Stream events to stdout |
-| `apps/tui/src/ipc/client.ts` | Add `sessionSendStreaming` |
-| `apps/tui/src/state/message-store.ts` | Add tool message methods |
-| `apps/tui/src/components/tool-progress-message.ts` | NEW - in-progress display |
-| `apps/tui/src/components/tool-result-message.ts` | NEW - result display |
-| `apps/tui/src/components/index.ts` | Export new components |
-| `apps/tui/src/index.ts` | Wire streaming into message flow |
+| File                                               | Change                           |
+| -------------------------------------------------- | -------------------------------- |
+| `packages/shared/src/ipc/protocol.ts`              | Add `StreamEvent` types          |
+| `apps/core/src/agent/loop.ts`                      | Add `onToolEvent` callback       |
+| `apps/core/src/agent/types.ts`                     | Add `RunOptions.onToolEvent`     |
+| `apps/core/src/server.ts`                          | Stream events to stdout          |
+| `apps/tui/src/ipc/client.ts`                       | Add `sessionSendStreaming`       |
+| `apps/tui/src/state/message-store.ts`              | Add tool message methods         |
+| `apps/tui/src/components/tool-progress-message.ts` | NEW - in-progress display        |
+| `apps/tui/src/components/tool-result-message.ts`   | NEW - result display             |
+| `apps/tui/src/components/index.ts`                 | Export new components            |
+| `apps/tui/src/index.ts`                            | Wire streaming into message flow |
 
 ## 6. Implementation Order
 

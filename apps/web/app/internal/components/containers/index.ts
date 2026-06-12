@@ -3,4 +3,4 @@ export {
   CLIContainer,
   IPCContainer,
   FlowContainer,
-} from './ArchitectureContent';
+} from "./ArchitectureContent";

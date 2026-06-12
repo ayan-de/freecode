@@ -3,6 +3,7 @@
 ## Context
 
 FreeCode has two apps:
+
 - **CLI** (`apps/core/`) — JSON-RPC server over stdin/stdout exposing `tools.list` and `tools.call`
 - **TUI** (`apps/tui/`) — React terminal UI that spawns CLI as child process and communicates via JSON-RPC
 
@@ -76,12 +77,12 @@ The VS Code extension communicates with CLI using JSON-RPC 2.0 over stdin/stdout
 
 ### Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `tools.list` | — | `ToolListItem[]` | List available tools |
-| `tools.call` | `{ name: string, args: Record<string, unknown> }` | `ToolCallResult` | Execute a tool |
-| `session.start` | `{ projectPath: string }` | `{ sessionId: string }` | Start a new session |
-| `session.send` | `{ sessionId: string, prompt: string }` | `StreamResponse` | Send prompt, stream response |
+| Method          | Params                                            | Returns                 | Description                  |
+| --------------- | ------------------------------------------------- | ----------------------- | ---------------------------- |
+| `tools.list`    | —                                                 | `ToolListItem[]`        | List available tools         |
+| `tools.call`    | `{ name: string, args: Record<string, unknown> }` | `ToolCallResult`        | Execute a tool               |
+| `session.start` | `{ projectPath: string }`                         | `{ sessionId: string }` | Start a new session          |
+| `session.send`  | `{ sessionId: string, prompt: string }`           | `StreamResponse`        | Send prompt, stream response |
 
 ### Types
 
@@ -98,7 +99,7 @@ interface ToolCallResult {
 }
 
 interface StreamResponse {
-  type: 'text' | 'code' | 'tool' | 'done' | 'error';
+  type: "text" | "code" | "tool" | "done" | "error";
   content: string;
 }
 ```
@@ -108,21 +109,25 @@ interface StreamResponse {
 ## Chat UI Components
 
 ### ChatView (Main Panel)
+
 - Container for the entire chat interface
 - Registers with VS Code's ViewContainer
 - Manages webview lifecycle
 
 ### MessageList
+
 - Renders array of `Message` objects
 - Auto-scrolls to bottom on new messages
 - Supports streaming updates
 
 ### MessageInput
+
 - Multi-line text input (textarea)
 - Submit on Cmd/Ctrl+Enter
 - Disabled during streaming
 
 ### Message Part Renderers
+
 - `TextPart` — Plain text with markdown rendering
 - `CodePart` — Syntax highlighted code blocks with copy button
 - `ToolPart` — Tool execution result with expand/collapse
@@ -165,13 +170,13 @@ interface StreamResponse {
 
 ## Key Differences from TUI
 
-| Aspect | TUI | VS Code |
-|--------|-----|---------|
-| Terminal | xterm.js + React DOM overlay | VS Code Webview API |
-| Input | Single-line REPL | Multi-line textarea |
-| Output | Stream to terminal | Render in chat panel |
-| File changes | CLI applies directly | CLI applies, VS Code shows diff |
-| Session | Ephemeral | Persisted in workspace |
+| Aspect       | TUI                          | VS Code                         |
+| ------------ | ---------------------------- | ------------------------------- |
+| Terminal     | xterm.js + React DOM overlay | VS Code Webview API             |
+| Input        | Single-line REPL             | Multi-line textarea             |
+| Output       | Stream to terminal           | Render in chat panel            |
+| File changes | CLI applies directly         | CLI applies, VS Code shows diff |
+| Session      | Ephemeral                    | Persisted in workspace          |
 
 ---
 

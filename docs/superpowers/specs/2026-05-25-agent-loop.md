@@ -8,19 +8,19 @@
 
 ## Design Decisions Summary
 
-| Question | Decision | Reference | Status |
-|----------|----------|-----------|--------|
-| Why loop? | Complex tasks need multi-step | Claude Code / codex | ✅ Done |
-| Loop style | Continuous (Claude Code style) | Cycles until no tool calls | ✅ Done |
-| Streaming | Full page parse on each turn | Browser Playwright limitation | Pending |
-| Tool execution | Mixed (safe=inproc, risky=sandbox) | Best balance | Pending |
-| DI framework | Effect/Layer (like opencode) | Testability + composition | ⚠️ Simplified |
-| Hooks | Full 10-type system upfront | Claude Code pattern | ✅ Done |
-| Skills | Markdown + plugin (extended) | Auto-discovered via glob | Pending |
-| MCP | Client first, server later | Matches codex/claude-code | Pending |
-| Sub-agents | Full implementation upfront | codex multi_agent pattern | Pending |
-| Persistence | SQLite + JSON upfront | Enables resume | Pending |
-| Build scope | Full v3 spec all at once | Complete architecture | ⚠️ Phase 1 only |
+| Question       | Decision                           | Reference                     | Status          |
+| -------------- | ---------------------------------- | ----------------------------- | --------------- |
+| Why loop?      | Complex tasks need multi-step      | Claude Code / codex           | ✅ Done         |
+| Loop style     | Continuous (Claude Code style)     | Cycles until no tool calls    | ✅ Done         |
+| Streaming      | Full page parse on each turn       | Browser Playwright limitation | Pending         |
+| Tool execution | Mixed (safe=inproc, risky=sandbox) | Best balance                  | Pending         |
+| DI framework   | Effect/Layer (like opencode)       | Testability + composition     | ⚠️ Simplified   |
+| Hooks          | Full 10-type system upfront        | Claude Code pattern           | ✅ Done         |
+| Skills         | Markdown + plugin (extended)       | Auto-discovered via glob      | Pending         |
+| MCP            | Client first, server later         | Matches codex/claude-code     | Pending         |
+| Sub-agents     | Full implementation upfront        | codex multi_agent pattern     | Pending         |
+| Persistence    | SQLite + JSON upfront              | Enables resume                | Pending         |
+| Build scope    | Full v3 spec all at once           | Complete architecture         | ⚠️ Phase 1 only |
 
 ---
 
@@ -34,74 +34,69 @@ These are the **most important** abstractions. Once shipping begins, changing th
 // apps/core/src/session/types.ts
 
 interface ModelTurn {
-  id: string
-  provider: ProviderID
-  reasoning?: string
-  content: AssistantContent[]
-  toolCalls: ToolCall[]
-  stopReason:
-    | "tool_use"
-    | "completed"
-    | "max_tokens"
-    | "error"
-    | "interrupted"
+  id: string;
+  provider: ProviderID;
+  reasoning?: string;
+  content: AssistantContent[];
+  toolCalls: ToolCall[];
+  stopReason: "tool_use" | "completed" | "max_tokens" | "error" | "interrupted";
   usage?: {
-    inputTokens?: number
-    outputTokens?: number
-  }
-  raw?: unknown
+    inputTokens?: number;
+    outputTokens?: number;
+  };
+  raw?: unknown;
 }
 
 interface ToolCall {
-  id: string
-  tool: string
-  args: unknown
-  execution: "sequential" | "parallel-safe"
+  id: string;
+  tool: string;
+  args: unknown;
+  execution: "sequential" | "parallel-safe";
 }
 
 interface ToolResult {
-  id: string
-  toolCallId: string
-  tool: string
-  title: string
-  stdout?: string
-  stderr?: string
-  exitCode?: number
-  duration_ms?: number
-  artifacts?: Artifact[]
-  structuredData?: unknown
-  truncated?: boolean
-  error?: string
+  id: string;
+  toolCallId: string;
+  tool: string;
+  title: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  duration_ms?: number;
+  artifacts?: Artifact[];
+  structuredData?: unknown;
+  truncated?: boolean;
+  error?: string;
 }
 
 interface RecoveryPolicy {
-  canRecover(error: unknown): boolean
+  canRecover(error: unknown): boolean;
   strategy:
     | "retry"
     | "restart-provider"
     | "restart-browser"
     | "rollback-turn"
-    | "abort-session"
-  maxAttempts: number
-  initialDelay?: number
-  backoff?: "linear" | "exponential" | "fixed"
+    | "abort-session";
+  maxAttempts: number;
+  initialDelay?: number;
+  backoff?: "linear" | "exponential" | "fixed";
 }
 
 interface LoopHealth {
-  repeatedTools: number
-  stagnantTurns: number
-  oscillationScore: number
-  repeatedReasoningScore: number
+  repeatedTools: number;
+  stagnantTurns: number;
+  oscillationScore: number;
+  repeatedReasoningScore: number;
 }
 
 interface SessionState {
-  status: "idle" | "starting" | "running" | "error" | "stopped"
-  sessionId: string
-  turnCount: number
-  iterationCount: number
-  loopHealth: LoopHealth
-  pendingToolCalls: ToolCall[]
-  activeToolChain?: string[]  // for compaction awareness
+  status: "idle" | "starting" | "running" | "error" | "stopped";
+  sessionId: string;
+  turnCount: number;
+  iterationCount: number;
+  loopHealth: LoopHealth;
+  pendingToolCalls: ToolCall[];
+  activeToolChain?: string[]; // for compaction awareness
 }
 ```
 
@@ -220,46 +215,63 @@ interface SessionState {
 ```typescript
 // apps/core/src/effect/layers.ts
 
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect";
 
 // Service interfaces
 interface AgentLoop {
-  readonly run: (input: UserInput) => Effect.Effect<LoopResult>
-  readonly stop: () => Effect.Effect<void>
-  readonly interrupt: () => Effect.Effect<void>
+  readonly run: (input: UserInput) => Effect.Effect<LoopResult>;
+  readonly stop: () => Effect.Effect<void>;
+  readonly interrupt: () => Effect.Effect<void>;
 }
 
 interface SessionService {
-  readonly getHistory: () => Effect.Effect<Message[]>
-  readonly appendMessage: (message: Message) => Effect.Effect<void>
-  readonly fork: (point?: string) => Effect.Effect<string>
-  readonly compact: (options: CompactionOptions) => Effect.Effect<CompactionResult>
-  readonly getState: () => Effect.Effect<SessionState>
+  readonly getHistory: () => Effect.Effect<Message[]>;
+  readonly appendMessage: (message: Message) => Effect.Effect<void>;
+  readonly fork: (point?: string) => Effect.Effect<string>;
+  readonly compact: (
+    options: CompactionOptions,
+  ) => Effect.Effect<CompactionResult>;
+  readonly getState: () => Effect.Effect<SessionState>;
 }
 
 interface ToolOrchestrator {
-  readonly execute: (tool: ToolCall) => Effect.Effect<ToolResult>
-  readonly canExecute: (tool: ToolCall) => Effect.Effect<boolean>
-  readonly executeBatch: (tools: ToolCall[]) => Effect.Effect<ToolResult[]>
+  readonly execute: (tool: ToolCall) => Effect.Effect<ToolResult>;
+  readonly canExecute: (tool: ToolCall) => Effect.Effect<boolean>;
+  readonly executeBatch: (tools: ToolCall[]) => Effect.Effect<ToolResult[]>;
 }
 
 interface HookRuntime {
-  readonly runPreToolUse: (tool: ToolCall, ctx: HookContext) => Effect.Effect<HookResult>
-  readonly runPostToolUse: (tool: ToolCall, result: ToolResult, ctx: HookContext) => Effect.Effect<ToolResult>
-  readonly runPreCompact: (context: HistoryContext) => Effect.Effect<HookResult>
-  readonly runPostCompact: (context: HistoryContext) => Effect.Effect<void>
-  readonly runSessionStart: (session: SessionState) => Effect.Effect<void>
-  readonly runUserPromptSubmit: (prompt: string) => Effect.Effect<string>
-  readonly runSubagentStart: (agent: AgentDefinition) => Effect.Effect<void>
-  readonly runSubagentStop: (agent: AgentDefinition, result: string) => Effect.Effect<void>
-  readonly runStop: (reason: string) => Effect.Effect<void>
+  readonly runPreToolUse: (
+    tool: ToolCall,
+    ctx: HookContext,
+  ) => Effect.Effect<HookResult>;
+  readonly runPostToolUse: (
+    tool: ToolCall,
+    result: ToolResult,
+    ctx: HookContext,
+  ) => Effect.Effect<ToolResult>;
+  readonly runPreCompact: (
+    context: HistoryContext,
+  ) => Effect.Effect<HookResult>;
+  readonly runPostCompact: (context: HistoryContext) => Effect.Effect<void>;
+  readonly runSessionStart: (session: SessionState) => Effect.Effect<void>;
+  readonly runUserPromptSubmit: (prompt: string) => Effect.Effect<string>;
+  readonly runSubagentStart: (agent: AgentDefinition) => Effect.Effect<void>;
+  readonly runSubagentStop: (
+    agent: AgentDefinition,
+    result: string,
+  ) => Effect.Effect<void>;
+  readonly runStop: (reason: string) => Effect.Effect<void>;
   // ... other hook types
 }
 
 interface RecoveryManager {
-  readonly getPolicy: (error: Error, context: ToolContext) => RecoveryPolicy
-  readonly executeWithRecovery: (tool: ToolCall, policy: RecoveryPolicy) => Effect.Effect<ToolResult>
-  readonly classifyError: (error: Error) => ErrorClass
+  readonly getPolicy: (error: Error, context: ToolContext) => RecoveryPolicy;
+  readonly executeWithRecovery: (
+    tool: ToolCall,
+    policy: RecoveryPolicy,
+  ) => Effect.Effect<ToolResult>;
+  readonly classifyError: (error: Error) => ErrorClass;
 }
 
 // Live implementations composed into AppLayer
@@ -271,14 +283,11 @@ const AppLayer = Layer.provideMerge(
       ToolOrchestratorLive,
       Layer.provideMerge(
         HookRuntimeLive,
-        Layer.provideMerge(
-          RecoveryManagerLive,
-          BrowserControllerLive
-        )
-      )
-    )
-  )
-)
+        Layer.provideMerge(RecoveryManagerLive, BrowserControllerLive),
+      ),
+    ),
+  ),
+);
 ```
 
 ---
@@ -287,18 +296,18 @@ const AppLayer = Layer.provideMerge(
 
 ### Tool Categories
 
-| Category | Tools | Execution |
-|----------|-------|-----------|
-| **Sequential** | edit, write, bash, agent | One at a time, in order |
-| **Parallel-safe** | read, grep, glob, find | Batch concurrently |
-| **Agent (spawn)** | agent | New session fork |
-| **Skills** | skill | Render + invoke |
-| **MCP (external)** | mcp.* | Via MCP client |
+| Category           | Tools                    | Execution               |
+| ------------------ | ------------------------ | ----------------------- |
+| **Sequential**     | edit, write, bash, agent | One at a time, in order |
+| **Parallel-safe**  | read, grep, glob, find   | Batch concurrently      |
+| **Agent (spawn)**  | agent                    | New session fork        |
+| **Skills**         | skill                    | Render + invoke         |
+| **MCP (external)** | mcp.\*                   | Via MCP client          |
 
 ### Execution Mode
 
 ```typescript
-type ExecutionMode = "sequential" | "parallel-safe"
+type ExecutionMode = "sequential" | "parallel-safe";
 
 // Sequential: tools run one after another
 // grep → read → edit → sequential (chain)
@@ -309,10 +318,10 @@ type ExecutionMode = "sequential" | "parallel-safe"
 // grep A, grep B, grep C → parallel (independent searches)
 
 interface ToolCall {
-  id: string
-  tool: string
-  args: unknown
-  execution: ExecutionMode
+  id: string;
+  tool: string;
+  args: unknown;
+  execution: ExecutionMode;
 }
 ```
 
@@ -357,16 +366,16 @@ ToolCall
 
 ```typescript
 const HOOK_EVENT_NAMES = [
-  "PreToolUse",       // Before tool execution — modify input or block
-  "PostToolUse",      // After tool execution — modify output, log
+  "PreToolUse", // Before tool execution — modify input or block
+  "PostToolUse", // After tool execution — modify output, log
   "PermissionRequest", // When tool requires user approval
-  "PreCompact",       // Before memory compaction — inspect/modify context
-  "PostCompact",      // After memory compaction — verify result
-  "SessionStart",     // When session begins — initialize session state
-  "UserPromptSubmit",  // Before user prompt goes to model
-  "SubagentStart",    // When a sub-agent is spawned
-  "SubagentStop",     // When a sub-agent completes
-  "Stop",             // When agent loop terminates
+  "PreCompact", // Before memory compaction — inspect/modify context
+  "PostCompact", // After memory compaction — verify result
+  "SessionStart", // When session begins — initialize session state
+  "UserPromptSubmit", // Before user prompt goes to model
+  "SubagentStart", // When a sub-agent is spawned
+  "SubagentStop", // When a sub-agent completes
+  "Stop", // When agent loop terminates
 ] as const;
 
 interface HookResult {
@@ -390,62 +399,68 @@ Single-threshold systems fail badly. Use composite scoring.
 interface LoopHeuristics {
   // A. Repeated identical tool call
   // same tool + same args 3x within 10 turns → hard stop
-  repeatedIdenticalThreshold: number  // default: 3
+  repeatedIdenticalThreshold: number; // default: 3
 
   // B. No state change
   // 5 consecutive turns with no file changes, no new tool results → warning
-  stagnantTurnsThreshold: number  // default: 5
+  stagnantTurnsThreshold: number; // default: 5
 
   // C. Oscillation detection
   // edit file A, revert file A, edit file A, revert file A → block
   // Track diff fingerprints, detect back-and-forth
-  oscillationScoreThreshold: number  // default: 4
+  oscillationScoreThreshold: number; // default: 4
 
   // D. Repeated reasoning similarity
   // assistant reasoning similarity > 90% for N turns → likely stuck
-  reasoningSimilarityThreshold: number  // default: 0.9
-  reasoningSimilarityTurns: number     // default: 3
+  reasoningSimilarityThreshold: number; // default: 0.9
+  reasoningSimilarityTurns: number; // default: 3
 
   // Overall limits
-  totalIterationLimit: number  // hard cap, default: 100
+  totalIterationLimit: number; // hard cap, default: 100
 }
 
 interface LoopHealth {
-  repeatedTools: number
-  stagnantTurns: number
-  oscillationScore: number
-  repeatedReasoningScore: number
+  repeatedTools: number;
+  stagnantTurns: number;
+  oscillationScore: number;
+  repeatedReasoningScore: number;
 
   // Computed
-  isHealthy: boolean
-  shouldWarn: boolean
-  shouldStop: boolean
+  isHealthy: boolean;
+  shouldWarn: boolean;
+  shouldStop: boolean;
 }
 ```
 
 ### Runtime Behavior
 
 ```typescript
-const evaluateLoopHealth = (health: LoopHealth, config: LoopHeuristics): LoopAction => {
+const evaluateLoopHealth = (
+  health: LoopHealth,
+  config: LoopHeuristics,
+): LoopAction => {
   if (health.repeatedTools >= config.repeatedIdenticalThreshold) {
-    return { action: "stop", reason: "repeated_identical_tool" }
+    return { action: "stop", reason: "repeated_identical_tool" };
   }
   if (health.stagnantTurns >= config.stagnantTurnsThreshold) {
-    return { action: "warn", reason: "no_progress" }
+    return { action: "warn", reason: "no_progress" };
   }
   if (health.oscillationScore >= config.oscillationScoreThreshold) {
-    return { action: "stop", reason: "oscillation_detected" }
+    return { action: "stop", reason: "oscillation_detected" };
   }
   if (health.iterationCount >= config.totalIterationLimit) {
-    return { action: "stop", reason: "max_iterations_reached" }
+    return { action: "stop", reason: "max_iterations_reached" };
   }
-  return { action: "continue" }
-}
+  return { action: "continue" };
+};
 
 // Warn: notify user, ask to continue
 // Stop: halt loop, preserve history
 // Continue: proceed normally
-type LoopAction = { action: "continue" } | { action: "warn"; reason: string } | { action: "stop"; reason: string }
+type LoopAction =
+  | { action: "continue" }
+  | { action: "warn"; reason: string }
+  | { action: "stop"; reason: string };
 ```
 
 ---
@@ -458,51 +473,76 @@ Use Effect underneath, expose runtime-level semantic policy.
 
 ```typescript
 interface RecoveryPolicy {
-  canRecover(error: unknown): boolean
+  canRecover(error: unknown): boolean;
   strategy:
-    | "retry"           // Effect.retry with backoff
-    | "restart-provider"  // Reinitialize provider
-    | "restart-browser"    // Reconnect Playwright
-    | "rollback-turn"      // Restore turn state
-    | "abort-session"      // Fatal, end session
-  maxAttempts: number
-  initialDelay?: number
-  backoff?: "linear" | "exponential" | "fixed"
-  fallbackTool?: string
+    | "retry" // Effect.retry with backoff
+    | "restart-provider" // Reinitialize provider
+    | "restart-browser" // Reconnect Playwright
+    | "rollback-turn" // Restore turn state
+    | "abort-session"; // Fatal, end session
+  maxAttempts: number;
+  initialDelay?: number;
+  backoff?: "linear" | "exponential" | "fixed";
+  fallbackTool?: string;
 }
 
-type ErrorClass = "recoverable" | "fatal"
+type ErrorClass = "recoverable" | "fatal";
 
 const ERROR_POLICIES: Record<string, RecoveryPolicy> = {
   // Recoverable
-  TransientMCPTimeout: { canRecover: isTransient, strategy: "retry", maxAttempts: 3, backoff: "exponential" },
-  PlaywrightDisconnect: { canRecover: always, strategy: "restart-browser", maxAttempts: 2 },
-  HTTP429: { canRecover: is429, strategy: "retry", maxAttempts: 5, backoff: "exponential", initialDelay: 5000 },
-  MalformedStreamingChunk: { canRecover: always, strategy: "retry", maxAttempts: 3 },
-  ProviderTimeout: { canRecover: always, strategy: "retry", maxAttempts: 3, backoff: "exponential" },
+  TransientMCPTimeout: {
+    canRecover: isTransient,
+    strategy: "retry",
+    maxAttempts: 3,
+    backoff: "exponential",
+  },
+  PlaywrightDisconnect: {
+    canRecover: always,
+    strategy: "restart-browser",
+    maxAttempts: 2,
+  },
+  HTTP429: {
+    canRecover: is429,
+    strategy: "retry",
+    maxAttempts: 5,
+    backoff: "exponential",
+    initialDelay: 5000,
+  },
+  MalformedStreamingChunk: {
+    canRecover: always,
+    strategy: "retry",
+    maxAttempts: 3,
+  },
+  ProviderTimeout: {
+    canRecover: always,
+    strategy: "retry",
+    maxAttempts: 3,
+    backoff: "exponential",
+  },
 
   // Fatal
   PermissionDenied: { canRecover: never, strategy: "abort-session" },
   CorruptedSessionState: { canRecover: never, strategy: "abort-session" },
   InvalidToolSchema: { canRecover: never, strategy: "abort-session" },
   RepeatedParserFailures: { canRecover: never, strategy: "abort-session" },
-}
+};
 
 const executeWithRecovery = (
   tool: ToolCall,
-  policy: RecoveryPolicy
+  policy: RecoveryPolicy,
 ): Effect.Effect<ToolResult> =>
-  Effect.retry({
-    schedule: {
-      strategy: policy.backoff ?? "exponential",
-      initialDelay: policy.initialDelay ?? 1000,
-      maxDelay: 30000,
-      attempts: policy.maxAttempts,
+  Effect.retry(
+    {
+      schedule: {
+        strategy: policy.backoff ?? "exponential",
+        initialDelay: policy.initialDelay ?? 1000,
+        maxDelay: 30000,
+        attempts: policy.maxAttempts,
+      },
+      while: (error) => policy.canRecover(error),
     },
-    while: (error) => policy.canRecover(error)
-  },
-  runTool(tool)
-)
+    runTool(tool),
+  );
 ```
 
 ### Execution with Recovery
@@ -510,29 +550,29 @@ const executeWithRecovery = (
 ```typescript
 const executeToolSafely = (tool: ToolCall): Effect.Effect<ToolResult> =>
   Effect.gen(function* () {
-    const recovery = yield* RecoveryManager
-    const error = yield* Effect.attempt(() => classifyError(tool))
+    const recovery = yield* RecoveryManager;
+    const error = yield* Effect.attempt(() => classifyError(tool));
 
-    const policy = recovery.getPolicy(error, tool.context)
+    const policy = recovery.getPolicy(error, tool.context);
 
     if (!policy.canRecover(error)) {
       if (policy.strategy === "abort-session") {
-        return yield* Effect.fail(error)
+        return yield* Effect.fail(error);
       }
       // Other fatal strategies handled same way
     }
 
     if (policy.strategy === "retry") {
-      return yield* recovery.executeWithRecovery(tool, policy)
+      return yield* recovery.executeWithRecovery(tool, policy);
     }
 
     if (policy.strategy === "restart-browser") {
-      yield* BrowserController.reconnect()
-      return yield* recovery.executeWithRecovery(tool, policy)
+      yield* BrowserController.reconnect();
+      return yield* recovery.executeWithRecovery(tool, policy);
     }
 
     // ... other strategies
-  })
+  });
 ```
 
 ---
@@ -571,13 +611,13 @@ const executeToolSafely = (tool: ToolCall): Effect.Effect<ToolResult> =>
 
 ```typescript
 interface SessionState {
-  status: "idle" | "starting" | "running" | "error" | "stopped"
-  sessionId: string
-  turnCount: number
-  iterationCount: number
-  loopHealth: LoopHealth
-  pendingToolCalls: ToolCall[]
-  activeToolChain?: string[]  // for compaction awareness
+  status: "idle" | "starting" | "running" | "error" | "stopped";
+  sessionId: string;
+  turnCount: number;
+  iterationCount: number;
+  loopHealth: LoopHealth;
+  pendingToolCalls: ToolCall[];
+  activeToolChain?: string[]; // for compaction awareness
 }
 ```
 
@@ -585,39 +625,39 @@ interface SessionState {
 
 ```typescript
 interface ForkResult {
-  newSessionId: string
-  turnCount: number
-  messageCount: number
+  newSessionId: string;
+  turnCount: number;
+  messageCount: number;
 }
 
 // Sub-agent sessions are independent but linked to parent
-session.fork({ sessionId, point: "current" })
-session.fork({ sessionId, point: turnId })
+session.fork({ sessionId, point: "current" });
+session.fork({ sessionId, point: turnId });
 ```
 
 ---
 
 ## Sub-Agent Types
 
-| Agent | Mode | Permission | Max Turns | Purpose |
-|-------|------|------------|-----------|---------|
-| explore | subagent | readonly | 20 | Explore codebase, gather info |
-| scout | subagent | minimal | 10 | Quick reconnaissance |
-| review | subagent | readonly | - | Code review |
-| test | subagent | standard | - | Test generation |
-| build | primary | elevated | - | Execute builds |
-| plan | primary | minimal | - | Create plans |
-| general | primary | standard | - | General assistance |
-| compaction | subagent | minimal | 5 | Memory summarization |
+| Agent      | Mode     | Permission | Max Turns | Purpose                       |
+| ---------- | -------- | ---------- | --------- | ----------------------------- |
+| explore    | subagent | readonly   | 20        | Explore codebase, gather info |
+| scout      | subagent | minimal    | 10        | Quick reconnaissance          |
+| review     | subagent | readonly   | -         | Code review                   |
+| test       | subagent | standard   | -         | Test generation               |
+| build      | primary  | elevated   | -         | Execute builds                |
+| plan       | primary  | minimal    | -         | Create plans                  |
+| general    | primary  | standard   | -         | General assistance            |
+| compaction | subagent | minimal    | 5         | Memory summarization          |
 
 ### Scheduler
 
 ```typescript
 interface SchedulerConfig {
-  maxConcurrency: number      // max parallel sub-agents
-  cancellationPropagation: boolean  // parent stops → children stop
-  memorySharing: "none" | "readonly" | "full"
-  tokenBudgetPerAgent: number
+  maxConcurrency: number; // max parallel sub-agents
+  cancellationPropagation: boolean; // parent stops → children stop
+  memorySharing: "none" | "readonly" | "full";
+  tokenBudgetPerAgent: number;
 }
 ```
 
@@ -632,7 +672,7 @@ const searchPaths = [
   { pattern: "**/.freecode/skills/**/*.skill.md", scope: "repo" },
   { pattern: "~/.freecode/skills/**/*.skill.md", scope: "user" },
   { pattern: "{installDir}/.system/skills/**/*.skill.md", scope: "system" },
-]
+];
 ```
 
 ### Skill Format
@@ -764,12 +804,12 @@ const BusEvents = {
 
 ### Bus vs Hooks
 
-| Aspect | Bus | Hooks |
-|--------|-----|-------|
-| Purpose | Event distribution | Safety/transform |
-| Blocking | No | PreToolUse can block |
-| Subscribers | TUI, web, external | Internal processing |
-| Examples | `session.diff`, `error` | `PreToolUse`, `PostToolUse` |
+| Aspect      | Bus                     | Hooks                       |
+| ----------- | ----------------------- | --------------------------- |
+| Purpose     | Event distribution      | Safety/transform            |
+| Blocking    | No                      | PreToolUse can block        |
+| Subscribers | TUI, web, external      | Internal processing         |
+| Examples    | `session.diff`, `error` | `PreToolUse`, `PostToolUse` |
 
 ---
 
@@ -960,21 +1000,21 @@ apps/core/src/
 
 ## Key Differences from Current Implementation
 
-| Current | Target | Status |
-|---------|--------|--------|
-| Single-pass (one prompt → one response) | Continuous loop (cycles until no tools) | ✅ Done |
-| No canonical runtime types | ModelTurn, ToolCall, ToolResult, RecoveryPolicy, LoopHealth | ✅ Done |
-| Provider → parser directly | Provider → Normalizer → ModelTurn → Parser | ✅ Done |
-| No hooks | 10 hook event types | ✅ Done |
-| No Effect/Layer DI | Effect/Layer architecture | ⚠️ Simplified |
-| No session persistence | SQLite + JSON storage | Pending |
-| No sub-agents | Full agent tool with spawn | Pending |
-| No skills system | Markdown + plugin skills | Pending |
-| No MCP | MCP client first | Pending |
-| In-process bash | Sandboxed bash (bubblewrap) | Pending |
-| No loop detection | Multi-heuristic LoopHealth | ✅ Done |
-| No error recovery | RecoveryPolicy + Effect retry | Pending |
-| No turn-aware compaction | Compaction respects activeToolChain | Pending
+| Current                                 | Target                                                      | Status        |
+| --------------------------------------- | ----------------------------------------------------------- | ------------- |
+| Single-pass (one prompt → one response) | Continuous loop (cycles until no tools)                     | ✅ Done       |
+| No canonical runtime types              | ModelTurn, ToolCall, ToolResult, RecoveryPolicy, LoopHealth | ✅ Done       |
+| Provider → parser directly              | Provider → Normalizer → ModelTurn → Parser                  | ✅ Done       |
+| No hooks                                | 10 hook event types                                         | ✅ Done       |
+| No Effect/Layer DI                      | Effect/Layer architecture                                   | ⚠️ Simplified |
+| No session persistence                  | SQLite + JSON storage                                       | Pending       |
+| No sub-agents                           | Full agent tool with spawn                                  | Pending       |
+| No skills system                        | Markdown + plugin skills                                    | Pending       |
+| No MCP                                  | MCP client first                                            | Pending       |
+| In-process bash                         | Sandboxed bash (bubblewrap)                                 | Pending       |
+| No loop detection                       | Multi-heuristic LoopHealth                                  | ✅ Done       |
+| No error recovery                       | RecoveryPolicy + Effect retry                               | Pending       |
+| No turn-aware compaction                | Compaction respects activeToolChain                         | Pending       |
 
 ---
 

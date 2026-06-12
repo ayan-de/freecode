@@ -1,6 +1,6 @@
-import React from 'react';
-import styles from '../FreeCodeInternalDiagram.module.css';
-import type { NodeType } from '../FreeCodeInternalDiagram';
+import React from "react";
+import styles from "../FreeCodeInternalDiagram.module.css";
+import type { NodeType } from "../FreeCodeInternalDiagram";
 
 interface HooksNodeProps {
   selectedNode: NodeType | null;
@@ -8,12 +8,12 @@ interface HooksNodeProps {
 }
 
 export function HooksNode({ selectedNode, onSelectNode }: HooksNodeProps) {
-  const isActive = selectedNode === 'hooks';
+  const isActive = selectedNode === "hooks";
 
   return (
     <g
-      className={`${styles.nodeGroup} ${isActive ? styles.activeNode : ''}`}
-      onClick={() => onSelectNode('hooks')}
+      className={`${styles.nodeGroup} ${isActive ? styles.activeNode : ""}`}
+      onClick={() => onSelectNode("hooks")}
     >
       <circle
         cx="635"
@@ -31,7 +31,12 @@ export function HooksNode({ selectedNode, onSelectNode }: HooksNodeProps) {
       <text x="635" y="165" className={styles.hooksLabel} textAnchor="middle">
         Hooks
       </text>
-      <text x="635" y="240" className={styles.hooksSublabel} textAnchor="middle">
+      <text
+        x="635"
+        y="240"
+        className={styles.hooksSublabel}
+        textAnchor="middle"
+      >
         (Safety Middleware)
       </text>
     </g>

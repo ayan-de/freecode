@@ -42,7 +42,7 @@ export {
   runSubagentStartHooks,
   runSubagentStopHooks,
   runStopHooks,
-} from "./runtime.js"
+} from "./runtime.js";
 
-export { executeCommandHook } from "./executors/command.js"
-export { executeCallbackHook } from "./executors/callback.js"
+export { executeCommandHook } from "./executors/command.js";
+export { executeCallbackHook } from "./executors/callback.js";

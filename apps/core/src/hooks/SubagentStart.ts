@@ -2,9 +2,9 @@
 // SubagentStart Hooks - Run when a sub-agent is spawned
 // =============================================================================
 
-import type { HookContext } from "./types.js"
-import { getHooksForEvent } from "./registry.js"
-import { executeHooks } from "./executors/index.js"
+import type { HookContext } from "./types.js";
+import { getHooksForEvent } from "./registry.js";
+import { executeHooks } from "./executors/index.js";
 
 // =============================================================================
 // Run SubagentStart hooks when sub-agent is spawned
@@ -12,24 +12,24 @@ import { executeHooks } from "./executors/index.js"
 
 export async function runSubagentStartHooks(
   name: string,
-  ctx: HookContext
+  ctx: HookContext,
 ): Promise<{
-  additionalContext?: string
+  additionalContext?: string;
 }> {
-  const hooks = getHooksForEvent("SubagentStart")
+  const hooks = getHooksForEvent("SubagentStart");
 
   if (hooks.length === 0) {
-    return {}
+    return {};
   }
 
   const input = {
     toolName: "SubagentStart",
     toolInput: { name },
-  }
+  };
 
-  const result = await executeHooks(hooks, input, ctx)
+  const result = await executeHooks(hooks, input, ctx);
 
   return {
     additionalContext: result.additionalContexts.join("\n") || undefined,
-  }
+  };
 }

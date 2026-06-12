@@ -1,19 +1,22 @@
-import React from 'react';
-import styles from '../FreeCodeInternalDiagram.module.css';
-import type { NodeType } from '../FreeCodeInternalDiagram';
+import React from "react";
+import styles from "../FreeCodeInternalDiagram.module.css";
+import type { NodeType } from "../FreeCodeInternalDiagram";
 
 interface SubagentsNodeProps {
   selectedNode: NodeType | null;
   onSelectNode: (node: NodeType) => void;
 }
 
-export function SubagentsNode({ selectedNode, onSelectNode }: SubagentsNodeProps) {
-  const isActive = selectedNode === 'subagents';
+export function SubagentsNode({
+  selectedNode,
+  onSelectNode,
+}: SubagentsNodeProps) {
+  const isActive = selectedNode === "subagents";
 
   return (
     <g
-      className={`${styles.nodeGroup} ${isActive ? styles.activeNode : ''}`}
-      onClick={() => onSelectNode('subagents')}
+      className={`${styles.nodeGroup} ${isActive ? styles.activeNode : ""}`}
+      onClick={() => onSelectNode("subagents")}
     >
       <rect
         x="210"
@@ -30,20 +33,45 @@ export function SubagentsNode({ selectedNode, onSelectNode }: SubagentsNodeProps
 
       {/* Mini chip sub-agent cards */}
       <g transform="translate(225, 108)">
-        <rect width="60" height="42" rx="4" fill="rgba(236,72,153,0.1)" stroke="rgba(236,72,153,0.3)" />
+        <rect
+          width="60"
+          height="42"
+          rx="4"
+          fill="rgba(236,72,153,0.1)"
+          stroke="rgba(236,72,153,0.3)"
+        />
         <rect x="5" y="5" width="10" height="10" rx="2" fill="#ec4899" />
-        <text x="8" y="27" className={styles.miniCardTitle}>Sub-Agent</text>
-        <text x="8" y="36" className={styles.miniCardSub}>Tasker</text>
+        <text x="8" y="27" className={styles.miniCardTitle}>
+          Sub-Agent
+        </text>
+        <text x="8" y="36" className={styles.miniCardSub}>
+          Tasker
+        </text>
       </g>
 
       <g transform="translate(295, 108)">
-        <rect width="60" height="42" rx="4" fill="rgba(236,72,153,0.1)" stroke="rgba(236,72,153,0.3)" />
+        <rect
+          width="60"
+          height="42"
+          rx="4"
+          fill="rgba(236,72,153,0.1)"
+          stroke="rgba(236,72,153,0.3)"
+        />
         <rect x="5" y="5" width="10" height="10" rx="2" fill="#ec4899" />
-        <text x="8" y="27" className={styles.miniCardTitle}>Sub-Agent</text>
-        <text x="8" y="36" className={styles.miniCardSub}>Tester</text>
+        <text x="8" y="27" className={styles.miniCardTitle}>
+          Sub-Agent
+        </text>
+        <text x="8" y="36" className={styles.miniCardSub}>
+          Tester
+        </text>
       </g>
 
-      <text x="290" y="185" className={styles.nodeInfoLabel} textAnchor="middle">
+      <text
+        x="290"
+        y="185"
+        className={styles.nodeInfoLabel}
+        textAnchor="middle"
+      >
         Parallel execution
       </text>
     </g>

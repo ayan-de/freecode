@@ -48,11 +48,13 @@ src/agent/
 Before sending a prompt to the LLM, the loop uses a two-phase approach:
 
 ### Phase 1: File Discovery
+
 ```
 User Prompt + File Tree → LLM → List of needed files
 ```
 
 ### Phase 2: Full Execution
+
 ```
 Files + User Prompt → LLM → Tool Calls → Execute → Results → Loop
 ```
@@ -64,10 +66,10 @@ This is more efficient than sending all project files upfront.
 ### 1. Session Initialization
 
 ```typescript
-await this.hooks.runSessionStart({ sessionId, turnCount })
+await this.hooks.runSessionStart({ sessionId, turnCount });
 
 // Collect project context (name, path, tree)
-const contextResult = await this.collectContext(projectPath)
+const contextResult = await this.collectContext(projectPath);
 ```
 
 ### 2. Continuous Loop
@@ -76,19 +78,19 @@ const contextResult = await this.collectContext(projectPath)
 while (this.state.status === "running") {
   // Check max iterations
   if (this.state.iterationCount >= this.config.maxIterations) {
-    await this.stop("max_iterations_reached")
-    break
+    await this.stop("max_iterations_reached");
+    break;
   }
 
   // Check loop health
-  const healthAction = this.evaluateLoopHealth()
+  const healthAction = this.evaluateLoopHealth();
   if (healthAction.action === "stop") {
-    await this.stop(healthAction.reason || "loop_health_stop")
-    break
+    await this.stop(healthAction.reason || "loop_health_stop");
+    break;
   }
 
   // Execute one turn
-  await this.executeTurn(input)
+  await this.executeTurn(input);
 }
 ```
 
@@ -187,17 +189,17 @@ async executeTool(toolCall: ToolCall): Promise<ToolResult> {
 
 ## Hook Integration Points
 
-| Point | Hook | Purpose |
-|-------|------|---------|
-| Session start | `SessionStart` | Initialize session state, load context |
-| Before prompt | `UserPromptSubmit` | Modify prompt, inject context |
-| Before tool | `PreToolUse` | Block/modify tool call |
-| Before dangerous tool | `PermissionRequest` | Request user approval |
-| After tool success | `PostToolUse` | Process results, inject context |
-| After tool failure | `PostToolUseFailure` | Error handling, recovery |
-| Before compaction | `PreCompact` | Inspect/block compaction |
-| After compaction | `PostCompact` | Verify/log compaction |
-| Session end | `Stop` | Cleanup, final logging |
+| Point                 | Hook                 | Purpose                                |
+| --------------------- | -------------------- | -------------------------------------- |
+| Session start         | `SessionStart`       | Initialize session state, load context |
+| Before prompt         | `UserPromptSubmit`   | Modify prompt, inject context          |
+| Before tool           | `PreToolUse`         | Block/modify tool call                 |
+| Before dangerous tool | `PermissionRequest`  | Request user approval                  |
+| After tool success    | `PostToolUse`        | Process results, inject context        |
+| After tool failure    | `PostToolUseFailure` | Error handling, recovery               |
+| Before compaction     | `PreCompact`         | Inspect/block compaction               |
+| After compaction      | `PostCompact`        | Verify/log compaction                  |
+| Session end           | `Stop`               | Cleanup, final logging                 |
 
 ## Loop Health
 
@@ -205,22 +207,22 @@ The loop health system detects stuck patterns:
 
 ```typescript
 interface LoopHealth {
-  repeatedTools: number        // Same tool+args repeated
-  stagnantTurns: number         // No progress made
-  oscillationScore: number      // Edit/revert/edit pattern
-  repeatedReasoningScore: number // Similar reasoning repeated
+  repeatedTools: number; // Same tool+args repeated
+  stagnantTurns: number; // No progress made
+  oscillationScore: number; // Edit/revert/edit pattern
+  repeatedReasoningScore: number; // Similar reasoning repeated
 }
 ```
 
 ### Heuristics
 
-| Check | Threshold | Action |
-|-------|-----------|--------|
-| Identical tool call | 3x | Hard stop |
-| No state change | 5 turns | Warning |
-| Edit oscillation | 4x | Block |
-| Reasoning similarity | >90% for 3 turns | Block |
-| Total iterations | 100 | Hard stop |
+| Check                | Threshold        | Action    |
+| -------------------- | ---------------- | --------- |
+| Identical tool call  | 3x               | Hard stop |
+| No state change      | 5 turns          | Warning   |
+| Edit oscillation     | 4x               | Block     |
+| Reasoning similarity | >90% for 3 turns | Block     |
+| Total iterations     | 100              | Hard stop |
 
 ## Memory Management
 
@@ -228,10 +230,10 @@ Memory accumulates conversation history and periodically compacts when token lim
 
 ```typescript
 if (this.memory.shouldCompact(provider)) {
-  const preResult = await this.hooks.runPreCompact(ctx)
+  const preResult = await this.hooks.runPreCompact(ctx);
   if (preResult.allowed) {
-    const result = await this.memory.compact()
-    await this.hooks.runPostCompact(ctx, result.success)
+    const result = await this.memory.compact();
+    await this.hooks.runPostCompact(ctx, result.success);
   }
 }
 ```
@@ -242,11 +244,16 @@ if (this.memory.shouldCompact(provider)) {
 
 ```typescript
 interface RecoveryPolicy {
-  canRecover(error: unknown): boolean
-  strategy: "retry" | "restart-provider" | "restart-browser" | "rollback-turn" | "abort-session"
-  maxAttempts: number
-  initialDelay?: number
-  backoff?: "linear" | "exponential" | "fixed"
+  canRecover(error: unknown): boolean;
+  strategy:
+    | "retry"
+    | "restart-provider"
+    | "restart-browser"
+    | "rollback-turn"
+    | "abort-session";
+  maxAttempts: number;
+  initialDelay?: number;
+  backoff?: "linear" | "exponential" | "fixed";
 }
 ```
 
@@ -262,10 +269,14 @@ interface RecoveryPolicy {
 Events are recorded for replay and debugging:
 
 ```typescript
-this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`)
-this.recorder.recordFunctionCall(toolName, args, `turn-${this.state.turnCount}`)
-this.recorder.recordFunctionOutput(toolName, output, duration)
-this.recorder.recordHookBlocked(toolName, reason)
+this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`);
+this.recorder.recordFunctionCall(
+  toolName,
+  args,
+  `turn-${this.state.turnCount}`,
+);
+this.recorder.recordFunctionOutput(toolName, output, duration);
+this.recorder.recordHookBlocked(toolName, reason);
 ```
 
 ## Bus Events
@@ -273,44 +284,44 @@ this.recorder.recordHookBlocked(toolName, reason)
 Events published to the bus for UI/extension consumption:
 
 ```typescript
-BusEvents.sessionCreated(sessionId, projectPath)
-BusEvents.sessionUpdated(sessionId)
-BusEvents.sessionError(sessionId, error)
-BusEvents.turnStarted(sessionId, turnCount)
-BusEvents.turnCompleted(sessionId, turnCount)
-BusEvents.toolCalled(sessionId, toolName, toolId, args)
-BusEvents.toolCompleted(sessionId, toolName, toolId, success, duration_ms)
-BusEvents.subagentStarted(subagentId, parentSessionId, task)
-BusEvents.subagentCompleted(subagentId, parentSessionId, result)
+BusEvents.sessionCreated(sessionId, projectPath);
+BusEvents.sessionUpdated(sessionId);
+BusEvents.sessionError(sessionId, error);
+BusEvents.turnStarted(sessionId, turnCount);
+BusEvents.turnCompleted(sessionId, turnCount);
+BusEvents.toolCalled(sessionId, toolName, toolId, args);
+BusEvents.toolCompleted(sessionId, toolName, toolId, success, duration_ms);
+BusEvents.subagentStarted(subagentId, parentSessionId, task);
+BusEvents.subagentCompleted(subagentId, parentSessionId, result);
 ```
 
 ## Key Types
 
 ```typescript
 interface ToolCall {
-  id: string
-  tool: string           // Tool name (Write, Bash, etc.)
-  args: unknown          // Tool arguments
-  execution: ExecutionMode  // "sequential" | "parallel-safe"
+  id: string;
+  tool: string; // Tool name (Write, Bash, etc.)
+  args: unknown; // Tool arguments
+  execution: ExecutionMode; // "sequential" | "parallel-safe"
 }
 
 interface ToolResult {
-  id: string
-  toolCallId: string
-  tool: string
-  title: string
-  stdout?: string
-  stderr?: string
-  exitCode?: number
-  duration_ms?: number
-  error?: string
+  id: string;
+  toolCallId: string;
+  tool: string;
+  title: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  duration_ms?: number;
+  error?: string;
 }
 
 interface HookContext {
-  sessionId: string
-  turnCount: number
-  toolName?: string
-  [key: string]: unknown
+  sessionId: string;
+  turnCount: number;
+  toolName?: string;
+  [key: string]: unknown;
 }
 ```
 
@@ -318,11 +329,11 @@ interface HookContext {
 
 ```typescript
 interface AgentConfig {
-  maxIterations: number       // Default: 100
-  maxTokensPerTurn?: number
-  temperature?: number
-  compactionConfig?: CompactionConfig
-  hooks?: HookRuntime
+  maxIterations: number; // Default: 100
+  maxTokensPerTurn?: number;
+  temperature?: number;
+  compactionConfig?: CompactionConfig;
+  hooks?: HookRuntime;
 }
 ```
 

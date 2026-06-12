@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef } from 'react';
-import styles from '../ArchitectureExplorer.module.css';
-import { NodeHeader } from './NodeHeader';
+import { useState, useEffect, useRef } from "react";
+import styles from "../ArchitectureExplorer.module.css";
+import { NodeHeader } from "./NodeHeader";
 
 export function ClientsNodeContent() {
   const [ipcStep, setIpcStep] = useState(0);
@@ -11,7 +11,7 @@ export function ClientsNodeContent() {
   useEffect(() => {
     clearAllTimers();
     const cycleIpc = () => {
-      setIpcStep(prev => (prev + 1) % 4);
+      setIpcStep((prev) => (prev + 1) % 4);
       const timer = setTimeout(cycleIpc, 3000);
       timersRef.current.push(timer);
     };
@@ -34,7 +34,12 @@ export function ClientsNodeContent() {
       />
 
       <p className={styles.description}>
-        FreeCode is designed with a <strong>strict separation of concerns</strong>. The TUI (Terminal User Interface) and VS Code extensions contain <strong>zero business logic</strong>. They do not handle browser automation, file reading/writing, or AI reasoning. They act purely as rendering engines and user interaction captures.
+        FreeCode is designed with a{" "}
+        <strong>strict separation of concerns</strong>. The TUI (Terminal User
+        Interface) and VS Code extensions contain{" "}
+        <strong>zero business logic</strong>. They do not handle browser
+        automation, file reading/writing, or AI reasoning. They act purely as
+        rendering engines and user interaction captures.
       </p>
 
       <div className={styles.filesBox}>
@@ -42,15 +47,30 @@ export function ClientsNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>TUI Shell</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/tui/src/index.ts" className={styles.fileLink}>apps/tui/src/index.ts</a>
+            <a
+              href="file:///home/ayan-de/Projects/freecode/apps/tui/src/index.ts"
+              className={styles.fileLink}
+            >
+              apps/tui/src/index.ts
+            </a>
           </li>
           <li>
             <span className={styles.fileBadge}>VSCode Ext</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/vscode/src/extension.ts" className={styles.fileLink}>apps/vscode/src/extension.ts</a>
+            <a
+              href="file:///home/ayan-de/Projects/freecode/apps/vscode/src/extension.ts"
+              className={styles.fileLink}
+            >
+              apps/vscode/src/extension.ts
+            </a>
           </li>
           <li>
             <span className={styles.fileBadge}>Types/IPC</span>
-            <a href="file:///home/ayan-de/Projects/freecode/apps/core/src/ipc/protocol.ts" className={styles.fileLink}>packages/shared/src/ipc/protocol.ts</a>
+            <a
+              href="file:///home/ayan-de/Projects/freecode/apps/core/src/ipc/protocol.ts"
+              className={styles.fileLink}
+            >
+              packages/shared/src/ipc/protocol.ts
+            </a>
           </li>
         </ul>
       </div>
@@ -62,7 +82,9 @@ export function ClientsNodeContent() {
         </div>
         <div className={styles.simConsole}>
           {ipcStep === 0 && (
-            <pre className={styles.jsonCode}>{`// 1. Client connects and starts a new project session
+            <pre
+              className={styles.jsonCode}
+            >{`// 1. Client connects and starts a new project session
 --> WRITE stdin (Request):
 {
   "jsonrpc": "2.0",
@@ -85,7 +107,9 @@ export function ClientsNodeContent() {
 }`}</pre>
           )}
           {ipcStep === 2 && (
-            <pre className={styles.jsonCode}>{`// 2. User sends prompt to the Agent
+            <pre
+              className={styles.jsonCode}
+            >{`// 2. User sends prompt to the Agent
 --> WRITE stdin (Request):
 {
   "jsonrpc": "2.0",
@@ -98,7 +122,9 @@ export function ClientsNodeContent() {
 }`}</pre>
           )}
           {ipcStep === 3 && (
-            <pre className={styles.jsonCode}>{`<-- READ stdout (Streaming MessagePart):
+            <pre
+              className={styles.jsonCode}
+            >{`<-- READ stdout (Streaming MessagePart):
 {
   "jsonrpc": "2.0",
   "id": 102,

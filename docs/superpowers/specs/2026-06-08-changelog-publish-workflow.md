@@ -14,21 +14,21 @@ Establish a professional changelog and manual publish workflow for the FreeCode 
 
 ## Tools
 
-| Tool | Purpose |
-|------|---------|
+| Tool              | Purpose                                                   |
+| ----------------- | --------------------------------------------------------- |
 | `@changesets/cli` | Changelog generation, version bumping, release management |
-| pnpm workspaces | Monorepo package management |
-| npm | Package registry publishing |
+| pnpm workspaces   | Monorepo package management                               |
+| npm               | Package registry publishing                               |
 
 ---
 
 ## Packages in Scope
 
-| Package | Name on npm | Type |
-|---------|-------------|------|
-| `packages/shared` | `@thisisayande/freecode-shared` | Library |
-| `apps/core` | `@thisisayande/freecode-core` | CLI + Library |
-| `apps/tui` | `@thisisayande/freecode` | CLI |
+| Package           | Name on npm                     | Type          |
+| ----------------- | ------------------------------- | ------------- |
+| `packages/shared` | `@thisisayande/freecode-shared` | Library       |
+| `apps/core`       | `@thisisayande/freecode-core`   | CLI + Library |
+| `apps/tui`        | `@thisisayande/freecode`        | CLI           |
 
 ---
 
@@ -41,6 +41,7 @@ pnpm changeset
 ```
 
 Interactive prompt:
+
 - Select packages to include (can be all 3 or subset)
 - Choose semver bump type: `patch` / `minor` / `major`
 - Write changelog summary (1-3 sentences describing what changed)
@@ -48,6 +49,7 @@ Interactive prompt:
 This creates a `.changeset/<random-name>.md` file with the summary.
 
 **Commit the changeset file** before versioning:
+
 ```bash
 git add .changeset/<random-name>.md
 git commit -m "chore: add changeset for vNEXT release"
@@ -60,6 +62,7 @@ pnpm changeset version
 ```
 
 What this does:
+
 - Reads all `.changeset/*.md` files
 - Bumps `version` in each affected `package.json`
 - Updates `@thisisayande/freecode-shared` dependency refs in `core` and `tui` to match new version
@@ -160,11 +163,11 @@ As of this design, all three packages have been bumped to `0.2.0` locally but no
 
 ## Files to Create/Modify
 
-| Action | File |
-|--------|------|
-| Create | `.changeset/config.json` |
-| Create | `.changeset/pre.json` (if needed) |
-| Modify | `package.json` (add `release` script) |
+| Action | File                                                          |
+| ------ | ------------------------------------------------------------- |
+| Create | `.changeset/config.json`                                      |
+| Create | `.changeset/pre.json` (if needed)                             |
+| Modify | `package.json` (add `release` script)                         |
 | Modify | Each package's `package.json` (add `"repository"` if missing) |
 
 ---
@@ -193,5 +196,6 @@ If a publish fails or needs to be undone:
 When `shared` bumps version, `core` and `tui` reference it via `^x.y.z`. The `pnpm changeset version` command automatically updates these references.
 
 Current dependency refs after manual update:
+
 - `apps/core/package.json`: `"@thisisayande/freecode-shared": "^0.2.0"`
 - `apps/tui/package.json`: `"@thisisayande/freecode-shared": "^0.2.0"`

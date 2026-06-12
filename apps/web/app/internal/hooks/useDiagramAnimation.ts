@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 
 interface AnimationConfig {
   autoPlay?: boolean;
@@ -11,7 +11,7 @@ interface AnimationConfig {
 
 export function useDiagramAnimation<T>(
   sequence: T[],
-  config: AnimationConfig = {}
+  config: AnimationConfig = {},
 ) {
   const { autoPlay = true, loop = true, duration = 500, delay = 100 } = config;
   const [currentIndex, setCurrentIndex] = useState(0);

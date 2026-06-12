@@ -3,19 +3,19 @@
 // USP: Continue sessions on different computers
 // =============================================================================
 
-import * as fs from "fs"
-import * as path from "path"
-import * as os from "os"
-import { randomUUID } from "crypto"
-import { SessionManager, getSessionManager } from "../session/manager"
-import { MemoryStore } from "../memory/mem-store"
-import type { MemoryEntry } from "../memory/mem-types"
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import { randomUUID } from "crypto";
+import { SessionManager, getSessionManager } from "../session/manager";
+import { MemoryStore } from "../memory/mem-store";
+import type { MemoryEntry } from "../memory/mem-types";
 
-const STORE_DIR = ".freecode"
-const REMOTE_DIR = "remote"
+const STORE_DIR = ".freecode";
+const REMOTE_DIR = "remote";
 
 function getRemoteDir(): string {
-  return path.join(os.homedir(), STORE_DIR, REMOTE_DIR)
+  return path.join(os.homedir(), STORE_DIR, REMOTE_DIR);
 }
 
 // =============================================================================
@@ -23,33 +23,33 @@ function getRemoteDir(): string {
 // =============================================================================
 
 export interface ExportedSession {
-  version: 1
+  version: 1;
   metadata: {
-    id: string
-    title: string
-    projectPath: string
-    provider: string
-    status: "active" | "archived" | "deleted"
-    createdAt: number
-    updatedAt: number
-    lastTurnAt: number
-    turnCount: number
-    parentId?: string
-  }
+    id: string;
+    title: string;
+    projectPath: string;
+    provider: string;
+    status: "active" | "archived" | "deleted";
+    createdAt: number;
+    updatedAt: number;
+    lastTurnAt: number;
+    turnCount: number;
+    parentId?: string;
+  };
   messages: Array<{
-    id: string
-    role: "user" | "assistant"
-    content: string
-    timestamp: number
-  }>
-  memories: MemoryEntry[]
-  exportedAt: number
-  expiresAt?: number
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    timestamp: number;
+  }>;
+  memories: MemoryEntry[];
+  exportedAt: number;
+  expiresAt?: number;
 }
 
 export interface RemoteSessionConfig {
-  endpoint: string
-  apiKey?: string
+  endpoint: string;
+  apiKey?: string;
 }
 
 // =============================================================================
@@ -57,41 +57,44 @@ export interface RemoteSessionConfig {
 // =============================================================================
 
 export class RemoteSessionSync {
-  private sessionManager: SessionManager
+  private sessionManager: SessionManager;
 
   constructor(sessionManager: SessionManager) {
-    this.sessionManager = sessionManager
+    this.sessionManager = sessionManager;
   }
 
   // Export session to JSON file (local export)
   async exportSession(sessionId: string): Promise<ExportedSession> {
-    const context = await this.sessionManager.resume(sessionId)
+    const context = await this.sessionManager.resume(sessionId);
 
     // Load memories for this project
-    const memoryStore = new MemoryStore(context.projectPath)
-    const memories = memoryStore.list()
+    const memoryStore = new MemoryStore(context.projectPath);
+    const memories = memoryStore.list();
 
     // Map "interrupted" to "active" for export compatibility
     const exportStatus: "active" | "archived" | "deleted" =
-      context.status === "interrupted" ? "active" : context.status as "active" | "archived" | "deleted"
+      context.status === "interrupted"
+        ? "active"
+        : (context.status as "active" | "archived" | "deleted");
 
     // Transform SerializedMessage (with parts) to flat content format
     const exportedMessages = context.messages.map((msg) => {
       const content = msg.parts
         .map((part) => {
-          if (part.type === "text") return part.content || ""
-          if (part.type === "code") return part.content || ""
-          if (part.type === "tool") return `[tool: ${part.tool?.name || "unknown"}]`
-          return ""
+          if (part.type === "text") return part.content || "";
+          if (part.type === "code") return part.content || "";
+          if (part.type === "tool")
+            return `[tool: ${part.tool?.name || "unknown"}]`;
+          return "";
         })
-        .join("\n")
+        .join("\n");
       return {
         id: msg.id,
         role: msg.role,
         content,
         timestamp: msg.timestamp,
-      }
-    })
+      };
+    });
 
     return {
       version: 1,
@@ -110,26 +113,30 @@ export class RemoteSessionSync {
       messages: exportedMessages,
       memories,
       exportedAt: Date.now(),
-    }
+    };
   }
 
   // Save exported session to local file
-  async saveExportToFile(sessionId: string, filePath?: string): Promise<string> {
-    const exportData = await this.exportSession(sessionId)
-    const targetPath = filePath || path.join(getRemoteDir(), `${sessionId}.json`)
+  async saveExportToFile(
+    sessionId: string,
+    filePath?: string,
+  ): Promise<string> {
+    const exportData = await this.exportSession(sessionId);
+    const targetPath =
+      filePath || path.join(getRemoteDir(), `${sessionId}.json`);
 
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true })
-    fs.writeFileSync(targetPath, JSON.stringify(exportData, null, 2))
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, JSON.stringify(exportData, null, 2));
 
-    return targetPath
+    return targetPath;
   }
 
   // Import session from JSON file
   async importFromFile(filePath: string): Promise<string> {
-    const content = fs.readFileSync(filePath, "utf-8")
-    const exportData = JSON.parse(content) as ExportedSession
+    const content = fs.readFileSync(filePath, "utf-8");
+    const exportData = JSON.parse(content) as ExportedSession;
 
-    return this.importSession(exportData)
+    return this.importSession(exportData);
   }
 
   // Import session from ExportedSession object
@@ -138,44 +145,54 @@ export class RemoteSessionSync {
     const newSessionId = await this.sessionManager.start(
       data.metadata.projectPath,
       data.metadata.provider,
-      data.metadata.title
-    )
+      data.metadata.title,
+    );
 
     // Override metadata with imported values
-    const sessionDir = path.join(getRemoteDir(), "..", "sessions", newSessionId)
-    const metadataPath = path.join(sessionDir, "metadata.json")
+    const sessionDir = path.join(
+      getRemoteDir(),
+      "..",
+      "sessions",
+      newSessionId,
+    );
+    const metadataPath = path.join(sessionDir, "metadata.json");
 
     if (fs.existsSync(metadataPath)) {
-      const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"))
-      metadata.parentId = data.metadata.id // Track that this was forked from another session
-      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2))
+      const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+      metadata.parentId = data.metadata.id; // Track that this was forked from another session
+      fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
     }
 
     // Save messages
-    const messagesPath = path.join(sessionDir, "messages.jsonl")
+    const messagesPath = path.join(sessionDir, "messages.jsonl");
     if (data.messages.length > 0) {
-      const messagesContent = data.messages.map((m) => JSON.stringify(m)).join("\n")
-      fs.writeFileSync(messagesPath, messagesContent, "utf-8")
+      const messagesContent = data.messages
+        .map((m) => JSON.stringify(m))
+        .join("\n");
+      fs.writeFileSync(messagesPath, messagesContent, "utf-8");
     }
 
     // Save memories
     if (data.memories.length > 0) {
-      const memoryStore = new MemoryStore(data.metadata.projectPath)
+      const memoryStore = new MemoryStore(data.metadata.projectPath);
       for (const memory of data.memories) {
-        memoryStore.save(memory)
+        memoryStore.save(memory);
       }
     }
 
-    return newSessionId
+    return newSessionId;
   }
 
   // Upload session to remote endpoint
-  async upload(sessionId: string, config: RemoteSessionConfig): Promise<string> {
-    const exportData = this.exportSession(sessionId)
+  async upload(
+    sessionId: string,
+    config: RemoteSessionConfig,
+  ): Promise<string> {
+    const exportData = this.exportSession(sessionId);
 
     // Save to local temp file first
-    const tempPath = path.join(os.tmpdir(), `session-${sessionId}.json`)
-    fs.writeFileSync(tempPath, JSON.stringify(exportData, null, 2))
+    const tempPath = path.join(os.tmpdir(), `session-${sessionId}.json`);
+    fs.writeFileSync(tempPath, JSON.stringify(exportData, null, 2));
 
     // Upload to endpoint
     const response = await fetch(config.endpoint, {
@@ -185,18 +202,20 @@ export class RemoteSessionSync {
         ...(config.apiKey && { Authorization: `Bearer ${config.apiKey}` }),
       },
       body: fs.createReadStream(tempPath),
-    })
+    });
 
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status} ${response.statusText}`)
+      throw new Error(
+        `Upload failed: ${response.status} ${response.statusText}`,
+      );
     }
 
     // Clean up temp file
-    fs.unlinkSync(tempPath)
+    fs.unlinkSync(tempPath);
 
     // Return the URL where the session can be downloaded
-    const result = await response.json() as { url?: string }
-    return result.url || config.endpoint
+    const result = (await response.json()) as { url?: string };
+    return result.url || config.endpoint;
   }
 
   // Download session from remote URL
@@ -206,14 +225,16 @@ export class RemoteSessionSync {
       headers: {
         ...(config.apiKey && { Authorization: `Bearer ${config.apiKey}` }),
       },
-    })
+    });
 
     if (!response.ok) {
-      throw new Error(`Download failed: ${response.status} ${response.statusText}`)
+      throw new Error(
+        `Download failed: ${response.status} ${response.statusText}`,
+      );
     }
 
-    const exportData = await response.json() as ExportedSession
-    return this.importSession(exportData)
+    const exportData = (await response.json()) as ExportedSession;
+    return this.importSession(exportData);
   }
 
   // Check if remote session is accessible
@@ -221,11 +242,13 @@ export class RemoteSessionSync {
     try {
       const response = await fetch(url, {
         method: "HEAD",
-        ...(config?.apiKey && { headers: { Authorization: `Bearer ${config.apiKey}` } }),
-      })
-      return response.ok
+        ...(config?.apiKey && {
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+        }),
+      });
+      return response.ok;
     } catch {
-      return false
+      return false;
     }
   }
 }
@@ -234,12 +257,12 @@ export class RemoteSessionSync {
 // Factory
 // =============================================================================
 
-let globalRemoteSync: RemoteSessionSync | null = null
+let globalRemoteSync: RemoteSessionSync | null = null;
 
 export async function getRemoteSync(): Promise<RemoteSessionSync> {
   if (!globalRemoteSync) {
-    const sessionManager = await getSessionManager()
-    globalRemoteSync = new RemoteSessionSync(sessionManager)
+    const sessionManager = await getSessionManager();
+    globalRemoteSync = new RemoteSessionSync(sessionManager);
   }
-  return globalRemoteSync
+  return globalRemoteSync;
 }

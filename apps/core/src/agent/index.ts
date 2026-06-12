@@ -2,7 +2,7 @@
 // Agent Module - v3 Architecture
 // =============================================================================
 
-export { AgentLoop, createAgentLoop } from './loop.js'
+export { AgentLoop, createAgentLoop } from "./loop.js";
 export type {
   SessionState,
   ToolCall,
@@ -23,4 +23,4 @@ export type {
   MessagePart,
   Artifact,
   ProviderID,
-} from './types.js'
+} from "./types.js";

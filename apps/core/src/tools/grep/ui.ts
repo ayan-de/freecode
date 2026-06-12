@@ -2,7 +2,7 @@
 // Grep Tool UI - UI rendering for the Grep tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types"
+import type { ToolUI } from "../tool.types";
 
 // =============================================================================
 // Color codes for terminal output
@@ -16,7 +16,7 @@ const COLORS = {
   red: "\x1b[31m",
   dim: "\x1b[2m",
   reset: "\x1b[0m",
-}
+};
 
 // =============================================================================
 // GrepToolUI - UI rendering for the Grep tool
@@ -24,46 +24,46 @@ const COLORS = {
 
 export const grepToolUI: Partial<ToolUI> = {
   renderToolUseMessage(toolId, args) {
-    const pattern = args.pattern as string
-    const filePath = args.filePath as string | undefined
+    const pattern = args.pattern as string;
+    const filePath = args.filePath as string | undefined;
 
     return {
       type: "tool_use",
       toolId,
       args,
       status: "pending",
-    }
+    };
   },
 
   renderToolResultMessage(toolId, result) {
-    const isError = !!result.error
-    const status = isError ? "error" : "success"
+    const isError = !!result.error;
+    const status = isError ? "error" : "success";
 
     return {
       type: "tool_result",
       toolId,
       result,
       status,
-    }
+    };
   },
 
   renderToolUseTag(toolId, args) {
-    const pattern = args?.pattern as string
-    return { label: "grep", color: "blue" }
+    const pattern = args?.pattern as string;
+    return { label: "grep", color: "blue" };
   },
 
   renderToolUseErrorMessage(toolId, error) {
-    let friendlyError = error
+    let friendlyError = error;
     if (error.includes("ENOENT")) {
-      friendlyError = "File not found"
+      friendlyError = "File not found";
     } else if (error.includes("pattern")) {
-      friendlyError = "Invalid pattern"
+      friendlyError = "Invalid pattern";
     }
     return {
       type: "tool_error",
       toolId,
       error: friendlyError,
-    }
+    };
   },
 
   renderToolUseRejectedMessage(toolId, reason) {
@@ -71,6 +71,6 @@ export const grepToolUI: Partial<ToolUI> = {
       type: "tool_rejected",
       toolId,
       reason,
-    }
+    };
   },
-}
+};

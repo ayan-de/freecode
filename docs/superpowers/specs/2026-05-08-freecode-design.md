@@ -48,6 +48,7 @@ FreeCode is a CLI tool that uses the user's existing ChatGPT browser session as 
 Interactive REPL-style interface. Accepts natural language prompts from the user.
 
 Responsibilities:
+
 - Read user prompts
 - Display streamed output and file operation feedback
 - Handle errors visibly
@@ -58,6 +59,7 @@ Responsibilities:
 Uses Chrome DevTools Protocol (CDP) to connect to an existing Chrome instance where the user is already logged into ChatGPT.
 
 Responsibilities:
+
 - Launch/attach to Chrome via CDP
 - Navigate to ChatGPT
 - Inject structured prompts into the chat input
@@ -65,6 +67,7 @@ Responsibilities:
 - Scrape the response
 
 Key technical approach:
+
 - `playwright.connectOverCDP()` to existing Chrome
 - `MutationObserver` or button state detection to know when streaming is done
 - DOM injection via `page.locator().fill()` + keyboard submit
@@ -76,15 +79,18 @@ Handles project context collection and intelligent file selection.
 **Two-phase flow:**
 
 **Phase 1 — File tree request:**
+
 - Send project file tree + user prompt to ChatGPT
 - ChatGPT responds with which files it needs
 - Context engine retrieves those files
 
 **Phase 2 — Full request:**
+
 - Send the requested files + prompt to ChatGPT
 - Receive structured response
 
 Responsibilities:
+
 - File tree generation
 - File reading
 - Context compaction (future: graphify/contextcarry integration)
@@ -94,6 +100,7 @@ Responsibilities:
 Format-agnostic parser that handles multiple response styles.
 
 Handles:
+
 - **JSON:** `{ "changes": [{ "file": "path", "action": "replace", "content": "..." }] }`
 - **Markdown:** `FILE: path/to/file.ts` followed by code block
 - **Tool format:** Structured tool calls (future-proofing)
@@ -105,6 +112,7 @@ Fallback logic: try JSON first, then markdown patterns, then tool format.
 Applies parsed changes to the local filesystem.
 
 Responsibilities:
+
 - Create/update/delete files based on parsed instructions
 - Show diff preview before applying (safety gate)
 - Handle errors gracefully
@@ -124,15 +132,15 @@ Responsibilities:
 
 ## Key Design Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| MVP scope | ChatGPT only | Simplest DOM, fastest validation |
-| Browser connection | CDP to existing Chrome | User stays logged in, no extra browser |
-| Context strategy | Two-phase | Token-efficient, plays to graphify/contextcarry strengths |
-| Response parsing | Format-agnostic | Robust against LLM output variation |
-| File safety | Diff preview before apply | User trust, prevents blind overwrites |
-| TUI | TypeScript CLI first | Validate core before investing in Rust |
-| Rust TUI | Deferred | Wiring mechanism complexity unjustified until core works |
+| Decision           | Choice                    | Rationale                                                 |
+| ------------------ | ------------------------- | --------------------------------------------------------- |
+| MVP scope          | ChatGPT only              | Simplest DOM, fastest validation                          |
+| Browser connection | CDP to existing Chrome    | User stays logged in, no extra browser                    |
+| Context strategy   | Two-phase                 | Token-efficient, plays to graphify/contextcarry strengths |
+| Response parsing   | Format-agnostic           | Robust against LLM output variation                       |
+| File safety        | Diff preview before apply | User trust, prevents blind overwrites                     |
+| TUI                | TypeScript CLI first      | Validate core before investing in Rust                    |
+| Rust TUI           | Deferred                  | Wiring mechanism complexity unjustified until core works  |
 
 ## File Structure
 
@@ -173,13 +181,13 @@ These are intentionally deferred until core flow is validated:
 
 ## Risks
 
-| Risk | Mitigation |
-|------|------------|
+| Risk                                | Mitigation                                                 |
+| ----------------------------------- | ---------------------------------------------------------- |
 | ChatGPT DOM changes break selectors | Maintain per-site adapters, fallback selectors, monitoring |
-| LLM generates invalid JSON | Format-agnostic parser with markdown/tool fallbacks |
-| Response too large for context | Two-phase approach limits token usage |
-| ToS concern (automation of web UI) | Personal use / side project; user controls browser session |
-| File overwrites corrupt code | Always show diff preview before applying |
+| LLM generates invalid JSON          | Format-agnostic parser with markdown/tool fallbacks        |
+| Response too large for context      | Two-phase approach limits token usage                      |
+| ToS concern (automation of web UI)  | Personal use / side project; user controls browser session |
+| File overwrites corrupt code        | Always show diff preview before applying                   |
 
 ## Success Criteria (MVP)
 

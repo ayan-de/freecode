@@ -2,18 +2,21 @@
 // ChatGPT Provider Adapter
 // =============================================================================
 
-import type { Page, Locator } from 'playwright';
-import type { PageAdapter } from './types.js';
+import type { Page, Locator } from "playwright";
+import type { PageAdapter } from "./types.js";
 
 export class ChatGPTAdapter implements PageAdapter {
-  name = 'chatgpt';
+  name = "chatgpt";
 
   getInputLocator(page: Page): Locator {
-    return page.getByRole('textbox', { name: 'Chat with ChatGPT' }).first();
+    return page.getByRole("textbox", { name: "Chat with ChatGPT" }).first();
   }
 
   async waitForInput(page: Page): Promise<void> {
-    await page.getByRole('textbox', { name: 'Chat with ChatGPT' }).first().waitFor({ state: 'visible', timeout: 10000 });
+    await page
+      .getByRole("textbox", { name: "Chat with ChatGPT" })
+      .first()
+      .waitFor({ state: "visible", timeout: 10000 });
   }
 
   getSubmitButton(page: Page): Locator {
@@ -30,6 +33,6 @@ export class ChatGPTAdapter implements PageAdapter {
   }
 
   async waitForLoadState(page: Page): Promise<void> {
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState("networkidle");
   }
 }

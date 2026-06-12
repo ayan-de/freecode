@@ -6,7 +6,9 @@ import { createToolProgressMessage } from "./index.js";
 test("createToolProgressMessage adds a renderable tool message", () => {
   clearMessages();
 
-  const message = createToolProgressMessage("call-1", "Write", { path: "FREECODE.md" });
+  const message = createToolProgressMessage("call-1", "Write", {
+    path: "FREECODE.md",
+  });
 
   const messages = getMessages();
   assert.equal(messages.length, 1);

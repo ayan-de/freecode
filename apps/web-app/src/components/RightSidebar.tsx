@@ -5,7 +5,10 @@ interface RightSidebarProps {
   onClose: () => void;
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ isOpen, onClose }) => {
+export const RightSidebar: React.FC<RightSidebarProps> = ({
+  isOpen,
+  onClose,
+}) => {
   const [width, setWidth] = useState(288); // Default 288px
   const [isDragging, setIsDragging] = useState(false);
 
@@ -23,7 +26,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ isOpen, onClose }) =
       let newWidth = window.innerWidth - e.clientX;
       if (newWidth < minWidth) newWidth = minWidth;
       // Allow it to drag to the whole screen (leave a tiny gap for the left edge)
-      const maxWidth = window.innerWidth - 50; 
+      const maxWidth = window.innerWidth - 50;
       if (newWidth > maxWidth) newWidth = maxWidth;
       setWidth(newWidth);
     };
@@ -50,7 +53,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ isOpen, onClose }) =
   `;
   const dynamicStyle = {
     width: `${width}px`,
-    marginRight: isOpen ? "0px" : `-${width}px`
+    marginRight: isOpen ? "0px" : `-${width}px`,
   };
 
   return (
@@ -63,10 +66,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ isOpen, onClose }) =
         />
       )}
 
-      <aside 
-        className={sidebarClasses}
-        style={dynamicStyle}
-      >
+      <aside className={sidebarClasses} style={dynamicStyle}>
         {/* Header Spacer */}
         <div className="h-10 border-b border-border pr-10" />
 

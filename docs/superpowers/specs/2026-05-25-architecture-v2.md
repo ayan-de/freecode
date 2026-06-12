@@ -114,6 +114,7 @@ The core of FreeCode is an **agent loop**: instead of a single request-response,
 ```
 
 **Flow:**
+
 1. Model decides what tool to call (read, write, bash, grep, agent, skill, etc.)
 2. **Hooks intercept** — pre-check input, post-check output, can block/modify
 3. Tool executes (file system, shell, search, sub-agent, etc.)
@@ -130,27 +131,28 @@ Every tool call and session lifecycle event passes through hooks. FreeCode adopt
 
 ```typescript
 const HOOK_EVENT_NAMES = [
-  "PreToolUse",       // Before tool execution — modify input or block
-  "PostToolUse",      // After tool execution — modify output, log
+  "PreToolUse", // Before tool execution — modify input or block
+  "PostToolUse", // After tool execution — modify output, log
   "PermissionRequest", // When tool requires user approval
-  "PreCompact",       // Before memory compaction — inspect/modify context
-  "PostCompact",      // After memory compaction — verify result
-  "SessionStart",     // When session begins — initialize session state
+  "PreCompact", // Before memory compaction — inspect/modify context
+  "PostCompact", // After memory compaction — verify result
+  "SessionStart", // When session begins — initialize session state
   "UserPromptSubmit", // Before user prompt goes to model
-  "SubagentStart",    // When a sub-agent is spawned
-  "SubagentStop",     // When a sub-agent completes
-  "Stop",             // When agent loop terminates
+  "SubagentStart", // When a sub-agent is spawned
+  "SubagentStop", // When a sub-agent completes
+  "Stop", // When agent loop terminates
 ] as const;
 
 interface Hook {
   name: string;
-  event: typeof HOOK_EVENT_NAMES[number];
+  event: (typeof HOOK_EVENT_NAMES)[number];
   preExecute?: (context: HookContext) => HookResult | null;
   postExecute?: (context: HookContext, result: unknown) => HookResult;
 }
 ```
 
 **HookResult:**
+
 - `continue` — proceed normally
 - `block(reason)` — halt with explanation
 - `inject(context)` — add additional context to the flow
@@ -202,7 +204,7 @@ Skills are reusable instruction sets that extend the agent's capabilities. Inspi
 ---
 name: commit
 description: Generate a well-structured git commit message
-scope: user      # user | repo | system | admin
+scope: user # user | repo | system | admin
 trigger: /\b(commit|git commit)\b/i
 ---
 
@@ -227,12 +229,14 @@ Types: feat, fix, docs, style, refactor, test, chore
 ```
 
 **Skill Scopes:**
+
 - `system` — bundled with FreeCode, always available
 - `user` — user-installed in `~/.freecode/skills/`
 - `repo` — repository-specific in `.freecode/skills/`
 - `admin` — requires admin privileges
 
 **Skill Loading:**
+
 1. On startup, scan all skill directories
 2. Cache skill metadata (name, scope, trigger patterns)
 3. On session start, load applicable skills based on scope + user config
@@ -261,15 +265,59 @@ Every session action is written to an append-only JSONL log for debugging, repla
 
 ```typescript
 type RolloutEvent =
-  | { type: "TurnStarted"; sessionId: string; turnId: string; timestamp: number }
+  | {
+      type: "TurnStarted";
+      sessionId: string;
+      turnId: string;
+      timestamp: number;
+    }
   | { type: "TurnAborted"; sessionId: string; turnId: string; reason: string }
-  | { type: "FunctionCall"; sessionId: string; turnId: string; tool: string; args: Record<string, unknown> }
-  | { type: "FunctionOutput"; sessionId: string; turnId: string; tool: string; output: string; duration_ms: number }
-  | { type: "CompactOccurred"; sessionId: string; beforeTokens: number; afterTokens: number }
-  | { type: "SubagentStart"; sessionId: string; subagentId: string; task: string }
-  | { type: "SubagentStop"; sessionId: string; subagentId: string; result: string }
-  | { type: "SkillInvoked"; sessionId: string; skillName: string; implicit: boolean }
-  | { type: "HookTriggered"; sessionId: string; hookName: string; event: string; blocked: boolean };
+  | {
+      type: "FunctionCall";
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      args: Record<string, unknown>;
+    }
+  | {
+      type: "FunctionOutput";
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      output: string;
+      duration_ms: number;
+    }
+  | {
+      type: "CompactOccurred";
+      sessionId: string;
+      beforeTokens: number;
+      afterTokens: number;
+    }
+  | {
+      type: "SubagentStart";
+      sessionId: string;
+      subagentId: string;
+      task: string;
+    }
+  | {
+      type: "SubagentStop";
+      sessionId: string;
+      subagentId: string;
+      result: string;
+    }
+  | {
+      type: "SkillInvoked";
+      sessionId: string;
+      skillName: string;
+      implicit: boolean;
+    }
+  | {
+      type: "HookTriggered";
+      sessionId: string;
+      hookName: string;
+      event: string;
+      blocked: boolean;
+    };
 ```
 
 ### Why Event Sourcing
@@ -296,14 +344,18 @@ Sessions persist across restarts. Inspired by Claude Code's `thread-store` crate
 
 ```typescript
 interface ThreadStore {
-  createThread(thread: StoredThread): Promise<string>;      // returns threadId
+  createThread(thread: StoredThread): Promise<string>; // returns threadId
   getThread(threadId: string): Promise<StoredThread | null>;
   updateThread(threadId: string, updates: Partial<StoredThread>): Promise<void>;
   archiveThread(threadId: string): Promise<void>;
   listThreads(filter?: ThreadFilter): Promise<StoredThread[]>;
 
   // Turn operations
-  appendTurnItem(threadId: string, turnId: string, item: TurnItem): Promise<void>;
+  appendTurnItem(
+    threadId: string,
+    turnId: string,
+    item: TurnItem,
+  ): Promise<void>;
   getTurnItems(threadId: string, turnId: string): Promise<TurnItem[]>;
 
   // Search
@@ -314,6 +366,7 @@ interface ThreadStore {
 ### Storage Format
 
 Sessions stored in `~/.freecode/sessions/{threadId}/`:
+
 - `metadata.json` — thread metadata, createdAt, lastAccessed
 - `turns/` — directory of turn JSON files
 - `history.jsonl` — full message history
@@ -333,8 +386,8 @@ interface AgentTool {
   name: "agent";
   description: "Spawn a sub-agent to handle a focused task in parallel";
   parameters: {
-    task: string;           // Task description for the sub-agent
-    scope?: "read" | "write" | "review" | "test";  // Agent type
+    task: string; // Task description for the sub-agent
+    scope?: "read" | "write" | "review" | "test"; // Agent type
     contextFiles?: string[]; // Files to make available to sub-agent
   };
 }
@@ -375,15 +428,16 @@ Before the agent loop begins, context is assembled from multiple sources:
 
 ```typescript
 interface PreLoopContext {
-  projectConventions: string;    // from AGENTS.md (priority) or CLAUDE.md
-  skills: Skill[];              // from .freecode/skills/ (system + user + repo)
-  activeSkills: Skill[];        // skills triggered implicitly by prompt patterns
-  recentHistory: string;        // recent actions for orientation
-  permissionProfile: PermissionProfile;  // current sandbox permissions
+  projectConventions: string; // from AGENTS.md (priority) or CLAUDE.md
+  skills: Skill[]; // from .freecode/skills/ (system + user + repo)
+  activeSkills: Skill[]; // skills triggered implicitly by prompt patterns
+  recentHistory: string; // recent actions for orientation
+  permissionProfile: PermissionProfile; // current sandbox permissions
 }
 ```
 
 **Loading order:**
+
 1. **AGENTS.md** (priority) or **CLAUDE.md** — project conventions, preferences
 2. **System skills** — bundled skills from `.system/`
 3. **User skills** — from `~/.freecode/skills/`
@@ -409,20 +463,20 @@ Tasks can run for hundreds of steps. To avoid hitting context limits:
 
 ### Built-in Tools
 
-| Tool | Description |
-|------|-------------|
-| `read` | Read file contents |
-| `write` | Write/create files |
-| `edit` | Apply edits to files |
-| `bash` | Execute shell commands |
-| `grep` | Search file contents |
-| `find` | Find files by name pattern |
-| `glob` | Glob pattern matching |
-| `agent` | Spawn a sub-agent |
-| `skill` | Explicitly invoke a skill |
-| `apply_patch` | Apply a diff/patch |
+| Tool                 | Description                  |
+| -------------------- | ---------------------------- |
+| `read`               | Read file contents           |
+| `write`              | Write/create files           |
+| `edit`               | Apply edits to files         |
+| `bash`               | Execute shell commands       |
+| `grep`               | Search file contents         |
+| `find`               | Find files by name pattern   |
+| `glob`               | Glob pattern matching        |
+| `agent`              | Spawn a sub-agent            |
+| `skill`              | Explicitly invoke a skill    |
+| `apply_patch`        | Apply a diff/patch           |
 | `request_permission` | Request elevated permissions |
-| `request_user_input` | Elicit user input mid-loop |
+| `request_user_input` | Elicit user input mid-loop   |
 
 ### Tool Execution Pipeline
 
@@ -489,6 +543,7 @@ const PROFILES = {
 **TUI and VS Code are pure presentation layers. All business logic lives in CLI.**
 
 This means:
+
 - No browser automation code in TUI or VSCode
 - No file reading/writing in TUI or VSCode
 - No parsing logic in TUI or VSCode
@@ -664,21 +719,21 @@ interface JsonRpcResponse {
 
 ### Methods
 
-| Method | Params | Returns | Description |
-|--------|--------|---------|-------------|
-| `tools.list` | — | `ToolListItem[]` | List available tools |
-| `tools.call` | `{ name: string, args: Record<string, unknown> }` | `ToolResult` | Execute a tool |
-| `session.start` | `{ projectPath: string, provider?: string }` | `{ sessionId: string }` | Start a new session |
-| `session.send` | `{ sessionId: string, message: string }` | `StreamResponse` (streaming) | Send a message |
-| `session.stop` | `{ sessionId: string }` | `void` | Abort current turn |
-| `session.resume` | `{ sessionId: string }` | `{ sessionId: string }` | Resume existing session |
-| `session.fork` | `{ sessionId: string, point?: string }` | `{ newSessionId: string }` | Fork session at point |
-| `session.list` | `{ filter?: ThreadFilter }` | `StoredThread[]` | List sessions |
-| `providers.list` | — | `ProviderInfo[]` | List available AI providers |
-| `skills.list` | `{ scope?: SkillScope }` | `SkillMetadata[]` | List available skills |
-| `skills.invoke` | `{ name: string, context?: object }` | `SkillResult` | Invoke a skill |
-| `hooks.list` | — | `HookDefinition[]` | List registered hooks |
-| `rollout.getEvents` | `{ sessionId: string }` | `RolloutEvent[]` | Get session events |
+| Method              | Params                                            | Returns                      | Description                 |
+| ------------------- | ------------------------------------------------- | ---------------------------- | --------------------------- |
+| `tools.list`        | —                                                 | `ToolListItem[]`             | List available tools        |
+| `tools.call`        | `{ name: string, args: Record<string, unknown> }` | `ToolResult`                 | Execute a tool              |
+| `session.start`     | `{ projectPath: string, provider?: string }`      | `{ sessionId: string }`      | Start a new session         |
+| `session.send`      | `{ sessionId: string, message: string }`          | `StreamResponse` (streaming) | Send a message              |
+| `session.stop`      | `{ sessionId: string }`                           | `void`                       | Abort current turn          |
+| `session.resume`    | `{ sessionId: string }`                           | `{ sessionId: string }`      | Resume existing session     |
+| `session.fork`      | `{ sessionId: string, point?: string }`           | `{ newSessionId: string }`   | Fork session at point       |
+| `session.list`      | `{ filter?: ThreadFilter }`                       | `StoredThread[]`             | List sessions               |
+| `providers.list`    | —                                                 | `ProviderInfo[]`             | List available AI providers |
+| `skills.list`       | `{ scope?: SkillScope }`                          | `SkillMetadata[]`            | List available skills       |
+| `skills.invoke`     | `{ name: string, context?: object }`              | `SkillResult`                | Invoke a skill              |
+| `hooks.list`        | —                                                 | `HookDefinition[]`           | List registered hooks       |
+| `rollout.getEvents` | `{ sessionId: string }`                           | `RolloutEvent[]`             | Get session events          |
 
 ### Streaming Response
 
@@ -686,11 +741,11 @@ interface JsonRpcResponse {
 interface StreamResponse {
   type: "text" | "code" | "tool" | "done" | "error" | "skill" | "subagent";
   content: string;
-  toolName?: string;      // when type === "tool"
-  toolArgs?: unknown;     // when type === "tool"
-  toolResult?: string;   // when type === "tool" (after execution)
-  skillName?: string;     // when type === "skill"
-  subagentId?: string;   // when type === "subagent"
+  toolName?: string; // when type === "tool"
+  toolArgs?: unknown; // when type === "tool"
+  toolResult?: string; // when type === "tool" (after execution)
+  skillName?: string; // when type === "skill"
+  subagentId?: string; // when type === "subagent"
 }
 ```
 
@@ -709,7 +764,11 @@ export interface Message {
 export type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; language: string; content: string }
-  | { type: "tool"; tool: { name: string; args: Record<string, unknown> }; result?: string };
+  | {
+      type: "tool";
+      tool: { name: string; args: Record<string, unknown> };
+      result?: string;
+    };
 
 export interface ToolDef {
   id: string;
@@ -749,21 +808,65 @@ export interface Skill {
   name: string;
   description: string;
   scope: SkillScope;
-  content: string;           // Raw skill markdown
-  trigger?: RegExp;          // Implicit trigger pattern
-  parameters?: JsonSchema;   // Optional expected parameters
+  content: string; // Raw skill markdown
+  trigger?: RegExp; // Implicit trigger pattern
+  parameters?: JsonSchema; // Optional expected parameters
 }
 
 export type RolloutEvent =
-  | { type: "TurnStarted"; sessionId: string; turnId: string; timestamp: number }
+  | {
+      type: "TurnStarted";
+      sessionId: string;
+      turnId: string;
+      timestamp: number;
+    }
   | { type: "TurnAborted"; sessionId: string; turnId: string; reason: string }
-  | { type: "FunctionCall"; sessionId: string; turnId: string; tool: string; args: Record<string, unknown> }
-  | { type: "FunctionOutput"; sessionId: string; turnId: string; tool: string; output: string; duration_ms: number }
-  | { type: "CompactOccurred"; sessionId: string; beforeTokens: number; afterTokens: number }
-  | { type: "SubagentStart"; sessionId: string; subagentId: string; task: string }
-  | { type: "SubagentStop"; sessionId: string; subagentId: string; result: string }
-  | { type: "SkillInvoked"; sessionId: string; skillName: string; implicit: boolean }
-  | { type: "HookTriggered"; sessionId: string; hookName: string; event: string; blocked: boolean };
+  | {
+      type: "FunctionCall";
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      args: Record<string, unknown>;
+    }
+  | {
+      type: "FunctionOutput";
+      sessionId: string;
+      turnId: string;
+      tool: string;
+      output: string;
+      duration_ms: number;
+    }
+  | {
+      type: "CompactOccurred";
+      sessionId: string;
+      beforeTokens: number;
+      afterTokens: number;
+    }
+  | {
+      type: "SubagentStart";
+      sessionId: string;
+      subagentId: string;
+      task: string;
+    }
+  | {
+      type: "SubagentStop";
+      sessionId: string;
+      subagentId: string;
+      result: string;
+    }
+  | {
+      type: "SkillInvoked";
+      sessionId: string;
+      skillName: string;
+      implicit: boolean;
+    }
+  | {
+      type: "HookTriggered";
+      sessionId: string;
+      hookName: string;
+      event: string;
+      blocked: boolean;
+    };
 
 export interface StoredThread {
   id: string;
@@ -777,9 +880,16 @@ export interface StoredThread {
 }
 
 export type HookEventType =
-  | "PreToolUse" | "PostToolUse" | "PermissionRequest"
-  | "PreCompact" | "PostCompact" | "SessionStart"
-  | "UserPromptSubmit" | "SubagentStart" | "SubagentStop" | "Stop";
+  | "PreToolUse"
+  | "PostToolUse"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
+  | "SessionStart"
+  | "UserPromptSubmit"
+  | "SubagentStart"
+  | "SubagentStop"
+  | "Stop";
 
 export interface HookResult {
   action: "continue" | "block" | "inject";
@@ -792,24 +902,24 @@ export interface HookResult {
 
 ## Boundary: What Lives Where
 
-| Concern | CLI | TUI | VSCode |
-|---------|-----|-----|--------|
-| Browser automation (Playwright/CDP) | ✅ | ❌ | ❌ |
-| Provider adapters (ChatGPT, Claude) | ✅ | ❌ | ❌ |
-| Agent loop + session management | ✅ | ❌ | ❌ |
-| Context collection (file tree) | ✅ | ❌ | ❌ |
-| Response parsing | ✅ | ❌ | ❌ |
-| Tool execution | ✅ | ❌ | ❌ |
-| File diff + writing | ✅ | ❌ | ❌ |
-| Skills loading + injection | ✅ | ❌ | ❌ |
-| Hooks (10 event types) | ✅ | ❌ | ❌ |
-| Rollout event logging | ✅ | ❌ | ❌ |
-| Thread store persistence | ✅ | ❌ | ❌ |
-| MCP server/client | ✅ | ❌ | ❌ |
-| TUI rendering (pi-tui) | ❌ | ✅ | ❌ |
-| VS Code webview | ❌ | ❌ | ✅ |
-| UI state (messages, status, theme) | ❌ | ✅ (Zustand) | ✅ (Zustand) |
-| IPC client | ❌ | ✅ | ✅ |
+| Concern                             | CLI | TUI          | VSCode       |
+| ----------------------------------- | --- | ------------ | ------------ |
+| Browser automation (Playwright/CDP) | ✅  | ❌           | ❌           |
+| Provider adapters (ChatGPT, Claude) | ✅  | ❌           | ❌           |
+| Agent loop + session management     | ✅  | ❌           | ❌           |
+| Context collection (file tree)      | ✅  | ❌           | ❌           |
+| Response parsing                    | ✅  | ❌           | ❌           |
+| Tool execution                      | ✅  | ❌           | ❌           |
+| File diff + writing                 | ✅  | ❌           | ❌           |
+| Skills loading + injection          | ✅  | ❌           | ❌           |
+| Hooks (10 event types)              | ✅  | ❌           | ❌           |
+| Rollout event logging               | ✅  | ❌           | ❌           |
+| Thread store persistence            | ✅  | ❌           | ❌           |
+| MCP server/client                   | ✅  | ❌           | ❌           |
+| TUI rendering (pi-tui)              | ❌  | ✅           | ❌           |
+| VS Code webview                     | ❌  | ❌           | ✅           |
+| UI state (messages, status, theme)  | ❌  | ✅ (Zustand) | ✅ (Zustand) |
+| IPC client                          | ❌  | ✅           | ✅           |
 
 ---
 
@@ -822,6 +932,7 @@ export interface HookResult {
 **Rationale:** Avoids code duplication across frontends. Adding a new provider, parser, or tool only requires changing one place.
 
 **Alternatives considered:**
+
 - TUI owns business logic, VSCode delegates to it (couples TUI to backend)
 - Each frontend re-implements everything (duplication, maintenance burden)
 
@@ -840,6 +951,7 @@ export interface HookResult {
 **Rationale:** Token-efficient. Only sends relevant context. Allows LLM to reason about the full codebase before diving into specifics.
 
 **Sequence:**
+
 1. Send prompt + file tree to LLM → LLM returns list of needed files
 2. CLI reads those files
 3. Send files + prompt to LLM → LLM returns structured response
@@ -874,14 +986,14 @@ export interface HookResult {
 
 These were deferred in v1; v2 now provides the architecture for them:
 
-| Item | v1 Status | v2 Status | Notes |
-|------|-----------|-----------|-------|
-| MCP server integration | Deferred | **Planned** | Full MCP server/client in architecture |
-| Storage layer | Deferred | **Planned** | ThreadStore with LocalThreadStore impl |
-| Sub-agent implementation | Deferred | **Planned** | Sub-agent tool + lifecycle hooks |
-| Memory compaction | Deferred | **Planned** | PreCompact/PostCompact hooks + compact.ts |
-| Hook middleware | Basic (2 hooks) | **Expanded** | 10 hook event types |
-| Rust TUI | Deferred | Deferred | Still deferred — only if perf demands |
+| Item                     | v1 Status       | v2 Status    | Notes                                     |
+| ------------------------ | --------------- | ------------ | ----------------------------------------- |
+| MCP server integration   | Deferred        | **Planned**  | Full MCP server/client in architecture    |
+| Storage layer            | Deferred        | **Planned**  | ThreadStore with LocalThreadStore impl    |
+| Sub-agent implementation | Deferred        | **Planned**  | Sub-agent tool + lifecycle hooks          |
+| Memory compaction        | Deferred        | **Planned**  | PreCompact/PostCompact hooks + compact.ts |
+| Hook middleware          | Basic (2 hooks) | **Expanded** | 10 hook event types                       |
+| Rust TUI                 | Deferred        | Deferred     | Still deferred — only if perf demands     |
 
 ---
 
@@ -889,18 +1001,18 @@ These were deferred in v1; v2 now provides the architecture for them:
 
 Every pattern in FreeCode v2 has roots in familiar systems:
 
-| FreeCode Pattern | Analogous System | Why It Matters |
-|-----------------|------------------|----------------|
-| Agent loop | Worker processing a task queue | Model drives workflow decisions |
-| Tools | Service interface layer | Separation of thinking vs doing |
-| Hooks (10 types) | Web middleware + event sourcing | Safety + observability + lifecycle |
-| Memory compaction | Log rotation | Handles unbounded session length |
-| Sub-agents | Worker nodes / map-reduce | Parallel distributed processing |
-| Skills | Reusable scripts / templates | Pre-packaged behaviors with implicit detection |
-| Rollout events | Event sourcing / audit log | Debugging, replay, analytics |
-| Thread Store | Persistent queue | Sessions survive restarts |
-| MCP integration | Plugin architecture | Interoperability with other AI tools |
-| Permission profiles | Capability-based security | Granular sandbox control |
+| FreeCode Pattern    | Analogous System                | Why It Matters                                 |
+| ------------------- | ------------------------------- | ---------------------------------------------- |
+| Agent loop          | Worker processing a task queue  | Model drives workflow decisions                |
+| Tools               | Service interface layer         | Separation of thinking vs doing                |
+| Hooks (10 types)    | Web middleware + event sourcing | Safety + observability + lifecycle             |
+| Memory compaction   | Log rotation                    | Handles unbounded session length               |
+| Sub-agents          | Worker nodes / map-reduce       | Parallel distributed processing                |
+| Skills              | Reusable scripts / templates    | Pre-packaged behaviors with implicit detection |
+| Rollout events      | Event sourcing / audit log      | Debugging, replay, analytics                   |
+| Thread Store        | Persistent queue                | Sessions survive restarts                      |
+| MCP integration     | Plugin architecture             | Interoperability with other AI tools           |
+| Permission profiles | Capability-based security       | Granular sandbox control                       |
 
 ---
 

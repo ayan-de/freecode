@@ -75,7 +75,8 @@ export class ToolResultMessage implements Component {
     const entries = Object.entries(this.args);
     if (entries.length === 0) return "";
 
-    const truncate = (s: string, max = 40) => s.length > max ? s.slice(0, max) + "..." : s;
+    const truncate = (s: string, max = 40) =>
+      s.length > max ? s.slice(0, max) + "..." : s;
 
     let result = entries
       .map(([k, v]) => {

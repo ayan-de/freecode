@@ -51,6 +51,7 @@ apps/core/src/
 ## Task 1: Test Harness And Memory Types
 
 **Files:**
+
 - Modify: `apps/core/package.json`
 - Create: `apps/core/src/memory/types.ts`
 - Create: `apps/core/src/memory/index.ts`
@@ -81,65 +82,65 @@ Expected: command succeeds with no test files found or zero tests run.
 Create `apps/core/src/memory/types.ts`:
 
 ```typescript
-export type MemoryRole = "system" | "user" | "assistant"
+export type MemoryRole = "system" | "user" | "assistant";
 
 export interface MemoryMessage {
-  id: string
-  role: MemoryRole
-  content: string
-  timestamp: number
-  tokenCount: number
+  id: string;
+  role: MemoryRole;
+  content: string;
+  timestamp: number;
+  tokenCount: number;
 }
 
 export interface CompactionSummary {
-  id: string
-  createdAt: number
-  originalMessageCount: number
-  originalTokenCount: number
-  summaryTokenCount: number
-  content: string
+  id: string;
+  createdAt: number;
+  originalMessageCount: number;
+  originalTokenCount: number;
+  summaryTokenCount: number;
+  content: string;
 }
 
 export interface MemoryState {
-  sessionId: string
-  messages: MemoryMessage[]
-  summaries: CompactionSummary[]
-  tokenCount: number
-  totalCompactions: number
-  lastCompactionAt?: number
+  sessionId: string;
+  messages: MemoryMessage[];
+  summaries: CompactionSummary[];
+  tokenCount: number;
+  totalCompactions: number;
+  lastCompactionAt?: number;
 }
 
 export interface CompactionConfig {
-  autoCompactBufferTokens: number
-  warningBufferTokens: number
-  preserveRecentTurns: number
-  minPreserveRecentTokens: number
-  maxPreserveRecentTokens: number
-  maxToolOutputChars: number
+  autoCompactBufferTokens: number;
+  warningBufferTokens: number;
+  preserveRecentTurns: number;
+  minPreserveRecentTokens: number;
+  maxPreserveRecentTokens: number;
+  maxToolOutputChars: number;
 }
 
 export interface SelectionResult {
-  summarize: MemoryMessage[]
-  preserve: MemoryMessage[]
-  summarizeTokenCount: number
-  preserveTokenCount: number
+  summarize: MemoryMessage[];
+  preserve: MemoryMessage[];
+  summarizeTokenCount: number;
+  preserveTokenCount: number;
 }
 
 export interface CompactionResult {
-  success: boolean
-  blocked?: boolean
-  reason?: string
-  summary?: CompactionSummary
-  preservedMessageIds: string[]
-  compactedMessageIds: string[]
-  tokenCountBefore: number
-  tokenCountAfter: number
+  success: boolean;
+  blocked?: boolean;
+  reason?: string;
+  summary?: CompactionSummary;
+  preservedMessageIds: string[];
+  compactedMessageIds: string[];
+  tokenCountBefore: number;
+  tokenCountAfter: number;
 }
 
 export interface PromptMemoryContext {
-  summary?: string
-  recentMessages: MemoryMessage[]
-  tokenCount: number
+  summary?: string;
+  recentMessages: MemoryMessage[];
+  tokenCount: number;
 }
 
 export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
@@ -149,7 +150,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   minPreserveRecentTokens: 2_000,
   maxPreserveRecentTokens: 8_000,
   maxToolOutputChars: 2_000,
-}
+};
 ```
 
 - [ ] **Step 4: Create public exports**
@@ -157,7 +158,7 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
 Create `apps/core/src/memory/index.ts`:
 
 ```typescript
-export * from "./types.js"
+export * from "./types.js";
 ```
 
 - [ ] **Step 5: Type check**
@@ -178,6 +179,7 @@ git commit -m "feat(memory): add memory contracts"
 ## Task 2: Token Budgets
 
 **Files:**
+
 - Create: `apps/core/src/memory/tokens.ts`
 - Create: `apps/core/src/memory/tokens.test.ts`
 - Modify: `apps/core/src/memory/index.ts`
@@ -187,26 +189,31 @@ git commit -m "feat(memory): add memory contracts"
 Create `apps/core/src/memory/tokens.test.ts`:
 
 ```typescript
-import test from "node:test"
-import assert from "node:assert/strict"
-import { estimateTokenCount, getContextLimit, getAutoCompactThreshold, shouldCompact } from "./tokens.js"
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  estimateTokenCount,
+  getContextLimit,
+  getAutoCompactThreshold,
+  shouldCompact,
+} from "./tokens.js";
 
 test("estimateTokenCount uses a conservative char estimate", () => {
-  assert.equal(estimateTokenCount("Hello World"), 3)
-})
+  assert.equal(estimateTokenCount("Hello World"), 3);
+});
 
 test("getContextLimit falls back for unknown models", () => {
-  assert.equal(getContextLimit("unknown-model"), 100_000)
-})
+  assert.equal(getContextLimit("unknown-model"), 100_000);
+});
 
 test("getAutoCompactThreshold reserves compaction buffer", () => {
-  assert.equal(getAutoCompactThreshold("gpt-4o", 13_000), 115_000)
-})
+  assert.equal(getAutoCompactThreshold("gpt-4o", 13_000), 115_000);
+});
 
 test("shouldCompact is true only at or above threshold", () => {
-  assert.equal(shouldCompact(114_999, "gpt-4o", 13_000), false)
-  assert.equal(shouldCompact(115_000, "gpt-4o", 13_000), true)
-})
+  assert.equal(shouldCompact(114_999, "gpt-4o", 13_000), false);
+  assert.equal(shouldCompact(115_000, "gpt-4o", 13_000), true);
+});
 ```
 
 - [ ] **Step 2: Verify the test fails**
@@ -220,7 +227,7 @@ Expected: FAIL because `tokens.ts` does not exist.
 Create `apps/core/src/memory/tokens.ts`:
 
 ```typescript
-const CHARS_PER_TOKEN = 4
+const CHARS_PER_TOKEN = 4;
 
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-4o": 128_000,
@@ -233,23 +240,30 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gemini-1.5-pro": 1_000_000,
   "gemini-1.5-flash": 1_000_000,
   default: 100_000,
-}
+};
 
 export function estimateTokenCount(text: string): number {
-  if (text.length === 0) return 0
-  return Math.ceil(text.length / CHARS_PER_TOKEN)
+  if (text.length === 0) return 0;
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
 export function getContextLimit(model: string): number {
-  return MODEL_CONTEXT_LIMITS[model] ?? MODEL_CONTEXT_LIMITS.default
+  return MODEL_CONTEXT_LIMITS[model] ?? MODEL_CONTEXT_LIMITS.default;
 }
 
-export function getAutoCompactThreshold(model: string, bufferTokens: number): number {
-  return Math.max(0, getContextLimit(model) - bufferTokens)
+export function getAutoCompactThreshold(
+  model: string,
+  bufferTokens: number,
+): number {
+  return Math.max(0, getContextLimit(model) - bufferTokens);
 }
 
-export function shouldCompact(tokenCount: number, model: string, bufferTokens: number): boolean {
-  return tokenCount >= getAutoCompactThreshold(model, bufferTokens)
+export function shouldCompact(
+  tokenCount: number,
+  model: string,
+  bufferTokens: number,
+): boolean {
+  return tokenCount >= getAutoCompactThreshold(model, bufferTokens);
 }
 ```
 
@@ -258,8 +272,8 @@ export function shouldCompact(tokenCount: number, model: string, bufferTokens: n
 Update `apps/core/src/memory/index.ts`:
 
 ```typescript
-export * from "./types.js"
-export * from "./tokens.js"
+export * from "./types.js";
+export * from "./tokens.js";
 ```
 
 - [ ] **Step 5: Run tests and type check**
@@ -284,6 +298,7 @@ git commit -m "feat(memory): add token budget helpers"
 ## Task 3: Message Selection And Prompt Rendering
 
 **Files:**
+
 - Create: `apps/core/src/memory/selector.ts`
 - Create: `apps/core/src/memory/selector.test.ts`
 - Modify: `apps/core/src/memory/index.ts`
@@ -293,13 +308,22 @@ git commit -m "feat(memory): add token budget helpers"
 Create `apps/core/src/memory/selector.test.ts`:
 
 ```typescript
-import test from "node:test"
-import assert from "node:assert/strict"
-import { selectForCompaction, renderPromptMemoryContext } from "./selector.js"
-import { DEFAULT_COMPACTION_CONFIG, type CompactionSummary, type MemoryMessage } from "./types.js"
+import test from "node:test";
+import assert from "node:assert/strict";
+import { selectForCompaction, renderPromptMemoryContext } from "./selector.js";
+import {
+  DEFAULT_COMPACTION_CONFIG,
+  type CompactionSummary,
+  type MemoryMessage,
+} from "./types.js";
 
-function msg(id: string, role: MemoryMessage["role"], content: string, tokenCount = 100): MemoryMessage {
-  return { id, role, content, tokenCount, timestamp: Number(id) }
+function msg(
+  id: string,
+  role: MemoryMessage["role"],
+  content: string,
+  tokenCount = 100,
+): MemoryMessage {
+  return { id, role, content, tokenCount, timestamp: Number(id) };
 }
 
 test("selectForCompaction preserves the recent tail and summarizes older messages", () => {
@@ -310,21 +334,33 @@ test("selectForCompaction preserves the recent tail and summarizes older message
     msg("4", "assistant", "middle answer"),
     msg("5", "user", "latest request"),
     msg("6", "assistant", "latest answer"),
-  ]
+  ];
 
-  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG)
+  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
 
-  assert.deepEqual(result.summarize.map((item) => item.id), ["1", "2"])
-  assert.deepEqual(result.preserve.map((item) => item.id), ["3", "4", "5", "6"])
-})
+  assert.deepEqual(
+    result.summarize.map((item) => item.id),
+    ["1", "2"],
+  );
+  assert.deepEqual(
+    result.preserve.map((item) => item.id),
+    ["3", "4", "5", "6"],
+  );
+});
 
 test("selectForCompaction returns no summarize set when history is too short", () => {
-  const messages = [msg("1", "user", "latest"), msg("2", "assistant", "answer")]
-  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG)
+  const messages = [
+    msg("1", "user", "latest"),
+    msg("2", "assistant", "answer"),
+  ];
+  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
 
-  assert.deepEqual(result.summarize, [])
-  assert.deepEqual(result.preserve.map((item) => item.id), ["1", "2"])
-})
+  assert.deepEqual(result.summarize, []);
+  assert.deepEqual(
+    result.preserve.map((item) => item.id),
+    ["1", "2"],
+  );
+});
 
 test("renderPromptMemoryContext includes summary and recent messages", () => {
   const summary: CompactionSummary = {
@@ -334,19 +370,22 @@ test("renderPromptMemoryContext includes summary and recent messages", () => {
     originalTokenCount: 200,
     summaryTokenCount: 50,
     content: "## Goal\n- Build memory",
-  }
+  };
 
   const rendered = renderPromptMemoryContext({
     summary: summary.content,
-    recentMessages: [msg("3", "user", "continue work"), msg("4", "assistant", "working")],
+    recentMessages: [
+      msg("3", "user", "continue work"),
+      msg("4", "assistant", "working"),
+    ],
     tokenCount: 250,
-  })
+  });
 
-  assert.match(rendered, /Compacted session summary/)
-  assert.match(rendered, /Build memory/)
-  assert.match(rendered, /Recent session messages/)
-  assert.match(rendered, /user: continue work/)
-})
+  assert.match(rendered, /Compacted session summary/);
+  assert.match(rendered, /Build memory/);
+  assert.match(rendered, /Recent session messages/);
+  assert.match(rendered, /user: continue work/);
+});
 ```
 
 - [ ] **Step 2: Verify the test fails**
@@ -360,72 +399,87 @@ Expected: FAIL because `selector.ts` does not exist.
 Create `apps/core/src/memory/selector.ts`:
 
 ```typescript
-import type { CompactionConfig, MemoryMessage, PromptMemoryContext, SelectionResult } from "./types.js"
+import type {
+  CompactionConfig,
+  MemoryMessage,
+  PromptMemoryContext,
+  SelectionResult,
+} from "./types.js";
 
 function countTokens(messages: MemoryMessage[]): number {
-  return messages.reduce((sum, message) => sum + message.tokenCount, 0)
+  return messages.reduce((sum, message) => sum + message.tokenCount, 0);
 }
 
 function countUserTurns(messages: MemoryMessage[]): number {
-  return messages.filter((message) => message.role === "user").length
+  return messages.filter((message) => message.role === "user").length;
 }
 
-export function selectForCompaction(messages: MemoryMessage[], config: CompactionConfig): SelectionResult {
+export function selectForCompaction(
+  messages: MemoryMessage[],
+  config: CompactionConfig,
+): SelectionResult {
   if (countUserTurns(messages) <= config.preserveRecentTurns) {
     return {
       summarize: [],
       preserve: [...messages],
       summarizeTokenCount: 0,
       preserveTokenCount: countTokens(messages),
-    }
+    };
   }
 
-  let userTurnsSeen = 0
-  let preserveStart = messages.length
+  let userTurnsSeen = 0;
+  let preserveStart = messages.length;
 
   for (let index = messages.length - 1; index >= 0; index--) {
     if (messages[index].role === "user") {
-      userTurnsSeen++
+      userTurnsSeen++;
       if (userTurnsSeen === config.preserveRecentTurns) {
-        preserveStart = index
-        break
+        preserveStart = index;
+        break;
       }
     }
   }
 
-  let preserve = messages.slice(preserveStart)
-  while (countTokens(preserve) > config.maxPreserveRecentTokens && preserve.length > 1) {
-    preserve = preserve.slice(1)
+  let preserve = messages.slice(preserveStart);
+  while (
+    countTokens(preserve) > config.maxPreserveRecentTokens &&
+    preserve.length > 1
+  ) {
+    preserve = preserve.slice(1);
   }
 
-  const firstPreservedId = preserve[0]?.id
-  const firstPreservedIndex = firstPreservedId ? messages.findIndex((message) => message.id === firstPreservedId) : messages.length
-  const summarize = messages.slice(0, Math.max(0, firstPreservedIndex))
+  const firstPreservedId = preserve[0]?.id;
+  const firstPreservedIndex = firstPreservedId
+    ? messages.findIndex((message) => message.id === firstPreservedId)
+    : messages.length;
+  const summarize = messages.slice(0, Math.max(0, firstPreservedIndex));
 
   return {
     summarize,
     preserve,
     summarizeTokenCount: countTokens(summarize),
     preserveTokenCount: countTokens(preserve),
-  }
+  };
 }
 
-export function renderPromptMemoryContext(context: PromptMemoryContext): string {
-  const sections: string[] = []
+export function renderPromptMemoryContext(
+  context: PromptMemoryContext,
+): string {
+  const sections: string[] = [];
 
   if (context.summary) {
-    sections.push("Compacted session summary:")
-    sections.push(context.summary)
+    sections.push("Compacted session summary:");
+    sections.push(context.summary);
   }
 
   if (context.recentMessages.length > 0) {
-    sections.push("Recent session messages:")
+    sections.push("Recent session messages:");
     for (const message of context.recentMessages) {
-      sections.push(`${message.role}: ${message.content}`)
+      sections.push(`${message.role}: ${message.content}`);
     }
   }
 
-  return sections.join("\n\n")
+  return sections.join("\n\n");
 }
 ```
 
@@ -434,9 +488,9 @@ export function renderPromptMemoryContext(context: PromptMemoryContext): string 
 Update `apps/core/src/memory/index.ts`:
 
 ```typescript
-export * from "./types.js"
-export * from "./tokens.js"
-export * from "./selector.js"
+export * from "./types.js";
+export * from "./tokens.js";
+export * from "./selector.js";
 ```
 
 - [ ] **Step 5: Run tests and type check**
@@ -461,6 +515,7 @@ git commit -m "feat(memory): select compacted history"
 ## Task 4: Anchored Summarizer
 
 **Files:**
+
 - Create: `apps/core/src/memory/summarizer.ts`
 - Create: `apps/core/src/memory/summarizer.test.ts`
 - Modify: `apps/core/src/memory/index.ts`
@@ -470,13 +525,23 @@ git commit -m "feat(memory): select compacted history"
 Create `apps/core/src/memory/summarizer.test.ts`:
 
 ```typescript
-import test from "node:test"
-import assert from "node:assert/strict"
-import { summarizeMessages } from "./summarizer.js"
-import type { MemoryMessage } from "./types.js"
+import test from "node:test";
+import assert from "node:assert/strict";
+import { summarizeMessages } from "./summarizer.js";
+import type { MemoryMessage } from "./types.js";
 
-function msg(id: string, role: MemoryMessage["role"], content: string): MemoryMessage {
-  return { id, role, content, tokenCount: Math.ceil(content.length / 4), timestamp: Number(id) }
+function msg(
+  id: string,
+  role: MemoryMessage["role"],
+  content: string,
+): MemoryMessage {
+  return {
+    id,
+    role,
+    content,
+    tokenCount: Math.ceil(content.length / 4),
+    timestamp: Number(id),
+  };
 }
 
 test("summarizeMessages creates an anchored continuation summary", () => {
@@ -487,25 +552,25 @@ test("summarizeMessages creates an anchored continuation summary", () => {
       msg("1", "user", "Add memory compaction to apps/core/src/agent/loop.ts"),
       msg("2", "assistant", "Implemented selector and storage"),
     ],
-  })
+  });
 
-  assert.match(summary.content, /## Goal/)
-  assert.match(summary.content, /memory compaction/)
-  assert.match(summary.content, /## Recent Progress/)
-  assert.equal(summary.originalMessageCount, 2)
-})
+  assert.match(summary.content, /## Goal/);
+  assert.match(summary.content, /memory compaction/);
+  assert.match(summary.content, /## Recent Progress/);
+  assert.equal(summary.originalMessageCount, 2);
+});
 
 test("summarizeMessages carries previous summary forward", () => {
   const summary = summarizeMessages({
     sessionId: "session-1",
     previousSummary: "## Goal\n- Build memory safely",
     messages: [msg("3", "user", "Now wire it into prompts")],
-  })
+  });
 
-  assert.match(summary.content, /Previous Summary/)
-  assert.match(summary.content, /Build memory safely/)
-  assert.match(summary.content, /wire it into prompts/)
-})
+  assert.match(summary.content, /Previous Summary/);
+  assert.match(summary.content, /Build memory safely/);
+  assert.match(summary.content, /wire it into prompts/);
+});
 ```
 
 - [ ] **Step 2: Verify the test fails**
@@ -519,27 +584,33 @@ Expected: FAIL because `summarizer.ts` does not exist.
 Create `apps/core/src/memory/summarizer.ts`:
 
 ```typescript
-import type { CompactionSummary, MemoryMessage } from "./types.js"
-import { estimateTokenCount } from "./tokens.js"
+import type { CompactionSummary, MemoryMessage } from "./types.js";
+import { estimateTokenCount } from "./tokens.js";
 
 interface SummarizeInput {
-  sessionId: string
-  previousSummary?: string
-  messages: MemoryMessage[]
+  sessionId: string;
+  previousSummary?: string;
+  messages: MemoryMessage[];
 }
 
 function clip(text: string, maxChars: number): string {
-  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}...`
+  return text.length <= maxChars ? text : `${text.slice(0, maxChars)}...`;
 }
 
 export function summarizeMessages(input: SummarizeInput): CompactionSummary {
-  const userMessages = input.messages.filter((message) => message.role === "user")
-  const assistantMessages = input.messages.filter((message) => message.role === "assistant")
-  const files = new Set<string>()
+  const userMessages = input.messages.filter(
+    (message) => message.role === "user",
+  );
+  const assistantMessages = input.messages.filter(
+    (message) => message.role === "assistant",
+  );
+  const files = new Set<string>();
 
   for (const message of input.messages) {
-    for (const match of message.content.matchAll(/(?:apps|packages|docs)\/[^\s)`'"]+/g)) {
-      files.add(match[0])
+    for (const match of message.content.matchAll(
+      /(?:apps|packages|docs)\/[^\s)`'"]+/g,
+    )) {
+      files.add(match[0]);
     }
   }
 
@@ -551,19 +622,24 @@ export function summarizeMessages(input: SummarizeInput): CompactionSummary {
     input.previousSummary ? clip(input.previousSummary, 2_000) : "- (none)",
     "",
     "## Recent Progress",
-    ...assistantMessages.slice(-5).map((message) => `- ${clip(message.content, 240)}`),
+    ...assistantMessages
+      .slice(-5)
+      .map((message) => `- ${clip(message.content, 240)}`),
     assistantMessages.length === 0 ? "- (none)" : "",
     "",
     "## Relevant Files",
-    ...([...files].slice(0, 20).map((file) => `- ${file}`)),
+    ...[...files].slice(0, 20).map((file) => `- ${file}`),
     files.size === 0 ? "- (none)" : "",
     "",
     "## Next Context",
     `- Preserved ${input.messages.length} older messages for continuation.`,
-  ].filter((line) => line !== undefined)
+  ].filter((line) => line !== undefined);
 
-  const content = lines.join("\n")
-  const originalTokenCount = input.messages.reduce((sum, message) => sum + message.tokenCount, 0)
+  const content = lines.join("\n");
+  const originalTokenCount = input.messages.reduce(
+    (sum, message) => sum + message.tokenCount,
+    0,
+  );
 
   return {
     id: `summary-${input.sessionId}-${Date.now()}`,
@@ -572,7 +648,7 @@ export function summarizeMessages(input: SummarizeInput): CompactionSummary {
     originalTokenCount,
     summaryTokenCount: estimateTokenCount(content),
     content,
-  }
+  };
 }
 ```
 
@@ -581,10 +657,10 @@ export function summarizeMessages(input: SummarizeInput): CompactionSummary {
 Update `apps/core/src/memory/index.ts`:
 
 ```typescript
-export * from "./types.js"
-export * from "./tokens.js"
-export * from "./selector.js"
-export * from "./summarizer.js"
+export * from "./types.js";
+export * from "./tokens.js";
+export * from "./selector.js";
+export * from "./summarizer.js";
 ```
 
 - [ ] **Step 5: Run tests and type check**
@@ -609,6 +685,7 @@ git commit -m "feat(memory): add anchored summarizer"
 ## Task 5: Storage And Memory Service
 
 **Files:**
+
 - Create: `apps/core/src/memory/storage.ts`
 - Create: `apps/core/src/memory/service.ts`
 - Create: `apps/core/src/memory/service.test.ts`
@@ -619,66 +696,64 @@ git commit -m "feat(memory): add anchored summarizer"
 Create `apps/core/src/memory/service.test.ts`:
 
 ```typescript
-import test from "node:test"
-import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { createHookRuntime } from "../hooks/runtime.js"
-import { FileMemoryStorage } from "./storage.js"
-import { MemoryService } from "./service.js"
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHookRuntime } from "../hooks/runtime.js";
+import { FileMemoryStorage } from "./storage.js";
+import { MemoryService } from "./service.js";
 
 test("MemoryService compacts old messages and exposes prompt context", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "freecode-memory-"))
+  const dir = mkdtempSync(join(tmpdir(), "freecode-memory-"));
   try {
     const service = new MemoryService("session-1", {
       storage: new FileMemoryStorage(dir),
       hooks: createHookRuntime(),
-    })
+    });
 
-    service.addMessage("user", "old request in docs/superpowers/plans/x.md")
-    service.addMessage("assistant", "old answer")
-    service.addMessage("user", "middle request")
-    service.addMessage("assistant", "middle answer")
-    service.addMessage("user", "latest request")
-    service.addMessage("assistant", "latest answer")
+    service.addMessage("user", "old request in docs/superpowers/plans/x.md");
+    service.addMessage("assistant", "old answer");
+    service.addMessage("user", "middle request");
+    service.addMessage("assistant", "middle answer");
+    service.addMessage("user", "latest request");
+    service.addMessage("assistant", "latest answer");
 
-    const result = await service.compact()
-    const context = service.getPromptContext()
+    const result = await service.compact();
+    const context = service.getPromptContext();
 
-    assert.equal(result.success, true)
-    assert.ok(context.summary?.includes("old request"))
-    assert.deepEqual(context.recentMessages.map((message) => message.content), [
-      "middle request",
-      "middle answer",
-      "latest request",
-      "latest answer",
-    ])
+    assert.equal(result.success, true);
+    assert.ok(context.summary?.includes("old request"));
+    assert.deepEqual(
+      context.recentMessages.map((message) => message.content),
+      ["middle request", "middle answer", "latest request", "latest answer"],
+    );
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true });
   }
-})
+});
 
 test("MemoryService respects PreCompact block", async () => {
   const hooks = {
     ...createHookRuntime(),
     async runPreCompact() {
-      return { action: "block" as const, reason: "blocked by test" }
+      return { action: "block" as const, reason: "blocked by test" };
     },
-  }
+  };
 
-  const service = new MemoryService("session-1", { hooks })
-  service.addMessage("user", "old request")
-  service.addMessage("assistant", "old answer")
-  service.addMessage("user", "latest request")
-  service.addMessage("assistant", "latest answer")
+  const service = new MemoryService("session-1", { hooks });
+  service.addMessage("user", "old request");
+  service.addMessage("assistant", "old answer");
+  service.addMessage("user", "latest request");
+  service.addMessage("assistant", "latest answer");
 
-  const result = await service.compact()
+  const result = await service.compact();
 
-  assert.equal(result.success, false)
-  assert.equal(result.blocked, true)
-  assert.equal(result.reason, "blocked by test")
-})
+  assert.equal(result.success, false);
+  assert.equal(result.blocked, true);
+  assert.equal(result.reason, "blocked by test");
+});
 ```
 
 - [ ] **Step 2: Verify the test fails**
@@ -692,49 +767,62 @@ Expected: FAIL because `storage.ts` and `service.ts` do not exist.
 Create `apps/core/src/memory/storage.ts`:
 
 ```typescript
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
-import type { MemoryState } from "./types.js"
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join } from "node:path";
+import type { MemoryState } from "./types.js";
 
-const SESSION_DIR = ".freecode/sessions"
+const SESSION_DIR = ".freecode/sessions";
 
 export interface MemoryStorage {
-  save(state: MemoryState): void
-  load(sessionId: string): MemoryState | undefined
-  listSessions(): string[]
-  delete(sessionId: string): void
+  save(state: MemoryState): void;
+  load(sessionId: string): MemoryState | undefined;
+  listSessions(): string[];
+  delete(sessionId: string): void;
 }
 
 export class FileMemoryStorage implements MemoryStorage {
   constructor(private readonly basePath = process.cwd()) {}
 
   private sessionDir(sessionId: string): string {
-    return join(this.basePath, SESSION_DIR, sessionId)
+    return join(this.basePath, SESSION_DIR, sessionId);
   }
 
   private memoryPath(sessionId: string): string {
-    return join(this.sessionDir(sessionId), "memory.json")
+    return join(this.sessionDir(sessionId), "memory.json");
   }
 
   save(state: MemoryState): void {
-    mkdirSync(this.sessionDir(state.sessionId), { recursive: true })
-    writeFileSync(this.memoryPath(state.sessionId), JSON.stringify(state, null, 2))
+    mkdirSync(this.sessionDir(state.sessionId), { recursive: true });
+    writeFileSync(
+      this.memoryPath(state.sessionId),
+      JSON.stringify(state, null, 2),
+    );
   }
 
   load(sessionId: string): MemoryState | undefined {
-    const file = this.memoryPath(sessionId)
-    if (!existsSync(file)) return undefined
-    return JSON.parse(readFileSync(file, "utf8")) as MemoryState
+    const file = this.memoryPath(sessionId);
+    if (!existsSync(file)) return undefined;
+    return JSON.parse(readFileSync(file, "utf8")) as MemoryState;
   }
 
   listSessions(): string[] {
-    const dir = join(this.basePath, SESSION_DIR)
-    if (!existsSync(dir)) return []
-    return readdirSync(dir).filter((entry) => statSync(join(dir, entry)).isDirectory())
+    const dir = join(this.basePath, SESSION_DIR);
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir).filter((entry) =>
+      statSync(join(dir, entry)).isDirectory(),
+    );
   }
 
   delete(sessionId: string): void {
-    rmSync(this.sessionDir(sessionId), { recursive: true, force: true })
+    rmSync(this.sessionDir(sessionId), { recursive: true, force: true });
   }
 }
 ```
@@ -744,37 +832,45 @@ export class FileMemoryStorage implements MemoryStorage {
 Create `apps/core/src/memory/service.ts`:
 
 ```typescript
-import type { HookRuntime } from "../hooks/runtime.js"
-import { createHookRuntime } from "../hooks/runtime.js"
-import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig, type CompactionResult, type MemoryMessage, type MemoryRole, type MemoryState, type PromptMemoryContext } from "./types.js"
-import { estimateTokenCount, shouldCompact } from "./tokens.js"
-import { selectForCompaction } from "./selector.js"
-import { summarizeMessages } from "./summarizer.js"
-import { FileMemoryStorage, type MemoryStorage } from "./storage.js"
+import type { HookRuntime } from "../hooks/runtime.js";
+import { createHookRuntime } from "../hooks/runtime.js";
+import {
+  DEFAULT_COMPACTION_CONFIG,
+  type CompactionConfig,
+  type CompactionResult,
+  type MemoryMessage,
+  type MemoryRole,
+  type MemoryState,
+  type PromptMemoryContext,
+} from "./types.js";
+import { estimateTokenCount, shouldCompact } from "./tokens.js";
+import { selectForCompaction } from "./selector.js";
+import { summarizeMessages } from "./summarizer.js";
+import { FileMemoryStorage, type MemoryStorage } from "./storage.js";
 
 interface MemoryServiceOptions {
-  config?: Partial<CompactionConfig>
-  storage?: MemoryStorage
-  hooks?: HookRuntime
+  config?: Partial<CompactionConfig>;
+  storage?: MemoryStorage;
+  hooks?: HookRuntime;
 }
 
 export class MemoryService {
-  private readonly config: CompactionConfig
-  private readonly storage: MemoryStorage
-  private readonly hooks: HookRuntime
-  private state: MemoryState
+  private readonly config: CompactionConfig;
+  private readonly storage: MemoryStorage;
+  private readonly hooks: HookRuntime;
+  private state: MemoryState;
 
   constructor(sessionId: string, options: MemoryServiceOptions = {}) {
-    this.config = { ...DEFAULT_COMPACTION_CONFIG, ...options.config }
-    this.storage = options.storage ?? new FileMemoryStorage()
-    this.hooks = options.hooks ?? createHookRuntime()
+    this.config = { ...DEFAULT_COMPACTION_CONFIG, ...options.config };
+    this.storage = options.storage ?? new FileMemoryStorage();
+    this.hooks = options.hooks ?? createHookRuntime();
     this.state = this.storage.load(sessionId) ?? {
       sessionId,
       messages: [],
       summaries: [],
       tokenCount: 0,
       totalCompactions: 0,
-    }
+    };
   }
 
   addMessage(role: MemoryRole, content: string): MemoryMessage {
@@ -784,15 +880,19 @@ export class MemoryService {
       content,
       timestamp: Date.now(),
       tokenCount: estimateTokenCount(content),
-    }
-    this.state.messages.push(message)
-    this.state.tokenCount += message.tokenCount
-    this.storage.save(this.state)
-    return message
+    };
+    this.state.messages.push(message);
+    this.state.tokenCount += message.tokenCount;
+    this.storage.save(this.state);
+    return message;
   }
 
   shouldCompact(model: string): boolean {
-    return shouldCompact(this.state.tokenCount, model, this.config.autoCompactBufferTokens)
+    return shouldCompact(
+      this.state.tokenCount,
+      model,
+      this.config.autoCompactBufferTokens,
+    );
   }
 
   getPromptContext(): PromptMemoryContext {
@@ -800,11 +900,11 @@ export class MemoryService {
       summary: this.state.summaries.at(-1)?.content,
       recentMessages: [...this.state.messages],
       tokenCount: this.state.tokenCount,
-    }
+    };
   }
 
   async compact(): Promise<CompactionResult> {
-    const selected = selectForCompaction(this.state.messages, this.config)
+    const selected = selectForCompaction(this.state.messages, this.config);
     if (selected.summarize.length === 0) {
       return {
         success: true,
@@ -812,14 +912,14 @@ export class MemoryService {
         compactedMessageIds: [],
         tokenCountBefore: this.state.tokenCount,
         tokenCountAfter: this.state.tokenCount,
-      }
+      };
     }
 
     const pre = await this.hooks.runPreCompact({
       sessionId: this.state.sessionId,
       turnCount: this.state.totalCompactions,
       tokenCount: this.state.tokenCount,
-    })
+    });
     if (pre.action === "block") {
       return {
         success: false,
@@ -829,17 +929,18 @@ export class MemoryService {
         compactedMessageIds: [],
         tokenCountBefore: this.state.tokenCount,
         tokenCountAfter: this.state.tokenCount,
-      }
+      };
     }
 
-    const previousSummary = this.state.summaries.at(-1)?.content
+    const previousSummary = this.state.summaries.at(-1)?.content;
     const summary = summarizeMessages({
       sessionId: this.state.sessionId,
       previousSummary,
       messages: selected.summarize,
-    })
+    });
 
-    const tokenCountAfter = summary.summaryTokenCount + selected.preserveTokenCount
+    const tokenCountAfter =
+      summary.summaryTokenCount + selected.preserveTokenCount;
     const result: CompactionResult = {
       success: true,
       summary,
@@ -847,7 +948,7 @@ export class MemoryService {
       compactedMessageIds: selected.summarize.map((message) => message.id),
       tokenCountBefore: this.state.tokenCount,
       tokenCountAfter,
-    }
+    };
 
     this.state = {
       ...this.state,
@@ -856,16 +957,16 @@ export class MemoryService {
       tokenCount: tokenCountAfter,
       totalCompactions: this.state.totalCompactions + 1,
       lastCompactionAt: Date.now(),
-    }
-    this.storage.save(this.state)
+    };
+    this.storage.save(this.state);
     await this.hooks.runPostCompact({
       sessionId: this.state.sessionId,
       turnCount: this.state.totalCompactions,
       tokenCount: this.state.tokenCount,
       compactedMessageIds: result.compactedMessageIds,
-    })
+    });
 
-    return result
+    return result;
   }
 }
 ```
@@ -875,12 +976,12 @@ export class MemoryService {
 Update `apps/core/src/memory/index.ts`:
 
 ```typescript
-export * from "./types.js"
-export * from "./tokens.js"
-export * from "./selector.js"
-export * from "./summarizer.js"
-export * from "./storage.js"
-export * from "./service.js"
+export * from "./types.js";
+export * from "./tokens.js";
+export * from "./selector.js";
+export * from "./summarizer.js";
+export * from "./storage.js";
+export * from "./service.js";
 ```
 
 - [ ] **Step 6: Run tests and type check**
@@ -905,6 +1006,7 @@ git commit -m "feat(memory): add memory service"
 ## Task 6: Integrate Memory Into AgentLoop Prompts
 
 **Files:**
+
 - Modify: `apps/core/src/agent/loop.ts`
 - Create: `apps/core/src/agent/loop-memory.test.ts`
 
@@ -913,24 +1015,36 @@ git commit -m "feat(memory): add memory service"
 Create `apps/core/src/agent/loop-memory.test.ts`:
 
 ```typescript
-import test from "node:test"
-import assert from "node:assert/strict"
-import { renderPromptMemoryContext } from "../memory/selector.js"
+import test from "node:test";
+import assert from "node:assert/strict";
+import { renderPromptMemoryContext } from "../memory/selector.js";
 
 test("rendered memory context is suitable for AgentLoop prompt insertion", () => {
   const rendered = renderPromptMemoryContext({
     summary: "## Goal\n- Build memory",
     recentMessages: [
-      { id: "1", role: "user", content: "latest request", timestamp: 1, tokenCount: 10 },
-      { id: "2", role: "assistant", content: "latest answer", timestamp: 2, tokenCount: 10 },
+      {
+        id: "1",
+        role: "user",
+        content: "latest request",
+        timestamp: 1,
+        tokenCount: 10,
+      },
+      {
+        id: "2",
+        role: "assistant",
+        content: "latest answer",
+        timestamp: 2,
+        tokenCount: 10,
+      },
     ],
     tokenCount: 20,
-  })
+  });
 
-  assert.match(rendered, /Compacted session summary/)
-  assert.match(rendered, /Recent session messages/)
-  assert.match(rendered, /latest request/)
-})
+  assert.match(rendered, /Compacted session summary/);
+  assert.match(rendered, /Recent session messages/);
+  assert.match(rendered, /latest request/);
+});
 ```
 
 - [ ] **Step 2: Update AgentLoop imports and fields**
@@ -938,7 +1052,7 @@ test("rendered memory context is suitable for AgentLoop prompt insertion", () =>
 In `apps/core/src/agent/loop.ts`, add:
 
 ```typescript
-import { MemoryService, renderPromptMemoryContext } from "../memory/index.js"
+import { MemoryService, renderPromptMemoryContext } from "../memory/index.js";
 ```
 
 Add a private field:
@@ -950,7 +1064,7 @@ private memory: MemoryService
 In the constructor, after `this.state = createInitialSessionState(sessionId)`:
 
 ```typescript
-this.memory = new MemoryService(sessionId)
+this.memory = new MemoryService(sessionId);
 ```
 
 - [ ] **Step 3: Change executeTurn signature**
@@ -958,13 +1072,17 @@ this.memory = new MemoryService(sessionId)
 Change:
 
 ```typescript
-const turnResult = await this.executeTurn(prompt, contextResult.value)
+const turnResult = await this.executeTurn(prompt, contextResult.value);
 ```
 
 To:
 
 ```typescript
-const turnResult = await this.executeTurn(prompt, input.provider, contextResult.value)
+const turnResult = await this.executeTurn(
+  prompt,
+  input.provider,
+  contextResult.value,
+);
 ```
 
 Change the method signature:
@@ -982,14 +1100,14 @@ private async executeTurn(
 In `executeTurn()`, replace the current `fullPrompt` construction with:
 
 ```typescript
-const memoryContext = renderPromptMemoryContext(this.memory.getPromptContext())
+const memoryContext = renderPromptMemoryContext(this.memory.getPromptContext());
 const fullPrompt = `Project: ${context.name}
 Path: ${context.projectPath}
 
 File tree:
 ${context.tree}
 
-${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`
+${memoryContext ? `Session context:\n${memoryContext}\n\n` : ""}Task: ${prompt}`;
 ```
 
 - [ ] **Step 5: Record messages and compact after each turn**
@@ -999,29 +1117,31 @@ After `const responseText = await this.sendToProvider(fullPrompt)`, keep parsing
 Before returning from successful `executeTurn()`, add:
 
 ```typescript
-this.memory.addMessage("user", prompt)
-this.memory.addMessage("assistant", responseText)
+this.memory.addMessage("user", prompt);
+this.memory.addMessage("assistant", responseText);
 
 if (this.memory.shouldCompact(provider)) {
-  const result = await this.memory.compact()
+  const result = await this.memory.compact();
   if (!result.success) {
-    console.warn(`[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`)
+    console.warn(
+      `[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`,
+    );
   }
 }
 
-return { success: true, toolResults, responseText }
+return { success: true, toolResults, responseText };
 ```
 
 Make sure the no-tool branch also records and compacts before returning:
 
 ```typescript
 if (toolCalls.length === 0) {
-  this.memory.addMessage("user", prompt)
-  this.memory.addMessage("assistant", responseText)
+  this.memory.addMessage("user", prompt);
+  this.memory.addMessage("assistant", responseText);
   if (this.memory.shouldCompact(provider)) {
-    await this.memory.compact()
+    await this.memory.compact();
   }
-  return { success: true, toolResults: [], responseText }
+  return { success: true, toolResults: [], responseText };
 }
 ```
 
@@ -1047,6 +1167,7 @@ git commit -m "feat(agent): include memory in provider prompts"
 ## Task 7: Tool Output Pruning
 
 **Files:**
+
 - Modify: `apps/core/src/memory/service.ts`
 - Create: `apps/core/src/memory/pruning.test.ts`
 
@@ -1055,21 +1176,21 @@ git commit -m "feat(agent): include memory in provider prompts"
 Create `apps/core/src/memory/pruning.test.ts`:
 
 ```typescript
-import test from "node:test"
-import assert from "node:assert/strict"
-import { MemoryService } from "./service.js"
+import test from "node:test";
+import assert from "node:assert/strict";
+import { MemoryService } from "./service.js";
 
 test("assistant tool-like output is capped before storage", () => {
   const service = new MemoryService("session-prune", {
     config: { maxToolOutputChars: 20 },
-  })
+  });
 
-  service.addMessage("assistant", `Tool read: ${"x".repeat(100)}`)
-  const context = service.getPromptContext()
+  service.addMessage("assistant", `Tool read: ${"x".repeat(100)}`);
+  const context = service.getPromptContext();
 
-  assert.ok(context.recentMessages[0].content.length < 80)
-  assert.match(context.recentMessages[0].content, /truncated/)
-})
+  assert.ok(context.recentMessages[0].content.length < 80);
+  assert.match(context.recentMessages[0].content, /truncated/);
+});
 ```
 
 - [ ] **Step 2: Verify the test fails**
@@ -1094,7 +1215,7 @@ private normalizeContent(role: MemoryRole, content: string): string {
 In `addMessage()`, before calculating tokens:
 
 ```typescript
-const normalizedContent = this.normalizeContent(role, content)
+const normalizedContent = this.normalizeContent(role, content);
 ```
 
 Use `normalizedContent` for `content` and `estimateTokenCount(normalizedContent)`.

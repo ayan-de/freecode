@@ -5,6 +5,6 @@ export const logoLines = [
   "██╔══╝   ██╔══██╗██╔══╝  ██╔══╝  ██║     ██║   ██║██║  ██║██╔══╝  ",
   "██║      ██║  ██║███████╗███████╗╚██████╗╚██████╔╝██████╔╝███████╗",
   "╚═╝      ╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝╚══════╝",
-]
+];
 
-export const logoTagline = "AI-assisted coding — no API costs"
+export const logoTagline = "AI-assisted coding — no API costs";

@@ -24,9 +24,9 @@ export type {
   HookContext,
   HookResult,
   StopReason,
-} from "../agent/types.js"
+} from "../agent/types.js";
 
 export {
   createInitialSessionState,
   DEFAULT_LOOP_HEURISTICS,
-} from "../agent/types.js"
+} from "../agent/types.js";

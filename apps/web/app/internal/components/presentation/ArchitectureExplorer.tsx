@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { X } from 'lucide-react';
-import styles from './ArchitectureExplorer.module.css';
-import { type NodeType } from '../diagrams/FreeCodeInternalDiagram';
+import React from "react";
+import { X } from "lucide-react";
+import styles from "./ArchitectureExplorer.module.css";
+import { type NodeType } from "../diagrams/FreeCodeInternalDiagram";
 import {
   NodeHeader,
   ClientsNodeContent,
@@ -14,38 +14,41 @@ import {
   HooksNodeContent,
   ToolsNodeContent,
   ProviderNodeContent,
-} from './node-content';
+} from "./node-content";
 
 interface ArchitectureExplorerProps {
   selectedNode: NodeType | null;
   onClose?: () => void;
 }
 
-export function ArchitectureExplorer({ selectedNode, onClose }: ArchitectureExplorerProps) {
+export function ArchitectureExplorer({
+  selectedNode,
+  onClose,
+}: ArchitectureExplorerProps) {
   const renderContent = () => {
     switch (selectedNode) {
-      case 'clients':
+      case "clients":
         return <ClientsNodeContent />;
 
-      case 'agent':
+      case "agent":
         return <AgentNodeContent />;
 
-      case 'subagents':
+      case "subagents":
         return <SubagentsNodeContent />;
 
-      case 'context':
+      case "context":
         return <ContextNodeContent />;
 
-      case 'memory':
+      case "memory":
         return <MemoryNodeContent />;
 
-      case 'hooks':
+      case "hooks":
         return <HooksNodeContent />;
 
-      case 'tools':
+      case "tools":
         return <ToolsNodeContent />;
 
-      case 'provider':
+      case "provider":
         return <ProviderNodeContent />;
 
       default:
@@ -53,7 +56,10 @@ export function ArchitectureExplorer({ selectedNode, onClose }: ArchitectureExpl
           <div className={styles.emptyState}>
             <span className={styles.emptyIcon}>🔍</span>
             <h4>Interactive Blueprints Explorer</h4>
-            <p>Click on any component card inside the system architecture diagram to explore details.</p>
+            <p>
+              Click on any component card inside the system architecture diagram
+              to explore details.
+            </p>
           </div>
         );
     }
@@ -62,7 +68,12 @@ export function ArchitectureExplorer({ selectedNode, onClose }: ArchitectureExpl
   return (
     <div className={styles.container}>
       {selectedNode && onClose && (
-        <button onClick={onClose} className={styles.closeButton} aria-label="Close details" title="Close details">
+        <button
+          onClick={onClose}
+          className={styles.closeButton}
+          aria-label="Close details"
+          title="Close details"
+        >
           <X size={14} />
         </button>
       )}

@@ -5,10 +5,10 @@
 // PURPOSE: Append-only log for debugging, replay, and analytics
 // =============================================================================
 
-import * as fs from "fs"
-import * as path from "path"
-import * as os from "os"
-import type { RolloutEvent } from "./types.js"
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+import type { RolloutEvent } from "./types.js";
 
 // ============================================================================
 // ULID Generator (Timestamp + Random)
@@ -16,25 +16,25 @@ import type { RolloutEvent } from "./types.js"
 
 function generateULID(): string {
   // ULID format: 48 bits timestamp + 80 bits random
-  const timestamp = Date.now()
-  const randomPart = Buffer.alloc(10)
+  const timestamp = Date.now();
+  const randomPart = Buffer.alloc(10);
   for (let i = 0; i < 10; i++) {
-    randomPart[i] = Math.floor(Math.random() * 256)
+    randomPart[i] = Math.floor(Math.random() * 256);
   }
   // Crockford's Base32 encoding
-  const ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-  let result = ""
+  const ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let result = "";
   // timestamp part (10 chars)
-  let t = timestamp
+  let t = timestamp;
   for (let i = 9; i >= 0; i--) {
-    result = ENCODING[t % 32] + result
-    t = Math.floor(t / 32)
+    result = ENCODING[t % 32] + result;
+    t = Math.floor(t / 32);
   }
   // random part (10 chars)
   for (let i = 0; i < 10; i++) {
-    result += ENCODING[randomPart[i] % 32]
+    result += ENCODING[randomPart[i] % 32];
   }
-  return result
+  return result;
 }
 
 // ============================================================================
@@ -42,54 +42,56 @@ function generateULID(): string {
 // ============================================================================
 
 export interface RecorderConfig {
-  rolloutDir?: string
-  enabled?: boolean
+  rolloutDir?: string;
+  enabled?: boolean;
 }
 
 export interface RecordOptions {
-  aggregateID: string
-  turnId?: string
-  tool?: string
-  args?: Record<string, unknown>
-  output?: string
-  duration_ms?: number
-  beforeTokens?: number
-  afterTokens?: number
-  subagentId?: string
-  task?: string
-  result?: string
-  skillName?: string
-  implicit?: boolean
-  hookName?: string
-  hookEvent?: string
-  blocked?: boolean
-  reason?: string
-  parser?: string
-  error?: string
-  seq?: number
+  aggregateID: string;
+  turnId?: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  output?: string;
+  duration_ms?: number;
+  beforeTokens?: number;
+  afterTokens?: number;
+  subagentId?: string;
+  task?: string;
+  result?: string;
+  skillName?: string;
+  implicit?: boolean;
+  hookName?: string;
+  hookEvent?: string;
+  blocked?: boolean;
+  reason?: string;
+  parser?: string;
+  error?: string;
+  seq?: number;
 }
 
 export class RolloutRecorder {
-  private sessionId: string
-  private eventsFilePath: string
-  private seq: number = 0
-  private enabled: boolean
+  private sessionId: string;
+  private eventsFilePath: string;
+  private seq: number = 0;
+  private enabled: boolean;
 
   constructor(sessionId: string, config?: RecorderConfig) {
-    this.sessionId = sessionId
-    this.enabled = config?.enabled ?? true
+    this.sessionId = sessionId;
+    this.enabled = config?.enabled ?? true;
 
-    const rolloutDir = config?.rolloutDir ?? path.join(os.homedir(), ".freecode", "rollout", "sessions", sessionId)
-    this.eventsFilePath = path.join(rolloutDir, "events.jsonl")
+    const rolloutDir =
+      config?.rolloutDir ??
+      path.join(os.homedir(), ".freecode", "rollout", "sessions", sessionId);
+    this.eventsFilePath = path.join(rolloutDir, "events.jsonl");
   }
 
   // ===========================================================================
   // PRIVATE: ensureDir()
   // ===========================================================================
   private ensureDir(): void {
-    const dir = path.dirname(this.eventsFilePath)
+    const dir = path.dirname(this.eventsFilePath);
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+      fs.mkdirSync(dir, { recursive: true });
     }
   }
 
@@ -97,47 +99,50 @@ export class RolloutRecorder {
   // PRIVATE: write()
   // ===========================================================================
   private write(event: RolloutEvent): void {
-    if (!this.enabled) return
+    if (!this.enabled) return;
 
-    this.ensureDir()
-    const line = JSON.stringify(event) + "\n"
-    fs.appendFileSync(this.eventsFilePath, line, "utf-8")
+    this.ensureDir();
+    const line = JSON.stringify(event) + "\n";
+    fs.appendFileSync(this.eventsFilePath, line, "utf-8");
   }
 
   // ===========================================================================
   // PRIVATE: makeEvent()
   // ===========================================================================
-  private makeEvent(type: RolloutEvent["type"], opts: RecordOptions): RolloutEvent {
-    this.seq++
+  private makeEvent(
+    type: RolloutEvent["type"],
+    opts: RecordOptions,
+  ): RolloutEvent {
+    this.seq++;
     const base = {
       id: generateULID(),
       seq: this.seq,
       aggregateID: opts.aggregateID,
       timestamp: Date.now(),
-    }
-    const extra: Record<string, unknown> = {}
+    };
+    const extra: Record<string, unknown> = {};
     // Copy relevant fields based on event type
-    if (opts.turnId) extra.turnId = opts.turnId
-    if (opts.tool) extra.tool = opts.tool
-    if (opts.args) extra.args = opts.args
-    if (opts.output) extra.output = opts.output
-    if (opts.duration_ms) extra.duration_ms = opts.duration_ms
-    if (opts.beforeTokens) extra.beforeTokens = opts.beforeTokens
-    if (opts.afterTokens) extra.afterTokens = opts.afterTokens
-    if (opts.subagentId) extra.subagentId = opts.subagentId
-    if (opts.task) extra.task = opts.task
-    if (opts.result) extra.result = opts.result
-    if (opts.skillName) extra.skillName = opts.skillName
-    if (opts.implicit !== undefined) extra.implicit = opts.implicit
-    if (opts.hookName) extra.hookName = opts.hookName
-    if (opts.hookEvent) extra.hookEvent = opts.hookEvent
-    if (opts.blocked !== undefined) extra.blocked = opts.blocked
-    if (opts.reason) extra.reason = opts.reason
-    if (opts.parser) extra.parser = opts.parser
-    if (opts.error) extra.error = opts.error
-    if (opts.seq) extra.seq = opts.seq
+    if (opts.turnId) extra.turnId = opts.turnId;
+    if (opts.tool) extra.tool = opts.tool;
+    if (opts.args) extra.args = opts.args;
+    if (opts.output) extra.output = opts.output;
+    if (opts.duration_ms) extra.duration_ms = opts.duration_ms;
+    if (opts.beforeTokens) extra.beforeTokens = opts.beforeTokens;
+    if (opts.afterTokens) extra.afterTokens = opts.afterTokens;
+    if (opts.subagentId) extra.subagentId = opts.subagentId;
+    if (opts.task) extra.task = opts.task;
+    if (opts.result) extra.result = opts.result;
+    if (opts.skillName) extra.skillName = opts.skillName;
+    if (opts.implicit !== undefined) extra.implicit = opts.implicit;
+    if (opts.hookName) extra.hookName = opts.hookName;
+    if (opts.hookEvent) extra.hookEvent = opts.hookEvent;
+    if (opts.blocked !== undefined) extra.blocked = opts.blocked;
+    if (opts.reason) extra.reason = opts.reason;
+    if (opts.parser) extra.parser = opts.parser;
+    if (opts.error) extra.error = opts.error;
+    if (opts.seq) extra.seq = opts.seq;
 
-    return { type, ...base, ...extra } as RolloutEvent
+    return { type, ...base, ...extra } as RolloutEvent;
   }
 
   // ===========================================================================
@@ -147,8 +152,8 @@ export class RolloutRecorder {
     const event = this.makeEvent("turn.started", {
       aggregateID: this.sessionId,
       turnId,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -159,34 +164,42 @@ export class RolloutRecorder {
       aggregateID: this.sessionId,
       turnId,
       reason,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
   // PUBLIC: recordFunctionCall()
   // ===========================================================================
-  recordFunctionCall(tool: string, args: Record<string, unknown>, turnId: string): void {
+  recordFunctionCall(
+    tool: string,
+    args: Record<string, unknown>,
+    turnId: string,
+  ): void {
     const event = this.makeEvent("function.call", {
       aggregateID: this.sessionId,
       tool,
       args,
       turnId,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
   // PUBLIC: recordFunctionOutput()
   // ===========================================================================
-  recordFunctionOutput(tool: string, output: string, duration_ms: number): void {
+  recordFunctionOutput(
+    tool: string,
+    output: string,
+    duration_ms: number,
+  ): void {
     const event = this.makeEvent("function.output", {
       aggregateID: this.sessionId,
       tool,
       output,
       duration_ms,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -197,8 +210,8 @@ export class RolloutRecorder {
       aggregateID: this.sessionId,
       beforeTokens,
       afterTokens,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -209,8 +222,8 @@ export class RolloutRecorder {
       aggregateID: this.sessionId,
       subagentId,
       task,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -221,8 +234,8 @@ export class RolloutRecorder {
       aggregateID: this.sessionId,
       subagentId,
       result,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -233,21 +246,25 @@ export class RolloutRecorder {
       aggregateID: this.sessionId,
       skillName,
       implicit,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
   // PUBLIC: recordHookTriggered()
   // ===========================================================================
-  recordHookTriggered(hookName: string, hookEvent: string, blocked: boolean): void {
+  recordHookTriggered(
+    hookName: string,
+    hookEvent: string,
+    blocked: boolean,
+  ): void {
     const event = this.makeEvent("hook.triggered", {
       aggregateID: this.sessionId,
       hookName,
       hookEvent,
       blocked,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -258,8 +275,8 @@ export class RolloutRecorder {
       aggregateID: this.sessionId,
       hookName,
       reason,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -269,8 +286,8 @@ export class RolloutRecorder {
     const event = this.makeEvent("context.overflow", {
       aggregateID: this.sessionId,
       beforeTokens,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 
   // ===========================================================================
@@ -282,8 +299,8 @@ export class RolloutRecorder {
       turnId,
       parser,
       error,
-    })
-    this.write(event)
+    });
+    this.write(event);
   }
 }
 
@@ -291,6 +308,9 @@ export class RolloutRecorder {
 // Factory Function
 // ============================================================================
 
-export function createRecorder(sessionId: string, config?: RecorderConfig): RolloutRecorder {
-  return new RolloutRecorder(sessionId, config)
+export function createRecorder(
+  sessionId: string,
+  config?: RecorderConfig,
+): RolloutRecorder {
+  return new RolloutRecorder(sessionId, config);
 }

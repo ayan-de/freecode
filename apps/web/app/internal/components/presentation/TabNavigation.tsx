@@ -12,9 +12,16 @@ interface TabNavigationProps {
   onTabChange: (tabId: string) => void;
 }
 
-export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationProps) {
+export function TabNavigation({
+  tabs,
+  activeTab,
+  onTabChange,
+}: TabNavigationProps) {
   return (
-    <nav className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1280px)/2))]" role="tablist">
+    <nav
+      className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1280px)/2))]"
+      role="tablist"
+    >
       <div className="flex items-stretch h-20 max-w-7xl mx-auto">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -26,7 +33,9 @@ export function TabNavigation({ tabs, activeTab, onTabChange }: TabNavigationPro
               onClick={() => onTabChange(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center gap-1 border-r border-white/20 transition-all duration-200 last:border-r-0 bg-transparent`}
             >
-              <span className={`text-xl font-semibold ${isActive ? 'brand-gradient-text' : 'text-white'}`}>
+              <span
+                className={`text-xl font-semibold ${isActive ? "brand-gradient-text" : "text-white"}`}
+              >
                 {tab.label}
               </span>
               {/* <span className="text-xs text-white/40">{tab.description}</span> */}

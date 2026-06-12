@@ -30,6 +30,7 @@ apps/tui/src/index.ts                  - Wire streaming into message flow
 ## Task 1: Add StreamEvent Types to Protocol
 
 **Files:**
+
 - Modify: `packages/shared/src/ipc/protocol.ts`
 
 - [ ] **Step 1: Add StreamEvent union type**
@@ -38,9 +39,21 @@ apps/tui/src/index.ts                  - Wire streaming into message flow
 // Add after existing StreamResponse type (around line 28)
 
 export type StreamEvent =
-  | { type: "tool_start"; toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | {
+      type: "tool_start";
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+    }
   | { type: "tool_output"; toolCallId: string; content: string }
-  | { type: "tool_complete"; toolCallId: string; toolName: string; result: string; success: boolean; duration_ms?: number }
+  | {
+      type: "tool_complete";
+      toolCallId: string;
+      toolName: string;
+      result: string;
+      success: boolean;
+      duration_ms?: number;
+    }
   | { type: "text"; content: string }
   | { type: "done"; content: string }
   | { type: "error"; content: string };
@@ -56,6 +69,7 @@ Expected: No errors
 ## Task 2: Add onToolEvent Callback to AgentLoop
 
 **Files:**
+
 - Modify: `apps/core/src/agent/types.ts:174-180` (UserInput interface area)
 - Modify: `apps/core/src/agent/loop.ts:68` (run method signature)
 
@@ -65,12 +79,12 @@ Find the UserInput interface (around line 174) and add:
 
 ```typescript
 export interface UserInput {
-  prompt: string
-  sessionId: string
-  provider: string
-  model?: string
-  projectPath: string
-  onToolEvent?: (event: StreamEvent) => void  // NEW
+  prompt: string;
+  sessionId: string;
+  provider: string;
+  model?: string;
+  projectPath: string;
+  onToolEvent?: (event: StreamEvent) => void; // NEW
 }
 ```
 
@@ -132,7 +146,7 @@ In `loop.ts` around line 564-596, after tool execution and before the post hook:
 // After result is available (after line 569)
 if (result.stdout) {
   // Emit stdout as tool_output
-  const outputLines = result.stdout.split('\n').slice(-5).join('\n');  // last 5 lines
+  const outputLines = result.stdout.split("\n").slice(-5).join("\n"); // last 5 lines
   this.onToolEvent?.({
     type: "tool_output",
     toolCallId: toolCall.id,
@@ -167,6 +181,7 @@ Expected: No errors
 ## Task 3: Modify CLI Server to Stream Events
 
 **Files:**
+
 - Modify: `apps/core/src/server.ts:102-131`
 
 - [ ] **Step 1: Update session.send to stream events**
@@ -221,6 +236,7 @@ Expected: No errors
 ## Task 4: Add sessionSendStreaming to TUI IPC Client
 
 **Files:**
+
 - Modify: `apps/tui/src/ipc/client.ts`
 
 - [ ] **Step 1: Add StreamEvent import**
@@ -240,7 +256,7 @@ export async function sessionSendStreaming(
   sessionId: string,
   message: string,
   model: string | undefined,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
 ): Promise<SessionSendResult> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
@@ -249,7 +265,12 @@ export async function sessionSendStreaming(
     }
 
     const id = generateId();
-    const request: JsonRpcRequest = { jsonrpc: "2.0", id, method: "session.send", params: { sessionId, message, model } };
+    const request: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id,
+      method: "session.send",
+      params: { sessionId, message, model },
+    };
 
     // Buffer for parsing streaming events
     let eventBuffer = "";
@@ -293,7 +314,10 @@ export async function sessionSendStreaming(
     };
 
     // Send request
-    pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
+    pendingRequests.set(id, {
+      resolve: resolve as (value: unknown) => void,
+      reject,
+    });
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
 }
@@ -309,6 +333,7 @@ Expected: No errors
 ## Task 5: Add Tool Message State to Message Store
 
 **Files:**
+
 - Modify: `apps/tui/src/state/message-store.ts`
 
 - [ ] **Step 1: Add ToolMessage interface and methods**
@@ -336,7 +361,11 @@ class MessageStoreImpl {
   // NEW: Tool message tracking
   private toolMessages = new Map<string, ToolMessage>();
 
-  addToolMessage(toolCallId: string, toolName: string, args: Record<string, unknown>): ToolMessage {
+  addToolMessage(
+    toolCallId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): ToolMessage {
     const id = this.generateId();
     const toolMsg: ToolMessage = {
       id,
@@ -352,7 +381,11 @@ class MessageStoreImpl {
     return toolMsg;
   }
 
-  updateToolStatus(toolCallId: string, status: ToolMessage["status"], updates?: Partial<ToolMessage>): void {
+  updateToolStatus(
+    toolCallId: string,
+    status: ToolMessage["status"],
+    updates?: Partial<ToolMessage>,
+  ): void {
     const toolMsg = this.toolMessages.get(toolCallId);
     if (toolMsg) {
       toolMsg.status = status;
@@ -367,7 +400,7 @@ class MessageStoreImpl {
     const toolMsg = this.toolMessages.get(toolCallId);
     if (toolMsg) {
       // Keep last 5 lines
-      const lines = content.split('\n');
+      const lines = content.split("\n");
       toolMsg.outputLines = lines.slice(-5);
       this.notify();
     }
@@ -383,11 +416,19 @@ class MessageStoreImpl {
 }
 
 // NEW: Export helper functions
-export function addToolMessage(toolCallId: string, toolName: string, args: Record<string, unknown>): ToolMessage {
+export function addToolMessage(
+  toolCallId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): ToolMessage {
   return messageStore.addToolMessage(toolCallId, toolName, args);
 }
 
-export function updateToolStatus(toolCallId: string, status: ToolMessage["status"], updates?: Partial<ToolMessage>): void {
+export function updateToolStatus(
+  toolCallId: string,
+  status: ToolMessage["status"],
+  updates?: Partial<ToolMessage>,
+): void {
   messageStore.updateToolStatus(toolCallId, status, updates);
 }
 
@@ -410,6 +451,7 @@ Expected: No errors
 ## Task 6: Create ToolProgressMessage Component
 
 **Files:**
+
 - Create: `apps/tui/src/components/tool-progress-message.ts`
 
 - [ ] **Step 1: Create the component**
@@ -481,7 +523,9 @@ export class ToolProgressMessage implements Component {
     const lines: string[] = [];
 
     // Header line: [spinner] ToolName (args)
-    lines.push(`${chalk.dim("[")}${chalk.yellow(spinner)}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")}`);
+    lines.push(
+      `${chalk.dim("[")}${chalk.yellow(spinner)}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")}`,
+    );
 
     // Output lines with tree view
     for (const outputLine of this.outputLines.slice(-5)) {
@@ -496,7 +540,8 @@ export class ToolProgressMessage implements Component {
     if (entries.length === 0) return "";
 
     // Truncate long values
-    const truncate = (s: string, max = 40) => s.length > max ? s.slice(0, max) + "..." : s;
+    const truncate = (s: string, max = 40) =>
+      s.length > max ? s.slice(0, max) + "..." : s;
 
     return entries
       .map(([k, v]) => {
@@ -518,6 +563,7 @@ Expected: No errors
 ## Task 7: Create ToolResultMessage Component
 
 **Files:**
+
 - Create: `apps/tui/src/components/tool-result-message.ts`
 
 - [ ] **Step 1: Create the component**
@@ -577,7 +623,9 @@ export class ToolResultMessage implements Component {
     const lines: string[] = [];
 
     // Header line: [✓/✗] ToolName (args) (duration)
-    lines.push(`${chalk.dim("[")}${statusIcon}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")} ${chalk.dim(duration)}`);
+    lines.push(
+      `${chalk.dim("[")}${statusIcon}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")} ${chalk.dim(duration)}`,
+    );
 
     // Result with tree view character
     if (this.result) {
@@ -594,7 +642,8 @@ export class ToolResultMessage implements Component {
     const entries = Object.entries(this.args);
     if (entries.length === 0) return "";
 
-    const truncate = (s: string, max = 40) => s.length > max ? s.slice(0, max) + "..." : s;
+    const truncate = (s: string, max = 40) =>
+      s.length > max ? s.slice(0, max) + "..." : s;
 
     return entries
       .map(([k, v]) => {
@@ -621,6 +670,7 @@ Expected: No errors
 ## Task 8: Export New Components
 
 **Files:**
+
 - Modify: `apps/tui/src/components/index.ts`
 
 - [ ] **Step 1: Add exports for new components**
@@ -628,8 +678,14 @@ Expected: No errors
 Add to the exports:
 
 ```typescript
-export { ToolProgressMessage, type ToolProgressMessageOptions } from "./tool-progress-message.js";
-export { ToolResultMessage, type ToolResultMessageOptions } from "./tool-result-message.js";
+export {
+  ToolProgressMessage,
+  type ToolProgressMessageOptions,
+} from "./tool-progress-message.js";
+export {
+  ToolResultMessage,
+  type ToolResultMessageOptions,
+} from "./tool-result-message.js";
 ```
 
 - [ ] **Step 2: Verify exports compile**
@@ -642,6 +698,7 @@ Expected: No errors
 ## Task 9: Wire Streaming into TUI index.ts
 
 **Files:**
+
 - Modify: `apps/tui/src/index.ts:356-402` (session.send handling)
 
 - [ ] **Step 1: Import new components and streaming function**
@@ -670,7 +727,10 @@ import { ToolProgressMessage, ToolResultMessage } from "./components/index.js";
 Add after the messageList initialization (around line 54):
 
 ```typescript
-const toolMessageComponents = new Map<string, { progress: ToolProgressMessage; id: number }>();
+const toolMessageComponents = new Map<
+  string,
+  { progress: ToolProgressMessage; id: number }
+>();
 ```
 
 - [ ] **Step 3: Replace session.send with sessionSendStreaming and handle events**
@@ -688,7 +748,7 @@ const result = await sessionSendStreaming(
   undefined,
   (event: StreamEvent) => {
     handleToolEvent(event);
-  }
+  },
 );
 ```
 
@@ -700,7 +760,11 @@ Add before the `editor.onSubmit` assignment (around line 289):
 function handleToolEvent(event: StreamEvent): void {
   switch (event.type) {
     case "tool_start": {
-      const toolMsg = addToolMessage(event.toolCallId, event.toolName, event.args);
+      const toolMsg = addToolMessage(
+        event.toolCallId,
+        event.toolName,
+        event.args,
+      );
       const progressComponent = new ToolProgressMessage({
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -720,7 +784,7 @@ function handleToolEvent(event: StreamEvent): void {
       appendToolOutput(event.toolCallId, event.content);
       const entry = toolMessageComponents.get(event.toolCallId);
       if (entry) {
-        entry.progress.updateOutput(event.content.split('\n').slice(-5));
+        entry.progress.updateOutput(event.content.split("\n").slice(-5));
       }
       tui.requestRender();
       break;
@@ -742,7 +806,11 @@ function handleToolEvent(event: StreamEvent): void {
         duration_ms: event.duration_ms,
       });
       // Add to virtual message list
-      createInProgressMessage(event.success ? `${event.toolName} completed` : `${event.toolName} failed`);
+      createInProgressMessage(
+        event.success
+          ? `${event.toolName} completed`
+          : `${event.toolName} failed`,
+      );
       break;
     }
   }
@@ -759,6 +827,7 @@ Expected: No errors (may have some, debug as needed)
 ## Task 10: Test End-to-End
 
 **Files:**
+
 - None (testing existing code)
 
 - [ ] **Step 1: Start TUI and verify it builds**

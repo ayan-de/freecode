@@ -2,7 +2,7 @@
 // Bash Tool UI - UI rendering for the Bash tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types"
+import type { ToolUI } from "../tool.types";
 
 // =============================================================================
 // Color codes for terminal output
@@ -16,7 +16,7 @@ const COLORS = {
   red: "\x1b[31m",
   dim: "\x1b[2m",
   reset: "\x1b[0m",
-}
+};
 
 // =============================================================================
 // BashToolUI - UI rendering for the Bash tool
@@ -24,35 +24,36 @@ const COLORS = {
 
 export const bashToolUI: Partial<ToolUI> = {
   renderToolUseMessage(toolId, args) {
-    const command = args.command as string
+    const command = args.command as string;
     // Truncate long commands for display
-    const display = command.length > 60 ? command.slice(0, 57) + "..." : command
+    const display =
+      command.length > 60 ? command.slice(0, 57) + "..." : command;
 
     return {
       type: "tool_use",
       toolId,
       args,
       status: "pending",
-    }
+    };
   },
 
   renderToolResultMessage(toolId, result) {
-    const isError = !!result.error
-    const status = isError ? "error" : "success"
+    const isError = !!result.error;
+    const status = isError ? "error" : "success";
 
     return {
       type: "tool_result",
       toolId,
       result,
       status,
-    }
+    };
   },
 
   renderToolUseTag(toolId, args) {
-    const command = args?.command as string
+    const command = args?.command as string;
     // Show first word of command as tag
-    const cmd = command?.split(" ")[0] || "bash"
-    return { label: cmd, color: "magenta" }
+    const cmd = command?.split(" ")[0] || "bash";
+    return { label: cmd, color: "magenta" };
   },
 
   renderToolUseProgressMessage(toolId, message, percent) {
@@ -61,23 +62,23 @@ export const bashToolUI: Partial<ToolUI> = {
       toolId,
       message,
       percent,
-    }
+    };
   },
 
   renderToolUseErrorMessage(toolId, error) {
-    let friendlyError = error
+    let friendlyError = error;
     if (error.includes("ENOENT") || error.includes("not found")) {
-      friendlyError = "Command not found"
+      friendlyError = "Command not found";
     } else if (error.includes("permission")) {
-      friendlyError = "Permission denied"
+      friendlyError = "Permission denied";
     } else if (error.includes("timeout")) {
-      friendlyError = "Command timed out"
+      friendlyError = "Command timed out";
     }
     return {
       type: "tool_error",
       toolId,
       error: friendlyError,
-    }
+    };
   },
 
   renderToolUseRejectedMessage(toolId, reason) {
@@ -85,6 +86,6 @@ export const bashToolUI: Partial<ToolUI> = {
       type: "tool_rejected",
       toolId,
       reason,
-    }
+    };
   },
-}
+};

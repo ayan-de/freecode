@@ -75,8 +75,12 @@ export class VirtualMessageList implements Component {
     const lines: string[] = [];
 
     // Separate in-progress message from others
-    const regularMessages = this.messages.filter((m) => m.type !== "in_progress");
-    const inProgressMessage = this.messages.find((m) => m.type === "in_progress");
+    const regularMessages = this.messages.filter(
+      (m) => m.type !== "in_progress",
+    );
+    const inProgressMessage = this.messages.find(
+      (m) => m.type === "in_progress",
+    );
 
     // Render regular messages first (older messages, then newer ones)
     const visibleMessages = regularMessages.slice(-this.maxVisible);

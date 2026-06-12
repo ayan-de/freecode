@@ -50,7 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // Using inline style for dynamic width and to handle the hidden state translation cleanly
   const dynamicStyle = {
     width: `${width}px`,
-    marginLeft: isOpen ? "0px" : `-${width}px`
+    marginLeft: isOpen ? "0px" : `-${width}px`,
   };
 
   return (
@@ -63,10 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         />
       )}
 
-      <div 
-        className={sidebarClasses} 
-        style={dynamicStyle}
-      >
+      <div className={sidebarClasses} style={dynamicStyle}>
         {/* Header Spacer */}
         <div className="h-10 border-b border-border pl-10" />
 
