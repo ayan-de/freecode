@@ -47,7 +47,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   }, [isDragging, minWidth]);
 
   const sidebarClasses = `
-    fixed inset-y-0 right-0 z-50 bg-bg-secondary border-l border-border p-5 flex flex-col transition-transform duration-300 ease-in-out
+    fixed inset-y-0 right-0 z-50 bg-black border-l border-border p-5 flex flex-col transition-transform duration-300 ease-in-out
     lg:relative lg:z-0 lg:flex
     ${isOpen ? "translate-x-0 lg:mr-0" : "translate-x-full lg:hidden"}
   `;
@@ -68,7 +68,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
       <aside className={sidebarClasses} style={dynamicStyle}>
         {/* Header Spacer */}
-        <div className="h-10 border-b border-border pr-10" />
+        <div className="h-5 border-b border-border pr-10" />
 
         {/* Drag Handle */}
         <div

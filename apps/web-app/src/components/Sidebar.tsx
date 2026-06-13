@@ -43,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   }, [isDragging, minWidth, maxWidth]);
 
   const sidebarClasses = `
-    fixed inset-y-0 left-0 z-50 bg-bg-secondary border-r border-border p-5 flex flex-col transition-transform duration-300 ease-in-out
+    fixed inset-y-0 left-0 z-50 bg-black border-r border-border p-5 flex flex-col transition-transform duration-300 ease-in-out
     lg:relative lg:z-0 lg:flex
     ${isOpen ? "translate-x-0 lg:ml-0" : "-translate-x-full lg:hidden"}
   `;
@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
       <div className={sidebarClasses} style={dynamicStyle}>
         {/* Header Spacer */}
-        <div className="h-10 border-b border-border pl-10" />
+        <div className="h-6 border-b border-border pl-10" />
 
         {/* Drag Handle */}
         <div
