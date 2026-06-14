@@ -241,7 +241,7 @@ export interface SessionContext {
   projectPath: string;
   provider: string;
   model?: string;
-  status: "active" | "archived" | "deleted";
+  status: "active" | "interrupted" | "archived" | "deleted";
   turnCount: number;
   lastTurnAt: number;
 }

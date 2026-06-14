@@ -344,7 +344,7 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelectSession={handleResumeSession} />
 
         <ChatView
           connState={connState}
