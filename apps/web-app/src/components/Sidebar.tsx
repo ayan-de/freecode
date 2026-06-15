@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { listSessions, type SessionContext } from "../ipc-stub";
-import { Clock, MessageSquare } from "lucide-react";
+import { listSessions, deleteSession, type SessionContext } from "../ipc-stub";
+import { Clock, MessageSquare, Trash2 } from "lucide-react";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -63,6 +63,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onSelectSessi
     }
   }, [isOpen]);
 
+  const handleDeleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    if (confirm("Delete this session?")) {
+      try {
+        await deleteSession(sessionId);
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      } catch (err) {
+        console.error("Failed to delete session:", err);
+      }
+    }
+  }, []);
+
   function formatRelativeTime(timestamp: number): string {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
     if (seconds < 60) return "just now";
@@ -119,10 +131,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onSelectSessi
                   <button
                     key={session.id}
                     onClick={() => onSelectSession?.(session.id)}
-                    className="w-full text-left px-2 py-2 rounded hover:bg-white/5 transition-colors group"
+                    className="w-full text-left px-2 py-2 rounded hover:bg-white/5 transition-colors group relative"
                   >
-                    <div className="text-sm text-gray-200 truncate">
-                      {session.title || "Untitled Session"}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-sm text-gray-200 truncate">
+                        {session.title || "Untitled Session"}
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSession(e, session.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-gray-500 transition-opacity flex-shrink-0"
+                        title="Delete session"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
                       <span className="flex items-center gap-1">
