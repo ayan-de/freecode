@@ -374,6 +374,8 @@ class SessionStoreImpl implements SessionStore {
       for (const id of sessionIds) {
         const meta = await this.getMetaBySessionId(projDir, id);
         if (!meta) continue;
+        // Exclude deleted sessions unless explicitly requested
+        if (!filter?.status && meta.status === "deleted") continue;
         if (filter?.status && meta.status !== filter.status) continue;
         if (filter?.projectPath && meta.projectPath !== filter.projectPath)
           continue;
