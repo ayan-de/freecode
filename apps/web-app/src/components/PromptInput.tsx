@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Send, File, Plus, ChevronUp, Mic } from "lucide-react";
 import { listModels, type ProviderInfo, type ModelInfo } from "../ipc-stub";
-import { MODE_COLORS_CSS, type AgentMode } from "../themes";
+import { MODES, MODE_COLORS_CSS, type AgentMode } from "../themes";
 import { ModeButton } from "./ui/ModeButton";
 import { useChatStore } from "../stores";
 
@@ -190,6 +190,13 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         setSuggestionState((prev) => ({ ...prev, isOpen: false }));
       }
     } else {
+      // Cycle agent mode on Shift+Tab
+      if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        const idx = MODES.indexOf(agentMode);
+        onChangeMode(MODES[(idx + 1) % MODES.length]);
+        return;
+      }
       // Send message with Cmd+Enter or Ctrl+Enter
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
