@@ -1,18 +1,28 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { listSessions, deleteSession, type SessionContext } from "../ipc-stub";
-import { Clock, MessageSquare, Trash2 } from "lucide-react";
+import { type SessionContext } from "../ipc-stub";
+import { Clock, MessageSquare, Trash2, Plus } from "lucide-react";
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectSession?: (sessionId: string) => void;
+  sessions: SessionContext[];
+  activeSessionId?: string | null;
+  onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onNewConversation: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onSelectSession }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  isOpen,
+  onClose,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onDeleteSession,
+  onNewConversation,
+}) => {
   const [width, setWidth] = useState(288); // Default w-72 = 288px
   const [isDragging, setIsDragging] = useState(false);
-  const [sessions, setSessions] = useState<SessionContext[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(true);
 
   const minWidth = 200;
   const maxWidth = 400;
@@ -47,33 +57,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onSelectSessi
     };
   }, [isDragging, minWidth, maxWidth]);
 
-  useEffect(() => {
-    async function loadSessions() {
-      try {
-        const allSessions = await listSessions("");
-        setSessions(allSessions.sort((a, b) => b.lastTurnAt - a.lastTurnAt));
-      } catch (err) {
-        console.error("Failed to load sessions:", err);
-      } finally {
-        setLoadingSessions(false);
+  const handleDeleteSession = useCallback(
+    async (e: React.MouseEvent, sessionId: string) => {
+      e.stopPropagation();
+      if (confirm("Delete this session?")) {
+        onDeleteSession(sessionId);
       }
-    }
-    if (isOpen) {
-      loadSessions();
-    }
-  }, [isOpen]);
-
-  const handleDeleteSession = useCallback(async (e: React.MouseEvent, sessionId: string) => {
-    e.stopPropagation();
-    if (confirm("Delete this session?")) {
-      try {
-        await deleteSession(sessionId);
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      } catch (err) {
-        console.error("Failed to delete session:", err);
-      }
-    }
-  }, []);
+    },
+    [onDeleteSession],
+  );
 
   function formatRelativeTime(timestamp: number): string {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -111,17 +103,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onSelectSessi
         {/* Header Spacer */}
         <div className="h-6 border-b border-border pl-10" />
 
+        {/* New Conversation Button */}
+        <div className="px-2 pt-4 pb-2">
+          <button
+            onClick={onNewConversation}
+            className="flex items-center justify-center gap-2 w-full py-2 px-4 rounded-sm border border-border bg-white/5 hover:bg-white/10 text-gray-200 hover:text-white font-medium text-sm transition-all active:scale-95 group"
+          >
+            <Plus
+              size={16}
+              className="text-gray-400 group-hover:text-white transition-colors"
+            />
+            <span>New Conversation</span>
+          </button>
+        </div>
+
         {/* Session List */}
         <div className="flex-1 overflow-y-auto mt-2">
           <div className="px-2">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2">
               Previous Sessions
             </h3>
-            {loadingSessions ? (
-              <div className="text-sm text-gray-500 px-2 py-4 text-center">
-                Loading...
-              </div>
-            ) : sessions.length === 0 ? (
+            {sessions.length === 0 ? (
               <div className="text-sm text-gray-500 px-2 py-4 text-center">
                 No sessions yet
               </div>
@@ -130,8 +132,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, onSelectSessi
                 {sessions.map((session) => (
                   <button
                     key={session.id}
-                    onClick={() => onSelectSession?.(session.id)}
-                    className="w-full text-left px-2 py-2 rounded hover:bg-white/5 transition-colors group relative"
+                    onClick={() => onSelectSession(session.id)}
+                    className={`w-full text-left px-2 py-2 rounded hover:bg-white/5 transition-colors group relative ${
+                      session.id === activeSessionId ? "bg-white/10" : ""
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="text-sm text-gray-200 truncate">

@@ -66,10 +66,9 @@ export const App: React.FC = () => {
   // Keep track of tool call IDs to their part index in the last message
   const toolCallPartIndices = useRef<Map<string, number>>(new Map());
 
-  const loadSessionsHistory = useCallback(async (path: string) => {
-    if (!path) return;
+  const loadSessionsHistory = useCallback(async () => {
     try {
-      const list = await listSessions(path);
+      const list = await listSessions("");
       const sorted = [...list].sort((a, b) => b.lastTurnAt - a.lastTurnAt);
       setSessionsList(sorted);
     } catch (err) {
@@ -92,12 +91,12 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Fetch session history when connected or project path changes
+  // Fetch session history when connected
   useEffect(() => {
-    if (connState === "connected" && projectPath) {
-      loadSessionsHistory(projectPath);
+    if (connState === "connected") {
+      loadSessionsHistory();
     }
-  }, [connState, projectPath, loadSessionsHistory]);
+  }, [connState, loadSessionsHistory]);
 
   // Cycle agent mode on Shift+Tab (capture phase to intercept before textarea)
   useEffect(() => {
@@ -107,7 +106,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         e.stopPropagation();
         setAgentMode((prev) => {
-          const idx = MODES.indexOf(prev as typeof MODES[number]);
+          const idx = MODES.indexOf(prev as (typeof MODES)[number]);
           return MODES[(idx + 1) % MODES.length];
         });
       }
@@ -175,7 +174,7 @@ export const App: React.FC = () => {
         }
       } else if (event.type === "done") {
         setStatus("idle");
-        loadSessionsHistory(projectPath);
+        loadSessionsHistory();
       } else if (event.type === "error") {
         setError(event.content);
         setStatus("error");
@@ -237,7 +236,7 @@ export const App: React.FC = () => {
         console.error("Failed to load workspace file tree:", e);
       }
 
-      loadSessionsHistory(projectPath);
+      loadSessionsHistory();
     } catch (err: any) {
       setError(err.message || "Failed to start session");
       setStatus("error");
@@ -280,7 +279,7 @@ export const App: React.FC = () => {
         console.error("Failed to load workspace file tree:", e);
       }
 
-      loadSessionsHistory(projectPath);
+      loadSessionsHistory();
     } catch (err: any) {
       setError(err.message || "Failed to resume session");
       setStatus("error");
@@ -293,7 +292,7 @@ export const App: React.FC = () => {
       if (sid === sessionId) {
         await handleReset();
       } else {
-        loadSessionsHistory(projectPath);
+        loadSessionsHistory();
       }
     } catch (err: any) {
       console.error("Failed to delete session:", err);
@@ -329,7 +328,7 @@ export const App: React.FC = () => {
     setWorkspaceFiles([]);
     toolCallPartIndices.current.clear();
     unregisterStreamListener();
-    loadSessionsHistory(projectPath);
+    loadSessionsHistory();
   };
 
   const isKeySaved = selectedProvider ? apiKeysStatus[selectedProvider] : false;
@@ -361,7 +360,15 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelectSession={handleResumeSession} />
+        <Sidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          sessions={sessionsList}
+          activeSessionId={sessionId}
+          onSelectSession={handleResumeSession}
+          onDeleteSession={handleDeleteSession}
+          onNewConversation={handleReset}
+        />
 
         <ChatView
           connState={connState}
@@ -375,7 +382,9 @@ export const App: React.FC = () => {
           status={status}
           onSend={handleSend}
           workspaceFiles={workspaceFiles}
-          agentMode={agentMode as "plan" | "build" | "review" | "explore" | "danger"}
+          agentMode={
+            agentMode as "plan" | "build" | "review" | "explore" | "danger"
+          }
           onChangeMode={setAgentMode}
         />
 
