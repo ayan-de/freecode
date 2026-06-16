@@ -17,20 +17,24 @@ export const CodePart: React.FC<CodePartProps> = ({ language, content }) => {
   return (
     <div
       style={{
-        background: "#1e1e1e",
-        borderRadius: "4px",
-        margin: "8px 0",
+        background: "rgba(0, 0, 0, 0.25)",
+        borderRadius: "8px",
+        margin: "12px 0",
         overflow: "hidden",
+        border: "1px solid rgba(255, 255, 255, 0.05)",
+        width: "100%",
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          padding: "4px 12px",
-          background: "#2d2d2d",
+          padding: "6px 14px",
+          background: "rgba(255, 255, 255, 0.03)",
           fontSize: "12px",
-          color: "#888",
+          color: "rgba(255, 255, 255, 0.4)",
+          borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
         }}
       >
         <span>{language}</span>
@@ -39,7 +43,7 @@ export const CodePart: React.FC<CodePartProps> = ({ language, content }) => {
           style={{
             background: "none",
             border: "none",
-            color: copied ? "#4caf50" : "#888",
+            color: copied ? "#4caf50" : "rgba(255, 255, 255, 0.4)",
             cursor: "pointer",
             fontSize: "12px",
           }}
@@ -50,10 +54,11 @@ export const CodePart: React.FC<CodePartProps> = ({ language, content }) => {
       <pre
         style={{
           margin: 0,
-          padding: "12px",
+          padding: "12px 14px",
           overflow: "auto",
           fontSize: "13px",
-          fontFamily: "monaco, Consolas, monospace",
+          fontFamily: "var(--font-mono, monospace)",
+          color: "#e4e4e7",
         }}
       >
         <code>{content}</code>

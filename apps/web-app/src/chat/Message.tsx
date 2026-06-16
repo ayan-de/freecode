@@ -14,18 +14,19 @@ export const ChatMessage: React.FC<MessageProps> = ({ message }) => {
   return (
     <div
       style={{
-        display: "flex",
-        justifyContent: isUser ? "flex-end" : "flex-start",
+        width: "100%",
         marginBottom: "16px",
       }}
     >
       <div
         style={{
-          maxWidth: "80%",
-          background: isUser ? "#0e639c" : "#2d2d2d",
-          padding: "12px 16px",
-          borderRadius: "8px",
-          color: "#d4d4d4",
+          width: "100%",
+          background: isUser ? "rgba(255, 255, 255, 0.03)" : "transparent",
+          border: isUser ? "1px solid rgba(255, 255, 255, 0.06)" : "none",
+          padding: isUser ? "16px 20px" : "12px 0px",
+          borderRadius: isUser ? "8px" : "0px",
+          color: "#f3f4f6",
+          boxSizing: "border-box",
         }}
       >
         {message.parts.map((part, i) => {
