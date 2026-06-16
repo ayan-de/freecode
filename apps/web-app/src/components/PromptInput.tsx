@@ -3,6 +3,7 @@ import { Send, File, Plus, ChevronUp, Mic } from "lucide-react";
 import { listModels, type ProviderInfo, type ModelInfo } from "../ipc-stub";
 import { MODE_COLORS_CSS, type AgentMode } from "../themes";
 import { ModeButton } from "./ui/ModeButton";
+import { useChatStore } from "../stores";
 
 interface PromptInputProps {
   onSend: (message: string) => void;
@@ -32,6 +33,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onChangeMode,
 }) => {
   const [value, setValue] = useState("");
+  const textSize = useChatStore((s) => s.textSize);
+  const fontSizeMap = {
+    small: "13px",
+    medium: "15px",
+    large: "17px",
+    xlarge: "19px",
+  };
+  const fontSize = fontSizeMap[textSize] || "15px";
   const [suggestionState, setSuggestionState] = useState<{
     isOpen: boolean;
     query: string;
@@ -353,7 +362,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           onKeyDown={handleKeyDown}
           disabled={disabled}
           placeholder="Ask anything, @ to mention, / for actions"
-          className="w-full min-h-[44px] max-h-40 py-2 px-3 bg-transparent text-gray-100 text-sm font-sans placeholder-gray-500 resize-none outline-none"
+          className="w-full min-h-[44px] max-h-40 py-2 px-3 bg-transparent text-gray-100 font-sans placeholder-gray-500 resize-none outline-none"
+          style={{ fontSize }}
           rows={1}
         />
 
