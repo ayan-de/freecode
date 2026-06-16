@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, MessagePart } from "@thisisayande/freecode-shared";
+import type { Message, MessagePart } from "../lib/types";
 
 interface ChatStore {
   messages: Message[];
