@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { type SessionContext } from "../ipc-stub";
-import { Clock, MessageSquare, Trash2, Plus } from "lucide-react";
+import { Clock, MessageSquare, Trash2, Plus, Settings } from "lucide-react";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface SidebarProps {
   onSelectSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   onNewConversation: () => void;
+  onSettingsClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -20,6 +21,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectSession,
   onDeleteSession,
   onNewConversation,
+  onSettingsClick,
 }) => {
   const [width, setWidth] = useState(288); // Default w-72 = 288px
   const [isDragging, setIsDragging] = useState(false);
@@ -169,6 +171,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             )}
           </div>
+        </div>
+
+        {/* Settings Button */}
+        <div className="px-2 pt-2 border-t border-border mt-auto">
+          <button
+            onClick={onSettingsClick}
+            className="flex items-center gap-2 w-full py-2 px-4 rounded-sm border border-transparent hover:border-border hover:bg-white/5 text-gray-400 hover:text-white font-medium text-sm transition-all active:scale-95 group text-left"
+          >
+            <Settings
+              size={16}
+              className="text-gray-400 group-hover:text-white transition-colors"
+            />
+            <span>Settings</span>
+          </button>
         </div>
 
         {/* Drag Handle */}

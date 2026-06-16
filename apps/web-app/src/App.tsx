@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { Titlebar } from "./components/Titlebar";
 import { RightSidebar } from "./components/RightSidebar";
+import { SettingsModal } from "./components/SettingsModal";
 import { PanelLeft, PanelRight } from "lucide-react";
 import {
   connectBackend,
@@ -55,6 +56,7 @@ export const App: React.FC = () => {
   // Responsive sidebar open on mobile
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // File mention database pre-fetched on session start
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
@@ -368,6 +370,7 @@ export const App: React.FC = () => {
           onSelectSession={handleResumeSession}
           onDeleteSession={handleDeleteSession}
           onNewConversation={handleReset}
+          onSettingsClick={() => setSettingsOpen(true)}
         />
 
         <ChatView
@@ -391,6 +394,11 @@ export const App: React.FC = () => {
         <RightSidebar
           isOpen={rightSidebarOpen}
           onClose={() => setRightSidebarOpen(false)}
+        />
+
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
         />
       </div>
     </div>
