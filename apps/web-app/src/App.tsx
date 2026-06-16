@@ -132,7 +132,23 @@ export const App: React.FC = () => {
         activeMsg = updatedMessages[updatedMessages.length - 1];
       }
 
-      if (event.type === "text" || event.type === "thinking") {
+      if (event.type === "thinking") {
+        const parts = activeMsg.parts;
+        const lastPartIndex = parts.length - 1;
+        const lastPart = parts[lastPartIndex];
+
+        if (lastPart && lastPart.type === "thinking") {
+          updateLastMessagePart(lastPartIndex, {
+            type: "thinking",
+            content: lastPart.content + event.content,
+          });
+        } else {
+          addPartToLastMessage({
+            type: "thinking",
+            content: event.content,
+          });
+        }
+      } else if (event.type === "text") {
         const parts = activeMsg.parts;
         const lastPartIndex = parts.length - 1;
         const lastPart = parts[lastPartIndex];

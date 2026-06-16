@@ -3,6 +3,7 @@ import type { Message } from "../lib/types";
 import { TextPart } from "./parts/TextPart";
 import { CodePart } from "./parts/CodePart";
 import { ToolPart } from "./parts/ToolPart";
+import { ThinkingPart } from "./parts/ThinkingPart";
 
 import { useChatStore } from "../stores";
 
@@ -55,6 +56,8 @@ export const ChatMessage: React.FC<MessageProps> = ({ message }) => {
               );
             case "tool":
               return <ToolPart key={i} tool={part.tool} result={part.result} />;
+            case "thinking":
+              return <ThinkingPart key={i} content={part.content} />;
             default:
               return null;
           }
