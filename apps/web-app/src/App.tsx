@@ -99,6 +99,23 @@ export const App: React.FC = () => {
     }
   }, [connState, projectPath, loadSessionsHistory]);
 
+  // Cycle agent mode on Shift+Tab (capture phase to intercept before textarea)
+  useEffect(() => {
+    const MODES = ["plan", "build", "review", "explore", "danger"] as const;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Tab" && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setAgentMode((prev) => {
+          const idx = MODES.indexOf(prev as typeof MODES[number]);
+          return MODES[(idx + 1) % MODES.length];
+        });
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown, true); // capture phase
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, []);
+
   // Handle stream events from CLI
   const handleStreamEvent = useCallback(
     (event: any) => {
@@ -358,6 +375,8 @@ export const App: React.FC = () => {
           status={status}
           onSend={handleSend}
           workspaceFiles={workspaceFiles}
+          agentMode={agentMode as "plan" | "build" | "review" | "explore" | "danger"}
+          onChangeMode={setAgentMode}
         />
 
         <RightSidebar

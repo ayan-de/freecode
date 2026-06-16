@@ -3,6 +3,7 @@ import { MessageList } from "../chat/MessageList";
 import { PromptInput } from "./PromptInput";
 import { Wifi, WifiOff, Loader } from "lucide-react";
 import type { ProviderInfo, ModelInfo } from "../ipc-stub";
+import type { AgentMode } from "../themes";
 
 interface ChatViewProps {
   connState: "connecting" | "connected" | "error";
@@ -16,6 +17,8 @@ interface ChatViewProps {
   onSend: (message: string) => void;
   onChangeModel: (providerId: string, modelId: string) => void;
   workspaceFiles: string[];
+  agentMode: AgentMode;
+  onChangeMode: (mode: AgentMode) => void;
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -30,6 +33,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   status,
   onSend,
   workspaceFiles,
+  agentMode,
+  onChangeMode,
 }) => {
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-bg-primary">
@@ -52,26 +57,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </span>
             )}
           </div>
-        </div>
-
-        {/* Right Side: Session Metadata & Toggle */}
-        <div className="flex items-center gap-3">
-          {sessionId && (
-            <div className="hidden sm:flex items-center gap-6 text-xs text-gray-400 border-border pr-4">
-              <span className="truncate max-w-xs">
-                <strong className="text-gray-500 uppercase font-semibold mr-1">
-                  Workspace:
-                </strong>{" "}
-                {projectPath}
-              </span>
-              <span>
-                <strong className="text-gray-500 uppercase font-semibold mr-1">
-                  Model:
-                </strong>{" "}
-                {selectedModel}
-              </span>
-            </div>
-          )}
         </div>
       </header>
 
@@ -111,6 +96,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               models={models}
               providers={providers}
               onChangeModel={onChangeModel}
+              agentMode={agentMode}
+              onChangeMode={onChangeMode}
             />
           </div>
         </div>
