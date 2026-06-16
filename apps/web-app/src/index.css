@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Agent mode color variables */
+:root {
+  --mode-plan: #5B9BD5;
+  --mode-build: #FFD700;
+  --mode-review: #3CFB3C;
+  --mode-explore: #D92688;
+  --mode-danger: #FF4444;
+}
+
+/* Mode-specific border colors */
+.mode-plan { --mode-color: var(--mode-plan); }
+.mode-build { --mode-color: var(--mode-build); }
+.mode-review { --mode-color: var(--mode-review); }
+.mode-explore { --mode-color: var(--mode-explore); }
+.mode-danger { --mode-color: var(--mode-danger); }
