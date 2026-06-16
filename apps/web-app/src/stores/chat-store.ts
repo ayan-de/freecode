@@ -5,12 +5,14 @@ interface ChatStore {
   messages: Message[];
   status: "idle" | "streaming" | "error";
   error: string | null;
+  textSize: "small" | "medium" | "large" | "xlarge";
   addMessage: (role: "user" | "assistant", parts: MessagePart[]) => void;
   addPartToLastMessage: (part: MessagePart) => void;
   updateLastMessagePart: (index: number, part: MessagePart) => void;
   setStatus: (status: "idle" | "streaming" | "error") => void;
   setError: (error: string | null) => void;
   clearMessages: () => void;
+  setTextSize: (size: "small" | "medium" | "large" | "xlarge") => void;
 }
 
 let messageCounter = 0;
@@ -19,6 +21,7 @@ export const useChatStore = create<ChatStore>((set) => ({
   messages: [],
   status: "idle",
   error: null,
+  textSize: (localStorage.getItem("freecode-text-size") as any) || "medium",
 
   addMessage: (role, parts) =>
     set((state) => ({
@@ -62,4 +65,8 @@ export const useChatStore = create<ChatStore>((set) => ({
   setStatus: (status) => set({ status }),
   setError: (error) => set({ error }),
   clearMessages: () => set({ messages: [], status: "idle", error: null }),
+  setTextSize: (size) => {
+    localStorage.setItem("freecode-text-size", size);
+    set({ textSize: size });
+  },
 }));

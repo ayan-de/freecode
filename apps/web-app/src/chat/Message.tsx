@@ -4,12 +4,23 @@ import { TextPart } from "./parts/TextPart";
 import { CodePart } from "./parts/CodePart";
 import { ToolPart } from "./parts/ToolPart";
 
+import { useChatStore } from "../stores";
+
 interface MessageProps {
   message: Message;
 }
 
+const fontSizeMap = {
+  small: "13px",
+  medium: "15px",
+  large: "17px",
+  xlarge: "19px",
+};
+
 export const ChatMessage: React.FC<MessageProps> = ({ message }) => {
   const isUser = message.role === "user";
+  const textSize = useChatStore((s) => s.textSize);
+  const fontSize = fontSizeMap[textSize] || "15px";
 
   return (
     <div
@@ -27,6 +38,7 @@ export const ChatMessage: React.FC<MessageProps> = ({ message }) => {
           borderRadius: isUser ? "8px" : "0px",
           color: "#f3f4f6",
           boxSizing: "border-box",
+          fontSize,
         }}
       >
         {message.parts.map((part, i) => {
