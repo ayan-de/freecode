@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Send, File, Plus, ChevronUp, Mic } from "lucide-react";
 import { listModels, type ProviderInfo, type ModelInfo } from "../ipc-stub";
+import { MODE_COLORS_CSS, type AgentMode } from "../themes";
+import { ModeButton } from "./ui/ModeButton";
 
 interface PromptInputProps {
   onSend: (message: string) => void;
@@ -12,6 +14,8 @@ interface PromptInputProps {
   models: ModelInfo[];
   providers: ProviderInfo[];
   onChangeModel: (providerId: string, modelId: string) => void;
+  agentMode: AgentMode;
+  onChangeMode: (mode: AgentMode) => void;
 }
 
 export const PromptInput: React.FC<PromptInputProps> = ({
@@ -24,6 +28,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   models,
   providers,
   onChangeModel,
+  agentMode,
+  onChangeMode,
 }) => {
   const [value, setValue] = useState("");
   const [suggestionState, setSuggestionState] = useState<{
@@ -45,6 +51,9 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+
+  // Get mode color for border
+  const modeColor = MODE_COLORS_CSS[agentMode] || MODE_COLORS_CSS.build;
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -218,7 +227,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       {isModelMenuOpen && (
         <div
           ref={dropdownRef}
-          className="absolute bottom-full left-2 mb-2 w-72 bg-bg-tertiary/95 border border-border rounded-xl shadow-premium backdrop-blur-md z-30 p-3 flex flex-col gap-3 pointer-events-auto"
+          className="absolute bottom-full left-2 mb-2 w-72 bg-bg-tertiary/95 border border-border rounded-sm shadow-premium backdrop-blur-md z-30 p-3 flex flex-col gap-3 pointer-events-auto"
         >
           <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
             Provider
@@ -328,8 +337,15 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         </div>
       )}
 
-      {/* Input container */}
-      <div className="relative flex flex-col w-full bg-bg-tertiary border border-border rounded-2xl focus-within:border-indigo-500/50 focus-within:ring-2 focus-within:ring-indigo-500/10 transition-all p-2 gap-1 shadow-sm">
+      {/* Input container - border color changes based on agent mode */}
+      <div
+        className="relative flex flex-col w-full bg-bg-tertiary border rounded-sm transition-all p-2 gap-1"
+        style={{
+          borderColor: modeColor,
+          borderWidth: "1px",
+          boxShadow: `0 0 12px 2px ${modeColor}40`,
+        }}
+      >
         <textarea
           ref={textareaRef}
           value={value}
@@ -344,12 +360,12 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         {/* Bottom Toolbar */}
         <div className="flex items-center justify-between px-2 pb-1">
           <div className="flex items-center gap-3">
-            <button className="text-gray-400 hover:text-white transition-colors p-1 rounded hover:bg-white/5">
+            <button className="text-gray-400 hover:text-white transition-colors p-1 rounded-sm hover:bg-white/5">
               <Plus size={16} />
             </button>
             <button
               onClick={() => setIsModelMenuOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white transition-colors py-1 px-2 rounded hover:bg-white/5"
+              className="flex items-center gap-1.5 text-xs font-medium text-gray-400 hover:text-white transition-colors py-1 px-2 rounded-sm hover:bg-white/5"
             >
               <span>{selectedModel || "Select Model"}</span>
               <ChevronUp
@@ -357,6 +373,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
                 className={`transition-transform duration-200 ${isModelMenuOpen ? "rotate-180" : ""}`}
               />
             </button>
+            {/* Mode cycling button */}
+            <ModeButton agentMode={agentMode} onChangeMode={onChangeMode} />
           </div>
 
           <div className="flex items-center gap-2">
@@ -364,14 +382,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({
               <button
                 onClick={handleSubmit}
                 disabled={disabled}
-                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-white text-bg-primary flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                className="w-8 h-8 rounded-sm bg-gray-100 hover:bg-white text-bg-primary flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none"
               >
                 <Send size={14} />
               </button>
             ) : (
               <button
                 disabled={disabled}
-                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                className="w-8 h-8 rounded-sm bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none"
               >
                 <Mic size={14} />
               </button>
