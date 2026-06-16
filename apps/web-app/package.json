@@ -12,12 +12,14 @@
     "@tauri-apps/api": "^2.11.0",
     "@thisisayande/freecode-shared": "workspace:*",
     "lucide-react": "^1.16.0",
+    "marked": "^18.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
+    "@types/marked": "^6.0.0",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@vitejs/plugin-react": "^4.2.1",

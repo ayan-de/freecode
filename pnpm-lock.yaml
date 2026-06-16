@@ -159,6 +159,9 @@ importers:
       '@thisisayande/freecode-shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      marked:
+        specifier: ^18.0.5
+        version: 18.0.5
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -169,6 +172,9 @@ importers:
         specifier: ^4.5.0
         version: 4.5.7(@types/react@18.3.29)(react@18.3.1)
     devDependencies:
+      '@types/marked':
+        specifier: ^6.0.0
+        version: 6.0.0
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -260,6 +266,9 @@ importers:
       lucide-react:
         specifier: ^1.16.0
         version: 1.16.0(react@18.3.1)
+      marked:
+        specifier: ^18.0.5
+        version: 18.0.5
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -273,6 +282,9 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2.11.2
         version: 2.11.2
+      '@types/marked':
+        specifier: ^6.0.0
+        version: 6.0.0
       '@types/react':
         specifier: ^19.2.2
         version: 19.2.2
@@ -1589,6 +1601,10 @@ packages:
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
 
+  '@types/marked@6.0.0':
+    resolution: {integrity: sha512-jmjpa4BwUsmhxcfsgUit/7A9KbrC48Q0q8KvnY107ogcjGgTFDlIL3RpihNpx2Mu1hM4mdFQjoVc4O6JoGKHsA==}
+    deprecated: This is a stub types definition. marked provides its own type definitions, so you do not need this installed.
+
   '@types/mime-types@2.1.4':
     resolution: {integrity: sha512-lfU4b34HOri+kAY5UheuFMWPDOI+OPceBSHZKp69gEyTL/mmJ4cnU6Y/rlme3UL3GyOn6Y42hyIEw0/q8sWx5w==}
 
@@ -2707,6 +2723,11 @@ packages:
   marked@15.0.12:
     resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
     engines: {node: '>= 18'}
+    hasBin: true
+
+  marked@18.0.5:
+    resolution: {integrity: sha512-S6GcvALHg6K4ohtu4E7x0a1AqhAjp6cV8KhLSyN9qVapnzJkusVBxZRcIU9AeYsbe6P1hKDusSbEOzGyyuce6w==}
+    engines: {node: '>= 20'}
     hasBin: true
 
   math-intrinsics@1.1.0:
@@ -4561,6 +4582,10 @@ snapshots:
 
   '@types/json-schema@7.0.15': {}
 
+  '@types/marked@6.0.0':
+    dependencies:
+      marked: 18.0.5
+
   '@types/mime-types@2.1.4': {}
 
   '@types/node@12.20.55': {}
@@ -5908,6 +5933,8 @@ snapshots:
       react: 19.2.0
 
   marked@15.0.12: {}
+
+  marked@18.0.5: {}
 
   math-intrinsics@1.1.0: {}
 
