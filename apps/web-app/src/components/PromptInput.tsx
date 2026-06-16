@@ -378,15 +378,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {value.trim() ? (
-              <button
-                onClick={handleSubmit}
-                disabled={disabled}
-                className="w-8 h-8 rounded-sm bg-gray-100 hover:bg-white text-bg-primary flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <Send size={14} />
-              </button>
-            ) : (
+            {!value.trim() && (
               <button
                 disabled={disabled}
                 className="w-8 h-8 rounded-sm bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:pointer-events-none"
@@ -394,6 +386,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({
                 <Mic size={14} />
               </button>
             )}
+            <button
+              onClick={handleSubmit}
+              disabled={disabled || !value.trim()}
+              className="w-8 h-8 rounded-sm text-bg-primary flex items-center justify-center transition-all disabled:opacity-30 disabled:pointer-events-none hover:opacity-90 active:scale-95"
+              style={{ backgroundColor: modeColor }}
+            >
+              <Send size={14} className="stroke-[2.5]" />
+            </button>
           </div>
         </div>
       </div>
