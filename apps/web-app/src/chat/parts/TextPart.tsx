@@ -1,11 +1,18 @@
 import React from "react";
+import { marked } from "marked";
 
 interface TextPartProps {
   content: string;
 }
 
 export const TextPart: React.FC<TextPartProps> = ({ content }) => {
+  const htmlContent = marked.parse(content) as string;
+
   return (
-    <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.5" }}>{content}</div>
+    <div
+      className="markdown-content"
+      style={{ lineHeight: "1.6" }}
+      dangerouslySetInnerHTML={{ __html: htmlContent }}
+    />
   );
 };
