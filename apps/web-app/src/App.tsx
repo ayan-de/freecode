@@ -329,7 +329,35 @@ export const App: React.FC = () => {
     setError(null);
 
     try {
-      await sessionSend(activeSessionId, message, selectedModel, agentMode);
+      const result = (await sessionSend(
+        activeSessionId,
+        message,
+        selectedModel,
+        agentMode,
+      )) as any;
+
+      if (result && result.success) {
+        const currentMessages = useChatStore.getState().messages;
+        const lastMsg = currentMessages[currentMessages.length - 1];
+
+        if (lastMsg && lastMsg.role === "assistant") {
+          const hasTextPart = lastMsg.parts.some((p) => p.type === "text");
+          if (!hasTextPart && result.content) {
+            addPartToLastMessage({
+              type: "text",
+              content: result.content,
+            });
+          }
+        } else {
+          addMessage("assistant", [
+            {
+              type: "text",
+              content: result.content || "Done!",
+            },
+          ]);
+        }
+      }
+      setStatus("idle");
     } catch (err: any) {
       setError(err.message || "Failed to send message");
       setStatus("error");
