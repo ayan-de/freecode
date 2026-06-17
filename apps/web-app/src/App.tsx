@@ -183,6 +183,7 @@ export const App: React.FC = () => {
             tool: {
               name: event.toolName,
               args:
+                activeMsg.parts[partIndex] &&
                 activeMsg.parts[partIndex].type === "tool"
                   ? (activeMsg.parts[partIndex] as any).tool.args
                   : {},
