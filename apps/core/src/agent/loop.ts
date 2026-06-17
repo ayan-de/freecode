@@ -381,6 +381,14 @@ export class AgentLoop {
         });
       }
 
+      // Emit text content if present (for UI to display)
+      if (providerResult.content) {
+        this.onToolEvent?.({
+          type: "text",
+          content: providerResult.content,
+        });
+      }
+
       // Record turn.started event
       this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`);
 
