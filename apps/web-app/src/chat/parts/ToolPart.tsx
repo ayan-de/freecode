@@ -31,9 +31,9 @@ export const ToolPart: React.FC<ToolPartProps> = ({ tool, result }) => {
         }}
       >
         <span style={{ color: "#60a5fa", fontWeight: 500, display: "flex", alignItems: "center", gap: "6px" }}>
-          <span>🔧</span> {tool.name}
+          {tool.name}
         </span>
-        <span style={{ color: "rgba(255, 255, 255, 0.4)", fontSize: "12px" }}>{expanded ? "▼" : "▶"}</span>
+        <span style={{ color: "rgba(255, 255, 255, 0.4)", fontSize: "12px" }}>{expanded ? "v" : ">"}</span>
       </div>
       {expanded && (
         <div style={{ padding: "12px 14px", borderTop: "1px solid rgba(255, 255, 255, 0.06)" }}>

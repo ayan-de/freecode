@@ -32,7 +32,7 @@ export const MessageList: React.FC = () => {
             padding: "8px 0",
           }}
         >
-          🔄 Processing...
+          Processing...
         </div>
       )}
       <div ref={bottomRef} />

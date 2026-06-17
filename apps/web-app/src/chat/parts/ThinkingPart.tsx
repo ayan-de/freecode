@@ -30,9 +30,9 @@ export const ThinkingPart: React.FC<ThinkingPartProps> = ({ content }) => {
         }}
       >
         <span style={{ color: "#eab308", fontWeight: 500, display: "flex", alignItems: "center", gap: "6px" }}>
-          <span>🧠</span> Thinking Process
+          Thinking Process
         </span>
-        <span style={{ color: "rgba(255, 255, 255, 0.4)", fontSize: "12px" }}>{expanded ? "▼" : "▶"}</span>
+        <span style={{ color: "rgba(255, 255, 255, 0.4)", fontSize: "12px" }}>{expanded ? "v" : ">"}</span>
       </div>
       {expanded && (
         <div style={{ padding: "12px 14px", borderTop: "1px solid rgba(234, 179, 8, 0.12)" }}>
