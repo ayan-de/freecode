@@ -197,8 +197,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         onChangeMode(MODES[(idx + 1) % MODES.length]);
         return;
       }
-      // Send message with Cmd+Enter or Ctrl+Enter
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      // Send message with Enter (without Shift)
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSubmit();
       }
