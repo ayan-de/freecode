@@ -210,7 +210,7 @@ export const App: React.FC = () => {
     ],
   );
 
-  const handleStartSession = async () => {
+  const handleStartSession = async (): Promise<string | undefined> => {
     if (!projectPath) {
       alert("Please enter a project path");
       return;
@@ -256,9 +256,11 @@ export const App: React.FC = () => {
       }
 
       loadSessionsHistory();
+      return session.sessionId;
     } catch (err: any) {
       setError(err.message || "Failed to start session");
       setStatus("error");
+      throw err;
     }
   };
 
@@ -319,10 +321,14 @@ export const App: React.FC = () => {
   };
 
   const handleSend = async (message: string) => {
-    const activeSessionId = sessionIdRef.current;
+    let activeSessionId = sessionIdRef.current;
     if (!activeSessionId) {
-      alert("Please start a session first");
-      return;
+      try {
+        activeSessionId = await handleStartSession();
+        if (!activeSessionId) return;
+      } catch (err) {
+        return;
+      }
     }
 
     addMessage("user", [{ type: "text", content: message }]);

@@ -70,8 +70,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
               {/* <h2 className="text-lg font-bold text-gray-100 mb-2">No Active Session</h2> */}
               <p className="text-sm text-gray-400 leading-relaxed">
-                Start a session in the settings sidebar to begin coding and
-                interacting with your project.
+                Type a message below to start a new session, or select a previous session from the sidebar.
               </p>
             </div>
           ) : (
@@ -85,7 +84,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <PromptInput
               onSend={onSend}
               disabled={
-                !sessionId ||
                 status === "streaming" ||
                 connState !== "connected"
               }

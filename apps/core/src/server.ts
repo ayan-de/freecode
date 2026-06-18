@@ -44,6 +44,7 @@ import { initMcpServers } from "./mcp/index.js";
 import { homedir } from "os";
 import { randomUUID } from "crypto";
 import { join } from "path";
+import { existsSync } from "fs";
 
 const SESSION_BASE_DIR = join(homedir(), ".freecode");
 
@@ -140,6 +141,9 @@ const methodHandlers: Record<
     params: Record<string, unknown>,
   ): Promise<SessionStartResult> => {
     const config = params as unknown as SessionConfig;
+    if (!config.projectPath || !existsSync(config.projectPath)) {
+      config.projectPath = process.cwd();
+    }
     const session = createSession(config);
     // Store agentMode on session for later use
     if (config.agentMode) {
