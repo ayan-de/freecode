@@ -16,7 +16,7 @@ export default function Home() {
       <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
 
-        <div className="h-10 w-full max-w-2xl mx-auto flex items-end justify-start">
+        <div className="h-10 w-full max-w-4xl mx-auto flex items-end justify-start">
           <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight">#Installation</span>
         </div>
 
