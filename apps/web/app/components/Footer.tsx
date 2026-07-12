@@ -46,17 +46,17 @@ export function Footer() {
           return (
             <div
               key={i}
-              className={`border-r border-b border-white/20 flex items-center justify-center transition-colors duration-300 group ${gradient}`}
+              className={`border-r border-b border-border/40 flex items-center justify-center transition-colors duration-300 group ${gradient}`}
               style={{
                 borderLeft:
-                  col === 0 ? "1px solid rgba(255,255,255,0.2)" : undefined,
+                  col === 0 ? "1px solid var(--border)" : undefined,
                 borderTop:
-                  row === 0 ? "1px solid rgba(255,255,255,0.2)" : undefined,
+                  row === 0 ? "1px solid var(--border)" : undefined,
               }}
             >
               <a
                 href={`/${link.toLowerCase()}`}
-                className="text-white text-sm font-medium transition-colors group-hover:text-black group-hover:font-bold"
+                className="text-foreground text-sm font-medium transition-colors group-hover:text-black group-hover:font-bold"
               >
                 {link}
               </a>

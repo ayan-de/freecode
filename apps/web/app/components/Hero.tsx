@@ -31,15 +31,15 @@ export function Hero() {
 
       {/* Foreground Content */}
       <div className="relative z-10 flex flex-col items-center text-center gap-6 w-full max-w-6xl mx-auto mt-0 py-12">
-        <h1 className="text-5xl lg:text-[4.5rem] font-bold text-white tracking-tight leading-[1.1] max-w-3xl">
-          Your <span className="brand-gradient-text">AI</span> Coding Assistant
+        <h1 className="text-5xl lg:text-[4.5rem] font-bold text-foreground tracking-tight leading-[1.1] max-w-3xl">
+          Your <span className="text-primary">AI</span> Coding Assistant
         </h1>
-        <p className="text-lg lg:text-xl text-white/60 leading-relaxed max-w-xl">
+        <p className="text-lg lg:text-xl text-muted-foreground leading-relaxed max-w-xl">
           Drive AI coding assistants via browser automation. No API costs. Works
-          with <span className="text-white font-medium">ChatGPT</span>,{" "}
-          <span className="text-white font-medium">Claude</span>,{" "}
-          <span className="text-white font-medium">Gemini</span>, and{" "}
-          <span className="text-white font-medium brand-gradient-text">
+          with <span className="text-foreground font-medium">ChatGPT</span>,{" "}
+          <span className="text-foreground font-medium">Claude</span>,{" "}
+          <span className="text-foreground font-medium">Gemini</span>, and{" "}
+          <span className="text-primary font-medium">
             Browser
           </span>
           .
@@ -51,12 +51,12 @@ export function Hero() {
           </Button>
           <Button
             variant="outline"
-            className="bg-black px-6 py-3 hover:border-white/20 hover:bg-black h-[46px]"
+            className="px-6 py-3 h-[46px]"
             href="https://github.com/ayan-de/freecode"
             target="_blank"
             rel="noopener noreferrer"
           >
-            <FaGithub className="brand-gradient-text mr-2 h-4 w-4" />
+            <FaGithub className="mr-2 h-4 w-4 text-foreground" />
             GitHub
           </Button>
         </div>

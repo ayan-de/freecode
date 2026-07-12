@@ -50,25 +50,25 @@ export function Benchmark() {
 
   return (
     <section id="benchmark" className="w-full max-w-4xl mx-auto py-12">
-      <h2 className="text-3xl lg:text-4xl font-semibold text-white text-center mb-3">
+      <h2 className="text-3xl lg:text-4xl font-semibold text-foreground text-center mb-3">
         Performance & Resource Efficiency
       </h2>
-      <p className="text-lg lg:text-xl text-white/60 text-center mb-12 max-w-2xl mx-auto">
+      <p className="text-lg lg:text-xl text-muted-foreground text-center mb-12 max-w-2xl mx-auto">
         Swarms only push intelligence if they scale, and they only scale if each agent costs almost nothing. FreeCode is optimized to the bone so agents stay cheap to spawn, with none of it traded for speed.
       </p>
 
       <div className="flex flex-col gap-12">
         {/* Chart 1: Memory Footprint (1 session) */}
-        <div className="rounded-md border border-white/15 bg-black/30 p-6 md:p-8">
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-2.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <div className="p-2.5 rounded bg-muted text-primary border border-border">
               <Cpu size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+              <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
                 Memory footprint (PSS, MB)
               </h3>
-              <p className="text-sm text-white/50 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Resident memory of the entire process tree (tool + all descendants + process group), summed across process descendants.
               </p>
             </div>
@@ -81,24 +81,24 @@ export function Benchmark() {
               return (
                 <div
                   key={item.tool}
-                  className="group relative flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-white/5 hover:bg-white/[0.02] px-2 rounded transition-colors"
+                  className="group relative flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-border hover:bg-accent/10 px-2 rounded transition-colors"
                   onMouseEnter={() => setHoveredIndex(`mem1-${item.tool}`)}
                   onMouseLeave={() => setHoveredIndex(null)}
                 >
                   <div className="w-full md:w-32 flex items-center justify-between md:justify-start mb-1 md:mb-0">
-                    <span className={`font-mono text-sm ${item.isFreeCode ? "text-emerald-400 font-bold" : "text-white/70"}`}>
+                    <span className={`font-mono text-sm ${item.isFreeCode ? "text-primary font-bold animate-pulse" : "text-foreground/70"}`}>
                       {item.tool}
                     </span>
-                    <span className="md:hidden text-xs text-white/40">{item.displayValue}</span>
+                    <span className="md:hidden text-xs text-muted-foreground/60">{item.displayValue}</span>
                   </div>
 
                   <div className="flex-1 mx-0 md:mx-6 flex items-center relative h-6">
-                    <div className="w-full bg-white/[0.03] h-3.5 rounded overflow-hidden border border-white/5">
+                    <div className="w-full bg-muted h-3.5 rounded overflow-hidden border border-border">
                       <div
                         className={`h-full transition-all duration-1000 ease-out ${
                           item.isFreeCode
-                            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
-                            : "bg-[#c2c0b4] group-hover:bg-[#d8d6cc]"
+                            ? "bg-primary shadow-[0_0_12px_var(--primary)]"
+                            : "bg-[#c2c0b4] dark:bg-[#b8b5a8] group-hover:bg-[#d8d6cc]"
                         }`}
                         style={{ width: `${widthPct}%` }}
                       />
@@ -106,19 +106,19 @@ export function Benchmark() {
 
                     {/* Tooltip on Hover */}
                     {isHovered && (
-                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 z-20 bg-zinc-900 border border-white/10 rounded px-2.5 py-1 text-xs text-white/90 font-mono shadow-xl flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="font-bold text-emerald-400">{item.displayValue}</span>
-                        <span className="text-white/40">|</span>
+                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 z-20 bg-popover border border-border rounded px-2.5 py-1 text-xs text-popover-foreground font-mono shadow-xl flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="font-bold text-primary">{item.displayValue}</span>
+                        <span className="text-muted-foreground/45">|</span>
                         <span>{item.comparison}</span>
                       </div>
                     )}
                   </div>
 
                   <div className="hidden md:flex w-48 justify-between items-center text-right font-mono text-xs">
-                    <span className={`text-sm ${item.isFreeCode ? "text-emerald-400 font-semibold" : "text-white/90"}`}>
+                    <span className={`text-sm ${item.isFreeCode ? "text-primary font-semibold" : "text-foreground/90"}`}>
                       {item.displayValue}
                     </span>
-                    <span className="text-white/40 text-[10px] w-24">
+                    <span className="text-muted-foreground/60 text-[10px] w-24">
                       {item.comparison}
                     </span>
                   </div>
@@ -129,16 +129,16 @@ export function Benchmark() {
         </div>
 
         {/* Chart 2: Time to Ready */}
-        <div className="rounded-md border border-white/15 bg-black/30 p-6 md:p-8">
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-2.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <div className="p-2.5 rounded bg-muted text-primary border border-border">
               <Clock size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+              <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
                 Time to ready (seconds)
               </h3>
-              <p className="text-sm text-white/50 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Startup latency: wall-clock from spawn until input handling is responsive (10 interactive PTY launches each).
               </p>
             </div>
@@ -151,24 +151,24 @@ export function Benchmark() {
               return (
                 <div
                   key={item.tool}
-                  className="group relative flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-white/5 hover:bg-white/[0.02] px-2 rounded transition-colors"
+                  className="group relative flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-border hover:bg-accent/10 px-2 rounded transition-colors"
                   onMouseEnter={() => setHoveredIndex(`time-${item.tool}`)}
                   onMouseLeave={() => setHoveredIndex(null)}
                 >
                   <div className="w-full md:w-32 flex items-center justify-between md:justify-start mb-1 md:mb-0">
-                    <span className={`font-mono text-sm ${item.isFreeCode ? "text-emerald-400 font-bold" : "text-white/70"}`}>
+                    <span className={`font-mono text-sm ${item.isFreeCode ? "text-primary font-bold animate-pulse" : "text-foreground/70"}`}>
                       {item.tool}
                     </span>
-                    <span className="md:hidden text-xs text-white/40">{item.displayValue}</span>
+                    <span className="md:hidden text-xs text-muted-foreground/60">{item.displayValue}</span>
                   </div>
 
                   <div className="flex-1 mx-0 md:mx-6 flex items-center relative h-6">
-                    <div className="w-full bg-white/[0.03] h-3.5 rounded overflow-hidden border border-white/5">
+                    <div className="w-full bg-muted h-3.5 rounded overflow-hidden border border-border">
                       <div
                         className={`h-full transition-all duration-1000 ease-out ${
                           item.isFreeCode
-                            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
-                            : "bg-[#c2c0b4] group-hover:bg-[#d8d6cc]"
+                            ? "bg-primary shadow-[0_0_12px_var(--primary)]"
+                            : "bg-[#c2c0b4] dark:bg-[#b8b5a8] group-hover:bg-[#d8d6cc]"
                         }`}
                         style={{ width: `${widthPct}%` }}
                       />
@@ -176,19 +176,19 @@ export function Benchmark() {
 
                     {/* Tooltip on Hover */}
                     {isHovered && (
-                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 z-20 bg-zinc-900 border border-white/10 rounded px-2.5 py-1 text-xs text-white/90 font-mono shadow-xl flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="font-bold text-emerald-400">{item.displayValue}</span>
-                        <span className="text-white/40">|</span>
+                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 z-20 bg-popover border border-border rounded px-2.5 py-1 text-xs text-popover-foreground font-mono shadow-xl flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="font-bold text-primary">{item.displayValue}</span>
+                        <span className="text-muted-foreground/45">|</span>
                         <span>{item.comparison}</span>
                       </div>
                     )}
                   </div>
 
                   <div className="hidden md:flex w-48 justify-between items-center text-right font-mono text-xs">
-                    <span className={`text-sm ${item.isFreeCode ? "text-emerald-400 font-semibold" : "text-white/90"}`}>
+                    <span className={`text-sm ${item.isFreeCode ? "text-primary font-semibold" : "text-foreground/90"}`}>
                       {item.displayValue}
                     </span>
-                    <span className="text-white/40 text-[10px] w-24">
+                    <span className="text-muted-foreground/60 text-[10px] w-24">
                       {item.comparison}
                     </span>
                   </div>
@@ -197,25 +197,25 @@ export function Benchmark() {
             })}
           </div>
 
-          <div className="flex items-start gap-2.5 mt-4 p-4 rounded bg-white/[0.02] border border-white/5">
-            <Info size={16} className="text-white/40 shrink-0 mt-0.5" />
-            <p className="text-xs text-white/50 leading-relaxed">
+          <div className="flex items-start gap-2.5 mt-4 p-4 rounded bg-muted border border-border">
+            <Info size={16} className="text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
               codex, opencode and copilot_cli hit the 20s timeout without becoming input ready; antigravity_cli never rendered visible.
             </p>
           </div>
         </div>
 
         {/* Chart 3: Memory scaling per additional session */}
-        <div className="rounded-md border border-white/15 bg-black/30 p-6 md:p-8">
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-2.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <div className="p-2.5 rounded bg-muted text-primary border border-border">
               <BarChart3 size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+              <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
                 Memory per session, avg over 10 runs (MB)
               </h3>
-              <p className="text-sm text-white/50 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Extra proportional memory (PSS) each additional client adds once one is already running. Ten freecode sessions cost about 250 MB, less than one sixth of one Claude Code.
               </p>
             </div>
@@ -228,24 +228,24 @@ export function Benchmark() {
               return (
                 <div
                   key={item.tool}
-                  className="group relative flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-white/5 hover:bg-white/[0.02] px-2 rounded transition-colors"
+                  className="group relative flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-border hover:bg-accent/10 px-2 rounded transition-colors"
                   onMouseEnter={() => setHoveredIndex(`mem10-${item.tool}`)}
                   onMouseLeave={() => setHoveredIndex(null)}
                 >
                   <div className="w-full md:w-32 flex items-center justify-between md:justify-start mb-1 md:mb-0">
-                    <span className={`font-mono text-sm ${item.isFreeCode ? "text-emerald-400 font-bold" : "text-white/70"}`}>
+                    <span className={`font-mono text-sm ${item.isFreeCode ? "text-primary font-bold animate-pulse" : "text-foreground/70"}`}>
                       {item.tool}
                     </span>
-                    <span className="md:hidden text-xs text-white/40">{item.displayValue}</span>
+                    <span className="md:hidden text-xs text-muted-foreground/60">{item.displayValue}</span>
                   </div>
 
                   <div className="flex-1 mx-0 md:mx-6 flex items-center relative h-6">
-                    <div className="w-full bg-white/[0.03] h-3.5 rounded overflow-hidden border border-white/5">
+                    <div className="w-full bg-muted h-3.5 rounded overflow-hidden border border-border">
                       <div
                         className={`h-full transition-all duration-1000 ease-out ${
                           item.isFreeCode
-                            ? "bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
-                            : "bg-[#c2c0b4] group-hover:bg-[#d8d6cc]"
+                            ? "bg-primary shadow-[0_0_12px_var(--primary)]"
+                            : "bg-[#c2c0b4] dark:bg-[#b8b5a8] group-hover:bg-[#d8d6cc]"
                         }`}
                         style={{ width: `${widthPct}%` }}
                       />
@@ -253,19 +253,19 @@ export function Benchmark() {
 
                     {/* Tooltip on Hover */}
                     {isHovered && (
-                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 z-20 bg-zinc-900 border border-white/10 rounded px-2.5 py-1 text-xs text-white/90 font-mono shadow-xl flex items-center gap-1.5 whitespace-nowrap">
-                        <span className="font-bold text-emerald-400">{item.displayValue}</span>
-                        <span className="text-white/40">|</span>
+                      <div className="absolute left-1/2 -translate-x-1/2 -top-10 z-20 bg-popover border border-border rounded px-2.5 py-1 text-xs text-popover-foreground font-mono shadow-xl flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="font-bold text-primary">{item.displayValue}</span>
+                        <span className="text-muted-foreground/45">|</span>
                         <span>{item.comparison}</span>
                       </div>
                     )}
                   </div>
 
                   <div className="hidden md:flex w-48 justify-between items-center text-right font-mono text-xs">
-                    <span className={`text-sm ${item.isFreeCode ? "text-emerald-400 font-semibold" : "text-white/90"}`}>
+                    <span className={`text-sm ${item.isFreeCode ? "text-primary font-semibold" : "text-foreground/90"}`}>
                       {item.displayValue}
                     </span>
-                    <span className="text-white/40 text-[10px] w-24">
+                    <span className="text-muted-foreground/60 text-[10px] w-24">
                       {item.comparison}
                     </span>
                   </div>

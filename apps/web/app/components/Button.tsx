@@ -25,10 +25,10 @@ export function Button({
     "inline-flex items-center justify-center rounded-sm px-4 py-2 text-sm font-medium transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none no-underline";
 
   const variants = {
-    primary: "bg-white text-black hover:opacity-80",
-    secondary: "bg-[#9A9595] text-black hover:opacity-80",
+    primary: "bg-primary text-primary-foreground hover:opacity-90",
+    secondary: "bg-secondary text-secondary-foreground hover:opacity-90",
     outline:
-      "border border-white/20 text-white hover:bg-white/5 hover:no-underline",
+      "border border-border text-foreground hover:bg-accent hover:text-accent-foreground hover:no-underline",
   };
 
   const classNames = `${baseStyles} ${variants[variant]} ${className}`;
