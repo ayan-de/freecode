@@ -29,7 +29,7 @@ const hoverGradients = [
 
 export function Footer() {
   return (
-    <div className="relative w-full min-h-[40vh] overflow-hidden">
+    <div className="relative w-full min-h-[40vh] border-t border-border overflow-hidden">
       {/* Grid - only 50% width, left aligned */}
       <div
         className="absolute inset-0 w-1/2"
@@ -46,7 +46,7 @@ export function Footer() {
           return (
             <div
               key={i}
-              className={`border-r border-b border-border/40 flex items-center justify-center transition-colors duration-300 group ${gradient}`}
+              className={`border-r border-b border-border flex items-center justify-center transition-colors duration-300 group ${gradient}`}
               style={{
                 borderLeft:
                   col === 0 ? "1px solid var(--border)" : undefined,
