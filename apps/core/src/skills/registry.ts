@@ -4,7 +4,7 @@
 // NOTE: This is a simple in-memory store. For persistence, see thread store.
 // =============================================================================
 
-import type { Skill, SkillScope, RegistryOptions } from "./types";
+import type { Skill, SkillScope, RegistryOptions } from "./types.js";
 
 // ============================================================================
 // Registry Class

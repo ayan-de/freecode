@@ -5,10 +5,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import fg from "fast-glob";
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { globToolUI } from "./glob/ui";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { globToolUI } from "./glob/ui.js";
 
 interface GlobParams {
   pattern: string;

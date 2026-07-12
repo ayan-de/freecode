@@ -4,10 +4,10 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { readToolUI } from "./read/ui";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { readToolUI } from "./read/ui.js";
 
 interface ReadParams {
   filePath: string;

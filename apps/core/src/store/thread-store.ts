@@ -11,8 +11,8 @@ import type {
   StoredToolCall,
   ThreadFilter,
   StoredTurnItemsView,
-} from "./types";
-import { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store";
+} from "./types.js";
+import { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store.js";
 
 // ============================================================================
 // Store Factory - Try SQLite first, fall back to JSON
@@ -29,7 +29,7 @@ export async function getThreadStore(): Promise<ThreadStore> {
 
   // Try SQLite first
   try {
-    const { SqliteThreadStoreImpl } = await import("./sqlite-store");
+    const { SqliteThreadStoreImpl } = await import("./sqlite-store.js");
     const sqliteStore = await SqliteThreadStoreImpl.create();
     if (sqliteStore.isAvailable()) {
       globalStore = sqliteStore;
@@ -51,7 +51,7 @@ export async function getThreadStore(): Promise<ThreadStore> {
  */
 export async function createThreadStore(): Promise<ThreadStore> {
   try {
-    const { SqliteThreadStoreImpl } = await import("./sqlite-store");
+    const { SqliteThreadStoreImpl } = await import("./sqlite-store.js");
     const sqliteStore = await SqliteThreadStoreImpl.create();
     if (sqliteStore.isAvailable()) {
       return sqliteStore;
@@ -281,4 +281,4 @@ export type {
   ThreadFilter,
   StoredTurnItemsView,
   ThreadStore,
-} from "./types";
+} from "./types.js";

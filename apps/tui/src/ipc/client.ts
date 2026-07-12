@@ -5,7 +5,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { resolve as pathResolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { existsSync } from "fs";
+import { existsSync, readdirSync, statSync } from "fs";
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -28,6 +28,7 @@ let pendingRequests = new Map<
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
 >();
 let onStreamEvent: ((event: StreamEvent) => void) | null = null;
+let stderrHandler: ((msg: string) => void) | null = null;
 
 function generateId(): number {
   return ++requestId;
@@ -53,7 +54,20 @@ function parseResponse(data: string): JsonRpcResponse[] {
   return responses;
 }
 
+function newestMtimeMs(dir: string): number {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = pathResolve(dir, entry.name);
+    newest = Math.max(
+      newest,
+      entry.isDirectory() ? newestMtimeMs(full) : statSync(full).mtimeMs,
+    );
+  }
+  return newest;
+}
+
 export function startCli(onStderr?: (msg: string) => void): void {
+  if (onStderr) stderrHandler = onStderr;
   if (cliProcess) return;
 
   // Project root is the monorepo root (where pnpm-workspace.yaml lives)
@@ -64,18 +78,36 @@ export function startCli(onStderr?: (msg: string) => void): void {
     projectRoot = pathResolve(projectRoot, "..", "..");
   }
 
-  // Resolve path to CLI server relative to project root
-  const cliPath = pathResolve(projectRoot, "apps/core/src/server.ts");
+  // Prefer the pre-built core (node, fast); fall back to tsx transpiling
+  // source on the fly (dev mode, ~150-300 ms slower per boot).
+  const distPath = pathResolve(projectRoot, "apps/core/dist/server.js");
+  const srcDir = pathResolve(projectRoot, "apps/core/src");
 
-  cliProcess = spawn("npx", ["tsx", cliPath], {
-    cwd: projectRoot,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  if (existsSync(distPath)) {
+    try {
+      if (statSync(distPath).mtimeMs < newestMtimeMs(srcDir)) {
+        stderrHandler?.(
+          "[freecode] apps/core/dist is older than src — run `pnpm --filter @thisisayande/freecode-core build`",
+        );
+      }
+    } catch {
+      // Staleness check is best-effort only
+    }
+    cliProcess = spawn("node", [distPath], {
+      cwd: projectRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } else {
+    cliProcess = spawn("npx", ["tsx", pathResolve(srcDir, "server.ts")], {
+      cwd: projectRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  }
 
   cliProcess.stdout?.setEncoding("utf-8");
 
   cliProcess.stderr?.on("data", (data) => {
-    onStderr?.(data.toString().trim());
+    stderrHandler?.(data.toString().trim());
   });
 
   cliProcess.stdout?.on("data", (data: string) => {

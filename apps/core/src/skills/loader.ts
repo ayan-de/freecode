@@ -17,7 +17,7 @@ import type {
   SkillScope,
   LoaderOptions,
   SkillLoadResult,
-} from "./types";
+} from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -298,4 +298,4 @@ export type {
   SkillLoadResult,
   Skill,
   SkillScope,
-} from "./types";
+} from "./types.js";

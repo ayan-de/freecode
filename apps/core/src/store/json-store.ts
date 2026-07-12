@@ -15,7 +15,7 @@ import type {
   ThreadFilter,
   StoredTurnItemsView,
   JsonThreadStore,
-} from "./types";
+} from "./types.js";
 
 // ============================================================================
 // Constants

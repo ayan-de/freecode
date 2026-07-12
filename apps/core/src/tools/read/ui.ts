@@ -2,8 +2,8 @@
 // Read Tool UI - UI rendering for the Read tool
 // =============================================================================
 
-import type { ToolUI, ToolUseMessage } from "../tool.types";
-import type { ToolResult } from "../types";
+import type { ToolUI, ToolUseMessage } from "../tool.types.js";
+import type { ToolResult } from "../types.js";
 
 // =============================================================================
 // Color codes for terminal output

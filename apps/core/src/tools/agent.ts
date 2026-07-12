@@ -2,10 +2,10 @@
 // Agent Tool - Spawn a sub-agent with UI rendering
 // =============================================================================
 
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { agentToolUI } from "./agent/ui";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { agentToolUI } from "./agent/ui.js";
 import { AgentLoop } from "../agent/loop.js";
 import { BusEvents } from "../bus/index.js";
 import type { HookContext } from "../agent/types.js";

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { rm } from "fs/promises";
-import { createAgentLoop } from "./loop";
-import { createSessionStore, type SessionStore } from "../session/store";
+import { createAgentLoop } from "./loop.js";
+import { createSessionStore, type SessionStore } from "../session/store.js";
 
 test("AgentLoop accepts sessionStore in constructor config", async () => {
   const testDir = "/tmp/freecode-test-loop-session-store";

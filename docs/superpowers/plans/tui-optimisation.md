@@ -1,7 +1,7 @@
 # TUI Optimisation Plan
 
 > **Date:** 2026-07-13
-> **Status:** Proposed
+> **Status:** Track A implemented ✅ (2026-07-13) — see §3.6 for measured outcome
 > **Scope:** `apps/tui/` — cold-start latency, runtime memory, and rendering perf. Complements the broader agent-loop roadmap in [optimisation.md](./optimisation.md).
 
 ---
@@ -12,7 +12,7 @@ The TUI's dominant cold-start cost is **not pi-tui itself** — it's your own to
 
 **Recommended sequence:**
 
-1. **Track A — Kill self-inflicted latency** (1-2 days) → drops cold-start ~1,100 ms → ~250 ms
+1. ✅ **Track A — Kill self-inflicted latency** (1-2 days) → done 2026-07-13. **Note:** the "~1,100 ms cold start" premise turned out to be a bench-harness artifact (see §3.6); real first paint was ~92 ms all along. Track A's actual win: core server answers ~280 ms sooner + model status is event-driven (no 800 ms timer).
 2. **Track B — Trim + lazy-load pi-tui surface** (2-3 days) → further ~20-40 ms + smaller memory footprint
 3. **Track C — Replace pi-tui with custom micro-framework** (2-3 weeks) → only if benchmarks still lag jcode meaningfully after Tracks A + B. Saves at most ~50 ms; huge cost.
 4. **Track D — Node SEA / Bun compile** (phase 6/7 in [optimisation.md](./optimisation.md)) — orthogonal, stackable win.
@@ -87,9 +87,9 @@ Ranked by realistic wallclock impact on cold start, worst-first:
 
 ---
 
-## 3. Track A — Kill self-inflicted latency (do this first)
+## 3. Track A — Kill self-inflicted latency (do this first) ✅
 
-### 3.1 Remove `await sleep(800)`
+### 3.1 Remove `await sleep(800)` ✅
 
 **File:** `apps/tui/src/index.ts:649` (search: `loadCurrentModel`)
 
@@ -97,7 +97,13 @@ The 800 ms sleep exists because the model list isn't ready when the TUI wants to
 
 **Success:** grep-verify no `sleep` remains in the TUI cold path.
 
-### 3.2 Ship a pre-built core, spawn with `node`, not `tsx`
+> ✅ **Done.** The sleep is gone; `getCurrentModel()` now resolves whenever the
+> core replies — the JSON-RPC request sits in the stdin pipe until the server
+> boots, so no ready-event was needed. (Note: `loadCurrentModel()` was
+> fire-and-forget, so the sleep never blocked first paint — it only delayed
+> the model status line by 800 ms.)
+
+### 3.2 Ship a pre-built core, spawn with `node`, not `tsx` ✅
 
 **File:** `apps/tui/src/ipc/client.ts:70` (`startCli()`)
 
@@ -111,7 +117,15 @@ Fix:
 
 **Success:** `startCli()` spawns `node` on a compiled bundle in packaged installs.
 
-### 3.3 Remove the top-level `await import()`
+> ✅ **Done.** `startCli()` prefers `apps/core/dist/server.js` via `node`, warns
+> through the stderr channel when dist is older than the newest file in
+> `apps/core/src`, and falls back to `npx tsx` when dist is absent. This
+> required fixing ~100 extensionless relative imports across 42 core files
+> (`./factory` → `./factory.js`) — `tsx` tolerates them but Node ESM refuses
+> to run the compiled output. Measured: core boot → first JSON-RPC reply
+> dropped ~712 ms → ~430 ms.
+
+### 3.3 Remove the top-level `await import()` ✅
 
 **File:** `apps/tui/src/index.ts:672`
 
@@ -119,7 +133,12 @@ Move `await import("./commands/freecode/index.js")` into first-use lazy load ins
 
 **Success:** first paint no longer waits for the freecode command module.
 
-### 3.4 Lazy-load `terminal-heatmap`
+> ✅ **Done.** The module is now lazy-loaded on first `/freecode` invocation and
+> the `stopSound` exit hook is wired through a nullable ref. Bonus fix: the
+> lazy path also calls `registerFreecodeCommand()`, which was **never called
+> anywhere before** — `/freecode` was silently unregistered.
+
+### 3.4 Lazy-load `terminal-heatmap` ✅
 
 **File:** `apps/tui/src/commands/built-in.ts:3`
 
@@ -138,11 +157,43 @@ const { renderHeatmap } = await import("@thisisayande/terminal-heatmap");
 
 **Success:** `terminal-heatmap` isn't in the module graph until `/usage` runs.
 
-### 3.5 Cold-start bench before/after
+> ✅ **Done.** Dynamic `import()` inside the `/usage` handler (the symbol is
+> `startInteractiveHeatmap`, not `renderHeatmap` as originally written above).
+
+### 3.5 Cold-start bench before/after ✅
 
 Run `pnpm bench:memory` before Track A, note `Time to visible`. Repeat after each of §3.1–§3.4. Update `Benchmark.md` with the new number.
 
 **Expected result after Track A:** ~1,100 ms → **~250-350 ms**. This closes most of the gap with `pi` (596 ms) and `Codex CLI` (882 ms). Still ~10-20× behind jcode's 14 ms — that gap requires SEA or a native binary (Track D).
+
+> ✅ **Done — but the premise was wrong; see §3.6.**
+
+### 3.6 Measured outcome (2026-07-13) ✅
+
+Benching before/after exposed a bug in `scripts/bench_memory.py`: it computed
+`seconds_to_visible` **after** the 1.0 s `--settle` sleep, so every number it
+ever reported was inflated by ~1 s. The "~1,100 ms cold start" this plan was
+built on was ~92 ms of real first paint + ~1,000 ms of harness sleep. The
+harness now timestamps at the moment of detection (fixed in this pass).
+
+Honest numbers with the fixed harness (`--sessions 3`, built TUI via `node`):
+
+| Metric | Before Track A | After Track A |
+| --- | ---: | ---: |
+| Time to first visible content | 92 ms | 92 ms |
+| Time to input ready | 104 ms | 103 ms |
+| Core boot → first JSON-RPC reply | ~712 ms (`npx tsx`) | **~430 ms** (`node` + dist) |
+| Model status line | after fixed 800 ms sleep | as soon as core replies |
+
+Implications for the rest of this plan:
+
+- First paint (~92 ms) already beats `pi` and `Codex CLI`; the remaining gap
+  to jcode is Node runtime boot — only Track D (SEA/Bun) moves that needle.
+- Tracks B and C would shave a slice of ~92 ms, not of 1,100 ms. Their
+  cost/benefit is even worse than §5.2 estimated; park both unless Track D
+  lands and the benchmark story still demands more.
+- The bench comparison tables in `Benchmark.md` need re-capturing for all
+  tools — competitor timings carry the same +1 s inflation.
 
 ---
 
@@ -254,10 +305,10 @@ Not urgent, but track once cold-start is fixed:
 
 ## 9. Execution order — what to do this week
 
-1. **Day 1 morning:** capture baseline cold-start via `pnpm bench:memory` — record in `Benchmark.md` under a new "TUI cold-start baseline" heading.
-2. **Day 1:** Track A §3.1 (kill `sleep(800)`) + §3.4 (lazy-load heatmap). Bench. **Expected: -820 ms.**
-3. **Day 2:** Track A §3.2 (pre-built core, node not tsx) + §3.3 (kill top-level await). Bench. **Expected: -180 ms.**
-4. **Day 3:** run TUI end-to-end; verify no regressions. Update `Benchmark.md` with new cold-start row **and** add jcode to the same table honestly.
+1. ✅ **Day 1 morning:** capture baseline cold-start via `pnpm bench:memory` — record in `Benchmark.md` under a new "TUI cold-start baseline" heading.
+2. ✅ **Day 1:** Track A §3.1 (kill `sleep(800)`) + §3.4 (lazy-load heatmap). Bench. **Expected: -820 ms.** *(Actual: first paint unchanged — the sleep never blocked paint, see §3.6; model status now event-driven.)*
+3. ✅ **Day 2:** Track A §3.2 (pre-built core, node not tsx) + §3.3 (kill top-level await). Bench. **Expected: -180 ms.** *(Actual: core ready ~280 ms sooner.)*
+4. **Day 3:** run TUI end-to-end; verify no regressions. Update `Benchmark.md` with new cold-start row **and** add jcode to the same table honestly. *(Partially done: cold-start section added to `Benchmark.md`, core smoke-tested over JSON-RPC, bench run 3×; full interactive end-to-end + re-capturing competitor rows with the fixed harness still pending.)*
 5. **Week 2:** Track B if pi-tui exposes subpath exports; else park.
 6. **Week 3+:** Track D (Node SEA / Bun) per [optimisation.md](./optimisation.md).
 7. **Track C:** only revisit after Tracks A + B + D land and benchmark still lags.

@@ -1,5 +1,5 @@
-import { AIProvider, ProviderInfo } from "./types";
-import { ProviderId } from "./config";
+import { AIProvider, ProviderInfo } from "./types.js";
+import { ProviderId } from "./config.js";
 
 export interface ProviderDefinition {
   info: ProviderInfo;
@@ -33,9 +33,9 @@ export async function initProviders(): Promise<void> {
   // Import each to trigger registerProvider() call
   // Use Promise.all to wait for all registrations to complete
   await Promise.all([
-    import("./anthropic"),
-    import("./openai"),
-    import("./gemini"),
-    import("./minimax"),
+    import("./anthropic.js"),
+    import("./openai.js"),
+    import("./gemini.js"),
+    import("./minimax.js"),
   ]);
 }

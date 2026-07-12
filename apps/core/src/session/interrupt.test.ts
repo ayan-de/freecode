@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InterruptHandler } from "./interrupt";
+import { InterruptHandler } from "./interrupt.js";
 
 test("InterruptHandler tracks active session/message", () => {
   const handler = new InterruptHandler();

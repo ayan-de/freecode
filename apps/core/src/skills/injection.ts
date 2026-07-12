@@ -3,7 +3,7 @@
 // PRIMARY: Format skill content for inclusion in LLM prompts
 // =============================================================================
 
-import type { Skill, SkillMetadata, InjectionOptions } from "./types";
+import type { Skill, SkillMetadata, InjectionOptions } from "./types.js";
 
 // ============================================================================
 // Constants

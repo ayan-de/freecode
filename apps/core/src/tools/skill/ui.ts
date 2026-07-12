@@ -2,7 +2,7 @@
 // Skill Tool UI - UI rendering for the Skill tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types";
+import type { ToolUI } from "../tool.types.js";
 
 // =============================================================================
 // Color codes for terminal output

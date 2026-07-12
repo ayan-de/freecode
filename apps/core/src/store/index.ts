@@ -13,7 +13,7 @@ export type {
   StoredTurnItemsView,
   ThreadStatus,
   ThreadGoalStatus,
-} from "./types";
+} from "./types.js";
 
 // Thread Store
 export {
@@ -22,13 +22,13 @@ export {
   closeThreadStore,
   createThreadStoreService,
   ThreadStoreService,
-} from "./thread-store";
+} from "./thread-store.js";
 
 // JSON Store
-export { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store";
+export { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store.js";
 
 // SQLite Store
-export { SqliteThreadStoreImpl } from "./sqlite-store";
+export { SqliteThreadStoreImpl } from "./sqlite-store.js";
 
 // Remote Session Sync
 export {
@@ -36,11 +36,11 @@ export {
   getRemoteSync,
   type ExportedSession,
   type RemoteSessionConfig,
-} from "./remote";
+} from "./remote.js";
 
 // Path Formatter
 export {
   formatSessionDirName,
   parseSessionDirName,
   isSessionDirName,
-} from "./path-formatter";
+} from "./path-formatter.js";

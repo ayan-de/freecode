@@ -291,6 +291,8 @@ def launch_interactive(
     input_ready = False
     probe_sent = False
     excerpt = None
+    t_visible: float | None = None
+    t_input_ready: float | None = None
     while time.perf_counter() - start < timeout_s:
         rlist, _, _ = select.select([master_fd], [], [], 0.05)
         if rlist:
@@ -304,6 +306,8 @@ def launch_interactive(
                 plain = strip_ansi(buf.decode("utf-8", "replace"))
                 excerpt = first_meaningful_line(plain)
                 if excerpt:
+                    if not ready:
+                        t_visible = time.perf_counter() - start
                     ready = True
                     if not probe_sent:
                         try:
@@ -312,13 +316,14 @@ def launch_interactive(
                         except OSError:
                             break
                 if probe_sent and PROBE in plain:
+                    if not input_ready:
+                        t_input_ready = time.perf_counter() - start
                     input_ready = True
                     break
         if proc.poll() is not None:
             break
     if input_ready or ready:
         time.sleep(settle_s)
-    elapsed = time.perf_counter() - start
     return SessionLaunch(
         root_pid=proc.pid,
         pgid=os.getpgid(proc.pid),
@@ -326,8 +331,8 @@ def launch_interactive(
         ready=ready,
         input_ready=input_ready,
         excerpt=excerpt,
-        seconds_to_visible=elapsed if ready else None,
-        seconds_to_input_ready=elapsed if input_ready else None,
+        seconds_to_visible=t_visible,
+        seconds_to_input_ready=t_input_ready,
         buffer_excerpt=(strip_ansi(buf.decode("utf-8", "replace"))[:300] or None),
     )
 

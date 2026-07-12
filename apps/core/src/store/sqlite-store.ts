@@ -11,7 +11,7 @@ import type {
   StoredToolCall,
   ThreadFilter,
   StoredTurnItemsView,
-} from "./types";
+} from "./types.js";
 
 // ============================================================================
 // SQLite Store Implementation

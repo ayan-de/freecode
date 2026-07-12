@@ -5,7 +5,7 @@
 // Based on Claude Code's Tool interface architecture
 // =============================================================================
 
-import type { ToolContext } from "./types";
+import type { ToolContext } from "./types.js";
 
 // =============================================================================
 // ToolUseMessage - Discriminated union for UI rendering

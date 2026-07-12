@@ -1,6 +1,5 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
-import { startInteractiveHeatmap } from "@thisisayande/terminal-heatmap";
 
 const helpCommand: Command = {
   name: "help",
@@ -85,6 +84,9 @@ const usageCommand: Command = {
       `*Launching interactive token usage heatmap... Press 'q' or 'Esc' to exit.*`,
     );
 
+    const { startInteractiveHeatmap } = await import(
+      "@thisisayande/terminal-heatmap"
+    );
     await startInteractiveHeatmap(data, {
       title: "Daily Token Usage",
       preset: "double-block",

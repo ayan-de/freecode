@@ -4,10 +4,10 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { editToolUI } from "./edit/ui";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { editToolUI } from "./edit/ui.js";
 
 interface EditParams {
   filePath: string;

@@ -3,11 +3,11 @@
 // =============================================================================
 
 import { randomUUID } from "crypto";
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { questionToolUI } from "./question/ui";
-import { askQuestion } from "../bus";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { questionToolUI } from "./question/ui.js";
+import { askQuestion } from "../bus/index.js";
 
 interface QuestionOption {
   label: string;

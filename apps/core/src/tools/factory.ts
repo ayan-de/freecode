@@ -14,8 +14,8 @@ import type {
   PermissionCheckResult,
   JsonSchema,
   TOOL_COLORS,
-} from "./tool.types";
-import type { ToolContext } from "./types";
+} from "./tool.types.js";
+import type { ToolContext } from "./types.js";
 
 // =============================================================================
 // Default ToolUI - Console/TUI based rendering

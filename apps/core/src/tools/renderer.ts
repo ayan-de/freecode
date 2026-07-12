@@ -4,7 +4,7 @@
 // This module is consumed by the TUI layer to render tool messages
 // =============================================================================
 
-import type { ToolUseMessage, TOOL_COLORS } from "./tool.types";
+import type { ToolUseMessage, TOOL_COLORS } from "./tool.types.js";
 
 // =============================================================================
 // ToolRenderer - Interface for rendering tool messages

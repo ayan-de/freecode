@@ -7,9 +7,9 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { randomUUID } from "crypto";
-import { SessionManager, getSessionManager } from "../session/manager";
-import { MemoryStore } from "../memory/mem-store";
-import type { MemoryEntry } from "../memory/mem-types";
+import { SessionManager, getSessionManager } from "../session/manager.js";
+import { MemoryStore } from "../memory/mem-store.js";
+import type { MemoryEntry } from "../memory/mem-types.js";
 
 const STORE_DIR = ".freecode";
 const REMOTE_DIR = "remote";

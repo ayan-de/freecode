@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { rm } from "fs/promises";
 import * as os from "os";
 import * as path from "path";
-import { SessionManager, createSessionManager } from "./manager";
-import { createSessionStore, type SessionStore } from "./store";
+import { SessionManager, createSessionManager } from "./manager.js";
+import { createSessionStore, type SessionStore } from "./store.js";
 
 describe("SessionManager", () => {
   const testDir = path.join(os.tmpdir(), "freecode-test-session-manager");

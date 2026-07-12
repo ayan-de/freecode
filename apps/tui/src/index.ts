@@ -395,8 +395,8 @@ async function showResumePicker(): Promise<void> {
 async function loadCurrentModel(): Promise<void> {
   startCli();
 
-  await new Promise((resolve) => setTimeout(resolve, 800));
-
+  // No fixed delay: the JSON-RPC request sits in the stdin pipe until the
+  // core server boots and replies — the promise below resolves on the reply.
   try {
     const current = await getCurrentModel();
     if (current && current.provider && current.model) {
@@ -470,6 +470,11 @@ editor.onSubmit = async (value: string) => {
     const args = parts.slice(1);
 
     if (commandName) {
+      if (commandName === "freecode" && !commandRegistry.get("freecode")) {
+        const mod = await import("./commands/freecode/index.js");
+        mod.registerFreecodeCommand();
+        stopSoundFn = mod.stopSound;
+      }
       const command = commandRegistry.get(commandName);
       if (command) {
         editor.setText("");
@@ -535,8 +540,6 @@ editor.onSubmit = async (value: string) => {
   const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
 
   startCli();
-
-  await new Promise((resolve) => setTimeout(resolve, 500));
 
   if (!currentSession) {
     try {
@@ -646,6 +649,12 @@ tui.addInputListener((data) => {
   return undefined;
 });
 
+// Wire stderr to system messages via store — must be the first startCli()
+// call so the handler is attached when the process spawns.
+startCli((stderrMsg) => {
+  createSystemMessage(stderrMsg);
+});
+
 loadCurrentModel();
 
 // Check for interrupted sessions on startup
@@ -664,12 +673,9 @@ async function checkForInterruptedSession(): Promise<void> {
 
 checkForInterruptedSession();
 
-// Wire stderr to system messages via store
-startCli((stderrMsg) => {
-  createSystemMessage(stderrMsg);
-});
-
-const freecodeModule = await import("./commands/freecode/index.js");
-process.on("exit", () => freecodeModule.stopSound?.());
+// stopSound only matters once the freecode module has been lazy-loaded
+// (sound can only be playing if it was); see the /freecode dispatch above.
+let stopSoundFn: (() => void) | null = null;
+process.on("exit", () => stopSoundFn?.());
 
 tui.start();

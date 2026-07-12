@@ -143,6 +143,37 @@ with two changes:
 Captured on this machine (Linux, PTY-based timing). Reproduction commands are
 listed at the top of this file.
 
+> ⚠️ **Timing correction (2026-07-13):** the harness previously computed
+> `seconds_to_visible` / `seconds_to_input_ready` *after* the 1.0 s
+> `--settle` sleep, inflating every timing figure in the tables below by
+> ~1 second. The script now timestamps at the moment of detection. The PSS
+> and process-count columns are unaffected. Timing columns below are the
+> **old (inflated)** values until the full table is re-captured.
+
+### TUI cold-start (2026-07-13, Track A of `docs/superpowers/plans/tui-optimisation.md`)
+
+Measured with the fixed harness, `--sessions 3`, `node apps/tui/dist/index.js`:
+
+| Variant | Time to visible (ms) | Time to input ready (ms) | Core boot → first JSON-RPC reply (ms) |
+| --- | ---: | ---: | ---: |
+| Before Track A | 92 | 104 | ~712 (`npx tsx` on core src) |
+| After Track A  | 92 | 103 | **~430** (`node` on pre-built core dist) |
+
+Findings:
+
+- **First paint was never slow.** The previously reported ~1.10 s time-to-visible
+  was the harness settle-sleep artifact described above; real first paint is
+  ~92 ms both before and after.
+- **Track A's real win is core readiness**: the core server now answers its
+  first request ~280 ms sooner (compiled `dist` via `node` instead of `tsx`
+  re-transpiling on every boot), and the model status line no longer waits on
+  a fixed 800 ms sleep — it renders as soon as the core replies.
+- **PSS at settle time rises** (~27 MB → ~112 MB per session) because the core
+  server is now fully booted inside the 1 s measurement window instead of
+  still transpiling under `tsx`. This is the honest cost of a *ready* backend,
+  not a regression; before, the same memory arrived a moment after the
+  snapshot.
+
 ### 1 active session
 
 | Tool | PSS (MB) | Processes | Version | Time to visible (s) | Time to input ready (s) |

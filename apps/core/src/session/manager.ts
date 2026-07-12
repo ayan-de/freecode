@@ -12,11 +12,11 @@ import {
   type SessionStore,
   type SessionMeta,
   type SerializedMessage,
-} from "./store";
+} from "./store.js";
 import {
   createThreadStoreService,
   type ThreadStoreService,
-} from "../store/thread-store";
+} from "../store/thread-store.js";
 import { CONFIG_FILE } from "../providers/config.js";
 
 const SESSION_DIR = ".freecode";

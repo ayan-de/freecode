@@ -4,10 +4,10 @@
 
 import { spawn } from "child_process";
 import * as path from "path";
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { grepToolUI } from "./grep/ui";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { grepToolUI } from "./grep/ui.js";
 
 interface GrepParams {
   pattern: string;

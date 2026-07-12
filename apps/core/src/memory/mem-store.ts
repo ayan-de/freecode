@@ -11,8 +11,8 @@ import type {
   MemoryIndex,
   MemoryIndexEntry,
   MemoryType,
-} from "./mem-types";
-import { parseMemoryFrontmatter, serializeMemoryEntry } from "./mem-types";
+} from "./mem-types.js";
+import { parseMemoryFrontmatter, serializeMemoryEntry } from "./mem-types.js";
 
 const MEMORY_INDEX_FILENAME = "MEMORY.md";
 const MEMORY_DIR_NAME = "memory";

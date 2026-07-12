@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { SessionStore, createSessionStore } from "./store";
+import { SessionStore, createSessionStore } from "./store.js";
 import { rm } from "fs/promises";
 
 describe("SessionStore", () => {

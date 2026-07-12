@@ -3,8 +3,8 @@
 // Simple keyword-based relevance matching (no LLM needed)
 // =============================================================================
 
-import type { MemoryEntry, MemoryType, MemoryQueryOptions } from "./mem-types";
-import { MemoryStore } from "./mem-store";
+import type { MemoryEntry, MemoryType, MemoryQueryOptions } from "./mem-types.js";
+import { MemoryStore } from "./mem-store.js";
 
 function tokenize(text: string): string[] {
   return text

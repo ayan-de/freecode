@@ -2,9 +2,9 @@
 // Memory Prompt - Build memory context for system prompts
 // =============================================================================
 
-import type { MemoryEntry, MemoryType } from "./mem-types";
-import { MemoryStore } from "./mem-store";
-import { findRelevantMemories } from "./mem-query";
+import type { MemoryEntry, MemoryType } from "./mem-types.js";
+import { MemoryStore } from "./mem-store.js";
+import { findRelevantMemories } from "./mem-query.js";
 
 export interface MemoryPromptOptions {
   includeAll?: boolean;

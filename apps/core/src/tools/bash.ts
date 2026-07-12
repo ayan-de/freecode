@@ -4,10 +4,10 @@
 
 import { spawn } from "child_process";
 import * as path from "path";
-import type { ToolContext } from "./types";
-import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types";
-import { buildTool, defaultToolUI } from "./factory";
-import { bashToolUI } from "./bash/ui";
+import type { ToolContext } from "./types.js";
+import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
+import { buildTool, defaultToolUI } from "./factory.js";
+import { bashToolUI } from "./bash/ui.js";
 
 interface BashParams {
   command: string;

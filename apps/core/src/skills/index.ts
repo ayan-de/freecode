@@ -15,13 +15,13 @@ export type {
   InjectionOptions,
   ManagerOptions,
   SkillsInitializationResult,
-} from "./types";
+} from "./types.js";
 
 // Loader
-export { loadAllSkills, loadSkill, skillExists } from "./loader";
+export { loadAllSkills, loadSkill, skillExists } from "./loader.js";
 
 // Registry
-export { SkillRegistry, createSkillRegistry } from "./registry";
+export { SkillRegistry, createSkillRegistry } from "./registry.js";
 
 // Manager
 export {
@@ -30,7 +30,7 @@ export {
   getGlobalSkillsManager,
   setGlobalSkillsManager,
   getOrCreateGlobalSkillsManager,
-} from "./manager";
+} from "./manager.js";
 
 // Injection
 export {
@@ -43,4 +43,4 @@ export {
   rankSkills,
   needsTruncation,
   effectiveMaxContentLength,
-} from "./injection";
+} from "./injection.js";

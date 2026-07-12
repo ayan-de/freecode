@@ -13,9 +13,9 @@ import type {
   SkillScope,
   ManagerOptions,
   SkillsInitializationResult,
-} from "./types";
-import { loadAllSkills, loadSkill } from "./loader";
-import { SkillRegistry, createSkillRegistry } from "./registry";
+} from "./types.js";
+import { loadAllSkills, loadSkill } from "./loader.js";
+import { SkillRegistry, createSkillRegistry } from "./registry.js";
 
 // ============================================================================
 // Constants

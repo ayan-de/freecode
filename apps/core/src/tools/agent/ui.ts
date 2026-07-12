@@ -2,7 +2,7 @@
 // Agent Tool UI - UI rendering for the Agent tool
 // =============================================================================
 
-import type { ToolUI } from "../tool.types";
+import type { ToolUI } from "../tool.types.js";
 
 // =============================================================================
 // Color codes for terminal output

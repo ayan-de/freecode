@@ -58,7 +58,6 @@ async function ensureSession(ctx: CommandContext): Promise<boolean> {
   if (currentSession) return true;
 
   startCli();
-  await new Promise((resolve) => setTimeout(resolve, 500));
 
   try {
     currentSession = await sessionStart({

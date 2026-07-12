@@ -4,8 +4,8 @@
 // =============================================================================
 
 // Types
-export type { PermissionProfile, PermissionCheckResult } from "./profiles";
-export type { PermissionOperation } from "./profiles";
+export type { PermissionProfile, PermissionCheckResult } from "./profiles.js";
+export type { PermissionOperation } from "./profiles.js";
 
 // Profiles
 export {
@@ -14,13 +14,13 @@ export {
   createProfile,
   createPermissionChecker,
   createPermissionCheckerForProfile,
-} from "./profiles";
+} from "./profiles.js";
 
 // Tool permission mapping
-export { TOOL_PERMISSIONS, isToolAllowed } from "./profiles";
+export { TOOL_PERMISSIONS, isToolAllowed } from "./profiles.js";
 
 // Validation
-export { validateProfile, isValidProfile } from "./profiles";
+export { validateProfile, isValidProfile } from "./profiles.js";
 
 // PermissionChecker class
-export { PermissionChecker } from "./profiles";
+export { PermissionChecker } from "./profiles.js";
