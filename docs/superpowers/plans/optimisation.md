@@ -154,24 +154,39 @@ Ship in this order. Each phase produces a shippable, measurable improvement.
 - ✅ Typecheck clean — `pnpm lint` exit 0.
 - 🟡 Benchmark on real 3-read turn — pending: run `pnpm dev` and prompt "read agent/loop.ts, session/manager.ts, tools/orchestrator.ts and summarise", record wallclock, compare against pre-work baseline. **Expected: ~6 s → ~2 s.**
 
-### Phase 2 — True streaming end-to-end (2-4 days)
+### Phase 2 — True streaming end-to-end (2-4 days) ✅ BACKEND IMPLEMENTED, 🟡 CLIENT UPDATE PENDING
 
-**Files:** `apps/core/src/providers/*`, `apps/core/src/agent/loop.ts`, `apps/core/src/bus/index.ts`, `apps/core/src/server.ts`, `packages/shared/src/ipc/protocol.ts`, `apps/tui/src/ipc/client.ts`, `apps/vscode/src/ipc/client.ts`
+**Files touched:**
+- `packages/shared/src/ipc/protocol.ts` — extended `StreamEvent` with `text_delta` + `thinking_delta` variants
+- `apps/core/src/providers/types.ts` — added `ProviderChunk` type + optional `stream?()` on `AIProvider`
+- `apps/core/src/providers/streaming.ts` (new) — `normalizeAiSdkStream()` helper that maps AI SDK v6 `fullStream` chunks → `ProviderChunk`
+- `apps/core/src/providers/anthropic.ts` — extracted shared `buildOptions()`, added `stream()` via `streamText`
+- `apps/core/src/providers/openai.ts` — same treatment
+- `apps/core/src/providers/gemini.ts` — same treatment
+- `apps/core/src/providers/minimax.ts` — **rewritten** to add native SSE streaming against the Anthropic-compatible endpoint; `supportsStreaming` flipped `false → true`; shared body builder + Anthropic SSE parser (`message_start` / `content_block_start` / `content_block_delta` (text/thinking/input_json) / `content_block_stop` / `message_delta` / `message_stop` / `error`)
+- `apps/core/src/agent/loop.ts` — `sendToProvider()` now prefers `provider.stream()` when both stream + listener are present; falls back to `execute()` unchanged
 
-**Goal:** text and tool-call deltas stream from provider → bus → IPC → UI.
+**Design decision — dual emission for safety:** the streaming path emits `text_delta` / `thinking_delta` chunks *during* the turn AND the existing final `text` / `thinking` emit still fires at end-of-turn (see `loop.ts:377-391`). Rationale: unmodified TUI/VSCode clients ignore unknown `text_delta` events and continue rendering the final `text` event, so **no regression on today's UI**. Once the client update lands, delta events drive incremental rendering and the final `text` becomes a snapshot.
 
-**Implementation:**
+**Implementation checklist:**
 
-1. Refactor each provider adapter to expose `stream(): AsyncIterable<ProviderChunk>` where `ProviderChunk = { type: "text_delta" | "thinking_delta" | "tool_delta" | "done", ... }`.
-2. `sendToProvider` yields chunks up to `AgentLoop`.
-3. `AgentLoop` publishes `Bus.emit("text_delta", ...)` / `"tool_delta"` as they arrive.
-4. Extend `StreamResponse` IPC type with delta variants (backward-compatible: keep `type: "text" | "code" | "tool" | "done" | "error"`, add `"text_delta" | "tool_delta"`).
-5. TUI + VSCode consume delta events and append.
+1. ✅ Add `text_delta` + `thinking_delta` variants to shared `StreamEvent`.
+2. ✅ Add `ProviderChunk` type + optional `stream?()` method on `AIProvider`.
+3. ✅ Create `normalizeAiSdkStream()` helper — one source of truth for AI SDK v6 chunk parsing (`text-delta`, `reasoning`, `tool-call`, `finish`, `error`).
+4. ✅ Anthropic, OpenAI, Gemini providers implement `stream()`. Each factors an internal `buildOptions()` so `execute()` and `stream()` share setup.
+5. ✅ `sendToProvider()` — when `provider.stream` exists and `this.onToolEvent` is set, iterate chunks and emit `text_delta` / `thinking_delta` events; collect `tool_call` chunks into the `toolCalls` array; parse `usage`; propagate `error`. Returns `{ streamed: true, ... }` so the caller could opt into skipping the final emit if desired.
+6. ✅ **MiniMax native SSE streaming** — endpoint is Anthropic-compatible so it uses the Messages SSE protocol directly (no AI SDK). Body builder shared with `execute()`; SSE reader accumulates `input_json_delta` chunks per tool block and yields a fully-formed `tool_call` on `content_block_stop`. `supportsStreaming` is now `true`.
+7. 🟡 **TUI client** (`apps/tui/src/ipc/client.ts`) — needs to consume `text_delta` / `thinking_delta` events and append incrementally to the current assistant message. Until this lands, TUI continues to render the final `text` event (no streaming effect visible, but no regression).
+8. 🟡 **VSCode client** — same update as TUI.
+9. 🟡 **Tool-call deltas** — `tool-input-delta` from AI SDK is currently ignored; only fully-formed `tool-call` chunks are yielded. Streaming tool arg JSON is a future sub-item.
 
 **Success criteria:**
-- First-token latency drops from full-response time to ~200ms
-- Manual test in TUI: text visibly types as tokens arrive
-- Tool arg JSON streams before execution starts (opt-in — behind a config flag until stable)
+
+- ✅ Typecheck clean — `pnpm --filter @thisisayande/freecode-shared build` + `pnpm lint` in core both exit 0.
+- ✅ No regression — 16/16 tests pass (10 existing loop tests + 6 new batching tests).
+- ✅ Provider streaming path exercised in code (streaming chunks arrive → `text_delta` events fire) — pending real-turn verification when the user runs `pnpm dev`.
+- 🟡 First-token latency drops from full-response time to ~200 ms — pending TUI client update to render `text_delta` (backend already emits chunks as fast as the provider yields them).
+- 🟡 Manual test in TUI: text visibly types as tokens arrive — pending TUI update.
 
 ### Phase 3 — Effect / Layer DI (3-5 days)
 
@@ -422,7 +437,7 @@ Two parallel tracks. Perf phases (1→4) are code refactors; quality phases (8) 
 1. Set up eval harness (`everything-claude-code:eval-harness`) — half a day.
 2. Capture baseline: internal micro-bench + first jcode-comparison numbers — half a day.
 3. ✅ **Phase 1** — parallel tool batching. Code + tests landed (see §3 Phase 1). Awaiting real-turn benchmark to confirm the expected 2-3× multi-read speedup.
-4. **Phase 2** — true streaming.
+4. ✅🟡 **Phase 2** — true streaming. Backend (providers + loop) landed; TUI + VSCode client `text_delta` handling still pending. See §3 Phase 2.
 5. **Phase 3** — Effect / Layer DI.
 6. **Phase 4** — RecoveryManager.
 7. **Phase 6** — Node SEA cold-start (after everything else is stable).

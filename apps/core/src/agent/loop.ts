@@ -579,6 +579,7 @@ export class AgentLoop {
       id: string;
     }>;
     usage?: { inputTokens: number; outputTokens: number };
+    streamed?: boolean;
   }> {
     const aiProvider = getProvider(provider as any);
     const tools = listTools().map((t) => {
@@ -592,6 +593,62 @@ export class AgentLoop {
         }) as unknown as Record<string, unknown>,
       };
     });
+
+    // Prefer streaming when the provider supports it AND we have a listener.
+    // If either is missing, fall back to the one-shot execute() path so callers
+    // and downstream code paths are unchanged.
+    if (aiProvider.stream && this.onToolEvent) {
+      let content = "";
+      let thinking = "";
+      let toolCalls:
+        | Array<{ name: string; args: Record<string, unknown>; id: string }>
+        | undefined;
+      let usage: { inputTokens: number; outputTokens: number } | undefined;
+
+      for await (const chunk of aiProvider.stream({
+        messages,
+        system,
+        tools,
+        model,
+      })) {
+        switch (chunk.type) {
+          case "text_delta":
+            content += chunk.delta;
+            this.onToolEvent({ type: "text_delta", delta: chunk.delta });
+            break;
+          case "thinking_delta":
+            thinking += chunk.delta;
+            this.onToolEvent({ type: "thinking_delta", delta: chunk.delta });
+            break;
+          case "tool_call":
+            (toolCalls ??= []).push({
+              id: chunk.id,
+              name: chunk.name,
+              args: chunk.args,
+            });
+            break;
+          case "usage":
+            usage = {
+              inputTokens: chunk.usage.inputTokens,
+              outputTokens: chunk.usage.outputTokens,
+            };
+            break;
+          case "error":
+            throw new Error(chunk.error);
+          case "done":
+            break;
+        }
+      }
+
+      return {
+        content,
+        thinking: thinking ? thinking : undefined,
+        toolCalls,
+        usage,
+        streamed: true,
+      };
+    }
+
     const result = await aiProvider.execute({
       messages,
       system,

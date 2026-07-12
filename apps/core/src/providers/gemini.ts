@@ -1,9 +1,15 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { generateText } from "ai";
-import { AIProvider, ExecuteOptions, ExecuteResult } from "./types.js";
+import { generateText, streamText } from "ai";
+import {
+  AIProvider,
+  ExecuteOptions,
+  ExecuteResult,
+  ProviderChunk,
+} from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
 import { convertToCoreMessages } from "./utils.js";
+import { normalizeAiSdkStream } from "./streaming.js";
 
 const PROVIDER_INFO = {
   id: "gemini" as const,
@@ -89,7 +95,52 @@ function createGeminiProvider(_apiKey: string): AIProvider {
     };
   }
 
-  return { info: PROVIDER_INFO, execute };
+  function buildOptions(opts: ExecuteOptions) {
+    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const tools = opts.tools?.reduce(
+      (acc, t) => {
+        acc[t.name] = {
+          description: t.description,
+          inputSchema: t.parameters as Record<string, unknown>,
+        };
+        return acc;
+      },
+      {} as Record<
+        string,
+        { description: string; inputSchema: Record<string, unknown> }
+      >,
+    );
+    const systemPrompt =
+      typeof opts.system === "string"
+        ? opts.system
+        : opts.system?.map((b) => b.text).join("\n\n");
+    const generateOptions: any = {
+      model: gemini.languageModel(model),
+      system: systemPrompt,
+      temperature: opts.temperature,
+      maxOutputTokens: opts.maxTokens || 4096,
+      tools: tools as any,
+    };
+    if (opts.messages) {
+      generateOptions.messages = convertToCoreMessages(opts.messages);
+    } else {
+      generateOptions.prompt = opts.prompt;
+    }
+    return generateOptions;
+  }
+
+  async function* stream(
+    opts: ExecuteOptions,
+  ): AsyncGenerator<ProviderChunk> {
+    const result = streamText(buildOptions(opts));
+    yield* normalizeAiSdkStream(
+      result.fullStream as unknown as AsyncIterable<
+        { type: string } & Record<string, unknown>
+      >,
+    );
+  }
+
+  return { info: PROVIDER_INFO, execute, stream };
 }
 
 registerProvider("gemini", {

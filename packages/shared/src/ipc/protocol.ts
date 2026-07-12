@@ -73,8 +73,10 @@ export type StreamEvent =
       success: boolean;
       duration_ms?: number;
     }
-  | { type: "thinking"; content: string } // Streaming thinking/reasoning
-  | { type: "text"; content: string }
+  | { type: "thinking"; content: string } // full thinking, emitted at turn end (non-stream path)
+  | { type: "text"; content: string } // full assistant text, emitted at turn end (non-stream path or as compatibility snapshot when streaming)
+  | { type: "text_delta"; delta: string } // incremental assistant text chunk (streaming path)
+  | { type: "thinking_delta"; delta: string } // incremental reasoning chunk (streaming path)
   | { type: "done"; content: string }
   | { type: "error"; content: string };
 

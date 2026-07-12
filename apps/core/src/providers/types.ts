@@ -55,7 +55,27 @@ export interface ExecuteResult {
   model: string;
 }
 
+export type ProviderChunk =
+  | { type: "text_delta"; delta: string }
+  | { type: "thinking_delta"; delta: string }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      args: Record<string, unknown>;
+    }
+  | {
+      type: "usage";
+      usage: NonNullable<ExecuteResult["usage"]>;
+    }
+  | { type: "done"; stopReason: ExecuteResult["stopReason"] }
+  | { type: "error"; error: string };
+
 export interface AIProvider {
   info: ProviderInfo;
   execute(opts: ExecuteOptions): Promise<ExecuteResult>;
+  // Optional streaming API. When present and caller opts in, the provider
+  // yields ProviderChunks as they arrive from the model. Callers that do not
+  // implement streaming can continue to use execute() unchanged.
+  stream?(opts: ExecuteOptions): AsyncIterable<ProviderChunk>;
 }
