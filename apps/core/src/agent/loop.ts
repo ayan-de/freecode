@@ -31,7 +31,9 @@ import type { SystemBlock } from "../providers/types.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
+import { Effect } from "effect";
 import { createToolOrchestrator, listTools, getTool } from "../tools/index.js";
+import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { planToolBatches } from "../tools/batching.js";
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js";
 import { getProvider } from "../providers/index.js";
@@ -43,8 +45,30 @@ import { loadProviderPrompt } from "../session/prompt.js";
 import { type SessionStore, type SerializedMessage } from "../session/store.js";
 import { getInterruptHandler } from "../session/interrupt.js";
 import { PromptCompiler } from "../context/compiler.js";
+import {
+  HookRuntimeTag,
+  ToolOrchestratorTag,
+  SessionStoreTag,
+  MemoryFactoryTag,
+  RecorderFactoryTag,
+} from "../effect/context.js";
 
-const orchestrator = createToolOrchestrator();
+// =============================================================================
+// AgentLoop Config
+// All collaborators are injectable (Effect DI provides them via
+// createAgentLoopEffect); constructor fallbacks keep direct construction
+// working for tests and legacy call sites.
+// =============================================================================
+
+export interface AgentLoopConfig {
+  maxIterations?: number;
+  heuristics?: Partial<LoopHeuristics>;
+  hooks?: HookRuntime;
+  recorder?: RolloutRecorder;
+  sessionStore?: SessionStore;
+  memory?: MemoryService;
+  orchestrator?: ToolOrchestrator;
+}
 
 // =============================================================================
 // AgentLoop Class
@@ -61,34 +85,30 @@ export class AgentLoop {
   private memory: MemoryService;
   private hooks: HookRuntime;
   private recorder: RolloutRecorder;
+  private orchestrator: ToolOrchestrator;
   private sessionStore: SessionStore | undefined;
   private onToolEvent: ((event: StreamEvent) => void) | undefined;
   private lastThinking: string | undefined;
   private compiler: PromptCompiler;
+  // Cancellation: aborted on interrupt(); threaded into provider requests and
+  // tool contexts so in-flight work stops, not just the next loop check.
+  private abort = new AbortController();
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = [];
   private recentReasoning: string[] = [];
   private lastFileStates: string[] = [];
   private fileStateHash: string = "";
 
-  constructor(
-    sessionId: string,
-    config?: {
-      maxIterations?: number;
-      heuristics?: Partial<LoopHeuristics>;
-      hooks?: HookRuntime;
-      recorder?: RolloutRecorder;
-      sessionStore?: SessionStore;
-    },
-  ) {
+  constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
     this.config = {
       maxIterations: config?.maxIterations ?? 100,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
     };
-    this.memory = new MemoryService(sessionId);
+    this.memory = config?.memory ?? new MemoryService(sessionId);
     this.hooks = config?.hooks ?? createHookRuntime();
     this.recorder = config?.recorder ?? createRecorder(sessionId);
+    this.orchestrator = config?.orchestrator ?? createToolOrchestrator();
     this.compiler = new PromptCompiler("", "");
     this.sessionStore = config?.sessionStore;
   }
@@ -187,6 +207,8 @@ export class AgentLoop {
       projectPath: input.projectPath,
       agentMode: input.agentMode ?? "build",
     };
+    // Fresh cancellation scope per run
+    this.abort = new AbortController();
 
     try {
       this.state = { ...this.state, status: "running" };
@@ -268,6 +290,11 @@ export class AgentLoop {
           contextResult.value,
         );
         if (!turnResult.success) {
+          // Interrupted mid-turn (Ctrl+C / session.stop): the provider or tool
+          // call was aborted — that is a clean stop, not a failure.
+          if (this.abort.signal.aborted) {
+            return this.complete("Interrupted");
+          }
           return this.fail("Turn execution failed", turnResult.error);
         }
 
@@ -610,7 +637,9 @@ export class AgentLoop {
         system,
         tools,
         model,
+        abortSignal: this.abort.signal,
       })) {
+        if (this.abort.signal.aborted) break;
         switch (chunk.type) {
           case "text_delta":
             content += chunk.delta;
@@ -654,6 +683,7 @@ export class AgentLoop {
       system,
       tools,
       model,
+      abortSignal: this.abort.signal,
     });
     return {
       content: result.content,
@@ -888,11 +918,15 @@ export class AgentLoop {
     );
 
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`);
-    const context = { cwd: process.cwd() };
+    const context = {
+      cwd: process.cwd(),
+      sessionId: this.state.sessionId,
+      abort: this.abort.signal,
+    };
 
     let result: ToolResult;
     try {
-      result = await orchestrator.execute(toolCall, context);
+      result = await this.orchestrator.execute(toolCall, context);
     } catch (error) {
       // PostToolUseFailure Hook — handle tool execution error
       const failureResult = await this.hooks.runPostToolUseFailure(
@@ -1285,7 +1319,7 @@ export class AgentLoop {
   }
 
   // ===========================================================================
-  // PUBLIC: getState() / interrupt()
+  // PUBLIC: getState() / interrupt() / runEffect()
   // Accessors for external monitoring/control
   // ===========================================================================
   getState(): SessionState {
@@ -1294,21 +1328,62 @@ export class AgentLoop {
 
   interrupt(): void {
     this.state = { ...this.state, status: "stopped" };
+    // Cancel in-flight provider requests and tool executions immediately
+    this.abort.abort();
+  }
+
+  // Effect wrapper around run(): fiber interruption is wired to interrupt(),
+  // so cancelling the effect aborts the in-flight provider stream.
+  runEffect(input: UserInput): Effect.Effect<LoopResult, Error> {
+    return Effect.tryPromise({
+      try: (signal) => {
+        signal.addEventListener("abort", () => this.interrupt(), {
+          once: true,
+        });
+        return this.run(input);
+      },
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    });
   }
 }
 
 // =============================================================================
-// Factory Function
+// Factory Functions
 // =============================================================================
 export const createAgentLoop = (
   sessionId: string,
-  config?: {
-    maxIterations?: number;
-    heuristics?: Partial<LoopHeuristics>;
-    hooks?: HookRuntime;
-    recorder?: RolloutRecorder;
-    sessionStore?: SessionStore;
-  },
+  config?: AgentLoopConfig,
 ): AgentLoop => {
   return new AgentLoop(sessionId, config);
 };
+
+// DI construction path (v3 spec): all collaborators are resolved from the
+// Effect context, so a test layer swaps any of them without patching globals.
+export const createAgentLoopEffect = (
+  sessionId: string,
+  config?: Pick<AgentLoopConfig, "maxIterations" | "heuristics">,
+): Effect.Effect<
+  AgentLoop,
+  never,
+  | HookRuntimeTag
+  | ToolOrchestratorTag
+  | SessionStoreTag
+  | MemoryFactoryTag
+  | RecorderFactoryTag
+> =>
+  Effect.gen(function* () {
+    const hooks = yield* HookRuntimeTag;
+    const orchestrator = yield* ToolOrchestratorTag;
+    const sessionStore = yield* SessionStoreTag;
+    const memoryFactory = yield* MemoryFactoryTag;
+    const recorderFactory = yield* RecorderFactoryTag;
+
+    return new AgentLoop(sessionId, {
+      ...config,
+      hooks,
+      orchestrator,
+      sessionStore,
+      memory: memoryFactory.forSession(sessionId),
+      recorder: recorderFactory.forSession(sessionId),
+    });
+  });

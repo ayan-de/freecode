@@ -34,6 +34,9 @@ export interface ExecuteOptions {
     input?: Record<string, unknown>;
   }>;
   stream?: boolean;
+  // Cancellation: callers (agent loop) pass an AbortSignal so in-flight
+  // provider requests can be interrupted (Ctrl+C, session.stop).
+  abortSignal?: AbortSignal;
 }
 
 export interface ExecuteResult {

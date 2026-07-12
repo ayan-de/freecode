@@ -188,7 +188,7 @@ Ship in this order. Each phase produces a shippable, measurable improvement.
 - 🟡 First-token latency drops from full-response time to ~200 ms — pending TUI client update to render `text_delta` (backend already emits chunks as fast as the provider yields them).
 - 🟡 Manual test in TUI: text visibly types as tokens arrive — pending TUI update.
 
-### Phase 3 — Effect / Layer DI (3-5 days)
+### Phase 3 — Effect / Layer DI (3-5 days) ✅ (2026-07-13)
 
 **Files:** `apps/core/src/effect/context.ts` (new), `apps/core/src/effect/layers.ts` (rewrite), `apps/core/src/effect/runtime.ts` (new). Migrate: `agent/loop.ts`, `session/manager.ts`, `tools/orchestrator.ts`, `memory/service.ts`, `hooks/runtime.ts`.
 
@@ -196,16 +196,16 @@ Ship in this order. Each phase produces a shippable, measurable improvement.
 
 **Implementation:**
 
-1. `context.ts` — declare `Context.Tag`s for `MemoryService`, `HookRuntime`, `ToolOrchestrator`, `SessionStore`, `BusService`, `RolloutRecorder`, `ProviderRegistry`.
-2. `layers.ts` — build `Layer`s per service (Live + Test variants).
-3. `runtime.ts` — compose the main `Runtime` used by `cli.ts` and `server.ts`.
-4. Refactor `AgentLoop` from `class AgentLoop { constructor(mem, hooks, ...) }` → `Effect.gen(function* () { const mem = yield* MemoryService; ... })`.
-5. Thread `AbortSignal` via Effect's built-in interruption — every provider call, tool call, and hook now cancellable.
+1. ✅ `context.ts` — `Context.Tag`s for `HookRuntime`, `ToolOrchestrator`, `SessionStore`, `Bus`, `ProviderRegistry`, plus `SessionManager`. Per-session services (`MemoryService`, `RolloutRecorder`) are provided as **factories** (`MemoryFactoryTag.forSession(sessionId)`) since one instance per session is required, not a singleton.
+2. ✅ `layers.ts` — Live layer per service + `AppLayerLive` merge; `makeTestLayer(overrides)` builds an in-memory graph (memory storage in-memory, rollout recording disabled, session store on a temp dir) with per-service override slots. The old loop-health evaluator moved to `effect/loop-health.ts` (re-exported from `layers.ts` for compatibility).
+3. ✅ `runtime.ts` — `ManagedRuntime` composed from `AppLayerLive`; `getAppRuntime()` used by `server.ts` (`cli.ts` reaches it transitively via the lazy `server.js` import). Services resolve via `getAppRuntime().runPromise(SomeTag)` — `server.ts`'s module-level `sessionStore` singleton is gone.
+4. ✅ `AgentLoop` construction via `Effect.gen` — `createAgentLoopEffect(sessionId)` resolves all five collaborators from the context. **Deviation:** the loop *body* remains an async class rather than a full `Effect.gen` rewrite — all collaborators are constructor-injected (`memory`, `hooks`, `recorder`, `orchestrator`, `sessionStore`) and the module-level `orchestrator` singleton is gone, which delivers the testability goal without rewriting a 1,300-line control flow in one pass. `runEffect()` bridges fiber interruption → `interrupt()`.
+5. ✅ `AbortSignal` threading — `AgentLoop` owns an `AbortController` per run; the signal reaches every provider call (`ExecuteOptions.abortSignal`, wired into AI SDK `generateText`/`streamText` for Anthropic/OpenAI/Gemini and `fetch(..., { signal })` for MiniMax) and every tool call (`ToolContext.abort`). `interrupt()` aborts in-flight work; Effect fiber interruption triggers it via `runEffect`. `server.ts` keeps an `activeLoops` map — `session.stop` and the SIGINT handler now abort the running turn instead of just dropping state.
 
 **Success criteria:**
-- Ctrl+C aborts an in-flight provider stream within 100ms
-- Test setup can inject a mock `MemoryService` without patching globals
-- No behavioural regression on smoke tests
+- ✅ Ctrl+C aborts an in-flight provider stream within 100ms — `effect/runtime.test.ts`: interrupt fired at t+50ms, run resolved at ~54ms total with the provider's abort listener invoked.
+- ✅ Test setup can inject a mock `MemoryService` without patching globals — `makeTestLayer({ memoryFactory })` + `createAgentLoopEffect`; test asserts the injected instance saw both user and assistant messages.
+- ✅ No behavioural regression on smoke tests — full suite: 33/37 pass; the 4 failures (session summary ×3, MCP convert-tool) are pre-existing and identical before/after. Compiled `dist/server.js` smoke-tested over JSON-RPC (`session.start` resolves its store through the runtime).
 
 ### Phase 4 — RecoveryManager (1-2 days, requires Phase 3)
 

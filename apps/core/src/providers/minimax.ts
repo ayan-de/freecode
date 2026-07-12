@@ -189,6 +189,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(body),
+      signal: opts.abortSignal,
     });
 
     if (!response.ok) {
@@ -257,6 +258,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(body),
+      signal: opts.abortSignal,
     });
 
     if (!response.ok) {

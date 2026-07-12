@@ -4,7 +4,9 @@
 // =============================================================================
 
 import { getTool, listTools } from "./tools/index.js";
-import { createAgentLoop } from "./agent/loop.js";
+import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
+import { getAppRuntime } from "./effect/runtime.js";
+import { SessionStoreTag } from "./effect/context.js";
 import { initProviders, listProviders } from "./providers/index.js";
 import { getProviders, getProviderModels } from "./models-dev.js";
 import {
@@ -32,7 +34,7 @@ import {
 import { findRelevantMemories } from "./memory/mem-query.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
-import { createSessionStore, type SessionStore } from "./session/store.js";
+import { type SessionStore } from "./session/store.js";
 import {
   getRemoteSync,
   type ExportedSession,
@@ -41,21 +43,18 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers } from "./mcp/index.js";
-import { homedir } from "os";
 import { randomUUID } from "crypto";
-import { join } from "path";
 import { existsSync } from "fs";
 
-const SESSION_BASE_DIR = join(homedir(), ".freecode");
-
-let sessionStore: SessionStore | null = null;
-
+// SessionStore is resolved from the Effect runtime so the whole process shares
+// the single DI-provided instance (layers memoize construction).
 async function getSessionStore(): Promise<SessionStore> {
-  if (!sessionStore) {
-    sessionStore = await createSessionStore(SESSION_BASE_DIR);
-  }
-  return sessionStore;
+  return getAppRuntime().runPromise(SessionStoreTag);
 }
+
+// Loops with an in-flight turn, keyed by sessionId — session.stop and the
+// SIGINT handler use this to abort provider/tool calls immediately.
+const activeLoops = new Map<string, AgentLoop>();
 
 interface ToolListItem {
   id: string;
@@ -235,19 +234,28 @@ const methodHandlers: Record<
     // Get session store for persisting messages
     const store = await getSessionStore();
 
-    const loop = createAgentLoop(sessionId, {
-      maxIterations: 100,
-      sessionStore: store,
-    });
-    const result = await loop.run({
-      prompt: message,
-      sessionId,
-      provider: currentProvider,
-      model: session.model,
-      projectPath: session.projectPath,
-      agentMode,
-      onToolEvent: emitEvent,
-    });
+    // Construct the loop through the Effect runtime — memory, hooks, recorder,
+    // orchestrator and session store are all DI-provided (v3 spec).
+    const loop = await getAppRuntime().runPromise(
+      createAgentLoopEffect(sessionId, { maxIterations: 100 }),
+    );
+    activeLoops.set(sessionId, loop);
+    let result;
+    try {
+      result = await getAppRuntime().runPromise(
+        loop.runEffect({
+          prompt: message,
+          sessionId,
+          provider: currentProvider,
+          model: session.model,
+          projectPath: session.projectPath,
+          agentMode,
+          onToolEvent: emitEvent,
+        }),
+      );
+    } finally {
+      activeLoops.delete(sessionId);
+    }
 
     // Emit done event
     emitEvent({ type: "done", content: result.message || "Done" });
@@ -266,6 +274,8 @@ const methodHandlers: Record<
 
   "session.stop": async (params: Record<string, unknown>): Promise<void> => {
     const { sessionId } = params as { sessionId: string };
+    // Abort the in-flight turn (provider stream + tools) before dropping state
+    activeLoops.get(sessionId)?.interrupt();
     const session = getSession(sessionId);
     if (session) {
       sessions.delete(sessionId);
@@ -529,6 +539,8 @@ export async function startServer() {
   // Set up Ctrl+C interrupt handler for session resumption
   const handler = getInterruptHandler();
   handler.setupSignalHandler(async (sessionId: string, messageId: string) => {
+    // Abort the in-flight provider/tool work first so the process is idle
+    activeLoops.get(sessionId)?.interrupt();
     try {
       const manager = await getSessionManager();
       await manager.markInterrupted(sessionId, messageId);

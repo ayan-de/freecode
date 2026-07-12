@@ -52,6 +52,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
+      abortSignal: opts.abortSignal,
     };
 
     if (opts.messages) {
@@ -120,6 +121,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
+      abortSignal: opts.abortSignal,
     };
     if (opts.messages) {
       generateOptions.messages = convertToCoreMessages(opts.messages);

@@ -46,6 +46,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
+      abortSignal: opts.abortSignal,
     };
 
     if (opts.system) {
@@ -160,6 +161,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
       temperature: opts.temperature,
       maxOutputTokens: opts.maxTokens || 4096,
       tools: tools as any,
+      abortSignal: opts.abortSignal,
     };
 
     if (opts.system) {
