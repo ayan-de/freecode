@@ -1,4 +1,5 @@
 import { Installation } from "./components/Installation";
+import { Benchmark } from "./components/Benchmark";
 import { Divider } from "./components/Divider";
 import { Footer } from "./components/Footer";
 import { Navbar } from "./components/Navbar";
@@ -25,6 +26,18 @@ export default function Home() {
 
         <div className="mt-12 mb-12">
           <Installation />
+        </div>
+
+        <Divider />
+
+        <div className="h-20 flex items-center justify-center">
+          <span className="text-white/30 text-sm font-mono">#Benchmark</span>
+        </div>
+
+        <Divider />
+
+        <div className="w-full mt-12 mb-12">
+          <Benchmark />
         </div>
 
         <Divider />

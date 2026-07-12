@@ -10,6 +10,7 @@ import { Divider } from "./Divider";
 
 const navLinks = [
   { label: "Features", href: "#features" },
+  { label: "Benchmark", href: "#benchmark" },
   { label: "Docs", href: "#docs" },
 ];
 
