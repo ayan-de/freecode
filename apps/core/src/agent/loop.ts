@@ -32,6 +32,7 @@ import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 import { createToolOrchestrator, listTools, getTool } from "../tools/index.js";
+import { planToolBatches } from "../tools/batching.js";
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js";
 import { getProvider } from "../providers/index.js";
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
@@ -479,24 +480,31 @@ export class AgentLoop {
         await this.appendAssistantMessage(providerResult.content);
       }
 
-      // Execute each tool sequentially (as per spec: sequential tools run one at a time)
-      const toolResults: ToolResult[] = [];
-      for (const toolCall of toolCalls) {
-        const result = await this.executeTool(toolCall);
-        toolResults.push(result);
-        // Update loop health tracking after each tool execution
-        this.updateLoopHealth(toolCall, result);
+      // Execute tools with parallel-safe batching. Concurrency-safe tools
+      // (isConcurrencySafe=true) run in a single Promise.all batch; anything
+      // else runs solo. Post-work (loop-health, assistantMessage patch,
+      // session-store append) is always in original order for determinism.
+      const toolResults: ToolResult[] = new Array(toolCalls.length);
+      const batches = planToolBatches(toolCalls);
+      for (const { start, end, parallel } of batches) {
+        const batch = toolCalls.slice(start, end);
+        const batchResults = parallel
+          ? await Promise.all(batch.map((tc) => this.executeTool(tc)))
+          : [await this.executeTool(batch[0])];
 
-        // Find tool part in assistantMessage and update its result
-        const part = assistantMessage.parts.find(
-          (p) => p.type === "tool" && p.tool.id === toolCall.id,
-        );
-        if (part && part.type === "tool") {
-          part.result = result.stdout || result.error || "";
+        for (let k = 0; k < batch.length; k++) {
+          const tc = batch[k];
+          const result = batchResults[k];
+          toolResults[start + k] = result;
+          this.updateLoopHealth(tc, result);
+          const part = assistantMessage.parts.find(
+            (p) => p.type === "tool" && p.tool.id === tc.id,
+          );
+          if (part && part.type === "tool") {
+            part.result = result.stdout || result.error || "";
+          }
+          await this.appendToolMessage(tc, result);
         }
-
-        // Append tool result to session store
-        await this.appendToolMessage(toolCall, result);
       }
 
       // Add assistant response to MemoryService for token tracking
