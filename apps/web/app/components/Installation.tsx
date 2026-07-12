@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Copy, Check, Terminal } from "lucide-react";
 
 const installers = {
@@ -33,6 +33,22 @@ const InstallTabs = ["curl", "npm", "bun", "brew", "paru"] as const;
 export function Installation() {
   const [active, setActive] = useState<Installer>("curl");
   const [copied, setCopied] = useState(false);
+  const [sticky, setSticky] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      // Show sticky header when the bottom of the installation box has scrolled past the top of the screen
+      setSticky(rect.bottom < 0);
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    handleScroll(); // Initial check
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(installers[active].command);
@@ -41,7 +57,29 @@ export function Installation() {
   };
 
   return (
-    <div id="installation" className="w-full max-w-2xl mx-auto">
+    <div ref={containerRef} id="installation" className="w-full max-w-2xl mx-auto">
+      {/* Sticky Header Floating Command Bar */}
+      {sticky && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center border border-border bg-card rounded-md shadow-md divide-x divide-border overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300 w-max max-w-[90vw] md:max-w-2xl">
+          <div className="px-4 py-2 font-mono text-xs md:text-sm text-foreground whitespace-nowrap overflow-hidden">
+            {installers[active].command}
+          </div>
+          <button
+            onClick={handleCopy}
+            className="px-4 py-2 text-xs font-medium text-muted-foreground hover:text-primary active:scale-95 transition-all bg-card shrink-0 flex items-center gap-1"
+          >
+            {copied ? (
+              <>
+                <Check size={14} className="text-emerald-500" />
+                copied
+              </>
+            ) : (
+              "copy"
+            )}
+          </button>
+        </div>
+      )}
+
       <h2 className="text-3xl lg:text-4xl font-semibold text-foreground text-center mb-3">
         Get Started in Seconds
       </h2>
