@@ -392,7 +392,7 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
     scene: THREE.Scene;
     camera: THREE.OrthographicCamera;
     material: THREE.ShaderMaterial;
-    clock: THREE.Clock;
+    clock: { getElapsedTime: () => number };
     clickIx: number;
     uniforms: {
       uResolution: { value: THREE.Vector2 };
@@ -502,7 +502,12 @@ const PixelBlast: React.FC<PixelBlastProps> = ({
       const quadGeom = new THREE.PlaneGeometry(2, 2);
       const quad = new THREE.Mesh(quadGeom, material);
       scene.add(quad);
-      const clock = new THREE.Clock();
+      const clock = {
+        startTime: performance.now(),
+        getElapsedTime() {
+          return (performance.now() - this.startTime) / 1000;
+        }
+      };
       const setSize = () => {
         const w = container.clientWidth || 1;
         const h = container.clientHeight || 1;
