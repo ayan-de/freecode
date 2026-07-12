@@ -49,11 +49,8 @@ export function Benchmark() {
   const maxMemory10 = Math.max(...memory10SessionsData.map(d => d.value || 0));
 
   return (
-    <section id="benchmark" className="w-full max-w-4xl mx-auto py-12">
-      <h2 className="text-3xl lg:text-4xl font-semibold text-foreground text-center mb-3">
-        Performance & Resource Efficiency
-      </h2>
-      <p className="text-lg lg:text-xl text-muted-foreground text-center mb-12 max-w-2xl mx-auto">
+    <section id="benchmark" className="w-full max-w-4xl mx-auto pt-4 pb-12">
+      <p className="text-lg lg:text-xl text-muted-foreground text-left mb-12 max-w-2xl">
         Swarms only push intelligence if they scale, and they only scale if each agent costs almost nothing. FreeCode is optimized to the bone so agents stay cheap to spawn, with none of it traded for speed.
       </p>
 
@@ -61,9 +58,6 @@ export function Benchmark() {
         {/* Chart 1: Memory Footprint (1 session) */}
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-2.5 rounded bg-muted text-primary border border-border">
-              <Cpu size={20} />
-            </div>
             <div>
               <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
                 Memory footprint (PSS, MB)
@@ -131,9 +125,6 @@ export function Benchmark() {
         {/* Chart 2: Time to Ready */}
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-2.5 rounded bg-muted text-primary border border-border">
-              <Clock size={20} />
-            </div>
             <div>
               <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
                 Time to ready (seconds)
@@ -198,7 +189,6 @@ export function Benchmark() {
           </div>
 
           <div className="flex items-start gap-2.5 mt-4 p-4 rounded bg-muted border border-border">
-            <Info size={16} className="text-muted-foreground shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground leading-relaxed">
               codex, opencode and copilot_cli hit the 20s timeout without becoming input ready; antigravity_cli never rendered visible.
             </p>
@@ -208,9 +198,6 @@ export function Benchmark() {
         {/* Chart 3: Memory scaling per additional session */}
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <div className="flex items-start gap-4 mb-6">
-            <div className="p-2.5 rounded bg-muted text-primary border border-border">
-              <BarChart3 size={20} />
-            </div>
             <div>
               <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
                 Memory per session, avg over 10 runs (MB)

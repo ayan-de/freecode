@@ -1,9 +1,7 @@
 import { Installation } from "./components/Installation";
 import { Mission } from "./components/Mission";
 import { Benchmark } from "./components/Benchmark";
-import { Divider } from "./components/Divider";
 import { Footer } from "./components/Footer";
-import { Navbar } from "./components/Navbar";
 import { Hero } from "./components/Hero";
 import { PageWrapper } from "./components/PageWrapper";
 import { Announcement } from "./components/Announcement";
@@ -11,7 +9,6 @@ import { Announcement } from "./components/Announcement";
 export default function Home() {
   return (
     <PageWrapper>
-      {/* <Navbar /> */}
       <div className="px-[max(80px,calc((100vw-1280px)/2))]">
         <Announcement />
       </div>
@@ -19,55 +16,41 @@ export default function Home() {
       <main className="flex flex-col items-center text-center px-[max(80px,calc((100vw-1280px)/2))]">
         <Hero />
 
-        <div className="h-20 flex items-center justify-center">
-          <span className="text-muted-foreground/50 text-sm font-mono">#Installation</span>
+        <div className="h-10 w-full max-w-2xl mx-auto flex items-end justify-start">
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight">#Installation</span>
         </div>
 
-        <Divider />
-
-        <div className="mt-12 mb-12">
+        <div className="w-full pt-4 pb-12">
           <Installation />
         </div>
 
-        <Divider />
-
-        <div className="h-20 flex items-center justify-center">
-          <span className="text-muted-foreground/50 text-sm font-mono">#Mission</span>
+        <div className="h-10 w-full max-w-4xl mx-auto flex items-end justify-start">
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight">#Mission</span>
         </div>
 
-        <Divider />
-
-        <div className="w-full mt-12 mb-12">
+        <div className="w-full">
           <Mission />
         </div>
 
-        <Divider />
-
-        <div className="h-20 flex items-center justify-center">
-          <span className="text-muted-foreground/50 text-sm font-mono">#Benchmark</span>
+        <div className="h-10 w-full max-w-4xl mx-auto flex items-end justify-start">
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight">#Benchmark</span>
         </div>
 
-        <Divider />
-
-        <div className="w-full mt-12 mb-12">
+        <div className="w-full">
           <Benchmark />
         </div>
-
-        <Divider />
       </main>
 
-      <div className="h-20 flex items-center justify-center">
-        <span className="text-muted-foreground/50 text-sm font-mono">#Footer</span>
+      <div className="h-10 w-full max-w-4xl mx-auto flex items-end justify-start px-6 md:px-0">
+        <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight">#Footer</span>
       </div>
 
-      <div className="px-[max(80px,calc((100vw-1280px)/2))]">
-        <Divider />
+      <div className="px-[max(80px,calc((100vw-1280px)/2))] pt-4 pb-12">
         <Footer />
-        <Divider />
       </div>
 
-      <div className="h-20 flex items-center justify-center">
-        <span className="text-muted-foreground/50 text-sm font-mono">#Freecode</span>
+      <div className="h-10 w-full max-w-4xl mx-auto flex items-end justify-start px-6 md:px-0 pb-4">
+        <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight">#Freecode</span>
       </div>
     </PageWrapper>
   );

@@ -2,7 +2,7 @@ import { Target } from "lucide-react";
 
 export function Mission() {
   return (
-    <section id="mission" className="w-full max-w-4xl mx-auto py-12 text-left">
+    <section id="mission" className="w-full max-w-4xl mx-auto pt-4 pb-12 text-left">
         <p className="text-base md:text-lg text-muted-foreground leading-relaxed">
           FreeCode is a harness that is trying to push the frontier of intelligence. 
           We believe that the next leaps in agent capabilities will come from the harness level. 
