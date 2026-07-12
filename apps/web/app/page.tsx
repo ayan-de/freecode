@@ -1,4 +1,5 @@
 import { Installation } from "./components/Installation";
+import { Mission } from "./components/Mission";
 import { Benchmark } from "./components/Benchmark";
 import { Divider } from "./components/Divider";
 import { Footer } from "./components/Footer";
@@ -10,7 +11,7 @@ import { Announcement } from "./components/Announcement";
 export default function Home() {
   return (
     <PageWrapper>
-      <Navbar />
+      {/* <Navbar /> */}
       <div className="px-[max(80px,calc((100vw-1280px)/2))]">
         <Announcement />
       </div>
@@ -19,7 +20,7 @@ export default function Home() {
         <Hero />
 
         <div className="h-20 flex items-center justify-center">
-          <span className="text-white/30 text-sm font-mono">#Installation</span>
+          <span className="text-muted-foreground/50 text-sm font-mono">#Installation</span>
         </div>
 
         <Divider />
@@ -31,7 +32,19 @@ export default function Home() {
         <Divider />
 
         <div className="h-20 flex items-center justify-center">
-          <span className="text-white/30 text-sm font-mono">#Benchmark</span>
+          <span className="text-muted-foreground/50 text-sm font-mono">#Mission</span>
+        </div>
+
+        <Divider />
+
+        <div className="w-full mt-12 mb-12">
+          <Mission />
+        </div>
+
+        <Divider />
+
+        <div className="h-20 flex items-center justify-center">
+          <span className="text-muted-foreground/50 text-sm font-mono">#Benchmark</span>
         </div>
 
         <Divider />
@@ -44,7 +57,7 @@ export default function Home() {
       </main>
 
       <div className="h-20 flex items-center justify-center">
-        <span className="text-white/30 text-sm font-mono">#Footer</span>
+        <span className="text-muted-foreground/50 text-sm font-mono">#Footer</span>
       </div>
 
       <div className="px-[max(80px,calc((100vw-1280px)/2))]">
@@ -54,7 +67,7 @@ export default function Home() {
       </div>
 
       <div className="h-20 flex items-center justify-center">
-        <span className="text-white/30 text-sm font-mono">#Freecode</span>
+        <span className="text-muted-foreground/50 text-sm font-mono">#Freecode</span>
       </div>
     </PageWrapper>
   );
