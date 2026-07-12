@@ -11,7 +11,6 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@thisisayande/freecode-shared": ["../../packages/shared/dist/index.d.ts"],
       "@thisisayande/freecode-shared/*": ["../../packages/shared/dist/*"]
