@@ -269,6 +269,8 @@ Only pursue if Phase 6 doesn't get you below Cursor Agent / Claude Code cold-sta
 
 ### Phase 8 (quality benchmark harnesses) — parallel to Phases 1-4
 
+> **Implementation plan:** [quality-bench.md](./quality-bench.md) (2026-07-13) — headless harness design, five seed-parameterized micro-bench tasks, Terminal-Bench/SWE-bench wiring, milestones M1-M6.
+
 Do not wait for perf phases to ship. Start these as soon as Phase 1 is queued:
 
 - **Custom uncontaminated micro-bench** — 4-6 tasks in `apps/core/benchmarks/micro/`, `pnpm bench:quality`
