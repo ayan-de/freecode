@@ -81,12 +81,15 @@ are on `$PATH`. Override the list with `--tools freecode claude_code` etc.
 
 The script auto-detects a runnable `freecode` in this priority order:
 
-1. **`freecode` on `$PATH`** — uses it directly
-2. **Built binary** at `<monorepo>/apps/tui/dist/index.js` — runs via `node`
+1. **SEA binary** at `<monorepo>/apps/tui/dist/freecode` — Node Single
+   Executable Application produced by `pnpm build:sea` (Phase 6). Fastest
+   invocation path; this is what the headline numbers use when present.
+2. **`freecode` on `$PATH`** — uses it directly
+3. **Built binary** at `<monorepo>/apps/tui/dist/index.js` — runs via `node`
    (no `tsx` overhead, fair comparison)
-3. **Dev mode** via `pnpm --filter @thisisayande/freecode dev` from the
+4. **Dev mode** via `pnpm --filter @thisisayande/freecode dev` from the
    monorepo root
-4. **Last resort** — `~/.local/bin/freecode` (jcode-style fallback)
+5. **Last resort** — `~/.local/bin/freecode` (jcode-style fallback)
 
 The monorepo root is detected by checking (a) the script's own location
 (`scripts/bench_memory.py` → `<root>`) and (b) walking up from the current
@@ -158,6 +161,15 @@ Measured with the fixed harness, `--sessions 3`, `node apps/tui/dist/index.js`:
 | --- | ---: | ---: | ---: |
 | Before Track A | 92 | 104 | ~712 (`npx tsx` on core src) |
 | After Track A  | 92 | 103 | **~430** (`node` on pre-built core dist) |
+| Node SEA binary (Phase 6, 2026-07-13) | **71** | **84** | ~430 (unchanged — core is a separate process) |
+
+The SEA binary (`pnpm build:sea` → `apps/tui/dist/freecode`) bundles the TUI
+into one 187 KB CJS file injected into the node executable — no module-graph
+resolution at boot. Binary size is **123 MB**, dominated by the stock Node 25
+executable itself (~120 MB); only a Bun compile or a trimmed custom Node build
+shrinks that. The binary contains the TUI shell only — it still spawns
+`apps/core/dist/server.js`, so it must run from the repo (or with
+`FREECODE_ROOT` set).
 
 Findings:
 

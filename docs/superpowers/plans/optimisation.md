@@ -237,23 +237,25 @@ Expected win: ~30% token savings, 10-15% latency. *(Not yet measured on a real t
 
 **Verification:** 4 new unit tests (`defs-cache.test.ts`: memoization + bus invalidation; `tree-cache.test.ts`: cached tree served until invalidated, global clear). 44/48 suite pass — same 4 pre-existing failures. Typecheck clean, compiled server smoke-tested.
 
-### Phase 6 — Cold-start via Node SEA (1-2 days)
+### Phase 6 — Cold-start via Node SEA (1-2 days) ✅ (2026-07-13)
 
-**Files:** `apps/tui/build.config.ts` (new), `apps/tui/package.json`, `scripts/build-sea.js` (new)
+**Files:** `apps/tui/build.config.mjs` (new — `.mjs` not `.ts` so plain `node` runs the build with no transpile step), `apps/tui/package.json` (esbuild + postject devDeps), `scripts/build-sea.mjs` (new), root `package.json` (`pnpm build:sea`)
 
 **Goal:** boot the TUI in <500 ms (down from ~1,100 ms) via Node Single Executable Application.
 
+> **Premise correction:** the ~1,100 ms baseline was a bench-harness artifact (see `tui-optimisation.md` §3.6); real pre-SEA first paint was ~92 ms. SEA still wins — it removes module-graph resolution entirely.
+
 **Implementation:**
 
-1. Bundle `apps/tui` into a single `dist/tui.bundle.js` with `esbuild` or `rollup` (already likely present).
-2. Use Node's `--experimental-sea-config` flow to produce a single-file `freecode` binary.
-3. Update `Benchmark.md` methodology section — SEA path becomes `freecode` invocation priority #1.
-4. Bench before/after; expected: ~1,100 ms → ~350-500 ms.
+1. ✅ `apps/tui` bundled into a single 187 KB `dist/tui.bundle.cjs` with esbuild (minified, ESM→CJS — SEA requires a CommonJS entry — with an `import.meta.url` shim banner and the package version baked in via `define`, since a SEA binary has no `package.json` on disk).
+2. ✅ `--experimental-sea-config` blob + `postject` injection into a copy of the node executable → `apps/tui/dist/freecode`. One command: `pnpm build:sea`.
+3. ✅ `Benchmark.md` methodology updated — SEA binary is now invocation priority #1 in `bench_memory.py`.
+4. ✅ Benched (3 sessions, fixed harness): **92 ms → 71 ms** time-to-visible, 103 ms → 84 ms input-ready.
 
 **Success criteria:**
-- Cold-start p50 < 500 ms on the reference Linux box
-- Binary size < 60 MB
-- No behavioural regression on smoke tests
+- ✅ Cold-start p50 < 500 ms — 71 ms median.
+- ❌ Binary size < 60 MB — **123 MB**. Not achievable with stock Node: the node executable alone is ~120 MB; the app payload is 187 KB. Getting under 60 MB requires Bun compile (Phase 7) or a custom trimmed Node build. Criterion was written against an unrealistic floor.
+- ✅ No behavioural regression — PTY smoke test: paints at 70 ms, version renders correctly (baked define), spawns `node apps/core/dist/server.js`, model status line arrives at ~473 ms via the event-driven path. **Caveat:** the binary is the TUI shell only; it still spawns the core from the repo (`FREECODE_ROOT` supported), so it is not yet a standalone distributable.
 
 ### Phase 7 (optional) — Bun compile for sub-100ms boot (3-5 days)
 
@@ -443,7 +445,7 @@ Two parallel tracks. Perf phases (1→4) are code refactors; quality phases (8) 
 4. ✅🟡 **Phase 2** — true streaming. Backend (providers + loop) landed; TUI + VSCode client `text_delta` handling still pending. See §3 Phase 2.
 5. ✅ **Phase 3** — Effect / Layer DI. Landed 2026-07-13 (see §3 Phase 3).
 6. ✅ **Phase 4** — RecoveryManager. Landed 2026-07-13 (see §3 Phase 4).
-7. **Phase 6** — Node SEA cold-start (after everything else is stable).
+7. ✅ **Phase 6** — Node SEA cold-start. Landed 2026-07-13 (71 ms time-to-visible; see §3 Phase 6).
 
 **Track B — Quality benchmarks (parallelisable with Track A):**
 
