@@ -257,9 +257,15 @@ Expected win: ~30% token savings, 10-15% latency. *(Not yet measured on a real t
 - ❌ Binary size < 60 MB — **123 MB**. Not achievable with stock Node: the node executable alone is ~120 MB; the app payload is 187 KB. Getting under 60 MB requires Bun compile (Phase 7) or a custom trimmed Node build. Criterion was written against an unrealistic floor.
 - ✅ No behavioural regression — PTY smoke test: paints at 70 ms, version renders correctly (baked define), spawns `node apps/core/dist/server.js`, model status line arrives at ~473 ms via the event-driven path. **Caveat:** the binary is the TUI shell only; it still spawns the core from the repo (`FREECODE_ROOT` supported), so it is not yet a standalone distributable.
 
-### Phase 7 (optional) — Bun compile for sub-100ms boot (3-5 days)
+### Phase 7 (optional) — Bun compile for sub-100ms boot (3-5 days) ✅ (2026-07-13)
 
 Only pursue if Phase 6 doesn't get you below Cursor Agent / Claude Code cold-start numbers in a way that gets flagged in reviews. Bun's `bun build --compile` produces native binaries booting in ~40-80 ms. Trade-off: audit codebase for Node-only APIs, migrate TUI entry point. Core services stay unchanged.
+
+> ✅ **Done** — took hours, not 3-5 days: no Node-only API migration was needed. `pnpm build:bun` (`scripts/build-bun.mjs`, bun ≥1.3 via mise) compiles `apps/tui/src/index.ts` directly to a native binary at `apps/tui/dist/freecode-bun`.
+>
+> **Measured (3 sessions, fixed harness):** **43 ms** time-to-visible / **55 ms** input-ready — inside the predicted 40-80 ms band and ~3× jcode's 14 ms. Binary is **90 MB** (vs 123 MB SEA). PTY smoke test: paints, editor echoes input, version renders (build-time define), spawns the compiled core (model line ~412 ms). Core services unchanged, per plan.
+>
+> `bench_memory.py` now prefers `freecode-bun` → SEA → PATH; `Benchmark.md` updated with both rows. Same caveat as Phase 6: TUI shell only — the binary still spawns `apps/core/dist/server.js` from the repo / `FREECODE_ROOT`, so it is not yet a standalone distributable.
 
 ### Phase 8 (quality benchmark harnesses) — parallel to Phases 1-4
 
@@ -370,7 +376,7 @@ Independent of the external suites, track per-commit on your dev box:
 
 | Metric                                       | Baseline (est.) | Target after Phases 1-6      | jcode reference |
 | -------------------------------------------- | --------------- | ---------------------------- | --------------- |
-| Time to first frame                          | 1,100 ms        | <500 ms (SEA), <100 ms (Bun) | 14 ms           |
+| Time to first frame                          | 1,100 ms        | ✅ **71 ms (SEA), 43 ms (Bun)** — achieved 2026-07-13 | 14 ms           |
 | Extra PSS / session                          | 24.4 MB         | <15 MB                       | 9.9 MB          |
 | First-token latency (streaming)              | 800-1500 ms     | <250 ms                      | n/a             |
 | 3-read turn                                  | ~6 s            | ~2 s                         | n/a             |

@@ -130,25 +130,27 @@ def build_freecode_spec() -> ToolSpec:
     """Resolve a runnable freecode invocation.
 
     Order of preference:
-    1. SEA binary at <monorepo>/apps/tui/dist/freecode  (pnpm build:sea)
-    2. `freecode` on PATH
-    3. Built binary at <monorepo>/apps/tui/dist/index.js  (no tsx overhead)
-    4. `pnpm --filter @thisisayande/freecode dev` from the monorepo root
-    5. ~/.local/bin/freecode  (last-resort fallback)
+    1. Bun native binary at <monorepo>/apps/tui/dist/freecode-bun  (pnpm build:bun)
+    2. Node SEA binary at <monorepo>/apps/tui/dist/freecode  (pnpm build:sea)
+    3. `freecode` on PATH
+    4. Built binary at <monorepo>/apps/tui/dist/index.js  (no tsx overhead)
+    5. `pnpm --filter @thisisayande/freecode dev` from the monorepo root
+    6. ~/.local/bin/freecode  (last-resort fallback)
     """
     root = find_freecode_root()
     if root:
-        sea_binary = root / "apps/tui" / "dist" / "freecode"
-        if sea_binary.exists() and os.access(sea_binary, os.X_OK):
-            return ToolSpec(
-                name="freecode",
-                argv=[str(sea_binary)],
-                version_argv=[
-                    "node",
-                    "-p",
-                    f"require({json.dumps(str(root / FREECODE_PACKAGE_JSON_REL))}).version",
-                ],
-            )
+        for compiled_name in ("freecode-bun", "freecode"):
+            compiled = root / "apps/tui" / "dist" / compiled_name
+            if compiled.exists() and os.access(compiled, os.X_OK):
+                return ToolSpec(
+                    name="freecode",
+                    argv=[str(compiled)],
+                    version_argv=[
+                        "node",
+                        "-p",
+                        f"require({json.dumps(str(root / FREECODE_PACKAGE_JSON_REL))}).version",
+                    ],
+                )
 
     on_path = shutil_which("freecode")
     if on_path:
