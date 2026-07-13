@@ -28,6 +28,8 @@ pub struct App {
     pub status: Status,
     pub should_quit: bool,
     pub scroll: u16,
+    pub cwd: String,
+    pub tool_count: usize,
     in_progress: Option<usize>,
 }
 
@@ -41,8 +43,20 @@ impl App {
             status: Status::Idle,
             should_quit: false,
             scroll: 0,
+            cwd: String::new(),
+            tool_count: 0,
             in_progress: None,
         }
+    }
+
+    /// The turn number the composer is about to send (1-indexed), matching
+    /// how many user prompts have already gone out.
+    pub fn next_prompt_number(&self) -> usize {
+        self.messages
+            .iter()
+            .filter(|m| matches!(m.role, Role::User))
+            .count()
+            + 1
     }
 
     pub fn push_user(&mut self, content: String) {

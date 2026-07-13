@@ -136,3 +136,17 @@ pub struct SessionSendResult {
     #[serde(default)]
     pub content: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ToolListItem {
+    #[allow(dead_code)]
+    pub id: String,
+    #[allow(dead_code)]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CurrentModel {
+    pub provider: String,
+    pub model: String,
+}

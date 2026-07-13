@@ -15,8 +15,8 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::protocol::{
-    parse_line, IncomingLine, JsonRpcRequest, ProviderInfo, SessionConfig, SessionInfo,
-    SessionSendResult, StreamEvent,
+    parse_line, CurrentModel, IncomingLine, JsonRpcRequest, ProviderInfo, SessionConfig,
+    SessionInfo, SessionSendResult, StreamEvent, ToolListItem,
 };
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
@@ -107,11 +107,23 @@ impl IpcClient {
             }
         });
 
+        // eprintln! here would write straight to the real terminal underneath
+        // the alternate screen and corrupt the TUI's rendering, so core's
+        // stderr goes to a log file instead of the live display.
         if let Some(stderr) = stderr {
             tokio::spawn(async move {
+                let log_path = env::temp_dir().join("freecode-tui-core.log");
+                let mut log_file = tokio::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path)
+                    .await
+                    .ok();
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    eprintln!("[core stderr] {line}");
+                    if let Some(file) = log_file.as_mut() {
+                        let _ = file.write_all(format!("{line}\n").as_bytes()).await;
+                    }
                 }
             });
         }
@@ -151,6 +163,22 @@ impl IpcClient {
     pub async fn providers_list(&self) -> Result<Vec<ProviderInfo>> {
         let value = self.call("providers.list", None).await?;
         Ok(serde_json::from_value(value)?)
+    }
+
+    pub async fn tools_list(&self) -> Result<Vec<ToolListItem>> {
+        let value = self.call("tools.list", None).await?;
+        Ok(serde_json::from_value(value)?)
+    }
+
+    /// The provider/model actually configured for use (`config.getCurrentModel`
+    /// on the core), as opposed to `providers_list`'s catalog of what's
+    /// available. Returns `Ok(None)` when nothing has been configured yet.
+    pub async fn current_model(&self) -> Result<Option<CurrentModel>> {
+        let value = self.call("config.getCurrentModel", None).await?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::from_value(value)?))
     }
 
     pub async fn session_start(&self, config: SessionConfig) -> Result<SessionInfo> {

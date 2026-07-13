@@ -54,17 +54,22 @@ async fn run(
     input.set_placeholder_text("Type a message, Enter to send, Esc to quit");
 
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
-    match client.session_start(SessionConfig { project_path: cwd, provider: None }).await {
+    app.cwd = cwd.clone();
+    match client
+        .session_start(SessionConfig { project_path: cwd, provider: None })
+        .await
+    {
         Ok(info) => {
             app.session_id = Some(info.session_id);
-            app.push_system("session started".into());
         }
         Err(err) => app.push_system(format!("failed to start session: {err}")),
     }
-    if let Ok(providers) = client.providers_list().await {
-        if let Some(first) = providers.first() {
-            app.provider = first.name.clone();
-        }
+    if let Ok(Some(current)) = client.current_model().await {
+        app.provider = current.provider;
+        app.model = current.model;
+    }
+    if let Ok(tools) = client.tools_list().await {
+        app.tool_count = tools.len();
     }
 
     let mut crossterm_events = EventStream::new();
