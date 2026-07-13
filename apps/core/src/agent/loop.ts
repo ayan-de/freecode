@@ -32,9 +32,14 @@ import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 import { Effect } from "effect";
-import { createToolOrchestrator, listTools, getTool } from "../tools/index.js";
+import { createToolOrchestrator, getTool } from "../tools/index.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
+import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
+import {
+  getProjectContext,
+  invalidateProjectContext,
+} from "../context/tree-cache.js";
 import { MemoryService, renderPromptMemoryContext } from "../memory/index.js";
 import { getProvider } from "../providers/index.js";
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
@@ -359,18 +364,8 @@ export class AgentLoop {
     usage?: { inputTokens: number; outputTokens: number };
   }> {
     try {
-      // Get tools for prompt compilation
-      const tools = listTools().map((t) => {
-        const toolDef = getTool(t.id);
-        return {
-          name: t.id,
-          description: t.description,
-          parameters: (toolDef?.schemas.parameters ?? {
-            type: "object",
-            properties: {},
-          }) as unknown as Record<string, unknown>,
-        };
-      });
+      // Get tools for prompt compilation (cached; invalidated on tool/MCP change)
+      const tools = getToolDefs();
 
       // Build system prompt blocks using compiler
       const memoryContext = renderPromptMemoryContext(
@@ -651,17 +646,7 @@ export class AgentLoop {
     streamed?: boolean;
   }> {
     const aiProvider = getProvider(provider as any);
-    const tools = listTools().map((t) => {
-      const toolDef = getTool(t.id);
-      return {
-        name: t.id,
-        description: t.description,
-        parameters: (toolDef?.schemas.parameters ?? {
-          type: "object",
-          properties: {},
-        }) as unknown as Record<string, unknown>,
-      };
-    });
+    const tools = getToolDefs();
 
     // Prefer streaming when the provider supports it AND we have a listener.
     // If either is missing, fall back to the one-shot execute() path so callers
@@ -966,10 +951,16 @@ export class AgentLoop {
       abort: this.abort.signal,
     };
 
+    // Mutating tools invalidate the cached project file tree — even on
+    // failure, since a crashed bash/edit may have already changed files.
+    const isMutating = getTool(toolCall.tool)?.behavior?.isDestructive === true;
+
     let result: ToolResult;
     try {
       result = await this.orchestrator.execute(toolCall, context);
+      if (isMutating) invalidateProjectContext(this.state.projectPath);
     } catch (error) {
+      if (isMutating) invalidateProjectContext(this.state.projectPath);
       // PostToolUseFailure Hook — handle tool execution error
       const failureResult = await this.hooks.runPostToolUseFailure(
         toolCall,
@@ -1050,7 +1041,9 @@ export class AgentLoop {
 
   // ===========================================================================
   // PRIVATE: collectContext()
-  // Gather project context (name, path, file tree, git head)
+  // Gather project context (name, path, file tree, git head) — served from
+  // the per-project cache (context/tree-cache.ts); the loop invalidates it
+  // after any mutating tool completes.
   // ===========================================================================
   private async collectContext(
     projectPath: string,
@@ -1065,34 +1058,7 @@ export class AgentLoop {
     error?: string;
   }> {
     try {
-      const fs = await import("fs");
-      const path = await import("path");
-      const { execSync } = await import("child_process");
-
-      const name = path.basename(projectPath);
-      let tree = "";
-      let gitHead = "";
-
-      if (fs.existsSync(projectPath)) {
-        const entries = fs.readdirSync(projectPath, { withFileTypes: true });
-        tree = entries
-          .map((e) => `  ${e.isDirectory() ? "📁" : "📄"} ${e.name}`)
-          .join("\n");
-      }
-
-      // Get git HEAD for cache invalidation
-      try {
-        gitHead = execSync("git rev-parse HEAD 2>/dev/null", {
-          cwd: projectPath,
-          encoding: "utf8",
-        })
-          .trim()
-          .slice(0, 8);
-      } catch {
-        gitHead = "no-git";
-      }
-
-      return { success: true, value: { name, projectPath, tree, gitHead } };
+      return { success: true, value: getProjectContext(projectPath) };
     } catch (error) {
       return { success: false, error: String(error) };
     }

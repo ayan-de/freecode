@@ -227,13 +227,15 @@ Ship in this order. Each phase produces a shippable, measurable improvement.
 - ✅ `SessionError` on the Bus when recovery exhausts — test subscribes to `session.error` and asserts the exhaustion event (the `/internal` diagnostics *page* for these events is part of §7 web docs work, not this phase).
 - ✅ No regressions — 40/44 tests pass (7 new recovery tests); the 4 failures are the same pre-existing ones. Typecheck clean, compiled `dist/server.js` smoke-tested.
 
-### Phase 5 — Caching (nice-to-have, 1-2 days)
+### Phase 5 — Caching (nice-to-have, 1-2 days) ✅ (2026-07-13)
 
-- Cache tool list per session (invalidate on skill/MCP change)
-- Cache file tree as `{ contentHash, tree }` — invalidate only on `Write` / `Edit` / `Bash` (mutating)
-- Cache compiled system prompt blocks — invalidate on tool/skill change
+- ✅ Cache tool list per session (invalidate on skill/MCP change) — `tools/defs-cache.ts` (new): memoized provider-facing tool defs, invalidated by Bus `tools.changed` / `mcp.tools.changed`. Previously rebuilt **twice per turn** (prompt compile + provider send); both `loop.ts` call sites now hit the cache.
+- ✅ Cache file tree — `context/tree-cache.ts` (new): `{ name, tree, gitHead }` per project. The loop invalidates after any **mutating tool** (`behavior.isDestructive`, i.e. write/edit/bash/agent — including on thrown errors, since a crashed bash may have already changed files), with a 5-min TTL safety net for edits made outside the agent. This removes the per-message `readdirSync` + `git rev-parse` execSync from `collectContext()`. **Deviation:** keyed on projectPath with event-driven invalidation instead of a content hash — hashing the tree to detect staleness would cost the same fs walk the cache exists to avoid.
+- ✅ Compiled system prompt blocks invalidate on tool/skill change — `PromptCompiler` already had TTL section caches (tool schema 1h, tree section 5min); the defs-cache invalidation now also clears them, adding the event-driven path the spec asked for.
 
-Expected win: ~30% token savings, 10-15% latency.
+Expected win: ~30% token savings, 10-15% latency. *(Not yet measured on a real turn — the internal micro-bench from §5.3 is the right harness; token savings mostly come from provider-side prompt caching of the stable `cache: true` block, which streaming providers already receive.)*
+
+**Verification:** 4 new unit tests (`defs-cache.test.ts`: memoization + bus invalidation; `tree-cache.test.ts`: cached tree served until invalidated, global clear). 44/48 suite pass — same 4 pre-existing failures. Typecheck clean, compiled server smoke-tested.
 
 ### Phase 6 — Cold-start via Node SEA (1-2 days)
 
