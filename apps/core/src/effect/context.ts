@@ -15,6 +15,7 @@ import type { MemoryService } from "../memory/service.js";
 import type { RolloutRecorder } from "../rollout/recorder.js";
 import type { AIProvider, ProviderInfo } from "../providers/types.js";
 import type { SessionManager } from "../session/manager.js";
+import type { RecoveryManager } from "../agent/recovery/manager.js";
 
 // The bus module exports a singleton instance, not its class — type via typeof.
 export type BusService = typeof import("../bus/index.js").bus;
@@ -75,6 +76,11 @@ export class SessionManagerTag extends Context.Tag("freecode/SessionManager")<
   SessionManager
 >() {}
 
+export class RecoveryManagerTag extends Context.Tag("freecode/RecoveryManager")<
+  RecoveryManagerTag,
+  RecoveryManager
+>() {}
+
 // Union of everything AppLayerLive provides — the R type of the app runtime.
 export type AppServices =
   | HookRuntimeTag
@@ -84,4 +90,5 @@ export type AppServices =
   | ProviderRegistryTag
   | MemoryFactoryTag
   | RecorderFactoryTag
-  | SessionManagerTag;
+  | SessionManagerTag
+  | RecoveryManagerTag;

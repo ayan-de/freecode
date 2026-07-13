@@ -16,6 +16,7 @@ import type { ToolCall, ToolResult } from "../agent/types.js";
 import { getTool, type ToolContext } from "./index.js";
 import { isToolAllowed, type PermissionProfile } from "../permission/index.js";
 import type { Tool } from "./tool.types.js";
+import { isTransientError } from "../agent/recovery/manager.js";
 
 // Max output length for model (truncation to save tokens)
 const MAX_MODEL_OUTPUT_CHARS = 500;
@@ -222,12 +223,35 @@ export function createToolOrchestrator(
         };
       }
 
-      // 4. Execute
+      // 4. Execute — with the Phase 4 tool retry rule: non-mutating tools
+      // (isDestructive=false) retry a transient failure once; mutating tools
+      // never retry (re-running a write/edit/bash is not safe).
+      const maxAttempts = toolDef.behavior?.isDestructive === false ? 2 : 1;
+      let attempt = 0;
       try {
-        const execResult = await toolDef.execute(
-          args as Record<string, unknown>,
-          ctx,
-        );
+        let execResult;
+        for (;;) {
+          attempt++;
+          try {
+            execResult = await toolDef.execute(
+              args as Record<string, unknown>,
+              ctx,
+            );
+            break;
+          } catch (err) {
+            if (
+              attempt >= maxAttempts ||
+              !isTransientError(err) ||
+              ctx.abort?.aborted
+            ) {
+              throw err;
+            }
+            console.warn(
+              `[Orchestrator] Tool ${tool} transient failure (attempt ${attempt}/${maxAttempts}); retrying`,
+            );
+            await new Promise((r) => setTimeout(r, 200 * attempt));
+          }
+        }
         // Handle ToolExecutionResult discriminated union
         if (!execResult.success) {
           return {

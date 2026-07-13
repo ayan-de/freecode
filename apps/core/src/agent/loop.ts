@@ -51,7 +51,12 @@ import {
   SessionStoreTag,
   MemoryFactoryTag,
   RecorderFactoryTag,
+  RecoveryManagerTag,
 } from "../effect/context.js";
+import {
+  createRecoveryManagerFromConfig,
+  type RecoveryManager,
+} from "./recovery/manager.js";
 
 // =============================================================================
 // AgentLoop Config
@@ -68,6 +73,7 @@ export interface AgentLoopConfig {
   sessionStore?: SessionStore;
   memory?: MemoryService;
   orchestrator?: ToolOrchestrator;
+  recovery?: RecoveryManager;
 }
 
 // =============================================================================
@@ -86,6 +92,7 @@ export class AgentLoop {
   private hooks: HookRuntime;
   private recorder: RolloutRecorder;
   private orchestrator: ToolOrchestrator;
+  private recovery: RecoveryManager;
   private sessionStore: SessionStore | undefined;
   private onToolEvent: ((event: StreamEvent) => void) | undefined;
   private lastThinking: string | undefined;
@@ -109,6 +116,7 @@ export class AgentLoop {
     this.hooks = config?.hooks ?? createHookRuntime();
     this.recorder = config?.recorder ?? createRecorder(sessionId);
     this.orchestrator = config?.orchestrator ?? createToolOrchestrator();
+    this.recovery = config?.recovery ?? createRecoveryManagerFromConfig();
     this.compiler = new PromptCompiler("", "");
     this.sessionStore = config?.sessionStore;
   }
@@ -590,12 +598,46 @@ export class AgentLoop {
 
   // ===========================================================================
   // PRIVATE: sendToProvider()
-  // Send prompt to AI provider via provider adapter
+  // Send prompt to AI provider via provider adapter, wrapped in recovery:
+  // transient errors (429/5xx/network timeout) retry with backoff, hard
+  // failures fall through to the config-driven fallback provider chain.
   // ===========================================================================
   private async sendToProvider(
     messages: Message[],
     system: SystemBlock[],
     provider: string,
+    model: string | undefined,
+  ): Promise<{
+    content: string;
+    thinking?: string;
+    toolCalls?: Array<{
+      name: string;
+      args: Record<string, unknown>;
+      id: string;
+    }>;
+    usage?: { inputTokens: number; outputTokens: number };
+    streamed?: boolean;
+  }> {
+    return this.recovery.callProvider(
+      provider,
+      // Fallback providers get their own default model — the configured model
+      // id is specific to the primary provider.
+      (p) =>
+        this.callProviderOnce(
+          p,
+          messages,
+          system,
+          p === provider ? model : undefined,
+        ),
+      { sessionId: this.state.sessionId, signal: this.abort.signal },
+    );
+  }
+
+  // One un-recovered provider attempt (streaming preferred, execute fallback).
+  private async callProviderOnce(
+    provider: string,
+    messages: Message[],
+    system: SystemBlock[],
     model: string | undefined,
   ): Promise<{
     content: string;
@@ -1370,6 +1412,7 @@ export const createAgentLoopEffect = (
   | SessionStoreTag
   | MemoryFactoryTag
   | RecorderFactoryTag
+  | RecoveryManagerTag
 > =>
   Effect.gen(function* () {
     const hooks = yield* HookRuntimeTag;
@@ -1377,6 +1420,7 @@ export const createAgentLoopEffect = (
     const sessionStore = yield* SessionStoreTag;
     const memoryFactory = yield* MemoryFactoryTag;
     const recorderFactory = yield* RecorderFactoryTag;
+    const recovery = yield* RecoveryManagerTag;
 
     return new AgentLoop(sessionId, {
       ...config,
@@ -1385,5 +1429,6 @@ export const createAgentLoopEffect = (
       sessionStore,
       memory: memoryFactory.forSession(sessionId),
       recorder: recorderFactory.forSession(sessionId),
+      recovery,
     });
   });

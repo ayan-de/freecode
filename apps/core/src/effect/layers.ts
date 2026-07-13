@@ -25,6 +25,11 @@ import { getProvider, listProviders } from "../providers/registry.js";
 import type { ProviderId } from "../providers/config.js";
 import { createSessionManager } from "../session/manager.js";
 import {
+  createRecoveryManager,
+  createRecoveryManagerFromConfig,
+  type RecoveryManager,
+} from "../agent/recovery/manager.js";
+import {
   HookRuntimeTag,
   ToolOrchestratorTag,
   SessionStoreTag,
@@ -33,6 +38,7 @@ import {
   MemoryFactoryTag,
   RecorderFactoryTag,
   SessionManagerTag,
+  RecoveryManagerTag,
   type MemoryFactory,
   type RecorderFactory,
   type ProviderRegistry,
@@ -92,6 +98,10 @@ export const SessionManagerLive = Layer.effect(
   Effect.map(SessionStoreTag, (store) => createSessionManager(store)),
 ).pipe(Layer.provide(SessionStoreLive));
 
+export const RecoveryManagerLive = Layer.sync(RecoveryManagerTag, () =>
+  createRecoveryManagerFromConfig(),
+);
+
 // Full production graph. Layers are memoized by reference, so SessionStoreLive
 // and HookRuntimeLive build exactly once even though they appear twice.
 export const AppLayerLive = Layer.mergeAll(
@@ -103,6 +113,7 @@ export const AppLayerLive = Layer.mergeAll(
   MemoryFactoryLive,
   RecorderFactoryLive,
   SessionManagerLive,
+  RecoveryManagerLive,
 );
 
 // =============================================================================
@@ -116,6 +127,7 @@ export interface TestLayerOverrides {
   memoryFactory?: MemoryFactory;
   recorderFactory?: RecorderFactory;
   providerRegistry?: ProviderRegistry;
+  recoveryManager?: RecoveryManager;
 }
 
 // In-memory MemoryStorage so tests never touch .freecode-memory on disk.
@@ -171,6 +183,12 @@ export function makeTestLayer(overrides: TestLayerOverrides = {}) {
     sessionStoreLayer,
     Layer.succeed(MemoryFactoryTag, memoryFactory),
     Layer.succeed(RecorderFactoryTag, recorderFactory),
+    Layer.succeed(
+      RecoveryManagerTag,
+      // No fallbacks by default — tests opt in explicitly.
+      overrides.recoveryManager ??
+        createRecoveryManager({ fallbackProviders: [] }),
+    ),
     Layer.effect(
       SessionManagerTag,
       Effect.map(SessionStoreTag, (store) => createSessionManager(store)),

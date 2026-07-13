@@ -207,7 +207,7 @@ Ship in this order. Each phase produces a shippable, measurable improvement.
 - ✅ Test setup can inject a mock `MemoryService` without patching globals — `makeTestLayer({ memoryFactory })` + `createAgentLoopEffect`; test asserts the injected instance saw both user and assistant messages.
 - ✅ No behavioural regression on smoke tests — full suite: 33/37 pass; the 4 failures (session summary ×3, MCP convert-tool) are pre-existing and identical before/after. Compiled `dist/server.js` smoke-tested over JSON-RPC (`session.start` resolves its store through the runtime).
 
-### Phase 4 — RecoveryManager (1-2 days, requires Phase 3)
+### Phase 4 — RecoveryManager (1-2 days, requires Phase 3) ✅ (2026-07-13)
 
 **Files:** `apps/core/src/agent/recovery/manager.ts` (new), `apps/core/src/agent/loop.ts`, `apps/core/src/tools/orchestrator.ts`, `apps/core/src/providers/*`
 
@@ -215,16 +215,17 @@ Ship in this order. Each phase produces a shippable, measurable improvement.
 
 **Implementation:**
 
-1. `RecoveryPolicy` type per spec (`docs/superpowers/specs/2026-05-25-agent-loop.md:475-545`).
-2. Wrap provider calls in `Effect.retry` w/ exponential backoff on: HTTP 429, HTTP 5xx, network timeouts.
-3. Provider fallback chain: primary → secondary on hard failure (config-driven).
-4. Tool retry rules — network tools retry, mutating tools don't.
-5. Emit `SessionError` on Bus when recovery exhausts.
+1. ✅ `RecoveryPolicy` type per spec (`docs/superpowers/specs/2026-05-25-agent-loop.md:475-545`), plus error classification that covers all three real error shapes: AI SDK `APICallError.statusCode`, MiniMax `"API error <status>"` messages, and Node network codes (`ECONNRESET`/`ECONNREFUSED`/`ETIMEDOUT`/undici), including nested `cause.code`.
+2. ✅ Provider calls retried with exponential backoff via an Effect-based retry loop — per-error-class policies (429: 5 attempts from 5s; other transient: 3 attempts from 1s; capped at 30s). **Deviation:** implemented as an `Effect.gen` retry loop rather than literal `Effect.retry` + `Schedule`, because policy selection is per-error (a 429 and an ECONNRESET in the same call use different budgets/delays) which a single static Schedule can't express. Backoff sleeps are abort-aware — a Ctrl+C during a 5s 429 delay cancels immediately and never triggers fallback.
+3. ✅ Fallback chain config-driven: `~/.freecode/config.json` → `recovery.fallbackProviders: [...]` (`Config` interface extended). Fatal errors (401/4xx) skip the retry budget and go straight to the next provider; fallback providers use their own default model. Wired through DI as `RecoveryManagerTag` (+ `RecoveryManagerLive`, test-layer override slot, `createAgentLoopEffect`).
+4. ✅ Tool retry rules in `orchestrator.execute`: non-mutating tools (`behavior.isDestructive === false`) retry one transient failure with a short fixed delay; mutating tools never retry.
+5. ✅ `BusEvents.sessionError` emitted when the retry budget and full fallback chain exhaust, naming every provider tried.
 
 **Success criteria:**
-- Injected 429 storm survives (retries kick in, session continues)
-- Provider outage triggers fallback within 2 attempts
-- `SessionError` events visible in `/internal` diagnostics
+- ✅ Injected 429 storm survives — unit test (3×429 then success) and loop-level e2e test (`agent loop session continues through a 429 storm`) both green.
+- ✅ Provider outage triggers fallback within 2 attempts — test asserts attempt sequence `[primary, primary, secondary]` with `maxAttempts: 2`.
+- ✅ `SessionError` on the Bus when recovery exhausts — test subscribes to `session.error` and asserts the exhaustion event (the `/internal` diagnostics *page* for these events is part of §7 web docs work, not this phase).
+- ✅ No regressions — 40/44 tests pass (7 new recovery tests); the 4 failures are the same pre-existing ones. Typecheck clean, compiled `dist/server.js` smoke-tested.
 
 ### Phase 5 — Caching (nice-to-have, 1-2 days)
 
@@ -424,7 +425,7 @@ The "Current known deviations from spec" list is out of date. Update:
 - ~~No rollout/event sourcing~~ → **shipped**
 - ~~No thread store~~ → **shipped (SQLite + JSON)**
 - ~~No MCP server~~ → **MCP client shipped; remote server deferred**
-- **Effect/layers.ts is only loop-health evaluator, not full DI** → still true, addressed in Phase 3
+- ~~Effect/layers.ts is only loop-health evaluator, not full DI~~ → **shipped in Phase 3** (context/layers/runtime + DI-constructed AgentLoop; evaluator moved to `effect/loop-health.ts`)
 
 ---
 
@@ -438,8 +439,8 @@ Two parallel tracks. Perf phases (1→4) are code refactors; quality phases (8) 
 2. Capture baseline: internal micro-bench + first jcode-comparison numbers — half a day.
 3. ✅ **Phase 1** — parallel tool batching. Code + tests landed (see §3 Phase 1). Awaiting real-turn benchmark to confirm the expected 2-3× multi-read speedup.
 4. ✅🟡 **Phase 2** — true streaming. Backend (providers + loop) landed; TUI + VSCode client `text_delta` handling still pending. See §3 Phase 2.
-5. **Phase 3** — Effect / Layer DI.
-6. **Phase 4** — RecoveryManager.
+5. ✅ **Phase 3** — Effect / Layer DI. Landed 2026-07-13 (see §3 Phase 3).
+6. ✅ **Phase 4** — RecoveryManager. Landed 2026-07-13 (see §3 Phase 4).
 7. **Phase 6** — Node SEA cold-start (after everything else is stable).
 
 **Track B — Quality benchmarks (parallelisable with Track A):**

@@ -17,6 +17,11 @@ export interface Config {
     provider: string;
     model: string;
   };
+  // Phase 4 recovery: providers to fall back to (in order) when the current
+  // provider exhausts its retry budget or hits a fatal error.
+  recovery?: {
+    fallbackProviders?: string[];
+  };
 }
 
 function ensureConfigDir(): void {
