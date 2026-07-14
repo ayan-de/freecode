@@ -12,7 +12,7 @@ use crate::app::{App, Role, Status};
 /// All layout, styling, and rendering lives here — this is the file to
 /// gut when designing the real look. Nothing in app.rs or ipc/ depends
 /// on how a frame is drawn.
-pub fn draw(frame: &mut Frame, app: &App, input: &TextArea) {
+pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -129,52 +129,73 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-fn draw_messages(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
+    let mut user_turn = 0usize;
     for msg in &app.messages {
-        let (label, color) = match msg.role {
-            Role::User => ("›", Color::Cyan),
-            Role::Assistant => ("●", Color::Green),
-            Role::System => ("·", Color::DarkGray),
-        };
-        lines.push(Line::from(Span::styled(
-            label.to_string(),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )));
-
-        // Reasoning phase, "Thinking..." over dim-yellow rules.
-        if !msg.thinking.is_empty() {
-            lines.push(Line::from(Span::styled(
-                "Thinking…",
-                Style::default().fg(Color::Yellow),
-            )));
-            let think = Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::DIM);
-            for line in msg.thinking.lines() {
-                lines.push(Line::from(vec![
-                    Span::styled("  │ ", think),
-                    Span::styled(line.to_string(), think),
-                ]));
+        match msg.role {
+            // User prompts render inline as "N> text" on a dark-grey bar,
+            // mirroring the composer's "N>" prompt so the turn persists.
+            Role::User => {
+                user_turn += 1;
+                let bg = Style::default().bg(Color::Rgb(60, 60, 60)).fg(Color::White);
+                let prefix = format!("{user_turn}> ");
+                let pad = " ".repeat(prefix.chars().count());
+                let mut first = true;
+                for line in msg.content.lines() {
+                    let head = if first { &prefix } else { &pad };
+                    lines.push(Line::from(Span::styled(format!("{head}{line}"), bg)));
+                    first = false;
+                }
             }
-            lines.push(Line::from(""));
-        }
-
-        // System notes stay plain/dim; everything else renders as markdown.
-        if matches!(msg.role, Role::System) {
-            for line in msg.content.lines() {
-                lines.push(Line::from(Span::styled(line.to_string(), dim())));
+            Role::System => {
+                lines.push(Line::from(Span::styled("·", dim())));
+                for line in msg.content.lines() {
+                    lines.push(Line::from(Span::styled(line.to_string(), dim())));
+                }
             }
-        } else {
-            lines.extend(markdown::render(&msg.content));
+            Role::Assistant => {
+                lines.push(Line::from(Span::styled(
+                    "●",
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )));
+
+                // Reasoning phase, "Thinking..." over dim-yellow rules.
+                if !msg.thinking.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        "Thinking…",
+                        Style::default().fg(Color::Yellow),
+                    )));
+                    let think = Style::default().fg(Color::Yellow).add_modifier(Modifier::DIM);
+                    for line in msg.thinking.lines() {
+                        lines.push(Line::from(vec![
+                            Span::styled("  │ ", think),
+                            Span::styled(line.to_string(), think),
+                        ]));
+                    }
+                    lines.push(Line::from(""));
+                }
+
+                lines.extend(markdown::render(&msg.content));
+            }
         }
         lines.push(Line::from(""));
     }
 
-    let paragraph = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .scroll((app.scroll, 0));
-    frame.render_widget(paragraph, area);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+
+    // Clamp scroll to the real wrapped height; follow the bottom until the
+    // user scrolls away, and re-arm follow once they scroll back down to it.
+    let total = paragraph.line_count(area.width) as u16;
+    let max = total.saturating_sub(area.height);
+    if app.follow {
+        app.scroll = max;
+    } else if app.scroll >= max {
+        app.scroll = max;
+        app.follow = true;
+    }
+
+    frame.render_widget(paragraph.scroll((app.scroll, 0)), area);
 }
 
 /// Cycles the input prompt's number through a small palette so the composer

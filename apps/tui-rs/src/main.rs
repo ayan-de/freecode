@@ -8,7 +8,7 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind,
-    KeyModifiers,
+    KeyModifiers, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -76,7 +76,7 @@ async fn run(
     let mut tick = interval(Duration::from_millis(100));
 
     loop {
-        terminal.draw(|frame| ui::draw(frame, &app, &input))?;
+        terminal.draw(|frame| ui::draw(frame, &mut app, &input))?;
 
         tokio::select! {
             maybe_event = crossterm_events.next() => {
@@ -109,6 +109,14 @@ async fn handle_terminal_event(
     input: &mut TextArea<'_>,
     client: &Arc<IpcClient>,
 ) -> Result<bool> {
+    if let Event::Mouse(mouse) = &event {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => app.scroll_up(3),
+            MouseEventKind::ScrollDown => app.scroll_down(3),
+            _ => {}
+        }
+        return Ok(false);
+    }
     if let Event::Key(key) = &event {
         if key.kind != KeyEventKind::Press {
             return Ok(false);
@@ -117,6 +125,14 @@ async fn handle_terminal_event(
             (KeyCode::Esc, _) => {
                 app.should_quit = true;
                 return Ok(true);
+            }
+            (KeyCode::PageUp, _) => {
+                app.scroll_up(10);
+                return Ok(false);
+            }
+            (KeyCode::PageDown, _) => {
+                app.scroll_down(10);
+                return Ok(false);
             }
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                 app.should_quit = true;

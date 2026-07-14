@@ -31,6 +31,9 @@ pub struct App {
     pub status: Status,
     pub should_quit: bool,
     pub scroll: u16,
+    /// When true the transcript sticks to the bottom as new content streams in;
+    /// scrolling up releases it, scrolling back to the bottom re-arms it.
+    pub follow: bool,
     pub cwd: String,
     pub tool_count: usize,
     in_progress: Option<usize>,
@@ -46,6 +49,7 @@ impl App {
             status: Status::Idle,
             should_quit: false,
             scroll: 0,
+            follow: true,
             cwd: String::new(),
             tool_count: 0,
             in_progress: None,
@@ -62,7 +66,20 @@ impl App {
             + 1
     }
 
+    /// Scroll the transcript up by `n` rows, releasing bottom-follow.
+    pub fn scroll_up(&mut self, n: u16) {
+        self.follow = false;
+        self.scroll = self.scroll.saturating_sub(n);
+    }
+
+    /// Scroll down by `n` rows. The draw pass clamps to the real bottom and
+    /// re-arms follow once we reach it.
+    pub fn scroll_down(&mut self, n: u16) {
+        self.scroll = self.scroll.saturating_add(n);
+    }
+
     pub fn push_user(&mut self, content: String) {
+        self.follow = true;
         self.messages.push(ChatMessage {
             role: Role::User,
             content,
