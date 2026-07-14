@@ -54,42 +54,6 @@ export interface ToolListItem {
 }
 
 // =============================================================================
-// File Change Types
-// =============================================================================
-
-export type FileChangeAction = "create" | "update" | "delete";
-
-export interface FileChange {
-  path: string;
-  action: FileChangeAction;
-  content?: string;
-  diff?: string;
-}
-
-export interface DiffResult {
-  path: string;
-  action: FileChangeAction;
-  diff: string;
-  success: boolean;
-  error?: string;
-}
-
-// =============================================================================
-// Parser Types
-// =============================================================================
-
-export interface ParsedResponse {
-  success: boolean;
-  response?: {
-    summary: string;
-    changes: FileChange[];
-    raw: string;
-    parserUsed: string;
-  };
-  error?: string;
-}
-
-// =============================================================================
 // Provider Types
 // =============================================================================
 
