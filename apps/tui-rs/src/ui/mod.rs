@@ -198,35 +198,30 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(paragraph.scroll((app.scroll, 0)), area);
 }
 
-/// Cycles the input prompt's number through a small palette so the composer
-/// visibly changes color turn over turn instead of staying one flat color.
-fn prompt_color(turn: usize) -> Color {
-    const PALETTE: [Color; 5] = [
-        Color::Cyan,
-        Color::Magenta,
-        Color::Yellow,
-        Color::Green,
-        Color::Blue,
-    ];
-    PALETTE[turn.saturating_sub(1) % PALETTE.len()]
-}
-
 fn draw_input(frame: &mut Frame, app: &App, input: &TextArea, area: Rect) {
     let next_prompt = app.next_prompt_number();
-    let label = format!("{next_prompt}> ");
-    let prefix_width = label.chars().count() as u16;
+    let number = next_prompt.to_string();
+    let prefix_width = (number.chars().count() + 2) as u16;
 
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(prefix_width), Constraint::Min(1)])
         .split(area);
 
-    let prompt = Paragraph::new(Line::from(Span::styled(
-        label,
-        Style::default()
-            .fg(prompt_color(next_prompt))
-            .add_modifier(Modifier::BOLD),
-    )));
+    let prompt = Paragraph::new(Line::from(vec![
+        Span::styled(
+            number,
+            Style::default()
+                .fg(Color::Rgb(255, 105, 180))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "> ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]));
     frame.render_widget(prompt, chunks[0]);
     frame.render_widget(input, chunks[1]);
 }
