@@ -46,7 +46,6 @@ import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
 import { bus, BusEvents } from "../bus/index.js";
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js";
-import { loadProviderPrompt } from "../session/prompt.js";
 import { type SessionStore, type SerializedMessage } from "../session/store.js";
 import { getInterruptHandler } from "../session/interrupt.js";
 import { PromptCompiler } from "../context/compiler.js";

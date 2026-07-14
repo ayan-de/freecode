@@ -15,9 +15,9 @@ const __dirname = path.dirname(__filename);
 const PROMPT_FILES: Record<string, string> = {
   // Order matters - more specific patterns first
   claude: "anthropic.txt",
+  chatgpt: "chatgpt.txt",
   "gpt-4": "gpt.txt",
   gpt: "openai.txt",
-  chatgpt: "chatgpt.txt",
   gemini: "gemini.txt",
   default: "default.txt", // fallback
 };
