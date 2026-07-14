@@ -41,3 +41,21 @@ test("a forwarded lifecycle event keeps its type and payload", () => {
   } as any);
   assert.equal(out?.type, "subagent.started");
 });
+
+test("a stream relay event is unwrapped to its inner StreamEvent", () => {
+  const inner = { type: "text_delta", delta: "hi" } as const;
+  const out = busEventToClientEvent({
+    type: "stream",
+    sessionId: "s1",
+    event: inner,
+  } as any);
+  assert.deepEqual(out, inner);
+});
+
+test("redundant bus tool.called/tool.completed are dropped", () => {
+  assert.equal(busEventToClientEvent({ type: "tool.called" } as any), undefined);
+  assert.equal(
+    busEventToClientEvent({ type: "tool.completed" } as any),
+    undefined,
+  );
+});

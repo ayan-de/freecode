@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { EventEmitter } from "events";
+import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 // ============================================================================
 // Event Definitions
@@ -150,10 +151,24 @@ export interface MCPServerErrorEvent {
 }
 
 // ============================================================================
+// Stream Relay Event
+// Transports a per-session StreamEvent (turn output: text/thinking/tool
+// deltas) over the bus so it shares the single frontend egress. The bus is
+// only the carrier — StreamEvent remains the wire language.
+// ============================================================================
+
+export interface StreamRelayEvent {
+  type: "stream";
+  sessionId: string;
+  event: StreamEvent;
+}
+
+// ============================================================================
 // Union of all Bus Events
 // ============================================================================
 
 export type BusEvent =
+  | StreamRelayEvent
   | SessionCreatedEvent
   | SessionUpdatedEvent
   | SessionErrorEvent
@@ -291,6 +306,9 @@ export function rejectQuestion(requestId: string): void {
 // ============================================================================
 
 export const BusEvents = {
+  stream: (sessionId: string, event: StreamEvent) =>
+    bus.publish({ type: "stream", sessionId, event } as StreamRelayEvent),
+
   sessionCreated: (sessionId: string, projectPath: string) =>
     bus.publish({
       type: "session.created",

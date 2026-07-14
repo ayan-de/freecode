@@ -7,12 +7,22 @@
 import type { BusEvent } from "./index.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 
-const INTERNAL_ONLY = new Set(["tools.changed", "mcp.tools.changed"]);
+const INTERNAL_ONLY = new Set([
+  "tools.changed",
+  "mcp.tools.changed",
+  // Redundant with the stream tool_start/tool_complete events (the loop's
+  // authoritative tool lifecycle); dropped so tools are never double-emitted.
+  "tool.called",
+  "tool.completed",
+]);
 
 export function busEventToClientEvent(
   event: BusEvent,
 ): StreamEvent | undefined {
   if (INTERNAL_ONLY.has(event.type)) return undefined;
+
+  // The bus is only a carrier for stream events — unwrap to the wire language.
+  if (event.type === "stream") return event.event;
 
   if (event.type === "question.asked") {
     return {
