@@ -254,6 +254,21 @@ export async function sessionSendStreaming(
 }
 
 // =============================================================================
+// Question Reply Methods
+// =============================================================================
+
+export async function answerQuestion(
+  requestId: string,
+  answers: string[],
+): Promise<void> {
+  await sendRequest("question.answer", { requestId, answers });
+}
+
+export async function rejectQuestion(requestId: string): Promise<void> {
+  await sendRequest("question.reject", { requestId });
+}
+
+// =============================================================================
 // Provider Methods
 // =============================================================================
 

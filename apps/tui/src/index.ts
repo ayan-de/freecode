@@ -32,6 +32,8 @@ import {
   getCurrentModel,
   setCurrentModel,
   setApiKey,
+  answerQuestion,
+  rejectQuestion,
   type SessionInfo,
   type ModelInfo,
 } from "./ipc/client.js";
@@ -58,6 +60,7 @@ import {
   createProviderSelector,
   createModelSelector,
 } from "./components/model-picker.js";
+import { createQuestionPicker } from "./components/question-picker.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
@@ -455,6 +458,42 @@ function handleToolEvent(event: StreamEvent): void {
       // Create or update thinking message - dimmed cyan stream
       const thinkingComponent = createThinkingMessage(event.content);
       tui.requestRender();
+      break;
+    }
+    case "question_asked": {
+      // Render each question as a SelectList in sequence, collecting answers
+      // indexed by question, then reply once the last one is answered.
+      const answers: string[] = [];
+      const askAt = (i: number) => {
+        const picker = createQuestionPicker(
+          event.questions[i],
+          {
+            onSelect: (label) => {
+              answers[i] = label;
+              removeSelector(picker);
+              if (i + 1 < event.questions.length) {
+                askAt(i + 1);
+              } else {
+                void answerQuestion(event.requestId, answers);
+                tui.setFocus(editor);
+              }
+              tui.requestRender();
+            },
+            onCancel: () => {
+              removeSelector(picker);
+              void rejectQuestion(event.requestId);
+              tui.setFocus(editor);
+              tui.requestRender();
+            },
+          },
+          defaultSelectListTheme,
+        );
+        const editorIdx = tui.children.indexOf(editor);
+        tui.children.splice(editorIdx + 1, 0, picker);
+        tui.setFocus(picker);
+        tui.requestRender();
+      };
+      askAt(0);
       break;
     }
   }
