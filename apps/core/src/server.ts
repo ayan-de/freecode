@@ -24,7 +24,6 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
   SessionConfig,
-  StreamEvent,
 } from "@thisisayande/freecode-shared";
 import {
   getMemoryStore,
@@ -43,7 +42,7 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers } from "./mcp/index.js";
-import { bus, answerQuestion, rejectQuestion } from "./bus/index.js";
+import { bus, BusEvents, answerQuestion, rejectQuestion } from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
@@ -224,15 +223,6 @@ const methodHandlers: Record<
       agentMode,
     });
 
-    // Emit events to stdout immediately for streaming
-    const emitEvent = (event: StreamEvent) => {
-      process.stdout.write(JSON.stringify(event) + "\n");
-      const cb = sessionEventCallbacks.get(sessionId);
-      if (cb) {
-        cb(event);
-      }
-    };
-
     // Get session store for persisting messages
     const store = await getSessionStore();
 
@@ -252,15 +242,17 @@ const methodHandlers: Record<
           model: session.model,
           projectPath: session.projectPath,
           agentMode,
-          onToolEvent: emitEvent,
         }),
       );
     } finally {
       activeLoops.delete(sessionId);
     }
 
-    // Emit done event
-    emitEvent({ type: "done", content: result.message || "Done" });
+    // Emit done event through the single bus egress
+    BusEvents.stream(sessionId, {
+      type: "done",
+      content: result.message || "Done",
+    });
 
     // Extract session title from first response (no extra API call)
     if (result.success && result.turnCount > 0 && result.content) {

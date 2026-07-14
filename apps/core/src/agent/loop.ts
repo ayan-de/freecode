@@ -30,7 +30,6 @@ import type {
 import type { SystemBlock } from "../providers/types.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
-import type { StreamEvent } from "@thisisayande/freecode-shared";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
@@ -98,7 +97,6 @@ export class AgentLoop {
   private orchestrator: ToolOrchestrator;
   private recovery: RecoveryManager;
   private sessionStore: SessionStore | undefined;
-  private onToolEvent: ((event: StreamEvent) => void) | undefined;
   private lastThinking: string | undefined;
   private compiler: PromptCompiler;
   // Cancellation: aborted on interrupt(); threaded into provider requests and
@@ -224,7 +222,6 @@ export class AgentLoop {
 
     try {
       this.state = { ...this.state, status: "running" };
-      this.onToolEvent = input.onToolEvent;
 
       // Initialize compiler with project info and mode
       this.compiler = new PromptCompiler(
@@ -405,7 +402,7 @@ export class AgentLoop {
       // Emit thinking content if present (for UI to display as streaming reasoning)
       if (providerResult.thinking) {
         this.lastThinking = providerResult.thinking;
-        this.onToolEvent?.({
+        BusEvents.stream(this.state.sessionId, {
           type: "thinking",
           content: providerResult.thinking,
         });
@@ -413,7 +410,7 @@ export class AgentLoop {
 
       // Emit text content if present (for UI to display)
       if (providerResult.content) {
-        this.onToolEvent?.({
+        BusEvents.stream(this.state.sessionId, {
           type: "text",
           content: providerResult.content,
         });
@@ -650,7 +647,7 @@ export class AgentLoop {
     // Prefer streaming when the provider supports it AND we have a listener.
     // If either is missing, fall back to the one-shot execute() path so callers
     // and downstream code paths are unchanged.
-    if (aiProvider.stream && this.onToolEvent) {
+    if (aiProvider.stream) {
       let content = "";
       let thinking = "";
       let toolCalls:
@@ -669,11 +666,17 @@ export class AgentLoop {
         switch (chunk.type) {
           case "text_delta":
             content += chunk.delta;
-            this.onToolEvent({ type: "text_delta", delta: chunk.delta });
+            BusEvents.stream(this.state.sessionId, {
+              type: "text_delta",
+              delta: chunk.delta,
+            });
             break;
           case "thinking_delta":
             thinking += chunk.delta;
-            this.onToolEvent({ type: "thinking_delta", delta: chunk.delta });
+            BusEvents.stream(this.state.sessionId, {
+              type: "thinking_delta",
+              delta: chunk.delta,
+            });
             break;
           case "tool_call":
             (toolCalls ??= []).push({
@@ -831,12 +834,6 @@ export class AgentLoop {
           title: `Tool ${toolCall.tool}`,
           error: `Tool "${toolCall.tool}" is not allowed in plan mode (read-only)`,
         };
-        BusEvents.toolCompleted(
-          this.state.sessionId,
-          toolCall.tool,
-          toolCall.id,
-          false,
-        );
         return blockedResult;
       }
     }
@@ -858,13 +855,6 @@ export class AgentLoop {
       this.recorder.recordHookBlocked(
         hookContext.toolName ?? toolCall.tool,
         preResult.blockReason ?? "no reason",
-      );
-      // Emit tool.completed for blocked tool
-      BusEvents.toolCompleted(
-        this.state.sessionId,
-        toolCall.tool,
-        toolCall.id,
-        false,
       );
       return blockedResult;
     }
@@ -899,12 +889,6 @@ export class AgentLoop {
           title: `Tool ${toolCall.tool}`,
           error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
         };
-        BusEvents.toolCompleted(
-          this.state.sessionId,
-          toolCall.tool,
-          toolCall.id,
-          false,
-        );
         return blockedResult;
       }
     }
@@ -921,20 +905,12 @@ export class AgentLoop {
     }
 
     // Emit tool_start event for streaming
-    this.onToolEvent?.({
+    BusEvents.stream(this.state.sessionId, {
       type: "tool_start",
       toolCallId: toolCall.id,
       toolName: toolCall.tool,
       args: toolCall.args as Record<string, unknown>,
     });
-
-    // Emit tool.called event before execution
-    BusEvents.toolCalled(
-      this.state.sessionId,
-      toolCall.tool,
-      toolCall.id,
-      toolCall.args as Record<string, unknown>,
-    );
 
     // Record function.call event
     this.recorder.recordFunctionCall(
@@ -974,13 +950,6 @@ export class AgentLoop {
         error: String(error),
         duration_ms: Date.now() - startTime,
       };
-      BusEvents.toolCompleted(
-        this.state.sessionId,
-        toolCall.tool,
-        toolCall.id,
-        false,
-        Date.now() - startTime,
-      );
       return errorResult;
     }
 
@@ -994,7 +963,7 @@ export class AgentLoop {
       .map((line) =>
         line.length > MAX_LINE_LEN ? line.slice(0, MAX_LINE_LEN) + "..." : line,
       );
-    this.onToolEvent?.({
+    BusEvents.stream(this.state.sessionId, {
       type: "tool_output",
       toolCallId: toolCall.id,
       content: outputLines.join("\n"),
@@ -1014,19 +983,10 @@ export class AgentLoop {
       Date.now() - startTime,
     );
 
-    // Emit tool.completed event with duration
+    // Emit tool_complete event for streaming
     const duration_ms = Date.now() - startTime;
     const success = !result.error;
-    BusEvents.toolCompleted(
-      this.state.sessionId,
-      toolCall.tool,
-      toolCall.id,
-      success,
-      duration_ms,
-    );
-
-    // Emit tool_complete event for streaming
-    this.onToolEvent?.({
+    BusEvents.stream(this.state.sessionId, {
       type: "tool_complete",
       toolCallId: toolCall.id,
       toolName: toolCall.tool,
