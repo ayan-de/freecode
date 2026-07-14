@@ -7,6 +7,8 @@
 import type { AgentMode } from "../agent/types.js";
 import type { ToolCall, ToolResult } from "../agent/types.js";
 import type { SystemBlock } from "../providers/types.js";
+import { compileInstructionsSection } from "./instructions.js";
+import { loadProviderPrompt } from "../session/prompt.js";
 
 // ===========================================================================
 // System Prompts per Agent Mode
@@ -233,8 +235,9 @@ Assistant: ${turn.response}`;
     memoryContext?: string,
   ): SystemBlock[] {
     const staticText = [
+      loadProviderPrompt(model ?? provider).trim(),
       this.compileSystemPrompt(),
-      "",
+      compileInstructionsSection(this.projectPath),
       this.compileToolsSection(tools, provider, model),
     ]
       .filter((s) => s.length > 0)
