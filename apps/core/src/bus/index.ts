@@ -106,7 +106,7 @@ export interface ToolCompletedEvent {
 export interface QuestionAskedEvent {
   type: "question.asked";
   requestId: string;
-  sessionId: string;
+  sessionId?: string;
   questions: Array<{
     question: string;
     header?: string;
@@ -235,6 +235,7 @@ const pendingQuestions = new Map<
 export async function askQuestion(
   requestId: string,
   questions: QuestionAskedEvent["questions"],
+  sessionId?: string,
 ): Promise<string[]> {
   return new Promise((resolve, reject) => {
     // Store the pending question
@@ -244,11 +245,13 @@ export async function askQuestion(
     bus.publish({
       type: "question.asked",
       requestId,
+      sessionId,
       questions,
     } as QuestionAskedEvent);
 
-    // Timeout after 5 minutes
-    setTimeout(
+    // Timeout after 5 minutes. unref() so a pending question never keeps the
+    // process alive on its own (it also lets tests exit once resolved).
+    const timer = setTimeout(
       () => {
         if (pendingQuestions.has(requestId)) {
           pendingQuestions.delete(requestId);
@@ -257,6 +260,7 @@ export async function askQuestion(
       },
       5 * 60 * 1000,
     );
+    timer.unref?.();
   });
 }
 

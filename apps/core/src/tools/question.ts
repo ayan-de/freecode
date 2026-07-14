@@ -96,7 +96,7 @@ function formatQuestions(params: QuestionParams): string {
 
 async function executeQuestion(
   params: QuestionParams,
-  _ctx: ToolContext,
+  ctx: ToolContext,
 ): Promise<
   ToolExecutionResult<{
     title: string;
@@ -129,7 +129,7 @@ async function executeQuestion(
   const formatted = formatQuestions({ questions });
 
   try {
-    const answers = await askQuestion(requestId, questions);
+    const answers = await askQuestion(requestId, questions, ctx.sessionId);
 
     const formattedAnswers = questions
       .map((q, i) => `"${q.question}"="${answers[i] ?? "Unanswered"}"`)
