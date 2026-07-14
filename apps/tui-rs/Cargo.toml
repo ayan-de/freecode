@@ -17,6 +17,7 @@ serde_json = "1"
 anyhow = "1"
 tui-textarea = "0.7"
 throbber-widgets-tui = "0.8"
+pulldown-cmark = { version = "0.13.4", default-features = false }
 
 [profile.release]
 lto = true

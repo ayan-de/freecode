@@ -1,7 +1,9 @@
+mod markdown;
+
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 use tui_textarea::TextArea;
 
@@ -131,23 +133,45 @@ fn draw_messages(frame: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     for msg in &app.messages {
         let (label, color) = match msg.role {
-            Role::User => ("you", Color::Cyan),
-            Role::Assistant => ("ai", Color::Green),
-            Role::System => ("sys", Color::DarkGray),
+            Role::User => ("›", Color::Cyan),
+            Role::Assistant => ("●", Color::Green),
+            Role::System => ("·", Color::DarkGray),
         };
         lines.push(Line::from(Span::styled(
-            format!("{label}"),
+            label.to_string(),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )));
-        for line in msg.content.lines() {
-            lines.push(Line::from(line.to_string()));
+
+        // Reasoning phase, "Thinking..." over dim-yellow rules.
+        if !msg.thinking.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "Thinking…",
+                Style::default().fg(Color::Yellow),
+            )));
+            let think = Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::DIM);
+            for line in msg.thinking.lines() {
+                lines.push(Line::from(vec![
+                    Span::styled("  │ ", think),
+                    Span::styled(line.to_string(), think),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+
+        // System notes stay plain/dim; everything else renders as markdown.
+        if matches!(msg.role, Role::System) {
+            for line in msg.content.lines() {
+                lines.push(Line::from(Span::styled(line.to_string(), dim())));
+            }
+        } else {
+            lines.extend(markdown::render(&msg.content));
         }
         lines.push(Line::from(""));
     }
 
-    let block = Block::default().borders(Borders::ALL).title(" chat ");
     let paragraph = Paragraph::new(lines)
-        .block(block)
         .wrap(Wrap { trim: false })
         .scroll((app.scroll, 0));
     frame.render_widget(paragraph, area);

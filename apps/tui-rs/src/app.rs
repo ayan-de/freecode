@@ -11,6 +11,9 @@ pub enum Role {
 pub struct ChatMessage {
     pub role: Role,
     pub content: String,
+    /// Assistant reasoning streamed before/alongside the answer. Empty for
+    /// user/system messages and assistant turns without a thinking phase.
+    pub thinking: String,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +66,7 @@ impl App {
         self.messages.push(ChatMessage {
             role: Role::User,
             content,
+            thinking: String::new(),
         });
     }
 
@@ -70,6 +74,7 @@ impl App {
         self.messages.push(ChatMessage {
             role: Role::System,
             content,
+            thinking: String::new(),
         });
     }
 
@@ -77,6 +82,7 @@ impl App {
         self.messages.push(ChatMessage {
             role: Role::Assistant,
             content: String::new(),
+            thinking: String::new(),
         });
         self.in_progress = Some(self.messages.len() - 1);
     }
@@ -89,6 +95,12 @@ impl App {
             }
             StreamEvent::Text { content } => {
                 self.messages[idx].content = content;
+            }
+            StreamEvent::ThinkingDelta { delta } => {
+                self.messages[idx].thinking.push_str(&delta);
+            }
+            StreamEvent::Thinking { content } => {
+                self.messages[idx].thinking = content;
             }
             StreamEvent::ToolStart { tool_name, .. } => {
                 self.push_system(format!("→ running {tool_name}"));
