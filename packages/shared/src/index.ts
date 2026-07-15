@@ -22,6 +22,7 @@ export type {
   JsonRpcResponse,
   StreamResponse,
   StreamEvent,
+  QuestionSpec,
   MethodName,
   MethodParams,
   MethodResult,
