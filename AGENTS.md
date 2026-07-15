@@ -3,80 +3,195 @@
 > How to work on this codebase — architectural principles, patterns, and practices.
 
 **IMPORTANT: Architecture Spec Compliance**
-This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v3.md`. Before implementing features, read that spec. If implementation deviates from it, the spec takes precedence unless explicitly overridden.
+This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (supersedes v3). Before implementing features, read that spec. If implementation deviates from it, the spec takes precedence unless explicitly overridden. Topical specs worth reading before touching a subsystem:
 
-## Architecture Spec Details
+| Area                | Spec                                                    |
+| ------------------- | ------------------------------------------------------- |
+| Agent loop          | `specs/2026-05-25-agent-loop.md`                        |
+| Multi-provider API  | `specs/2026-05-28-multi-provider-api-design.md`         |
+| Memory + sessions   | `specs/2026-06-02-memory-session-design.md`             |
+| MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
+| Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
-The full v3 architecture spec defines these systems that must be properly implemented:
+## Implemented Subsystems
 
-| System                     | Required Components                                                                                                                                                                                                                                                                           |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Effect/Layer DI**        | `effect/context.ts`, `effect/layers.ts`, `effect/runtime.ts` using Effect framework                                                                                                                                                                                                           |
-| **Bus (PubSub)**           | `bus/index.ts`, `bus/events.ts`, `bus/subscriber.ts`, `bus/global-bus.ts` — SessionDiff, SessionError, MCPToolsChanged, ToolsChanged, SubagentStarted, SubagentCompleted events                                                                                                               |
-| **Hooks (10 types)**       | `hooks/runtime.ts`, `hooks/registry.ts`, `hooks/PreToolUse.ts`, `hooks/PostToolUse.ts`, `hooks/PermissionRequest.ts`, `hooks/PreCompact.ts`, `hooks/PostCompact.ts`, `hooks/SessionStart.ts`, `hooks/UserPromptSubmit.ts`, `hooks/SubagentStart.ts`, `hooks/SubagentStop.ts`, `hooks/Stop.ts` |
-| **Skills System**          | `skills/manager.ts`, `skills/loader.ts`, `skills/registry.ts`, `skills/injection.ts`, `skills/detection.ts`, `skills/plugin.ts`, `skills/plugin-registry.ts`, `skills/types.ts`                                                                                                               |
-| **Rollout/Event Sourcing** | `rollout/recorder.ts`, `rollout/types.ts`, `rollout/history.ts`, `rollout/replay.ts` with aggregateID + seq                                                                                                                                                                                   |
-| **Thread Store**           | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/migrations/`                                                                                                                                                                                                  |
-| **MCP Server**             | `mcp/server.ts`, `mcp/client.ts`, `mcp/oauth-provider.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                                                                                                                                                                                          |
-| **Config**                 | `config/config.ts`, `config/loader.ts`, `config/defaults.ts` with Zod validation                                                                                                                                                                                                              |
-| **Errors**                 | `errors/named-error.ts` with NamedError factory                                                                                                                                                                                                                                               |
-| **Project Bootstrap**      | `project/bootstrap.ts`, `project/vcs.ts`, `project/conventions.ts`                                                                                                                                                                                                                            |
+The v4 architecture systems are implemented and live in `apps/core/src/`:
 
-**Current known deviations from spec:**
+| System                     | Location                                                                                                          |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Effect/Layer DI**        | `effect/context.ts`, `effect/layers.ts`, `effect/runtime.ts`, `effect/loop-health.ts`                            |
+| **Providers (API)**        | `providers/` — `anthropic.ts`, `openai.ts`, `gemini.ts`, `minimax.ts`, `registry.ts`, `config.ts`, `streaming.ts`|
+| **Agent loop**             | `agent/loop.ts`, `agent/subagent.ts`, `agent/recovery/`, `agent/title-generator.ts`                              |
+| **Bus (PubSub)**           | `bus/index.ts`, `bus/bridge.ts` — question + streaming events                                                     |
+| **Hooks**                  | `hooks/` — PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PreCompact, PostCompact, SessionStart, UserPromptSubmit, SubagentStart, SubagentStop, Stop, Notification, TurnStart, TurnEnd |
+| **Skills System**          | `skills/manager.ts`, `skills/loader.ts`, `skills/registry.ts`, `skills/injection.ts`, `skills/types.ts`          |
+| **Rollout/Event Sourcing** | `rollout/recorder.ts`, `rollout/types.ts`, `rollout/history.ts`, `rollout/replay.ts`                              |
+| **Thread Store**           | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/remote.ts`                        |
+| **Sessions**               | `session/manager.ts`, `session/service.ts`, `session/store.ts`, `session/prompt.ts`, `session/normalize/`        |
+| **Compaction**             | `compaction/service.ts`, `compaction/selector.ts`, `compaction/summarizer.ts`, `compaction/tokens.ts`            |
+| **Memory**                 | `memory/mem-store.ts`, `memory/mem-query.ts`, `memory/mem-prompt.ts`, `memory/mem-types.ts`                       |
+| **Permission**             | `permission/profiles.ts` (plan/build/review/explore/danger)                                                      |
+| **MCP Client**             | `mcp/client-registry.ts`, `mcp/service.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                            |
+| **Context Engine**         | `context/collector.ts`, `context/compiler.ts`, `context/tree-cache.ts`, `context/strategies/`                    |
 
-- Bus only has question events, not full SessionDiff/SessionError/etc.
-- Hooks only implement PreToolUse/PostToolUse, missing PermissionRequest, SubagentStart, SubagentStop, Stop
-- No skills system (only a basic skill tool)
-- No rollout/event sourcing
-- No thread store
-- No MCP server
-- Effect/layers.ts is loop health evaluator, not full DI
-
----
+**Legacy / not wired into the primary path:** `browser/` (Playwright controller + ChatGPT DOM adapter). The default execution path is API providers, not browser automation. Don't extend the browser layer unless explicitly asked.
 
 ## Project Overview
 
-FreeCode is a CLI tool that drives AI coding assistants (ChatGPT, Claude, Gemini) via browser automation to assist with coding tasks. The architecture uses a **thin-client model**: multiple frontends (TUI, VS Code extension) delegate all intelligence to a shared CLI backend via JSON-RPC over stdin/stdout.
+FreeCode is a CLI-driven AI coding assistant. The architecture uses a **thin-client model**: multiple frontends (TUI, VS Code, Web, Tauri desktop) delegate all intelligence to a shared CLI backend (`apps/core`) via JSON-RPC over stdin/stdout.
 
-The system uses a two-phase approach: the AI first returns which files it needs, then receives those files + prompt and returns structured file changes.
+The backend runs a **single agentic tool-use loop**: the model receives the prompt + project context (file tree, git head) and a set of tools, then drives work by emitting tool calls (read/write/edit/bash/grep/glob/etc.) which the loop executes — in parallel batches where safe — feeding results back until the model stops. Providers are reached through the **Vercel AI SDK** (`ai` + `@ai-sdk/anthropic`, `@ai-sdk/google`, `@ai-sdk/openai`) with real streaming, native tool calling, extended thinking, prompt caching, and usage accounting.
 
 ---
 
 ## Architecture
 
+**TUI, VS Code, and Web are pure presentation layers. All business logic lives in `apps/core`.**
+
 > **TUI Framework**: For pi-tui customization, see [`pi-tui.md`](pi-tui.md).
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                          TUI                                 │
-│              (apps/tui) — pure UI shell                    │
-│         Uses pi-tui for terminal rendering                  │
-│         IPC client sends/receives JSON-RPC                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           │ JSON-RPC (stdin/stdout)
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                          CLI Backend                        │
-│              (apps/core) — ALL intelligence                  │
-│   Browser controller, parser, tools, context engine,        │
-│   agent loop, file applier                                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     AI Provider (Browser)                    │
-│                    ChatGPT / Claude / Gemini                 │
-└─────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                      VS Code Extension                       │
-│              (apps/vscode) — pure UI shell                   │
-│         React webview + IPC client to CLI                   │
-└─────────────────────────────────────────────────────────────┘
+        ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+        │     TUI      │  │   VS Code    │  │     Web      │  │  Desktop     │
+        │  (apps/tui)  │  │ (apps/vscode)│  │  (apps/web)  │  │(apps/web-app)│
+        │  pi-tui      │  │ React webview│  │  Next.js     │  │ Tauri + Vite │
+        └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+               └─────────────────┴──── JSON-RPC ───┴─────────────────┘
+                                       │ (stdin/stdout)
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          CLI Backend (apps/core) — ALL intelligence           │
+│   Effect runtime + layers · Agent loop · Tools · Context engine · Sessions    │
+│   Provider registry · MCP client · Hooks · Skills · Memory · Compaction ·     │
+│   Rollout (event sourcing) · Thread store · Bus (PubSub) · Permission profiles│
+└──────────────────────────────────────┬────────────────────────────────────────┘
+                                       │  Vercel AI SDK
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 AI Providers (API):  Anthropic · OpenAI · Gemini · MiniMax     │
+│                       (legacy: browser automation via Playwright)              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key principle:** TUI and VSCode are pure presentation layers. All business logic lives in CLI.
+**Key principle:** Frontends only render and speak IPC. All business logic lives in `apps/core`.
+
+---
+
+## Project Structure
+
+```
+freecode/
+├── packages/
+│   ├── shared/                     # Shared domain types + IPC protocol ONLY
+│   │   └── src/
+│   │       ├── types.ts             # Message, MessagePart, ToolDef, ToolResult, Session/Provider types
+│   │       ├── ipc/protocol.ts     # JsonRpc*, StreamEvent, StreamResponse, METHODS
+│   │       └── index.ts
+│   ├── ui/                         # Shared UI primitives
+│   ├── eslint-config/
+│   └── typescript-config/
+│
+├── apps/
+│   ├── core/                       # CLI backend — ALL intelligence
+│   │   └── src/
+│   │       ├── server.ts            # JSON-RPC stdin/stdout server
+│   │       ├── web-server.ts        # HTTP/WS bridge for the web frontend
+│   │       ├── cli.ts + cli/        # yargs entrypoint + subcommands (mcp, session, web)
+│   │       ├── agent/              # Agentic tool-use loop, subagents, recovery
+│   │       ├── providers/          # API provider adapters + registry (AI SDK)
+│   │       ├── browser/            # LEGACY Playwright controller + ChatGPT adapter
+│   │       ├── context/            # File tree, context compilation, tree cache
+│   │       ├── tools/              # Tool defs + execution (see Tools below)
+│   │       ├── session/            # Session manager, service, store, prompt
+│   │       ├── store/              # Thread store (sqlite / json / remote)
+│   │       ├── rollout/            # Event sourcing: recorder / history / replay
+│   │       ├── compaction/         # Context window compaction + summarization
+│   │       ├── memory/             # Persistent cross-session memory
+│   │       ├── skills/             # Skills manager / loader / registry / injection
+│   │       ├── hooks/              # Lifecycle hooks (Pre/PostToolUse, Session, Subagent, …)
+│   │       ├── mcp/                # MCP client registry, transport, tool conversion
+│   │       ├── permission/         # Permission profiles (plan/build/review/explore/danger)
+│   │       ├── bus/                # PubSub event bus + IPC bridge
+│   │       ├── effect/             # Effect runtime + layers (DI) + loop-health
+│   │       └── utils/
+│   │
+│   ├── tui/                        # Pure UI shell (pi-tui) — components, state, ipc, themes
+│   ├── vscode/                     # Pure UI shell — React webview + extension host + ipc
+│   ├── web/                        # Pure UI shell — Next.js
+│   ├── web-app/                    # Pure UI shell — Tauri desktop (Vite + React + src-tauri)
+│   ├── tui-rs/                     # Experimental Rust TUI
+│   └── docs/                       # Documentation site (Next.js)
+│
+└── docs/
+    └── superpowers/
+        ├── specs/                  # Design specifications (v4 is current)
+        └── plans/                 # Implementation plans
+```
+
+### Tools
+
+Built-in tools live in `apps/core/src/tools/` and are registered in `tools/index.ts`:
+`read`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`/`ui`; execution and batching go through `orchestrator.ts` + `batching.ts`, and rendering through `renderer.ts`.
+
+---
+
+## Boundary: What Lives Where
+
+| Concern                                    | core | TUI | VSCode | Web |
+| ------------------------------------------ | ---- | --- | ------ | --- |
+| Agent loop + tool execution                | ✅   | ❌  | ❌     | ❌  |
+| Provider adapters (Anthropic/OpenAI/…)     | ✅   | ❌  | ❌     | ❌  |
+| Sessions, store, rollout, compaction       | ✅   | ❌  | ❌     | ❌  |
+| Context collection (file tree)             | ✅   | ❌  | ❌     | ❌  |
+| Hooks, skills, memory, permission profiles | ✅   | ❌  | ❌     | ❌  |
+| MCP client                                 | ✅   | ❌  | ❌     | ❌  |
+| File read / write / diff                   | ✅   | ❌  | ❌     | ❌  |
+| Browser automation (legacy Playwright)     | ✅   | ❌  | ❌     | ❌  |
+| Rendering (pi-tui / React / Next.js)       | ❌   | ✅  | ✅     | ✅  |
+| IPC client                                 | ❌   | ✅  | ✅     | ✅  |
+
+---
+
+## IPC Protocol
+
+`apps/core` exposes a JSON-RPC 2.0 interface over stdin/stdout. All frontends use the same protocol. Method signatures are declared in `packages/shared/src/ipc/protocol.ts` (`METHODS`); handlers live in `apps/core/src/server.ts`.
+
+### Methods
+
+| Group        | Methods                                                                                               |
+| ------------ | ----------------------------------------------------------------------------------------------------- |
+| **Tools**    | `tools.list`, `tools.call`                                                                             |
+| **Session**  | `session.start`, `session.send` (streaming), `session.stop`, `session.list`, `session.resume`, `session.switch`, `session.fork`, `session.archive`, `session.delete`, `session.export`, `session.import`, `session.upload`, `session.download` |
+| **Providers**| `providers.list`, `models.list`                                                                        |
+| **Config**   | `config.get`                                                                                           |
+| **Memory**   | `memory.list`, `memory.get`, `memory.save`, `memory.delete`, `memory.query`                            |
+| **Question** | `question.answer`, `question.reject`                                                                   |
+
+### Streaming
+
+`session.send` streams **`StreamEvent`** values (the modern protocol) back to the frontend:
+
+```typescript
+type StreamEvent =
+  | { type: "tool_start"; toolCallId: string; toolName: string; args: Record<string, unknown> }
+  | { type: "tool_output"; toolCallId: string; content: string }
+  | { type: "tool_complete"; toolCallId: string; toolName: string; result: string; success: boolean; duration_ms?: number }
+  | { type: "thinking"; content: string }        // full reasoning (turn end)
+  | { type: "thinking_delta"; delta: string }    // incremental reasoning (streaming)
+  | { type: "text"; content: string }            // full assistant text (turn end)
+  | { type: "text_delta"; delta: string }        // incremental text (streaming)
+  | { type: "done"; content: string }
+  | { type: "error"; content: string }
+  | { type: "question_asked"; requestId: string; sessionId?: string; questions: QuestionSpec[] };
+```
+
+The older `StreamResponse` union still exists in `protocol.ts` for backward compatibility — prefer `StreamEvent` for new work.
+
+---
+
+## Type Sharing
+
+Core domain types live in `packages/shared/src/types.ts` (`Message`, `MessagePart`, `ToolDef`, `ToolResult`, `ToolContext`, `ProviderInfo`, `SessionConfig`, `SessionInfo`). No duplicate type definitions in frontends. Provider-internal types (`ExecuteOptions`, `ExecuteResult`, streaming) live in `apps/core/src/providers/types.ts` and stay in core.
 
 ---
 
@@ -91,183 +206,9 @@ The system uses a two-phase approach: the AI first returns which files it needs,
 
 ### Thin Client Principles
 
-1. **Zero business logic in frontends** — TUI and VSCode do only rendering and IPC. No browser automation, no file reading, no parsing.
-2. **IPC is the only bridge** — All communication between frontends and CLI goes through JSON-RPC. No shared state.
-3. **CLI owns everything** — Browser controller, providers, context engine, parser, tools, agent loop all live in CLI.
-
----
-
-## Project Structure
-
-```
-freecode/
-├── packages/
-│   └── shared/                     # Shared types + IPC protocol ONLY
-│       └── src/
-│           ├── types.ts             # Message, MessagePart, ToolResult,
-│           │                         # FileChange, ParsedResponse
-│           ├── ipc/
-│           │   └── protocol.ts     # JsonRpcRequest/Response, StreamResponse
-│           └── index.ts
-│
-├── apps/
-│   ├── cli/                        # ALL intelligence lives here
-│   │   └── src/
-│   │       ├── server.ts            # JSON-RPC stdin/stdout server
-│   │       ├── agent/              # Agent loop + session management
-│   │       │   ├── loop.ts
-│   │       │   └── session.ts
-│   │       ├── browser/            # Playwright + CDP + provider adapters
-│   │       │   ├── controller.ts
-│   │       │   ├── providers/
-│   │       │   │   ├── index.ts
-│   │       │   │   ├── chatgpt.ts
-│   │       │   │   └── types.ts
-│   │       │   └── types.ts
-│   │       ├── context/            # File tree + context collection
-│   │       │   ├── collector.ts
-│   │       │   └── file-tree.ts
-│   │       ├── parser/             # Response parsing
-│   │       │   ├── registry.ts
-│   │       │   └── extractors/
-│   │       │       ├── structured.ts
-│   │       │       ├── markdown.ts
-│   │       │       └── json.ts
-│   │       ├── tools/              # Tool definitions + execution
-│   │       │   ├── index.ts
-│   │       │   ├── read.ts
-│   │       │   ├── write.ts
-│   │       │   ├── edit.ts
-│   │       │   ├── bash.ts
-│   │       │   ├── grep.ts
-│   │       │   ├── find.ts
-│   │       │   └── glob.ts
-│   │       └── applier/            # File diff + write
-│   │           ├── index.ts
-│   │           ├── differ.ts
-│   │           └── writer.ts
-│   │
-│   ├── tui/                        # Pure UI shell — no business logic
-│   │   └── src/
-│   │       ├── index.ts            # Entry point: mounts TUI, connects IPC
-│   │       ├── commands/           # TUI-specific commands (model select)
-│   │       │   ├── index.ts
-│   │       │   └── built-in.ts
-│   │       ├── ipc/
-│   │       │   └── client.ts       # JSON-RPC client to CLI
-│   │       └── assets/
-│   │           └── logo.ts
-│   │
-│   └── vscode/                     # Pure UI shell — no business logic
-│       └── src/
-│           ├── extension.ts        # VS Code extension entry point
-│           ├── chat/
-│           │   ├── ChatView.tsx    # Main webview panel
-│           │   ├── MessageList.tsx
-│           │   ├── MessageInput.tsx
-│           │   └── parts/          # Message part renderers
-│           │       ├── TextPart.tsx
-│           │       ├── CodePart.tsx
-│           │       └── ToolPart.tsx
-│           ├── stores/
-│           │   └── chat-store.ts   # UI state only (messages, status)
-│           └── ipc/
-│               └── client.ts       # JSON-RPC client to CLI
-│
-└── docs/
-    └── superpowers/
-        ├── specs/                  # Design specifications
-        └── plans/                 # Implementation plans
-```
-
----
-
-## Boundary: What Lives Where
-
-| Concern                             | CLI | TUI | VSCode |
-| ----------------------------------- | --- | --- | ------ |
-| Browser automation (Playwright/CDP) | ✅  | ❌  | ❌     |
-| Provider adapters (ChatGPT, Claude) | ✅  | ❌  | ❌     |
-| Agent loop + session management     | ✅  | ❌  | ❌     |
-| Context collection (file tree)      | ✅  | ❌  | ❌     |
-| Response parsing                    | ✅  | ❌  | ❌     |
-| Tool execution                      | ✅  | ❌  | ❌     |
-| File diff + writing                 | ✅  | ❌  | ❌     |
-| TUI rendering (pi-tui)              | ❌  | ✅  | ❌     |
-| VS Code webview                     | ❌  | ❌  | ✅     |
-| IPC client                          | ❌  | ✅  | ✅     |
-
----
-
-## IPC Protocol
-
-CLI exposes a JSON-RPC 2.0 interface over stdin/stdout. Both TUI and VSCode use the same protocol.
-
-### Methods
-
-| Method           | Params                                            | Returns                      | Description                 |
-| ---------------- | ------------------------------------------------- | ---------------------------- | --------------------------- |
-| `tools.list`     | —                                                 | `ToolListItem[]`             | List available tools        |
-| `tools.call`     | `{ name: string, args: Record<string, unknown> }` | `ToolResult`                 | Execute a tool              |
-| `session.start`  | `{ projectPath: string, provider?: string }`      | `{ sessionId: string }`      | Start a new session         |
-| `session.send`   | `{ sessionId: string, message: string }`          | `StreamResponse` (streaming) | Send a message              |
-| `session.stop`   | `{ sessionId: string }`                           | `void`                       | Abort current turn          |
-| `providers.list` | —                                                 | `ProviderInfo[]`             | List available AI providers |
-
-### Streaming Response
-
-```typescript
-interface StreamResponse {
-  type: "text" | "code" | "tool" | "done" | "error";
-  content: string;
-  toolName?: string; // when type === "tool"
-  toolArgs?: unknown; // when type === "tool"
-  toolResult?: string; // when type === "tool" (after execution)
-}
-```
-
----
-
-## Type Sharing
-
-Core domain types live in `packages/shared/src/types.ts`:
-
-```typescript
-export interface Message {
-  id: string;
-  role: "user" | "assistant";
-  parts: MessagePart[];
-  timestamp: number;
-}
-
-export type MessagePart =
-  | { type: "text"; content: string }
-  | { type: "code"; language: string; content: string }
-  | {
-      type: "tool";
-      tool: { name: string; args: Record<string, unknown> };
-      result?: string;
-    };
-
-export interface ToolDef {
-  id: string;
-  description: string;
-  parameters: JsonSchema;
-}
-
-export interface ToolResult {
-  title: string;
-  output: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface FileChange {
-  path: string;
-  action: "create" | "update" | "delete";
-  content?: string;
-  diff?: string;
-}
-```
+1. **Zero business logic in frontends** — TUI, VSCode, and Web do only rendering and IPC. No provider calls, no file reading, no tool execution.
+2. **IPC is the only bridge** — All frontend↔backend communication goes through JSON-RPC. No shared state.
+3. **Core owns everything** — Providers, agent loop, context engine, tools, sessions, hooks, skills, memory all live in `apps/core`.
 
 ---
 
@@ -275,23 +216,27 @@ export interface FileChange {
 
 ### 1. Long-Running CLI Daemon
 
-CLI stays alive between turns, maintaining browser connection and session state. Starting a new browser + logging in per prompt is slow (5-15 seconds). A persistent connection enables sub-second response for subsequent turns.
+`apps/core` stays alive between turns, maintaining session state, the provider connection, and the project context cache. This enables fast subsequent turns without re-initialization.
 
-### 2. Two-Phase Context Collection
+### 2. Single Agentic Tool-Use Loop
 
-Before sending a prompt, CLI first asks the LLM which files it needs, then reads only those files:
+There is no "ask which files, then send them" pre-pass. The loop collects lightweight project context (name, path, cached file tree, git head — see `context/tree-cache.ts`, invalidated after any mutating tool) and hands the model a tool set. The model then drives the work by emitting tool calls, executed in parallel batches where safe (`tools/batching.ts`, `tools/orchestrator.ts`) and looped back until the model stops.
 
-1. Send prompt + file tree to LLM → LLM returns list of needed files
-2. CLI reads those files
-3. Send files + prompt to LLM → LLM returns structured response
+### 3. Provider Abstraction over the AI SDK
 
-### 3. Format-Agnostic Parser
+Providers implement a common `AIProvider` interface (`providers/types.ts`) and self-register into the registry (`providers/registry.ts`). Swapping Anthropic ↔ OpenAI ↔ Gemini ↔ MiniMax requires no change to the loop. Streaming, tool calls, extended thinking, and prompt caching are normalized in `providers/streaming.ts`.
 
-Parser tries multiple strategies (structured, markdown, JSON) in chain until one succeeds. LLMs are inconsistent in output format.
+### 4. Loop-Health Monitoring
 
-### 4. Diff Preview Before Apply
+The loop tracks repeated identical tool calls, stagnant turns (no file changes), and oscillation (editing the same file repeatedly) to detect and break stuck patterns (`effect/loop-health.ts`, `updateLoopHealth` in `agent/loop.ts`).
 
-File changes are shown as a diff to the user for approval before writing. Prevents accidental data loss.
+### 5. Permission Profiles & Diff Preview
+
+Tool execution is gated by permission profiles (`permission/profiles.ts`: plan/build/review/explore/danger) and surfaced through the `PermissionRequest` hook. Mutating changes are shown before writing.
+
+### 6. Durable Sessions
+
+Sessions are persisted through the thread store (`store/`, sqlite/json/remote) and rollout event sourcing (`rollout/`), enabling `resume`, `fork`, `export/import`, and `upload/download`. Long contexts are compacted (`compaction/`).
 
 ---
 
@@ -299,11 +244,12 @@ File changes are shown as a diff to the user for approval before writing. Preven
 
 | Type                 | Convention | Example                          |
 | -------------------- | ---------- | -------------------------------- |
-| Components           | PascalCase | `ChatLayout.tsx`, `CodePart.tsx` |
+| React components     | PascalCase | `ChatLayout.tsx`, `CodePart.tsx` |
 | Stores               | kebab-case | `chat-store.ts`                  |
 | IPC client           | camelCase  | `ipc/client.ts`                  |
-| Provider adapters    | camelCase  | `chatgpt.ts`                     |
+| Provider adapters    | camelCase  | `anthropic.ts`, `gemini.ts`      |
 | Tool implementations | camelCase  | `read.ts`, `write.ts`            |
+| Hook handlers        | PascalCase | `PreToolUse.ts`, `SessionStart.ts` |
 
 ---
 
@@ -311,47 +257,43 @@ File changes are shown as a diff to the user for approval before writing. Preven
 
 ### 1. Identify the domain
 
-- **Browser layer** (`apps/core/src/browser/`) — Playwright/CDP, DOM adapters
-- **Context layer** (`apps/core/src/context/`) — File tree, context compilation
-- **Parser layer** (`apps/core/src/parser/`) — Response parsing (JSON/markdown/tool)
-- **Applier layer** (`apps/core/src/applier/`) — File writing, diff generation
-- **Tools layer** (`apps/core/src/tools/`) — Tool definitions and execution
-- **UI components** (`apps/tui/src/`, `apps/vscode/src/`) — Rendering only
+- **Providers** (`apps/core/src/providers/`) — AI SDK adapters, model routing
+- **Agent** (`apps/core/src/agent/`) — the tool-use loop, subagents, recovery
+- **Tools** (`apps/core/src/tools/`) — tool definitions and execution
+- **Context** (`apps/core/src/context/`) — file tree, context compilation
+- **Session/Store/Rollout** (`apps/core/src/{session,store,rollout}/`) — persistence, lifecycle
+- **Hooks / Skills / Memory / MCP** (`apps/core/src/{hooks,skills,memory,mcp}/`) — extensibility
+- **UI** (`apps/tui`, `apps/vscode`, `apps/web`, `apps/web-app`) — rendering only
 
 ### 2. Check existing patterns
 
 Before adding code, verify:
 
-- Does a similar pattern exist? Follow it.
-- Is this functionality needed in more than one place? Extract to shared.
+- Does a similar pattern exist? Follow it. (Tools → copy an existing tool + `factory.ts`; providers → copy an existing adapter + self-register.)
+- Is this functionality needed in more than one frontend? Types go in `packages/shared`.
 - Does this component do more than one thing? Decompose.
 
 ### 3. File limits
 
-If a file exceeds ~150 lines, decompose:
-
-- Extract sub-components
-- Move helper functions to utils
-- Split store logic into separate files
+If a file exceeds ~150 lines, decompose (extract sub-components, move helpers to utils, split logic). Note `agent/loop.ts` is an intentional exception — the loop is a cohesive state machine.
 
 ---
 
 ## Key Invariants
 
-1. **Frontends are dumb** — TUI and VSCode only render UI and send/receive IPC. All logic is in CLI.
-2. **IPC is the only bridge** — No shared state between frontends and CLI.
-3. **Types are centralized** — Core domain types live in `packages/shared`. No duplicate type definitions.
-4. **Providers are swappable** — ChatGPT/Claude adapters in `browser/providers/` can be swapped without changing core logic.
-5. **Parser is chain-based** — Multiple extractors tried in order until one succeeds.
+1. **Frontends are dumb** — TUI/VSCode/Web only render UI and send/receive IPC. All logic is in `apps/core`.
+2. **IPC is the only bridge** — No shared state between frontends and backend.
+3. **Types are centralized** — Core domain types live in `packages/shared`. No duplicate definitions.
+4. **Providers are swappable** — Adapters in `providers/` implement `AIProvider` and self-register; the loop never hard-codes a provider.
+5. **Tools are uniform** — Every tool is built via `factory.ts` and executed through the orchestrator; MCP tools register through the same registry.
 
 ---
 
 ## Deferred Items
 
-- **MCP server integration** — Expose tools via Model Context Protocol
-- **Storage layer** — Persistent session history across restarts
-- **Claude/Gemini providers** — Additional AI provider adapters
-- **Rust TUI** — Higher-fidelity terminal rendering (only if performance demands)
+- **MCP server (expose)** — an MCP *client* exists (`mcp/`); serving FreeCode tools *as* an MCP server is not done.
+- **Rust TUI** — `apps/tui-rs` is experimental; pi-tui remains the primary TUI.
+- **Browser providers beyond ChatGPT** — the browser path is legacy; extend only if explicitly requested.
 
 Don't implement these unless explicitly requested.
 
