@@ -12,6 +12,7 @@ export interface ModelLimits {
 export const MODEL_LIMITS: Record<string, ModelLimits> = {
   // MiniMax models
   "minimax/MiniMax-M2": { context: 1_000_000, output: 8192 },
+  "minimax/MiniMax-M3": { context: 1_048_576, output: 131_072 },
   "minimax/minimax-text-01": { context: 1_000_000, output: 8192 },
   "minimax/minimax-text-01-prefill": { context: 1_000_000, output: 8192 },
   "minimax/agent-minimax-text-01": { context: 1_000_000, output: 8192 },
@@ -40,16 +41,25 @@ export const MODEL_LIMITS: Record<string, ModelLimits> = {
   "github-copilot/gpt-4o-mini": { context: 128_000, output: 4096 },
 };
 
+// Case-insensitive lookup — provider/model ids come from config and vary in casing
+const LIMITS_LOWER: Record<string, ModelLimits> = Object.fromEntries(
+  Object.entries(MODEL_LIMITS).map(([k, v]) => [k.toLowerCase(), v]),
+);
+
+function lookup(modelId: string): ModelLimits | undefined {
+  return MODEL_LIMITS[modelId] ?? LIMITS_LOWER[modelId.toLowerCase()];
+}
+
 /**
  * Get context limit for a model. Returns 0 if unknown.
  */
 export function getModelContextLimit(modelId: string): number {
-  return MODEL_LIMITS[modelId]?.context ?? 0;
+  return lookup(modelId)?.context ?? 0;
 }
 
 /**
  * Get output limit for a model. Returns 0 if unknown.
  */
 export function getModelOutputLimit(modelId: string): number {
-  return MODEL_LIMITS[modelId]?.output ?? 0;
+  return lookup(modelId)?.output ?? 0;
 }
