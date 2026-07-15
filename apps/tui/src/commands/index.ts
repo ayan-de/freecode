@@ -36,6 +36,8 @@ export interface CommandContext extends MessageCreators {
 export interface Command {
   name: string;
   description: string;
+  /** Hint shown in autocomplete for expected arguments, e.g. "[focus]". */
+  argHint?: string;
   execute(args: string[], context: CommandContext): void | Promise<void>;
 }
 
@@ -68,6 +70,7 @@ class CommandRegistry {
     return this.getAll().map((cmd) => ({
       name: cmd.name,
       description: cmd.description,
+      argumentHint: cmd.argHint,
     }));
   }
 }

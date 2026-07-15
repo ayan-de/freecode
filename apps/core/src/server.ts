@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { getTool, listTools } from "./tools/index.js";
+import { listCommandInfos, resolveCommand } from "./commands/registry.js";
 import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
 import { getAppRuntime } from "./effect/runtime.js";
 import { SessionStoreTag } from "./effect/context.js";
@@ -306,6 +307,21 @@ const methodHandlers: Record<
     const { providerId } = params as { providerId: string };
     const models = await getProviderModels(providerId);
     return models;
+  },
+
+  "commands.list": async (): Promise<unknown[]> => {
+    return listCommandInfos();
+  },
+
+  "commands.resolve": async (
+    params: Record<string, unknown>,
+  ): Promise<{ prompt: string }> => {
+    const { name, args } = params as { name: string; args?: string[] };
+    const prompt = resolveCommand(name, args ?? [], process.cwd());
+    if (prompt == null) {
+      throw new Error(`Command not found: ${name}`);
+    }
+    return { prompt };
   },
 
   "config.get": async (): Promise<unknown> => {

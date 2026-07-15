@@ -9,7 +9,7 @@ import {
   type SelectItem,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
-import { commandRegistry } from "./commands/index.js";
+import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Editor } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
@@ -29,6 +29,8 @@ import {
   sessionResume,
   listProviders,
   listModels,
+  listCommands,
+  resolveCommand,
   getCurrentModel,
   setCurrentModel,
   setApiKey,
@@ -499,6 +501,122 @@ function handleToolEvent(event: StreamEvent): void {
   }
 }
 
+// Send a prompt to the agent through the streaming session. `displayText`, when
+// given, is shown as the "You:" message instead of the raw prompt — used by
+// prompt commands (e.g. /init) that expand into a long instruction.
+async function submitPrompt(
+  promptText: string,
+  displayText?: string,
+): Promise<void> {
+  messageCount++;
+
+  // Create messages through the store - VirtualMessageList handles rendering
+  createUserMessage(`**${chalk.red("You")}:** ${displayText ?? promptText}`);
+  const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
+
+  startCli();
+
+  if (!currentSession) {
+    try {
+      if (!currentProvider) {
+        try {
+          const current = await getCurrentModel();
+          if (current) {
+            currentProvider = current.provider;
+            currentModel = current.model;
+          }
+        } catch {
+          // Use defaults
+        }
+      }
+
+      currentSession = (await sessionStart({
+        projectPath: process.cwd(),
+        provider: currentProvider || "minimax",
+        agentMode: currentAgentMode,
+      })) as SessionInfo;
+    } catch (error) {
+      removeMessageById(inProgressMsg.id);
+      showMessage(
+        `**Error:** Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+  }
+
+  try {
+    const result = await sessionSendStreaming(
+      currentSession.sessionId,
+      promptText,
+      undefined,
+      currentAgentMode,
+      (event: StreamEvent) => {
+        handleToolEvent(event);
+      },
+    );
+
+    // Update in-progress message with token counts from result
+    const contextLimit = getModelContextLimit(
+      `${currentProvider}/${currentModel}`,
+    );
+    updateInProgressMessage(
+      inProgressMsg.id,
+      getRandomInProgressPhrase(),
+      result.usage?.inputTokens ?? 0,
+      result.usage?.outputTokens ?? 0,
+      contextLimit,
+      inProgressMsg.timestamp,
+      result.turnCount || 1,
+      result.usage?.cacheReadInputTokens ?? 0,
+    );
+
+    // Brief pause so user can see final token state before it disappears
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Remove in-progress message now that response has arrived
+    removeMessageById(inProgressMsg.id);
+
+    const elapsed = Date.now() - inProgressMsg.timestamp;
+    const seconds = Math.floor(elapsed / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+
+    if (result.success) {
+      const response = result.content || result.message;
+      createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+      const inTokens = result.usage?.inputTokens ?? 0;
+      const outTokens = result.usage?.outputTokens ?? 0;
+      const contextLimit = getModelContextLimit(
+        `${currentProvider}/${currentModel}`,
+      );
+      const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;
+      const contextTokens =
+        result.usage?.contextTokens ?? inTokens + cachedTokens;
+      let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
+      if (cachedTokens > 0) {
+        tokenInfo += ` cached: ${formatTokenCount(cachedTokens)}`;
+      }
+      if (contextLimit > 0) {
+        tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
+      }
+      createSystemMessage(
+        `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,
+      );
+    } else {
+      createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
+      createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
+    }
+  } catch (error) {
+    removeMessageById(inProgressMsg.id);
+    showMessage(
+      `**Error:** ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    editor.setText("");
+  }
+}
+
 editor.onSubmit = async (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return;
@@ -574,114 +692,47 @@ editor.onSubmit = async (value: string) => {
     }
   }
 
-  messageCount++;
-
-  // Create messages through the store - VirtualMessageList handles rendering
-  createUserMessage(`**${chalk.red("You")}:** ${trimmed}`);
-  const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
-
-  startCli();
-
-  if (!currentSession) {
-    try {
-      if (!currentProvider) {
-        try {
-          const current = await getCurrentModel();
-          if (current) {
-            currentProvider = current.provider;
-            currentModel = current.model;
-          }
-        } catch {
-          // Use defaults
-        }
-      }
-
-      currentSession = (await sessionStart({
-        projectPath: process.cwd(),
-        provider: currentProvider || "minimax",
-        agentMode: currentAgentMode,
-      })) as SessionInfo;
-    } catch (error) {
-      removeMessageById(inProgressMsg.id);
-      showMessage(
-        `**Error:** Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
-  }
-
-  try {
-    const result = await sessionSendStreaming(
-      currentSession.sessionId,
-      trimmed,
-      undefined,
-      currentAgentMode,
-      (event: StreamEvent) => {
-        handleToolEvent(event);
-      },
-    );
-
-    // Update in-progress message with token counts from result
-    const contextLimit = getModelContextLimit(
-      `${currentProvider}/${currentModel}`,
-    );
-    updateInProgressMessage(
-      inProgressMsg.id,
-      getRandomInProgressPhrase(),
-      result.usage?.inputTokens ?? 0,
-      result.usage?.outputTokens ?? 0,
-      contextLimit,
-      inProgressMsg.timestamp,
-      result.turnCount || 1,
-      result.usage?.cacheReadInputTokens ?? 0,
-    );
-
-    // Brief pause so user can see final token state before it disappears
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Remove in-progress message now that response has arrived
-    removeMessageById(inProgressMsg.id);
-
-    const elapsed = Date.now() - inProgressMsg.timestamp;
-    const seconds = Math.floor(elapsed / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
-
-    if (result.success) {
-      const response = result.content || result.message;
-      createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
-      const inTokens = result.usage?.inputTokens ?? 0;
-      const outTokens = result.usage?.outputTokens ?? 0;
-      const contextLimit = getModelContextLimit(
-        `${currentProvider}/${currentModel}`,
-      );
-      const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;
-      const contextTokens =
-        result.usage?.contextTokens ?? inTokens + cachedTokens;
-      let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
-      if (cachedTokens > 0) {
-        tokenInfo += ` cached: ${formatTokenCount(cachedTokens)}`;
-      }
-      if (contextLimit > 0) {
-        tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
-      }
-      createSystemMessage(
-        `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,
-      );
-    } else {
-      createSystemMessage(`**Error:** ${result.message || "Unknown error"}`);
-      createSystemMessage(`${getRandomElapsedPhrase()} for ${timeStr}`);
-    }
-  } catch (error) {
-    removeMessageById(inProgressMsg.id);
-    showMessage(
-      `**Error:** ${error instanceof Error ? error.message : String(error)}`,
-    );
-  } finally {
-    editor.setText("");
-  }
+  await submitPrompt(trimmed);
 };
+
+// Prompt commands (e.g. /init) are defined once in core. Fetch them at startup
+// so every frontend shows the same list; executing one resolves its template
+// and submits it through the normal agent send path.
+void (async () => {
+  try {
+    startCli();
+    const coreCommands = await listCommands();
+    for (const info of coreCommands) {
+      registerCommand({
+        name: info.name,
+        description: info.description,
+        argHint: info.argHint,
+        execute: async (args: string[]) => {
+          try {
+            const prompt = await resolveCommand(info.name, args);
+            const display = `/${info.name}${args.length ? ` ${args.join(" ")}` : ""}`;
+            await submitPrompt(prompt, display);
+          } catch (error) {
+            showMessage(
+              `**Error:** ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        },
+      });
+    }
+    // Rebuild autocomplete so the freshly registered commands appear.
+    editor.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(
+        commandRegistry.getSlashCommands(),
+        process.cwd(),
+        null,
+      ),
+    );
+    tui.requestRender();
+  } catch {
+    // Core commands are optional; ignore if the backend is unavailable.
+  }
+})();
 
 tui.addInputListener((data) => {
   if (matchesKey(data, Key.ctrl("c"))) {

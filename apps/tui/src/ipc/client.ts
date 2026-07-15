@@ -13,6 +13,7 @@ import type {
   ToolResult,
   SessionConfig,
   ProviderInfo,
+  CommandInfo,
   StreamEvent,
 } from "@thisisayande/freecode-shared";
 
@@ -289,6 +290,22 @@ export interface ModelInfo {
 
 export async function listModels(providerId: string): Promise<ModelInfo[]> {
   return (await sendRequest("models.list", { providerId })) as ModelInfo[];
+}
+
+// Prompt commands (e.g. /init) — defined once in core, fetched by every frontend.
+export async function listCommands(): Promise<CommandInfo[]> {
+  return (await sendRequest("commands.list")) as CommandInfo[];
+}
+
+export async function resolveCommand(
+  name: string,
+  args: string[],
+): Promise<string> {
+  const { prompt } = (await sendRequest("commands.resolve", {
+    name,
+    args,
+  })) as { prompt: string };
+  return prompt;
 }
 
 export interface ConfigInfo {
