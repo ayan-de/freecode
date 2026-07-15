@@ -57,6 +57,14 @@ export type StreamResponse =
       toolResult?: undefined;
     };
 
+export interface QuestionSpec {
+  question: string;
+  header?: string;
+  options: Array<{ label: string; description: string }>;
+  multiple?: boolean;
+  custom?: boolean;
+}
+
 export type StreamEvent =
   | {
       type: "tool_start";
@@ -78,7 +86,13 @@ export type StreamEvent =
   | { type: "text_delta"; delta: string } // incremental assistant text chunk (streaming path)
   | { type: "thinking_delta"; delta: string } // incremental reasoning chunk (streaming path)
   | { type: "done"; content: string }
-  | { type: "error"; content: string };
+  | { type: "error"; content: string }
+  | {
+      type: "question_asked";
+      requestId: string;
+      sessionId?: string;
+      questions: QuestionSpec[];
+    };
 
 // =============================================================================
 // IPC Method Signatures
@@ -108,6 +122,14 @@ export const METHODS = {
   "providers.list": {
     params: undefined,
     result: [] as import("../types.js").ProviderInfo[],
+  },
+  "question.answer": {
+    params: { requestId: "", answers: [] as string[] },
+    result: undefined as void,
+  },
+  "question.reject": {
+    params: { requestId: "" },
+    result: undefined as void,
   },
 } as const;
 

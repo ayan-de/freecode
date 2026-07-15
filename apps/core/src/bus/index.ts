@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { EventEmitter } from "events";
+import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 // ============================================================================
 // Event Definitions
@@ -106,7 +107,7 @@ export interface ToolCompletedEvent {
 export interface QuestionAskedEvent {
   type: "question.asked";
   requestId: string;
-  sessionId: string;
+  sessionId?: string;
   questions: Array<{
     question: string;
     header?: string;
@@ -150,10 +151,24 @@ export interface MCPServerErrorEvent {
 }
 
 // ============================================================================
+// Stream Relay Event
+// Transports a per-session StreamEvent (turn output: text/thinking/tool
+// deltas) over the bus so it shares the single frontend egress. The bus is
+// only the carrier — StreamEvent remains the wire language.
+// ============================================================================
+
+export interface StreamRelayEvent {
+  type: "stream";
+  sessionId: string;
+  event: StreamEvent;
+}
+
+// ============================================================================
 // Union of all Bus Events
 // ============================================================================
 
 export type BusEvent =
+  | StreamRelayEvent
   | SessionCreatedEvent
   | SessionUpdatedEvent
   | SessionErrorEvent
@@ -235,6 +250,7 @@ const pendingQuestions = new Map<
 export async function askQuestion(
   requestId: string,
   questions: QuestionAskedEvent["questions"],
+  sessionId?: string,
 ): Promise<string[]> {
   return new Promise((resolve, reject) => {
     // Store the pending question
@@ -244,11 +260,13 @@ export async function askQuestion(
     bus.publish({
       type: "question.asked",
       requestId,
+      sessionId,
       questions,
     } as QuestionAskedEvent);
 
-    // Timeout after 5 minutes
-    setTimeout(
+    // Timeout after 5 minutes. unref() so a pending question never keeps the
+    // process alive on its own (it also lets tests exit once resolved).
+    const timer = setTimeout(
       () => {
         if (pendingQuestions.has(requestId)) {
           pendingQuestions.delete(requestId);
@@ -257,6 +275,7 @@ export async function askQuestion(
       },
       5 * 60 * 1000,
     );
+    timer.unref?.();
   });
 }
 
@@ -287,6 +306,9 @@ export function rejectQuestion(requestId: string): void {
 // ============================================================================
 
 export const BusEvents = {
+  stream: (sessionId: string, event: StreamEvent) =>
+    bus.publish({ type: "stream", sessionId, event } as StreamRelayEvent),
+
   sessionCreated: (sessionId: string, projectPath: string) =>
     bus.publish({
       type: "session.created",

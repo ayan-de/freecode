@@ -24,7 +24,6 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
   SessionConfig,
-  StreamEvent,
 } from "@thisisayande/freecode-shared";
 import {
   getMemoryStore,
@@ -43,6 +42,8 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers } from "./mcp/index.js";
+import { bus, BusEvents, answerQuestion, rejectQuestion } from "./bus/index.js";
+import { busEventToClientEvent } from "./bus/bridge.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 
@@ -222,15 +223,6 @@ const methodHandlers: Record<
       agentMode,
     });
 
-    // Emit events to stdout immediately for streaming
-    const emitEvent = (event: StreamEvent) => {
-      process.stdout.write(JSON.stringify(event) + "\n");
-      const cb = sessionEventCallbacks.get(sessionId);
-      if (cb) {
-        cb(event);
-      }
-    };
-
     // Get session store for persisting messages
     const store = await getSessionStore();
 
@@ -250,15 +242,17 @@ const methodHandlers: Record<
           model: session.model,
           projectPath: session.projectPath,
           agentMode,
-          onToolEvent: emitEvent,
         }),
       );
     } finally {
       activeLoops.delete(sessionId);
     }
 
-    // Emit done event
-    emitEvent({ type: "done", content: result.message || "Done" });
+    // Emit done event through the single bus egress
+    BusEvents.stream(sessionId, {
+      type: "done",
+      content: result.message || "Done",
+    });
 
     // Extract session title from first response (no extra API call)
     if (result.success && result.turnCount > 0 && result.content) {
@@ -281,6 +275,19 @@ const methodHandlers: Record<
       sessions.delete(sessionId);
       logger.info("Session stopped", { sessionId });
     }
+  },
+
+  "question.answer": async (params: Record<string, unknown>): Promise<void> => {
+    const { requestId, answers } = params as {
+      requestId: string;
+      answers: string[];
+    };
+    answerQuestion(requestId, answers);
+  },
+
+  "question.reject": async (params: Record<string, unknown>): Promise<void> => {
+    const { requestId } = params as { requestId: string };
+    rejectQuestion(requestId);
   },
 
   "providers.list": async (): Promise<unknown[]> => {
@@ -535,6 +542,21 @@ export async function handleRequest(
 export async function startServer() {
   await initProviders();
   await initMcpServers();
+
+  // Speaker wire: forward internal bus events to both frontend transports.
+  bus.subscribeAll((event) => {
+    const wire = busEventToClientEvent(event);
+    if (!wire) return;
+    const line = JSON.stringify(wire) + "\n";
+    process.stdout.write(line); // TUI reads stdout lines
+    // Web SSE: route to the owning session if known, else broadcast.
+    const sid = (event as { sessionId?: string }).sessionId;
+    if (sid) {
+      sessionEventCallbacks.get(sid)?.(wire);
+    } else {
+      for (const cb of sessionEventCallbacks.values()) cb(wire);
+    }
+  });
 
   // Set up Ctrl+C interrupt handler for session resumption
   const handler = getInterruptHandler();
