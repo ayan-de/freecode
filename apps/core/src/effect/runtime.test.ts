@@ -15,7 +15,7 @@ import { makeTestLayer } from "./layers.js";
 import { makeRuntime } from "./runtime.js";
 import { SessionStoreTag, MemoryFactoryTag } from "./context.js";
 import { createAgentLoopEffect } from "../agent/loop.js";
-import { MemoryService } from "../memory/service.js";
+import { MemoryService } from "../compaction/service.js";
 import { registerProvider } from "../providers/registry.js";
 import type { ProviderId } from "../providers/config.js";
 import type {

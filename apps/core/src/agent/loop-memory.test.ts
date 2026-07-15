@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { renderPromptMemoryContext } from "../memory/selector.js";
+import { renderPromptMemoryContext } from "../compaction/selector.js";
 
 test("rendered memory context is suitable for AgentLoop prompt insertion", () => {
   const rendered = renderPromptMemoryContext({

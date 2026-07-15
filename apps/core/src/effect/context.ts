@@ -11,7 +11,7 @@ import { Context } from "effect";
 import type { HookRuntime } from "../hooks/runtime.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import type { SessionStore } from "../session/store.js";
-import type { MemoryService } from "../memory/service.js";
+import type { MemoryService } from "../compaction/service.js";
 import type { RolloutRecorder } from "../rollout/recorder.js";
 import type { AIProvider, ProviderInfo } from "../providers/types.js";
 import type { SessionManager } from "../session/manager.js";

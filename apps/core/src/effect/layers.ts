@@ -18,8 +18,8 @@ import {
 } from "../tools/orchestrator.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
 import { bus } from "../bus/index.js";
-import { MemoryService } from "../memory/service.js";
-import type { MemoryState } from "../memory/types.js";
+import { MemoryService } from "../compaction/service.js";
+import type { MemoryState } from "../compaction/types.js";
 import { createRecorder } from "../rollout/recorder.js";
 import { getProvider, listProviders } from "../providers/registry.js";
 import type { ProviderId } from "../providers/config.js";

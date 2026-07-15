@@ -39,7 +39,7 @@ import {
   getProjectContext,
   invalidateProjectContext,
 } from "../context/tree-cache.js";
-import { MemoryService, renderPromptMemoryContext } from "../memory/index.js";
+import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
 import { getProvider } from "../providers/index.js";
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
@@ -489,40 +489,22 @@ export class AgentLoop {
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
         await this.appendAssistantMessage(providerResult.content);
-        if (this.memory.shouldCompact(provider)) {
-          // PreCompact Hook — can inspect/modify context before compaction
-          const preResult = await this.hooks.runPreCompact({
-            sessionId: this.state.sessionId,
-            turnCount: this.state.turnCount,
-          });
-          if (!preResult.allowed) {
+        if (this.memory.shouldCompact(model ?? provider)) {
+          // PreCompact/PostCompact hooks run inside MemoryService.compact()
+          const result = await this.memory.compact();
+          if (result.success && result.summary) {
+            this.recorder.recordCompactOccurred(
+              result.tokenCountBefore,
+              result.tokenCountAfter,
+            );
+            // Sync native history with preserved messages
+            const preserveCount = result.preservedMessageIds.length;
+            this.history = this.history.slice(-preserveCount);
+          }
+          if (!result.success) {
             console.warn(
-              `[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`,
+              `[AgentLoop] Memory compaction ${result.blocked ? "blocked by hook" : "skipped"}: ${result.reason ?? "unknown reason"}`,
             );
-          } else {
-            const result = await this.memory.compact();
-            if (result.success && result.summary) {
-              this.recorder.recordCompactOccurred(
-                result.tokenCountBefore,
-                result.tokenCountAfter,
-              );
-              // Sync native history with preserved messages
-              const preserveCount = result.preservedMessageIds.length;
-              this.history = this.history.slice(-preserveCount);
-            }
-            // PostCompact Hook — verify/log compaction result
-            await this.hooks.runPostCompact(
-              {
-                sessionId: this.state.sessionId,
-                turnCount: this.state.turnCount,
-              },
-              result.success,
-            );
-            if (!result.success) {
-              console.warn(
-                `[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`,
-              );
-            }
           }
         }
         return {
@@ -572,40 +554,22 @@ export class AgentLoop {
         providerResult.content || `[Executed ${toolCalls.length} tools]`,
       );
 
-      if (this.memory.shouldCompact(provider)) {
-        // PreCompact Hook — can inspect/modify context before compaction
-        const preResult = await this.hooks.runPreCompact({
-          sessionId: this.state.sessionId,
-          turnCount: this.state.turnCount,
-        });
-        if (!preResult.allowed) {
+      if (this.memory.shouldCompact(model ?? provider)) {
+        // PreCompact/PostCompact hooks run inside MemoryService.compact()
+        const result = await this.memory.compact();
+        if (result.success && result.summary) {
+          this.recorder.recordCompactOccurred(
+            result.tokenCountBefore,
+            result.tokenCountAfter,
+          );
+          // Sync native history with preserved messages
+          const preserveCount = result.preservedMessageIds.length;
+          this.history = this.history.slice(-preserveCount);
+        }
+        if (!result.success) {
           console.warn(
-            `[AgentLoop] Compaction blocked by hook: ${preResult.blockReason ?? "no reason"}`,
+            `[AgentLoop] Memory compaction ${result.blocked ? "blocked by hook" : "skipped"}: ${result.reason ?? "unknown reason"}`,
           );
-        } else {
-          const result = await this.memory.compact();
-          if (result.success && result.summary) {
-            this.recorder.recordCompactOccurred(
-              result.tokenCountBefore,
-              result.tokenCountAfter,
-            );
-            // Sync native history with preserved messages
-            const preserveCount = result.preservedMessageIds.length;
-            this.history = this.history.slice(-preserveCount);
-          }
-          // PostCompact Hook — verify/log compaction result
-          await this.hooks.runPostCompact(
-            {
-              sessionId: this.state.sessionId,
-              turnCount: this.state.turnCount,
-            },
-            result.success,
-          );
-          if (!result.success) {
-            console.warn(
-              `[AgentLoop] Memory compaction skipped: ${result.reason ?? "unknown reason"}`,
-            );
-          }
         }
       }
 
