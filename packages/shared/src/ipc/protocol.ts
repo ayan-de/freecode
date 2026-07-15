@@ -123,6 +123,14 @@ export const METHODS = {
     params: undefined,
     result: [] as import("../types.js").ProviderInfo[],
   },
+  "commands.list": {
+    params: undefined,
+    result: [] as import("../types.js").CommandInfo[],
+  },
+  "commands.resolve": {
+    params: { name: "", args: [] as string[] },
+    result: { prompt: "" },
+  },
   "question.answer": {
     params: { requestId: "", answers: [] as string[] },
     result: undefined as void,

@@ -10,6 +10,7 @@ export type {
   ToolRegistry,
   JsonSchema,
   ToolListItem,
+  CommandInfo,
   ProviderInfo,
   ProviderDefinition,
   SessionConfig,

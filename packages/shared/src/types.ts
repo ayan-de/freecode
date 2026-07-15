@@ -53,6 +53,13 @@ export interface ToolListItem {
   description: string;
 }
 
+/** A prompt command (e.g. /init) defined in core and exposed to every frontend. */
+export interface CommandInfo {
+  name: string;
+  description: string;
+  argHint?: string;
+}
+
 // =============================================================================
 // Provider Types
 // =============================================================================
