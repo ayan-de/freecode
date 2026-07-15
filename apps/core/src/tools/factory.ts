@@ -52,6 +52,10 @@ export const defaultToolUI: ToolUI = {
       skill: "white",
       agent: "red",
       question: "gray",
+      webfetch: "cyan",
+      websearch: "blue",
+      todowrite: "green",
+      lsp: "magenta",
     };
     return {
       label: toolId,

@@ -7,6 +7,10 @@ import { BashTool } from "./bash.js";
 import { SkillTool } from "./skill.js";
 import { AgentTool } from "./agent.js";
 import { QuestionTool } from "./question.js";
+import { WebFetchTool } from "./webfetch.js";
+import { WebSearchTool } from "./websearch.js";
+import { TodoWriteTool } from "./todo.js";
+import { LspTool } from "./lsp.js";
 import {
   createToolOrchestrator,
   type ToolOrchestrator,
@@ -75,6 +79,10 @@ export const tools = {
   skill: SkillTool,
   agent: AgentTool,
   question: QuestionTool,
+  webfetch: WebFetchTool,
+  websearch: WebSearchTool,
+  todowrite: TodoWriteTool,
+  lsp: LspTool,
 } as const;
 
 export type ToolId = keyof typeof tools;

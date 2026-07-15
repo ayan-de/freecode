@@ -219,4 +219,8 @@ export const TOOL_COLORS: Record<string, string> = {
   skill: "white",
   agent: "red",
   question: "gray",
+  webfetch: "cyan",
+  websearch: "blue",
+  todowrite: "green",
+  lsp: "magenta",
 };
