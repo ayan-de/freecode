@@ -17,7 +17,7 @@ export default function Home() {
         <Hero />
 
         <div className="h-10 w-full flex items-end justify-start">
-          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-3">#Installation</span>
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#Installation</span>
         </div>
 
         <div className="w-full pt-4 pb-12">
@@ -25,7 +25,7 @@ export default function Home() {
         </div>
 
         <div className="h-10 w-full flex items-end justify-start">
-          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-3">#Mission</span>
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#Mission</span>
         </div>
 
         <div className="w-full">
@@ -33,7 +33,7 @@ export default function Home() {
         </div>
 
         <div className="h-10 w-full flex items-end justify-start">
-          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-3">#Benchmark</span>
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#Benchmark</span>
         </div>
 
         <div className="w-full">
@@ -42,7 +42,7 @@ export default function Home() {
       </main>
 
       <div className="h-10 w-full flex items-end justify-start px-[max(80px,calc((100vw-1024px)/2))]">
-        <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-3">#Footer</span>
+        <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#Footer</span>
       </div>
 
       <div className="px-[max(80px,calc((100vw-1024px)/2))] pt-4 pb-12">
@@ -50,7 +50,7 @@ export default function Home() {
       </div>
 
       <div className="h-10 w-full flex items-end justify-start px-[max(80px,calc((100vw-1024px)/2))] pb-4">
-        <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-3">#Freecode</span>
+        <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#Freecode</span>
       </div>
     </PageWrapper>
   );
