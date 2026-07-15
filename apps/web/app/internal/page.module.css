@@ -1,19 +1,20 @@
 .page {
   min-height: 100vh;
-  color: rgba(255, 255, 255, 0.9);
   padding-bottom: 48px;
 }
 
 .content {
   width: 100%;
-  padding-left: max(80px, calc((100vw - 1280px) / 2));
-  padding-right: max(80px, calc((100vw - 1280px) / 2));
+  padding-left: max(80px, calc((100vw - 1024px) / 2));
+  padding-right: max(80px, calc((100vw - 1024px) / 2));
   box-sizing: border-box;
 }
 
 .footer {
   margin-top: 64px;
   padding-top: 32px;
+  padding-left: max(80px, calc((100vw - 1024px) / 2));
+  padding-right: max(80px, calc((100vw - 1024px) / 2));
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   text-align: center;
 }

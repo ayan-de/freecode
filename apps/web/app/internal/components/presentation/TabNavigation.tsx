@@ -19,7 +19,7 @@ export function TabNavigation({
 }: TabNavigationProps) {
   return (
     <nav
-      className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1280px)/2))]"
+      className="relative z-50 bg-transparent px-[max(80px,calc((100vw-1024px)/2))]"
       role="tablist"
     >
       <div className="flex items-stretch h-20 max-w-7xl mx-auto">
@@ -31,14 +31,14 @@ export function TabNavigation({
               role="tab"
               aria-selected={isActive}
               onClick={() => onTabChange(tab.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 border-r border-white/20 transition-all duration-200 last:border-r-0 bg-transparent`}
+              className={`flex-1 flex flex-col items-center justify-center gap-1 border-r border-border transition-all duration-200 last:border-r-0 bg-transparent`}
             >
               <span
-                className={`text-xl font-semibold ${isActive ? "brand-gradient-text" : "text-white"}`}
+                className={`text-xl font-semibold ${isActive ? "text-primary" : "text-foreground/70"}`}
               >
                 {tab.label}
               </span>
-              {/* <span className="text-xs text-white/40">{tab.description}</span> */}
+              {/* <span className="text-xs text-muted-foreground">{tab.description}</span> */}
             </button>
           );
         })}
