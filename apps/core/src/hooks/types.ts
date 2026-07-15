@@ -9,7 +9,7 @@ import type { ToolCall, ToolResult, HookContext } from "../agent/types.js";
 export type { ToolCall, ToolResult, HookContext };
 
 // =============================================================================
-// 10 Hook Event Types (per architecture spec)
+// Hook Event Types (architecture spec's 10 + TurnStart/TurnEnd/Notification)
 // =============================================================================
 
 export const HOOK_EVENT_NAMES = [
@@ -24,6 +24,9 @@ export const HOOK_EVENT_NAMES = [
   "SubagentStart", // When a sub-agent is spawned
   "SubagentStop", // When a sub-agent completes
   "Stop", // When agent loop terminates
+  "TurnStart", // Before each turn — inject context, per-turn setup
+  "TurnEnd", // After each turn — cost/usage tracking, logging
+  "Notification", // When agent needs user attention (e.g. approval)
 ] as const;
 
 export type HookEventName = (typeof HOOK_EVENT_NAMES)[number];

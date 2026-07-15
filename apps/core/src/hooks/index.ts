@@ -42,6 +42,10 @@ export {
   runSubagentStartHooks,
   runSubagentStopHooks,
   runStopHooks,
+  runTurnStartHooks,
+  runTurnEndHooks,
+  runNotificationHooks,
+  type TurnUsage,
 } from "./runtime.js";
 
 export { executeCommandHook } from "./executors/command.js";
