@@ -17,8 +17,6 @@ export async function runPostToolUseFailureHooks(
   context: HookContext,
 ): Promise<{
   additionalContext?: string;
-  shouldRetry?: boolean;
-  recoveryAction?: "retry" | "skip" | "abort";
 }> {
   const hooks = getHooksForEvent("PostToolUseFailure");
 
