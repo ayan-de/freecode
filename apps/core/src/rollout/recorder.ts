@@ -83,6 +83,20 @@ export class RolloutRecorder {
       config?.rolloutDir ??
       path.join(os.homedir(), ".freecode", "rollout", "sessions", sessionId);
     this.eventsFilePath = path.join(rolloutDir, "events.jsonl");
+    // Resume seq after the last recorded event so per-aggregate sequence
+    // numbers stay unique across process restarts.
+    // ponytail: line count as seq; parse the last line's seq if lines and
+    // events ever stop being 1:1.
+    this.seq = this.countExistingEvents();
+  }
+
+  private countExistingEvents(): number {
+    try {
+      const content = fs.readFileSync(this.eventsFilePath, "utf-8");
+      return content.split("\n").filter((line) => line.trim()).length;
+    } catch {
+      return 0;
+    }
   }
 
   // ===========================================================================
@@ -125,10 +139,11 @@ export class RolloutRecorder {
     if (opts.turnId) extra.turnId = opts.turnId;
     if (opts.tool) extra.tool = opts.tool;
     if (opts.args) extra.args = opts.args;
-    if (opts.output) extra.output = opts.output;
-    if (opts.duration_ms) extra.duration_ms = opts.duration_ms;
-    if (opts.beforeTokens) extra.beforeTokens = opts.beforeTokens;
-    if (opts.afterTokens) extra.afterTokens = opts.afterTokens;
+    // !== undefined: 0 and "" are legitimate values for these fields
+    if (opts.output !== undefined) extra.output = opts.output;
+    if (opts.duration_ms !== undefined) extra.duration_ms = opts.duration_ms;
+    if (opts.beforeTokens !== undefined) extra.beforeTokens = opts.beforeTokens;
+    if (opts.afterTokens !== undefined) extra.afterTokens = opts.afterTokens;
     if (opts.subagentId) extra.subagentId = opts.subagentId;
     if (opts.task) extra.task = opts.task;
     if (opts.result) extra.result = opts.result;
@@ -140,7 +155,7 @@ export class RolloutRecorder {
     if (opts.reason) extra.reason = opts.reason;
     if (opts.parser) extra.parser = opts.parser;
     if (opts.error) extra.error = opts.error;
-    if (opts.seq) extra.seq = opts.seq;
+    if (opts.seq !== undefined) extra.seq = opts.seq;
 
     return { type, ...base, ...extra } as RolloutEvent;
   }
@@ -192,12 +207,14 @@ export class RolloutRecorder {
     tool: string,
     output: string,
     duration_ms: number,
+    turnId: string,
   ): void {
     const event = this.makeEvent("function.output", {
       aggregateID: this.sessionId,
       tool,
       output,
       duration_ms,
+      turnId,
     });
     this.write(event);
   }

@@ -90,14 +90,14 @@ export function replaySession(sessionId: string): ReplayResult | null {
 
       case "function.output": {
         const typedEvent = event as FunctionOutputEvent;
-        // Find the turn this output belongs to
-        for (const turn of turnMap.values()) {
-          const lastCall = turn.calls[turn.calls.length - 1];
-          if (lastCall && !lastCall.output) {
-            lastCall.output = typedEvent.output;
-            lastCall.duration_ms = typedEvent.duration_ms;
-            break;
-          }
+        // Attach to the first pending call for this tool in its own turn
+        const turn = turnMap.get(typedEvent.turnId);
+        const call = turn?.calls.find(
+          (c) => c.tool === typedEvent.tool && c.output === undefined,
+        );
+        if (call) {
+          call.output = typedEvent.output;
+          call.duration_ms = typedEvent.duration_ms;
         }
         break;
       }

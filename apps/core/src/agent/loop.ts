@@ -1020,6 +1020,7 @@ export class AgentLoop {
       toolCall.tool,
       result.stdout || result.error || "",
       Date.now() - startTime,
+      `turn-${this.state.turnCount}`,
     );
 
     // Emit tool_complete event for streaming
