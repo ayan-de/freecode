@@ -5,6 +5,17 @@
 
 export type MemoryType = "user" | "feedback" | "project" | "reference";
 
+export const MEMORY_TYPES: readonly MemoryType[] = [
+  "user",
+  "feedback",
+  "project",
+  "reference",
+];
+
+function isMemoryType(value: string): value is MemoryType {
+  return (MEMORY_TYPES as readonly string[]).includes(value);
+}
+
 export interface MemoryEntry {
   name: string;
   description: string;
@@ -67,7 +78,7 @@ export function parseMemoryFrontmatter(content: string): ParsedMemory {
     metadata: {
       name: metadata.name,
       description: metadata.description,
-      type: metadata.type as MemoryType | undefined,
+      type: metadata.type && isMemoryType(metadata.type) ? metadata.type : undefined,
     },
     content: body.trim(),
   };

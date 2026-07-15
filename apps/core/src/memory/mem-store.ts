@@ -100,7 +100,9 @@ export class MemoryStore {
     return {
       name: parsed.metadata.name ?? name,
       description: parsed.metadata.description ?? "",
-      type: parsed.metadata.type ?? type,
+      // Directory location is the source of truth — trusting frontmatter here
+      // would make delete(name, entry.type) look in the wrong directory.
+      type,
       content: parsed.content,
       createdAt: stat.birthtimeMs,
       updatedAt: stat.mtimeMs,
@@ -200,8 +202,13 @@ export class MemoryStore {
       lines.push("");
     }
 
-    // Cap at ~200 lines
-    const output = lines.join("\n");
+    const MAX_INDEX_LINES = 200;
+    let output = lines.join("\n");
+    if (lines.length > MAX_INDEX_LINES) {
+      output =
+        lines.slice(0, MAX_INDEX_LINES).join("\n") +
+        `\n\n> WARNING: index truncated at ${MAX_INDEX_LINES} lines (${lines.length} total). Remove stale memories.`;
+    }
     fs.writeFileSync(getIndexPath(this.basePath), output, "utf-8");
   }
 

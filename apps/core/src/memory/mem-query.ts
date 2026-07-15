@@ -59,6 +59,12 @@ export function findRelevantMemories(
     entries = entries.filter((e) => types.includes(e.type));
   }
 
+  // Blank query: name.includes("") is true for every entry, so scoring
+  // degrades to "first N alphabetically" — just return that honestly.
+  if (query.trim().length === 0) {
+    return entries.slice(0, limit);
+  }
+
   // Score and sort
   const scored = entries.map((entry) => ({
     entry,
@@ -67,5 +73,8 @@ export function findRelevantMemories(
 
   scored.sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, limit).map((s) => s.entry);
+  return scored
+    .filter((s) => s.score > 0)
+    .slice(0, limit)
+    .map((s) => s.entry);
 }
