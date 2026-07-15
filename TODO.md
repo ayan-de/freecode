@@ -13,6 +13,21 @@
 
 ## Pending
 
+### User-defined prompt commands loader
+
+**Status:** Not started
+
+Built-in prompt commands (e.g. `/init`) are defined in `apps/core/src/commands/registry.ts`
+and exposed to every frontend via IPC (`commands.list` / `commands.resolve`). Extend the
+registry to also load user/project-defined commands from `.freecode/commands/*.md` (front-matter
+for `description`/`argHint`, body as the prompt template, `$ARGUMENTS` substitution).
+
+**Reference:** opencode's `cfg.command` pattern in `packages/opencode/src/command/index.ts`.
+
+- Loader reads `.freecode/commands/*.md` (project) and `~/.freecode/commands/*.md` (global)
+- Parse front-matter → `PromptCommand`; merge into the registry alongside built-ins
+- No frontend changes needed — they already fetch the merged list over IPC
+
 ### Effect/Layer DI (Complex - Skipped for now)
 
 **Status:** Skipped - requires significant architectural change using Effect framework
