@@ -296,11 +296,26 @@ export class AgentLoop {
           console.warn(`[AgentLoop] Warning: ${healthAction.reason}`);
         }
 
+        // TurnStart Hook — per-turn setup, context injection
+        await this.hooks.runTurnStart({
+          sessionId: this.state.sessionId,
+          turnCount: this.state.turnCount,
+        });
+
         // Execute one turn: send prompt, get response, parse tools, execute
         const turnResult = await this.executeTurn(
           input.provider,
           input.model,
           contextResult.value,
+        );
+
+        // TurnEnd Hook — cost/usage tracking, logging
+        await this.hooks.runTurnEnd(
+          {
+            sessionId: this.state.sessionId,
+            turnCount: this.state.turnCount,
+          },
+          turnResult.usage,
         );
         if (!turnResult.success) {
           // Interrupted mid-turn (Ctrl+C / session.stop): the provider or tool
@@ -928,6 +943,13 @@ export class AgentLoop {
         };
         return blockedResult;
       }
+      // Notification Hook — agent needs user attention for approval
+      if (permResult.decision === "ask") {
+        await this.hooks.runNotification(
+          `Permission needed: ${toolCall.tool}${permResult.reason ? ` — ${permResult.reason}` : ""}`,
+          hookContext,
+        );
+      }
     }
 
     // Apply input modifications from permission hook if any
@@ -984,7 +1006,9 @@ export class AgentLoop {
         toolCallId: toolCall.id,
         tool: toolCall.tool,
         title: `Tool ${toolCall.tool}`,
-        error: String(error),
+        error: failureResult.additionalContext
+          ? `${String(error)}\n\n${failureResult.additionalContext}`
+          : String(error),
         duration_ms: Date.now() - startTime,
       };
       return errorResult;
@@ -1012,6 +1036,20 @@ export class AgentLoop {
       result,
       hookContext,
     );
+    if (typeof postResult.modifiedOutput === "string") {
+      result = {
+        ...result,
+        modelOutput: postResult.modifiedOutput,
+        stdout: postResult.modifiedOutput,
+      };
+    }
+    if (postResult.additionalContext) {
+      const base = result.modelOutput ?? result.stdout ?? "";
+      result = {
+        ...result,
+        modelOutput: `${base}\n\n${postResult.additionalContext}`,
+      };
+    }
 
     // Record function.output event
     this.recorder.recordFunctionOutput(

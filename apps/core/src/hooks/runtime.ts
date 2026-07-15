@@ -34,6 +34,9 @@ import { runPostCompactHooks } from "./PostCompact.js";
 import { runUserPromptSubmitHooks } from "./UserPromptSubmit.js";
 import { runSubagentStartHooks } from "./SubagentStart.js";
 import { runSubagentStopHooks } from "./SubagentStop.js";
+import { runTurnStartHooks } from "./TurnStart.js";
+import { runTurnEndHooks, type TurnUsage } from "./TurnEnd.js";
+import { runNotificationHooks } from "./Notification.js";
 import {
   registerHook,
   unregisterHook,
@@ -73,8 +76,6 @@ export interface HookRuntime {
     ctx: HookContext,
   ): Promise<{
     additionalContext?: string;
-    shouldRetry?: boolean;
-    recoveryAction?: "retry" | "skip" | "abort";
   }>;
   runPermissionRequest(
     tool: ToolCall,
@@ -133,6 +134,20 @@ export interface HookRuntime {
     additionalContext?: string;
   }>;
 
+  // Turn hooks
+  runTurnStart(ctx: HookContext): Promise<{
+    additionalContext?: string;
+  }>;
+  runTurnEnd(
+    ctx: HookContext,
+    usage?: TurnUsage,
+  ): Promise<{
+    additionalContext?: string;
+  }>;
+
+  // Notification hook
+  runNotification(message: string, ctx: HookContext): Promise<void>;
+
   // Utility
   getHooksForEvent(event: HookEventName): ReturnType<typeof getHooksForEvent>;
   listHooks(): string;
@@ -185,8 +200,6 @@ export function createHookRuntime(): HookRuntime {
       ctx: HookContext,
     ): Promise<{
       additionalContext?: string;
-      shouldRetry?: boolean;
-      recoveryAction?: "retry" | "skip" | "abort";
     }> {
       return runPostToolUseFailureHooks(tool, error, ctx);
     },
@@ -296,6 +309,37 @@ export function createHookRuntime(): HookRuntime {
     },
 
     // =========================================================================
+    // TurnStart Hook - Called before each turn
+    // Can: inject context, per-turn setup
+    // =========================================================================
+    async runTurnStart(ctx: HookContext): Promise<{
+      additionalContext?: string;
+    }> {
+      return runTurnStartHooks(ctx);
+    },
+
+    // =========================================================================
+    // TurnEnd Hook - Called after each turn completes
+    // Can: track cost/usage, log
+    // =========================================================================
+    async runTurnEnd(
+      ctx: HookContext,
+      usage?: TurnUsage,
+    ): Promise<{
+      additionalContext?: string;
+    }> {
+      return runTurnEndHooks(ctx, usage);
+    },
+
+    // =========================================================================
+    // Notification Hook - Called when agent needs user attention
+    // Can: alert the user (desktop notification, sound, etc.)
+    // =========================================================================
+    async runNotification(message: string, ctx: HookContext): Promise<void> {
+      return runNotificationHooks(message, ctx);
+    },
+
+    // =========================================================================
     // Utility Methods
     // =========================================================================
     getHooksForEvent(event: HookEventName) {
@@ -360,4 +404,8 @@ export {
   runSubagentStartHooks,
   runSubagentStopHooks,
   runStopHooks,
+  runTurnStartHooks,
+  runTurnEndHooks,
+  runNotificationHooks,
+  type TurnUsage,
 };
