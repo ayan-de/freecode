@@ -33,7 +33,7 @@ export default function InternalPage() {
   return (
     <PageWrapper>
       <div className={styles.page}>
-        <Navbar />
+        {/* <Navbar /> */}
         <TabNavigation
           tabs={tabs}
           activeTab={activeTab}
