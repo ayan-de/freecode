@@ -271,6 +271,10 @@ export class AgentLoop {
 
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
+      let totalCacheReadTokens = 0;
+      // Occupancy of the model's window = last call's full input (each call
+      // resends the whole conversation, so summing would double-count).
+      let lastTurnContextTokens = 0;
 
       // =======================================================================
       // CONTINUOUS LOOP - Core agent cycle
@@ -309,8 +313,16 @@ export class AgentLoop {
 
         // Accumulate usage across turns
         if (turnResult.usage) {
-          totalInputTokens += turnResult.usage.inputTokens ?? 0;
+          // Cache writes are billed input — fold them into ↓ so turn 1 isn't "free"
+          totalInputTokens +=
+            (turnResult.usage.inputTokens ?? 0) +
+            (turnResult.usage.cacheCreationInputTokens ?? 0);
           totalOutputTokens += turnResult.usage.outputTokens ?? 0;
+          totalCacheReadTokens += turnResult.usage.cacheReadInputTokens ?? 0;
+          lastTurnContextTokens =
+            (turnResult.usage.inputTokens ?? 0) +
+            (turnResult.usage.cacheReadInputTokens ?? 0) +
+            (turnResult.usage.cacheCreationInputTokens ?? 0);
         }
 
         // No tool calls means we're done
@@ -319,7 +331,12 @@ export class AgentLoop {
             "Done",
             turnResult.responseText,
             turnResult.thinking,
-            { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+            {
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+              cacheReadInputTokens: totalCacheReadTokens,
+              contextTokens: lastTurnContextTokens,
+            },
           );
         }
 
@@ -357,7 +374,12 @@ export class AgentLoop {
     responseText?: string;
     thinking?: string;
     error?: string;
-    usage?: { inputTokens: number; outputTokens: number };
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+    };
   }> {
     try {
       // Get tools for prompt compilation (cached; invalidated on tool/MCP change)
@@ -606,7 +628,12 @@ export class AgentLoop {
       args: Record<string, unknown>;
       id: string;
     }>;
-    usage?: { inputTokens: number; outputTokens: number };
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+    };
     streamed?: boolean;
   }> {
     return this.recovery.callProvider(
@@ -638,7 +665,12 @@ export class AgentLoop {
       args: Record<string, unknown>;
       id: string;
     }>;
-    usage?: { inputTokens: number; outputTokens: number };
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+    };
     streamed?: boolean;
   }> {
     const aiProvider = getProvider(provider as any);
@@ -653,7 +685,14 @@ export class AgentLoop {
       let toolCalls:
         | Array<{ name: string; args: Record<string, unknown>; id: string }>
         | undefined;
-      let usage: { inputTokens: number; outputTokens: number } | undefined;
+      let usage:
+        | {
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadInputTokens?: number;
+            cacheCreationInputTokens?: number;
+          }
+        | undefined;
 
       for await (const chunk of aiProvider.stream({
         messages,
@@ -689,6 +728,8 @@ export class AgentLoop {
             usage = {
               inputTokens: chunk.usage.inputTokens,
               outputTokens: chunk.usage.outputTokens,
+              cacheReadInputTokens: chunk.usage.cacheReadInputTokens,
+              cacheCreationInputTokens: chunk.usage.cacheCreationInputTokens,
             };
             break;
           case "error":
@@ -1186,7 +1227,12 @@ export class AgentLoop {
     message: string,
     content?: string,
     thinking?: string,
-    usage?: { inputTokens: number; outputTokens: number },
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens?: number;
+      contextTokens?: number;
+    },
   ): LoopResult {
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId);
