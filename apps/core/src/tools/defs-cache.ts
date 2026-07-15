@@ -47,8 +47,7 @@ export function getToolDefs(): ProviderToolDef[] {
 
 export function invalidateToolDefs(): void {
   cached = null;
-  // Compiled system-prompt blocks embed the tool schema section — the spec
-  // says they invalidate on tool/skill change too. clearCaches also drops the
-  // compiler's file-tree section cache, which is acceptable for a rare event.
+  // Tools are sent as native schemas now, so only the compiler's file-tree
+  // cache remains; dropping it on a rare tool/skill change is acceptable.
   PromptCompiler.clearCaches();
 }

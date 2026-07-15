@@ -382,15 +382,11 @@ export class AgentLoop {
     };
   }> {
     try {
-      // Get tools for prompt compilation (cached; invalidated on tool/MCP change)
-      const tools = getToolDefs();
-
       // Build system prompt blocks using compiler
       const memoryContext = renderPromptMemoryContext(
         this.memory.getPromptContext(),
       );
       const systemBlocks = this.compiler.compileSystemBlocks(
-        tools,
         context.tree,
         context.gitHead,
         "", // ignorePatterns - empty for now

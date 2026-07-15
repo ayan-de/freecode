@@ -16,23 +16,10 @@ test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correct
     "my-project",
     "build",
   );
-  const tools = [
-    {
-      name: "read",
-      description: "Read file",
-      parameters: { type: "object", properties: {} },
-    },
-    {
-      name: "write",
-      description: "Write file",
-      parameters: { type: "object", properties: {} },
-    },
-  ];
   const tree = "📄 index.js";
   const gitHead = "abc12345";
 
   const blocks = compiler.compileSystemBlocks(
-    tools,
     tree,
     gitHead,
     "",
@@ -45,11 +32,9 @@ test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correct
   assert.equal(blocks[0].cache, true);
   assert.equal(blocks[1].cache, false);
 
-  // Static section has system prompts and tools
+  // Static section has system prompts (tools are sent as native schemas)
   assert.ok(blocks[0].text.includes("BUILD mode"));
-  assert.ok(blocks[0].text.includes("Available tools"));
-  assert.ok(blocks[0].text.includes("read"));
-  assert.ok(blocks[0].text.includes("write"));
+  assert.ok(!blocks[0].text.includes("Available tools"));
 
   // Dynamic section has tree, git head, path, and memory
   assert.ok(blocks[1].text.includes("my-project"));

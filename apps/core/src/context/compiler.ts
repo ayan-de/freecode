@@ -1,11 +1,10 @@
 // =============================================================================
 // PromptCompiler - Mode-aware prompt building with caching
-// PRIMARY: Build prompts with stable sections: system, tools, project, history, message
-// CACHING: File tree by git HEAD + ignore patterns, tool schemas per provider/model
+// PRIMARY: Build system prompt blocks: provider prompt, mode, instructions, project
+// CACHING: File tree by git HEAD + ignore patterns
 // =============================================================================
 
 import type { AgentMode } from "../agent/types.js";
-import type { ToolCall, ToolResult } from "../agent/types.js";
 import type { SystemBlock } from "../providers/types.js";
 import { compileInstructionsSection } from "./instructions.js";
 import { loadProviderPrompt } from "../session/prompt.js";
@@ -40,22 +39,6 @@ ALL permission checks are BYPASSED. You have complete access to everything.
 Read and write any files, run any commands including destructive ones.
 Use with extreme caution - you can break things permanently.`,
 };
-
-// ===========================================================================
-// Tool Schema Cache
-// ===========================================================================
-
-interface CachedToolSchemas {
-  schema: string;
-  timestamp: number;
-}
-
-const toolSchemaCache = new Map<string, CachedToolSchemas>();
-const TOOL_SCHEMA_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-function getToolSchemasKey(provider: string, model?: string): string {
-  return `${provider}:${model || "default"}`;
-}
 
 // ===========================================================================
 // File Tree Cache
@@ -120,36 +103,6 @@ RESPONSE FORMATTING GUIDELINES:
   }
 
   /**
-   * Compile tool schemas with caching
-   */
-  compileToolsSection(
-    tools: Array<{
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-    }>,
-    provider: string,
-    model?: string,
-  ): string {
-    const cacheKey = getToolSchemasKey(provider, model);
-    const cached = toolSchemaCache.get(cacheKey);
-
-    if (cached && Date.now() - cached.timestamp < TOOL_SCHEMA_TTL_MS) {
-      return cached.schema;
-    }
-
-    const schema = tools.map((t) => `- ${t.name}: ${t.description}`).join("\n");
-
-    const section = `Available tools:
-${schema}
-
-Use tools as needed. Format: [TOOL_CALLS]\ntool_name: {args}\n[/TOOL_CALLS]`;
-
-    toolSchemaCache.set(cacheKey, { schema: section, timestamp: Date.now() });
-    return section;
-  }
-
-  /**
    * Compile project summary section with caching
    */
   compileProjectSummary(
@@ -182,51 +135,9 @@ ${tree}`;
   }
 
   /**
-   * Compile recent history section
-   */
-  compileHistorySection(
-    recentTurns: Array<{
-      prompt: string;
-      response: string;
-      toolResults?: ToolResult[];
-    }>,
-    maxTurns: number = 3,
-  ): string {
-    if (recentTurns.length === 0) return "";
-
-    const recent = recentTurns.slice(-maxTurns);
-    const lines = recent.map((turn, i) => {
-      let entry = `[Turn ${i + 1}]
-User: ${turn.prompt}
-Assistant: ${turn.response}`;
-      if (turn.toolResults && turn.toolResults.length > 0) {
-        const toolSummary = turn.toolResults
-          .map((r) => `  - ${r.tool}: ${r.error || "ok"}`)
-          .join("\n");
-        entry += `\nTool results:\n${toolSummary}`;
-      }
-      return entry;
-    });
-
-    return `Recent turns:\n${lines.join("\n\n")}\n\n`;
-  }
-
-  /**
-   * Compile latest user message section
-   */
-  compileMessageSection(prompt: string): string {
-    return `Task: ${prompt}`;
-  }
-
-  /**
    * Compile system prompt blocks for caching
    */
   compileSystemBlocks(
-    tools: Array<{
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-    }>,
     tree: string,
     gitHead: string,
     ignorePatterns: string,
@@ -234,11 +145,11 @@ Assistant: ${turn.response}`;
     model?: string,
     memoryContext?: string,
   ): SystemBlock[] {
+    // Tools are sent as native schemas by the providers; no text list needed.
     const staticText = [
       loadProviderPrompt(model ?? provider).trim(),
       this.compileSystemPrompt(),
       compileInstructionsSection(this.projectPath),
-      this.compileToolsSection(tools, provider, model),
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
@@ -259,56 +170,9 @@ Assistant: ${turn.response}`;
   }
 
   /**
-   * Compile full prompt from sections
-   */
-  compile(
-    prompt: string,
-    tools: Array<{
-      name: string;
-      description: string;
-      parameters: Record<string, unknown>;
-    }>,
-    tree: string,
-    gitHead: string,
-    ignorePatterns: string,
-    recentTurns: Array<{
-      prompt: string;
-      response: string;
-      toolResults?: ToolResult[];
-    }>,
-    provider: string,
-    model?: string,
-    memoryContext?: string,
-  ): string {
-    const sections = [
-      this.compileSystemPrompt(),
-      "",
-      this.compileToolsSection(tools, provider, model),
-      "",
-      this.compileProjectSummary(tree, gitHead, ignorePatterns),
-      "",
-      memoryContext ? `Session context:\n${memoryContext}\n` : "",
-      this.compileHistorySection(recentTurns),
-      "",
-      this.compileMessageSection(prompt),
-    ].filter((s) => s.length > 0);
-
-    return sections.join("\n");
-  }
-
-  /**
    * Clear caches (useful for refresh)
    */
   static clearCaches(): void {
-    toolSchemaCache.clear();
     fileTreeCache.clear();
-  }
-
-  /**
-   * Clear tool schema cache for a specific provider
-   */
-  static clearToolSchemaCache(provider: string, model?: string): void {
-    const key = getToolSchemasKey(provider, model);
-    toolSchemaCache.delete(key);
   }
 }

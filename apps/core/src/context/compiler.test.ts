@@ -23,7 +23,6 @@ test("compileSystemBlocks includes project CLAUDE.md in the static block", () =>
   );
   const compiler = new PromptCompiler(project, "test-project", "build");
   const blocks = compiler.compileSystemBlocks(
-    [],
     "src/",
     "abc123",
     "",
@@ -38,7 +37,6 @@ test("compileSystemBlocks works unchanged when no instruction files exist", () =
   const project = tmpDir();
   const compiler = new PromptCompiler(project, "test-project", "build");
   const blocks = compiler.compileSystemBlocks(
-    [],
     "src/",
     "abc123",
     "",
@@ -52,7 +50,6 @@ test("compileSystemBlocks starts the static block with the provider prompt", () 
   const project = tmpDir();
   const compiler = new PromptCompiler(project, "test-project", "build");
   const blocks = compiler.compileSystemBlocks(
-    [],
     "src/",
     "abc123",
     "",
@@ -68,7 +65,6 @@ test("compileSystemBlocks falls back to the provider id when model is undefined"
   const project = tmpDir();
   const compiler = new PromptCompiler(project, "test-project", "build");
   const blocks = compiler.compileSystemBlocks(
-    [],
     "src/",
     "abc123",
     "",
