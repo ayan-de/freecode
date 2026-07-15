@@ -33,12 +33,25 @@ function buildRequestBody(opts: ExecuteOptions): {
     role: "user" | "assistant";
     content: string | Array<{ type: string; [key: string]: unknown }>;
   }> = [];
+  // Anthropic-compatible system param; cache_control on blocks marked cache:true
+  // enables prompt caching so usage reports cache_read_input_tokens.
+  let system:
+    | Array<{
+        type: "text";
+        text: string;
+        cache_control?: { type: "ephemeral" };
+      }>
+    | undefined;
   if (opts.system) {
-    const systemPrompt =
+    const blocks =
       typeof opts.system === "string"
-        ? opts.system
-        : opts.system.map((b) => b.text).join("\n\n");
-    messages.push({ role: "user", content: systemPrompt });
+        ? [{ text: opts.system, cache: true }]
+        : opts.system;
+    system = blocks.map((b) => ({
+      type: "text" as const,
+      text: b.text,
+      ...(b.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
+    }));
   }
 
   if (opts.messages) {
@@ -141,6 +154,7 @@ function buildRequestBody(opts: ExecuteOptions): {
     max_tokens: opts.maxTokens || 4096,
     messages,
   };
+  if (system) body.system = system;
 
   if (opts.tools && opts.tools.length > 0) {
     body.tools = opts.tools.map((tool) => ({
@@ -206,7 +220,12 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
         name?: string;
         input?: Record<string, unknown>;
       }>;
-      usage: { input_tokens: number; output_tokens: number };
+      usage: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
       stop_reason: string;
     };
 
@@ -240,6 +259,8 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
         ? {
             inputTokens: data.usage.input_tokens,
             outputTokens: data.usage.output_tokens,
+            cacheReadInputTokens: data.usage.cache_read_input_tokens,
+            cacheCreationInputTokens: data.usage.cache_creation_input_tokens,
           }
         : undefined,
       stopReason: stopReasonFrom(data.stop_reason, toolCalls.length > 0),
@@ -289,6 +310,8 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     let stopReason: ExecuteResult["stopReason"] = "stop";
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheCreationTokens: number | undefined;
 
     try {
       while (true) {
@@ -320,6 +343,13 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
             case "message_start":
               if (event.message?.usage?.input_tokens != null) {
                 inputTokens = event.message.usage.input_tokens;
+              }
+              if (event.message?.usage?.cache_read_input_tokens != null) {
+                cacheReadTokens = event.message.usage.cache_read_input_tokens;
+              }
+              if (event.message?.usage?.cache_creation_input_tokens != null) {
+                cacheCreationTokens =
+                  event.message.usage.cache_creation_input_tokens;
               }
               break;
             case "content_block_start": {
@@ -403,6 +433,8 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
         usage: {
           inputTokens: inputTokens ?? 0,
           outputTokens: outputTokens ?? 0,
+          cacheReadInputTokens: cacheReadTokens,
+          cacheCreationInputTokens: cacheCreationTokens,
         },
       };
     }
