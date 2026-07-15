@@ -546,6 +546,7 @@ editor.onSubmit = async (value: string) => {
             contextLimit: number,
             startTime: number,
             turns: number,
+            cachedTokens?: number,
           ) =>
             updateInProgressMessage(
               id,
@@ -555,6 +556,7 @@ editor.onSubmit = async (value: string) => {
               contextLimit,
               startTime,
               turns,
+              cachedTokens,
             ),
           insertBeforeEditor: () => {
             /* no-op - messages go through store now */
@@ -631,6 +633,7 @@ editor.onSubmit = async (value: string) => {
       contextLimit,
       inProgressMsg.timestamp,
       result.turnCount || 1,
+      result.usage?.cacheReadInputTokens ?? 0,
     );
 
     // Brief pause so user can see final token state before it disappears
@@ -653,9 +656,15 @@ editor.onSubmit = async (value: string) => {
       const contextLimit = getModelContextLimit(
         `${currentProvider}/${currentModel}`,
       );
+      const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;
+      const contextTokens =
+        result.usage?.contextTokens ?? inTokens + cachedTokens;
       let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
+      if (cachedTokens > 0) {
+        tokenInfo += ` cached: ${formatTokenCount(cachedTokens)}`;
+      }
       if (contextLimit > 0) {
-        tokenInfo += ` [${formatTokenCount(inTokens)}/${formatTokenCount(contextLimit)}]`;
+        tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
       }
       createSystemMessage(
         `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,

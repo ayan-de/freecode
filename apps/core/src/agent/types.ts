@@ -284,7 +284,13 @@ export interface LoopResult {
   turnCount: number;
   iterationCount: number;
   finalState: SessionState;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens?: number;
+    // Last API call's full input — true context-window occupancy
+    contextTokens?: number;
+  };
 }
 
 // =============================================================================

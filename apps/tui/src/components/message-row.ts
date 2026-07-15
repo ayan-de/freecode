@@ -22,6 +22,7 @@ class InProgressMessage implements Component {
   private outputTokens: number;
   private contextLimit: number;
   private turns: number;
+  private cachedTokens: number;
 
   constructor(
     phrase: string,
@@ -30,6 +31,7 @@ class InProgressMessage implements Component {
     outputTokens: number,
     contextLimit: number,
     turns: number,
+    cachedTokens = 0,
   ) {
     this.phrase = phrase;
     this.startTime = startTime;
@@ -37,6 +39,7 @@ class InProgressMessage implements Component {
     this.outputTokens = outputTokens;
     this.contextLimit = contextLimit;
     this.turns = turns;
+    this.cachedTokens = cachedTokens;
   }
 
   render(width: number): string[] {
@@ -45,15 +48,20 @@ class InProgressMessage implements Component {
     const estimatedInputTokens = this.baseInputTokens + elapsed * 1000;
     const inStr = formatTokenCount(estimatedInputTokens);
     const outStr = formatTokenCount(this.outputTokens);
-    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)} ${chalk.dim(`(x${this.turns})`)}`;
+    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+    if (this.cachedTokens > 0) {
+      display += ` ${chalk.dim(`cached: ${formatTokenCount(this.cachedTokens)}`)}`;
+    }
+    display += ` ${chalk.dim(`(x${this.turns})`)}`;
 
     if (this.contextLimit > 0) {
-      const pct = Math.min(estimatedInputTokens / this.contextLimit, 1);
+      const contextTokens = estimatedInputTokens + this.cachedTokens;
+      const pct = Math.min(contextTokens / this.contextLimit, 1);
       const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
       const filled = Math.round(pct * barWidth);
       const empty = barWidth - filled;
       const bar = "█".repeat(filled) + "░".repeat(empty);
-      const current = formatTokenCount(estimatedInputTokens);
+      const current = formatTokenCount(contextTokens);
       const limit = formatTokenCount(this.contextLimit);
       display += ` ${chalk.dim(`[${bar} ${current}/${limit}]`)}`;
     }
@@ -207,6 +215,7 @@ export function createInProgressMessageComponent(
   outputTokens: number,
   contextLimit: number,
   turns: number,
+  cachedTokens = 0,
 ): Component {
   return new InProgressMessage(
     phrase,
@@ -215,6 +224,7 @@ export function createInProgressMessageComponent(
     outputTokens,
     contextLimit,
     turns,
+    cachedTokens,
   );
 }
 
@@ -229,6 +239,7 @@ export function createMessageComponent(
   outputTokens?: number,
   contextLimit?: number,
   turns?: number,
+  cachedTokens?: number,
 ): Component {
   switch (type) {
     case "user":
@@ -247,6 +258,7 @@ export function createMessageComponent(
         outputTokens ?? 0,
         contextLimit ?? 0,
         turns ?? 1,
+        cachedTokens ?? 0,
       );
     default:
       return createSystemMessageComponent(content);

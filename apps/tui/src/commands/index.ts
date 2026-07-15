@@ -20,6 +20,7 @@ export interface MessageCreators {
     contextLimit: number,
     startTime: number,
     turns: number,
+    cachedTokens?: number,
   ): void;
   insertBeforeEditor(component: Component): void;
   removeMessageById(id: number): void;

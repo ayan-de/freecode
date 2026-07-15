@@ -208,7 +208,12 @@ export interface SessionSendResult {
   content?: string;
   turnCount?: number;
   iterationCount?: number;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens?: number;
+    contextTokens?: number;
+  };
 }
 
 export async function sessionSend(
