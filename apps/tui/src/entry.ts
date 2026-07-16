@@ -32,6 +32,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Core CLI subcommands (yargs): importing cli.js runs it on process.argv.
+  if (argv[0] === "mcp" || argv[0] === "session" || argv[0] === "web") {
+    // @ts-ignore — resolved by the bundler at compile time / by node at runtime
+    await import("@thisisayande/freecode-core/cli");
+    return;
+  }
+
   if (argv[0] === "update") {
     const { spawnSync } = await import("child_process");
     const cmd = "curl -fsSL https://freecode.ayande.xyz/install | bash";

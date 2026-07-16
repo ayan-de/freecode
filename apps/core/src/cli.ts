@@ -9,15 +9,30 @@ import { mcpCommand } from "./cli/commands/mcp/index.js";
 import { sessionCommand } from "./cli/commands/session/index.js";
 import { webCommand } from "./cli/commands/web.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const logoLines = fs
-  .readFileSync(path.join(__dirname, "..", "src", "logo.txt"), "utf-8")
-  .trimEnd()
-  .split("\n");
-const packageJson = JSON.parse(
-  fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
-);
-const version = packageJson.version;
+// Logo is inlined (not read from disk) so the CLI works inside the
+// single-file compiled binary, where src/logo.txt has no real path.
+const logoLines = [
+  "█▀▀ █▀▀█ █▀▀ █▀▀ █▀▀ █▀▀█ █▀▀▄ █▀▀",
+  "█▀▀ █▄▄▀ █▀▀ █▀▀ █▒▒ █▒▒█ █▒▒█ █▀▀",
+  "▀   ▀ ▀▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀▀ ▀▀▀  ▀▀▀",
+];
+
+// Version: baked in for the compiled binary; read from package.json in dev.
+function resolveVersion(): string {
+  if (process.env.FREECODE_BUILD_VERSION) {
+    return process.env.FREECODE_BUILD_VERSION;
+  }
+  try {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
+    );
+    return packageJson.version;
+  } catch {
+    return "unknown";
+  }
+}
+const version = resolveVersion();
 
 // ANSI color codes
 const yellowBright = "\x1b[93m";

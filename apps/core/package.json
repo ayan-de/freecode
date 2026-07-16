@@ -9,6 +9,10 @@
     "freecode": "./dist/cli.js"
   },
   "main": "dist/server.js",
+  "exports": {
+    ".": "./dist/server.js",
+    "./cli": "./dist/cli.js"
+  },
   "scripts": {
     "dev": "tsx src/server.ts",
     "build": "tsc",
