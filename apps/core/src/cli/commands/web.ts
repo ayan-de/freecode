@@ -1,6 +1,5 @@
 import type { CommandModule } from "yargs";
 import { exec } from "child_process";
-import { startWebServer } from "../../web-server.js";
 
 interface WebArgs {
   port: number;
@@ -47,6 +46,9 @@ export const webCommand: CommandModule<object, WebArgs> = {
 
     try {
       console.log(`\n  Starting FreeCode Web Interface...`);
+      // Lazy import: web-server pulls in the full backend (server.js), which
+      // other commands and the TUI boot path shouldn't pay for.
+      const { startWebServer } = await import("../../web-server.js");
       startWebServer(port, host);
 
       const url = `http://${host}:${port}/`;

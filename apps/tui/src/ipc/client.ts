@@ -73,9 +73,9 @@ export function startCli(onStderr?: (msg: string) => void): void {
 
   if (process.env.FREECODE_BUNDLED === "1") {
     // Distributed single-file binary: the backend is baked into this same
-    // executable. Re-exec ourselves with the internal `__core` subcommand and
-    // run it in the user's current directory (their project), not a repo root.
-    cliProcess = spawn(process.execPath, ["__core"], {
+    // executable. Re-exec ourselves with the `serve` subcommand and run it
+    // in the user's current directory (their project), not a repo root.
+    cliProcess = spawn(process.execPath, ["serve"], {
       cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"],
     });
