@@ -14,6 +14,7 @@ const helpCommand: Command = {
 - **/usage** - Show daily token usage heatmap
 - **/exit** - Exit FreeCode
 
+Use **PgUp/PgDn** to scroll the message history.
 Just type your prompt to start chatting!`);
   },
 };

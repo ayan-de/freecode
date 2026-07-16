@@ -106,8 +106,14 @@ tui.addChild(new Spacer(1));
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
-// Create message list and add to tui BEFORE editor
-messageList = new VirtualMessageList(200);
+// Create message list and add to tui BEFORE editor.
+// The viewport callback tells the list how many rows it may use in scrolled
+// mode: terminal height minus the chrome below it (editor, spacers, mode line)
+// so the scrolled window and the input stay on screen together.
+const SCROLL_RESERVED_ROWS = 10;
+messageList = new VirtualMessageList(200, () =>
+  Math.max(6, terminal.rows - SCROLL_RESERVED_ROWS),
+);
 messageList.setTui(tui);
 tui.addChild(messageList);
 
@@ -510,6 +516,9 @@ async function submitPrompt(
 ): Promise<void> {
   messageCount++;
 
+  // A new prompt always returns the view to the live bottom of the history.
+  messageList.scrollToBottom();
+
   // Create messages through the store - VirtualMessageList handles rendering
   createUserMessage(`**${chalk.red("You")}:** ${displayText ?? promptText}`);
   const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
@@ -744,6 +753,15 @@ tui.addInputListener((data) => {
   if (matchesKey(data, Key.shift("tab"))) {
     cycleAgentMode();
     return undefined;
+  }
+  // Message history scrolling — consumed here so the editor never sees them.
+  if (matchesKey(data, "pageUp")) {
+    messageList.scrollPageUp();
+    return { consume: true };
+  }
+  if (matchesKey(data, "pageDown")) {
+    messageList.scrollPageDown();
+    return { consume: true };
   }
   return undefined;
 });
