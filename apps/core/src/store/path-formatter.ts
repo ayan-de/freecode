@@ -24,10 +24,9 @@ const SEGMENT_SEP = "__";
  * Convert an absolute project path to a safe directory name.
  *
  * Examples:
- *   /home/ayande/Project/opencode → home-ayande-Project-opencode
- *   /home/ayande/Project/my-project → home-ayande-Project-my_ h_project
- *   /Users/john/code/my-project → Users-john-code-my_ h_project
- *   C:\Users\john\projects\myapp → C-Users-john-projects-my_ h_app
+ *   /home/ayande/Project/opencode → home__ayande__Project__opencode
+ *   /home/ayande/Project/my-project → home__ayande__Project__my_h_project
+ *   C:\Users\john\projects\myapp → C__Users__john__projects__myapp
  */
 export function formatSessionDirName(projectPath: string): string {
   // Normalize backslashes to forward slashes
@@ -44,7 +43,11 @@ export function formatSessionDirName(projectPath: string): string {
   const formatted = segments
     .map((segment) => {
       // Escape hyphens within segments (they're our separator)
-      return segment.replace(/-/g, HYPHEN_ESCAPE);
+      const escaped = segment.replace(/-/g, HYPHEN_ESCAPE);
+      // Strip characters that are illegal in Windows path components — most
+      // importantly the drive-letter colon (C:\… → C…), so the session
+      // directory can actually be created on Windows.
+      return escaped.replace(/[<>:"|?*]/g, "");
     })
     .join(SEGMENT_SEP);
 
