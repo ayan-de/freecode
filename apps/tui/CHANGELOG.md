@@ -1,5 +1,22 @@
 # @thisisayande/freecode
 
+## 0.3.3
+
+### Features
+
+- Message history scrolling (PgUp/PgDn) works in any terminal, not just inside VS Code
+- Claude Code–style `❯` prompt prefix on the input line
+- `/model`: type-to-search across providers and models (167 providers from models.dev)
+- `/model`: green ✓ mark for providers with a configured API key
+- `/model`: new "Update API key" entry to replace a saved key
+- Dedicated API key input with a visible prompt and Esc to cancel
+
+### Bug Fixes
+
+- Saved API keys could never be changed from the TUI (only by editing `~/.freecode/config.json`)
+- Entering an API key no longer hijacks the chat input; an abandoned key prompt could previously swallow the next chat message as an API key
+- `/model` no longer leaves a permanent "Use the selector below" system message in chat history
+
 ## 0.3.2
 
 ### Features

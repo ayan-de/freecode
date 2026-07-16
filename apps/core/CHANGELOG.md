@@ -1,5 +1,9 @@
 # @thisisayande/freecode-core
 
+## 0.3.3
+
+- No changes; version bump to stay in lockstep with the binary (`@thisisayande/freecode` 0.3.3)
+
 ## 0.3.2
 
 ### Features
