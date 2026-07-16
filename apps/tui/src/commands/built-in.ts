@@ -39,9 +39,6 @@ const modelCommand: Command = {
   name: "model",
   description: "Select AI model",
   execute: (_args, ctx) => {
-    ctx.showMessage(
-      `**Select AI Model:**\n\nUse the selector below to choose a model.`,
-    );
     ctx.showModelSelector?.();
   },
 };
