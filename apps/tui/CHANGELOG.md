@@ -1,5 +1,14 @@
 # @thisisayande/freecode
 
+## 0.3.0
+
+### Features
+
+- Ship as a single self-contained binary (TUI + backend bundled via `bun --compile`)
+- One-line installer: `curl -fsSL https://freecode.ayande.xyz/install | bash` (+ PowerShell)
+- `freecode update` to fetch the latest release; versioned installs with in-place updates
+- GitHub Actions release workflow cross-compiles Linux/macOS/Windows binaries on tag push
+
 ## 0.2.0
 
 ### Features

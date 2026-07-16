@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build + publish binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # Bun bundles core from its built dist, so shared + core must compile first.
+      - name: Build shared + core
+        run: |
+          pnpm --filter @thisisayande/freecode-shared build
+          pnpm --filter @thisisayande/freecode-core build
+
+      # One Linux runner cross-compiles every target thanks to `bun --target`.
+      - name: Compile binaries
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          declare -A TARGETS=(
+            [bun-linux-x64]=freecode-linux-x86_64
+            [bun-linux-arm64]=freecode-linux-aarch64
+            [bun-darwin-x64]=freecode-macos-x86_64
+            [bun-darwin-arm64]=freecode-macos-aarch64
+            [bun-windows-x64]=freecode-windows-x86_64.exe
+          )
+          for target in "${!TARGETS[@]}"; do
+            artifact="${TARGETS[$target]}"
+            echo "::group::$artifact ($target)"
+            FREECODE_BUN_TARGET="$target" \
+            FREECODE_BUN_OUTFILE="$PWD/out/$artifact" \
+              node scripts/build-bun.mjs
+            echo "::endgroup::"
+          done
+          ( cd out && sha256sum * > SHA256SUMS )
+          ls -lh out
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            out/* \
+          || gh release upload "${GITHUB_REF_NAME}" out/* --clobber

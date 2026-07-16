@@ -34,25 +34,34 @@ function findBun() {
 const pkg = JSON.parse(
   readFileSync(resolve(repoRoot, "apps/tui/package.json"), "utf-8"),
 );
-const outfile = resolve(repoRoot, "apps/tui/dist/freecode-bun");
 
-console.log("[bun] compiling TUI to native binary...");
-execFileSync(
-  findBun(),
-  [
-    "build",
-    "--compile",
-    "--minify",
-    "--define",
-    `process.env.FREECODE_BUILD_VERSION=${JSON.stringify(pkg.version)}`,
-    "--outfile",
-    outfile,
-    resolve(repoRoot, "apps/tui/src/index.ts"),
-  ],
-  { stdio: "inherit", cwd: repoRoot },
+// CI cross-compile: FREECODE_BUN_TARGET (e.g. bun-linux-x64) +
+// FREECODE_BUN_OUTFILE select a specific platform artifact. Locally, neither is
+// set and we produce a self-contained binary for the host platform.
+const target = process.env.FREECODE_BUN_TARGET || "";
+const outfile =
+  process.env.FREECODE_BUN_OUTFILE ||
+  resolve(repoRoot, "apps/tui/dist/freecode-bun");
+
+const args = [
+  "build",
+  "--compile",
+  "--minify",
+  "--define",
+  `process.env.FREECODE_BUILD_VERSION=${JSON.stringify(pkg.version)}`,
+  // Baked so the TUI spawns its backend by re-exec'ing this binary (`__core`)
+  // instead of looking for apps/core/dist/server.js on disk.
+  "--define",
+  `process.env.FREECODE_BUNDLED=${JSON.stringify("1")}`,
+];
+if (target) args.push("--target", target);
+args.push("--outfile", outfile, resolve(repoRoot, "apps/tui/src/entry.ts"));
+
+console.log(
+  `[bun] compiling self-contained binary${target ? ` (${target})` : ""}...`,
 );
+execFileSync(findBun(), args, { stdio: "inherit", cwd: repoRoot });
 
 const sizeMb = (statSync(outfile).size / 1024 / 1024).toFixed(1);
 console.log(`[bun] done: ${outfile} (${sizeMb} MB)`);
-console.log("[bun] note: TUI shell only — spawns apps/core/dist/server.js,");
-console.log("[bun] so run from the repo root or set FREECODE_ROOT.");
+console.log("[bun] self-contained: TUI + core bundled; runs from anywhere.");

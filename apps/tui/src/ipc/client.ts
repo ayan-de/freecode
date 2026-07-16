@@ -71,38 +71,49 @@ export function startCli(onStderr?: (msg: string) => void): void {
   if (onStderr) stderrHandler = onStderr;
   if (cliProcess) return;
 
-  // Project root is the monorepo root (where pnpm-workspace.yaml lives)
-  // When running `pnpm dev` from apps/tui, cwd is apps/tui, so go up two levels.
-  let projectRoot = process.env.FREECODE_ROOT || process.cwd();
-  const rootMarker = `${projectRoot}/pnpm-workspace.yaml`;
-  if (!existsSync(rootMarker)) {
-    projectRoot = pathResolve(projectRoot, "..", "..");
-  }
-
-  // Prefer the pre-built core (node, fast); fall back to tsx transpiling
-  // source on the fly (dev mode, ~150-300 ms slower per boot).
-  const distPath = pathResolve(projectRoot, "apps/core/dist/server.js");
-  const srcDir = pathResolve(projectRoot, "apps/core/src");
-
-  if (existsSync(distPath)) {
-    try {
-      if (statSync(distPath).mtimeMs < newestMtimeMs(srcDir)) {
-        stderrHandler?.(
-          "[freecode] apps/core/dist is older than src — run `pnpm --filter @thisisayande/freecode-core build`",
-        );
-      }
-    } catch {
-      // Staleness check is best-effort only
-    }
-    cliProcess = spawn("node", [distPath], {
-      cwd: projectRoot,
+  if (process.env.FREECODE_BUNDLED === "1") {
+    // Distributed single-file binary: the backend is baked into this same
+    // executable. Re-exec ourselves with the internal `__core` subcommand and
+    // run it in the user's current directory (their project), not a repo root.
+    cliProcess = spawn(process.execPath, ["__core"], {
+      cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"],
     });
   } else {
-    cliProcess = spawn("npx", ["tsx", pathResolve(srcDir, "server.ts")], {
-      cwd: projectRoot,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    // Dev / monorepo: spawn the core backend from source or built dist.
+    // Project root is the monorepo root (where pnpm-workspace.yaml lives).
+    // When running `pnpm dev` from apps/tui, cwd is apps/tui, so go up two levels.
+    let projectRoot = process.env.FREECODE_ROOT || process.cwd();
+    const rootMarker = `${projectRoot}/pnpm-workspace.yaml`;
+    if (!existsSync(rootMarker)) {
+      projectRoot = pathResolve(projectRoot, "..", "..");
+    }
+
+    // Prefer the pre-built core (node, fast); fall back to tsx transpiling
+    // source on the fly (dev mode, ~150-300 ms slower per boot).
+    const distPath = pathResolve(projectRoot, "apps/core/dist/server.js");
+    const srcDir = pathResolve(projectRoot, "apps/core/src");
+
+    if (existsSync(distPath)) {
+      try {
+        if (statSync(distPath).mtimeMs < newestMtimeMs(srcDir)) {
+          stderrHandler?.(
+            "[freecode] apps/core/dist is older than src — run `pnpm --filter @thisisayande/freecode-core build`",
+          );
+        }
+      } catch {
+        // Staleness check is best-effort only
+      }
+      cliProcess = spawn("node", [distPath], {
+        cwd: projectRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } else {
+      cliProcess = spawn("npx", ["tsx", pathResolve(srcDir, "server.ts")], {
+        cwd: projectRoot,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    }
   }
 
   cliProcess.stdout?.setEncoding("utf-8");

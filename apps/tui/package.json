@@ -1,6 +1,6 @@
 {
   "name": "@thisisayande/freecode",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Terminal UI for FreeCode AI coding assistant",
   "license": "MIT",
@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^0.74.0",
+    "@thisisayande/freecode-core": "workspace:*",
     "@thisisayande/freecode-shared": "^0.2.0",
     "@thisisayande/terminal-heatmap": "^1.2.0",
     "chalk": "^5.5.0"

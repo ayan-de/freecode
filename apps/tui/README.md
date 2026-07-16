@@ -1,20 +1,28 @@
 # FreeCode TUI
 
-Terminal UI that drives ChatGPT via Playwright/CDP.
+Terminal UI for the FreeCode AI coding assistant. Ships as a single
+self-contained binary (TUI + backend bundled via `bun --compile`).
 
 > **pi-tui Framework**: For TUI framework customization, see [`pi-tui.md`](../../pi-tui.md) in the repo root.
 
-```sh
-cd apps/tui
-pnpm build
-npm link
-```
+## Install
 
-## Run
+macOS / Linux:
 
 ```sh
-freecode
+curl -fsSL https://freecode.ayande.xyz/install | bash
 ```
+
+Windows (PowerShell):
+
+```powershell
+irm https://freecode.ayande.xyz/install.ps1 | iex
+```
+
+Then run `freecode` in any project directory.
+
+- `freecode update` — install the latest release
+- `curl -fsSL https://freecode.ayande.xyz/uninstall | bash -s -- --yes` — remove it
 
 ## Development
 
@@ -23,15 +31,11 @@ cd apps/tui
 pnpm dev
 ```
 
-## Usage
-
-this is the command for arch linux -
+Build the distributable binary locally (requires `bun`):
 
 ```sh
-chromium --remote-debugging-port=9222
+pnpm build:bun   # → apps/tui/dist/freecode-bun (self-contained)
 ```
-
-- use /freecode <text>
 
 ## Keyboard Shortcuts
 
