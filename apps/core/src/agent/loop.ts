@@ -401,7 +401,7 @@ export class AgentLoop {
       const memoryContext = renderPromptMemoryContext(
         this.memory.getPromptContext(),
       );
-      const systemBlocks = this.compiler.compileSystemBlocks(
+      const systemBlocks = await this.compiler.compileSystemBlocks(
         context.tree,
         context.gitHead,
         "", // ignorePatterns - empty for now

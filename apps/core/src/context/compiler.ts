@@ -7,7 +7,7 @@
 import type { AgentMode } from "../agent/types.js";
 import type { SystemBlock } from "../providers/types.js";
 import { compileInstructionsSection } from "./instructions.js";
-import { loadProviderPrompt } from "../session/prompt.js";
+import { loadSystemPrompt } from "../session/prompt.js";
 
 // ===========================================================================
 // System Prompts per Agent Mode
@@ -89,17 +89,9 @@ export class PromptCompiler {
   }
 
   compileSystemPrompt(): string {
-    const modePrompt = MODE_PROMPTS[this.agentMode];
-    const formattingGuidelines = `
-
-RESPONSE FORMATTING GUIDELINES:
-- Keep responses concise. Output is rendered on a terminal/TUI CLI.
-- Markdown tables are fully supported and encouraged for displaying structured data.
-- Avoid using deep sub-headings (e.g., ###, ####, etc.) or HTML tags. Keep the document structure clean and simple (e.g., use only single '#' or '##' for main sections, '**bold**' for key terms/emphasis, and bullet lists (-) for listings).
-- Use code blocks (with appropriate language tags) for code, and inline code for paths/variable/function names.
-- Do NOT tell the user to manually launch Chrome or Chromium with remote debugging (e.g., never output commands like \`chromium --remote-debugging-port=9222\` or \`google-chrome --remote-debugging-port=9222\`). The browser controller is managed internally.
-- Do NOT use formatting elements that are poorly supported in terminal views.`;
-    return `${modePrompt}${formattingGuidelines}`;
+    // Response-formatting guidance lives in the base system prompt
+    // (session/prompt/system.txt); here we only add mode-specific behavior.
+    return MODE_PROMPTS[this.agentMode];
   }
 
   /**
@@ -137,17 +129,26 @@ ${tree}`;
   /**
    * Compile system prompt blocks for caching
    */
-  compileSystemBlocks(
+  async compileSystemBlocks(
     tree: string,
     gitHead: string,
     ignorePatterns: string,
     provider: string,
     model?: string,
     memoryContext?: string,
-  ): SystemBlock[] {
+  ): Promise<SystemBlock[]> {
+    // Ground the model's identity so it never confuses itself with the vendor
+    // whose model powers it (e.g. reporting itself as "Claude Code").
+    const modelIdentity = model
+      ? `You are powered by the model named ${model}.`
+      : provider
+        ? `You are powered by the ${provider} provider.`
+        : "";
+
     // Tools are sent as native schemas by the providers; no text list needed.
     const staticText = [
-      loadProviderPrompt(model ?? provider).trim(),
+      (await loadSystemPrompt()).trim(),
+      modelIdentity,
       this.compileSystemPrompt(),
       compileInstructionsSection(this.projectPath),
     ]
