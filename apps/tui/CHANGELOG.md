@@ -1,5 +1,13 @@
 # @thisisayande/freecode
 
+## 0.3.2
+
+### Features
+
+- Core CLI commands (`mcp`, `session`, `web`) now work from the installed binary
+- New `freecode serve` command starts the headless JSON-RPC backend (stdio)
+- Single yargs command surface: TUI is the default command, `-h` lists everything, unknown commands are rejected
+
 ## 0.3.1
 
 ### Bug Fixes
