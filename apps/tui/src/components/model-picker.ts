@@ -1,9 +1,9 @@
-import {
-  SelectList,
-  type SelectItem,
-  type SelectListTheme,
-} from "@earendil-works/pi-tui";
+import type { SelectItem, SelectListTheme } from "@earendil-works/pi-tui";
+import chalk from "chalk";
 import type { ModelInfo } from "../ipc/client.js";
+import { SearchableSelectList } from "./searchable-select-list.js";
+
+const UPDATE_API_KEY = "__update_api_key__";
 
 export function createProviderSelector(
   providers: any[],
@@ -12,22 +12,19 @@ export function createProviderSelector(
     onCancel: () => void;
   },
   theme: SelectListTheme,
-): SelectList {
-  const hasApiKeyMap: Record<string, boolean> = {};
-  for (const p of providers) {
-    hasApiKeyMap[p.id] = p.hasApiKey;
-  }
-
+): SearchableSelectList {
   const providerItems: SelectItem[] = providers.map((p: any) => ({
     label: p.name,
     value: p.id,
-    description: hasApiKeyMap[p.id] ? "(configured)" : "(not configured)",
+    description: p.hasApiKey
+      ? chalk.green("✓ configured")
+      : "not configured",
   }));
 
-  const maxVisible = Math.min(providerItems.length, 5);
-  const selector = new SelectList(providerItems, maxVisible, theme);
+  const maxVisible = Math.min(providerItems.length, 10);
+  const selector = new SearchableSelectList(providerItems, maxVisible, theme);
 
-  selector.onSelect = async (item: SelectItem) => {
+  selector.onSelect = (item: SelectItem) => {
     callbacks.onSelect(item.value);
   };
 
@@ -43,20 +40,34 @@ export function createModelSelector(
   callbacks: {
     onSelect: (modelId: string) => void;
     onCancel: () => void;
+    /** Shown as an extra entry when the provider already has a saved key. */
+    onUpdateApiKey?: () => void;
   },
   theme: SelectListTheme,
-): SelectList {
+): SearchableSelectList {
   const modelItems: SelectItem[] = models.map((m: ModelInfo) => ({
     label: m.name || m.id,
     value: m.id,
     description: m.description || m.id,
   }));
 
-  const maxVisible = Math.min(modelItems.length, 5);
-  const selector = new SelectList(modelItems, maxVisible, theme);
+  if (callbacks.onUpdateApiKey) {
+    modelItems.unshift({
+      label: "Update API key",
+      value: UPDATE_API_KEY,
+      description: "Replace the saved API key for this provider",
+    });
+  }
 
-  selector.onSelect = async (item: SelectItem) => {
-    callbacks.onSelect(item.value);
+  const maxVisible = Math.min(modelItems.length, 10);
+  const selector = new SearchableSelectList(modelItems, maxVisible, theme);
+
+  selector.onSelect = (item: SelectItem) => {
+    if (item.value === UPDATE_API_KEY) {
+      callbacks.onUpdateApiKey?.();
+    } else {
+      callbacks.onSelect(item.value);
+    }
   };
 
   selector.onCancel = () => {

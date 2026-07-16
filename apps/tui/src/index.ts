@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
-import { Editor } from "@earendil-works/pi-tui";
+import { Input } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultEditorTheme, MODE_COLORS, MODE_BG_COLORS } from "./themes.js";
@@ -63,6 +63,7 @@ import {
   createProviderSelector,
   createModelSelector,
 } from "./components/model-picker.js";
+import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { createQuestionPicker } from "./components/question-picker.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 
@@ -79,10 +80,10 @@ let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
 let agentModeDisplay: Text;
 let agentModeDisplayIdx = -1;
 
-let modelSelector: SelectList | null = null;
-let providerSelector: SelectList | null = null;
+let modelSelector: SearchableSelectList | null = null;
+let providerSelector: SearchableSelectList | null = null;
 let resumeSelector: SelectList | null = null;
-let apiKeyEditor: Editor | null = null;
+let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
 let messageList: VirtualMessageList;
@@ -189,7 +190,9 @@ function showMessage(content: string): void {
   createSystemMessage(content);
 }
 
-function removeSelector(selector: SelectList | null): void {
+function removeSelector(
+  selector: SelectList | SearchableSelectList | null,
+): void {
   if (selector) {
     const idx = tui.children.indexOf(selector);
     if (idx !== -1) {
@@ -265,12 +268,20 @@ async function showModelSelector(providerId: string): Promise<void> {
   hideModelSelector();
 
   try {
-    const models = await listModels(providerId);
+    const [models, providers] = await Promise.all([
+      listModels(providerId),
+      listProviders(),
+    ]);
 
     if (models.length === 0) {
       showMessage(`**No models available** for provider: ${providerId}`);
       return;
     }
+
+    const providerInfo = (providers as any[]).find(
+      (p: any) => p.id === providerId,
+    );
+    const hasApiKey = Boolean(providerInfo?.hasApiKey);
 
     modelSelector = createModelSelector(
       models,
@@ -279,25 +290,26 @@ async function showModelSelector(providerId: string): Promise<void> {
           currentProvider = providerId;
           currentModel = modelId;
 
-          const providers = await listProviders();
-          const providerInfo = (providers as any[]).find(
-            (p: any) => p.id === providerId,
-          );
-
-          if (providerInfo && !providerInfo.hasApiKey) {
+          hideModelSelector();
+          if (!hasApiKey) {
             await showApiKeyInput(providerId, modelId);
           } else {
             await setCurrentModel(providerId, modelId);
             updateModelDisplay();
             showMessage(`**Model changed to:** ${providerId}/${modelId}`);
           }
-          hideModelSelector();
         },
         onCancel: () => {
           hideModelSelector();
           tui.setFocus(editor);
           tui.requestRender();
         },
+        ...(hasApiKey && {
+          onUpdateApiKey: async () => {
+            hideModelSelector();
+            await showApiKeyInput(providerId);
+          },
+        }),
       },
       defaultSelectListTheme,
     );
@@ -313,21 +325,31 @@ async function showModelSelector(providerId: string): Promise<void> {
 
 async function showApiKeyInput(
   providerId: string,
-  modelId: string,
+  modelId?: string,
 ): Promise<void> {
   removeApiKeyEditor();
   hideModelSelector();
 
-  showMessage(
-    `**Paste your API key for ${providerId} below and press Enter:**`,
+  apiKeyPrompt = new Text(
+    chalk.bold(`Paste your API key for ${providerId} `) +
+      chalk.dim("(Enter to save, Esc to cancel)"),
+    1,
+    0,
   );
+  apiKeyEditor = new Input();
 
-  editor.setText("");
-  tui.setFocus(editor);
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, apiKeyPrompt, apiKeyEditor);
+  tui.setFocus(apiKeyEditor);
   tui.requestRender();
 
-  const originalOnSubmit = editor.onSubmit;
-  editor.onSubmit = async (value: string) => {
+  apiKeyEditor.onEscape = () => {
+    removeApiKeyEditor();
+    tui.setFocus(editor);
+    tui.requestRender();
+  };
+
+  apiKeyEditor.onSubmit = async (value: string) => {
     const apiKey = value.trim();
     if (!apiKey) {
       showMessage("**API key cannot be empty**");
@@ -335,15 +357,22 @@ async function showApiKeyInput(
     }
 
     await setApiKey(providerId, apiKey, modelId);
-    await setCurrentModel(providerId, modelId);
 
-    currentProvider = providerId;
-    currentModel = modelId;
-    updateModelDisplay();
-    showMessage(`**API key saved and model set to:** ${providerId}/${modelId}`);
+    if (modelId) {
+      await setCurrentModel(providerId, modelId);
+      currentProvider = providerId;
+      currentModel = modelId;
+      updateModelDisplay();
+      showMessage(
+        `**API key saved and model set to:** ${providerId}/${modelId}`,
+      );
+    } else {
+      showMessage(`**API key updated for:** ${providerId}`);
+    }
 
-    editor.onSubmit = originalOnSubmit;
+    removeApiKeyEditor();
     tui.setFocus(editor);
+    tui.requestRender();
   };
 }
 
