@@ -1,5 +1,12 @@
 # @thisisayande/freecode
 
+## 0.3.1
+
+### Bug Fixes
+
+- Strip Windows-illegal characters (the drive-letter colon) from session directory names, so sessions can be created on Windows
+- CI: let `pnpm/action-setup` read the version from `packageManager`, fixing the release workflow
+
 ## 0.3.0
 
 ### Features
