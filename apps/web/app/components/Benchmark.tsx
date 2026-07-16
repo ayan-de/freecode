@@ -1,44 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Info, BarChart3, Clock, Cpu } from "lucide-react";
-
-interface BenchmarkItem {
-  tool: string;
-  value: number | null;
-  displayValue: string;
-  comparison: string;
-  isFreeCode: boolean;
-}
-
-const memory1SessionData: BenchmarkItem[] = [
-  { tool: "freecode", value: 38.3, displayValue: "38.3 MB", comparison: "baseline", isFreeCode: true },
-  { tool: "pi", value: 119.8, displayValue: "119.8 MB", comparison: "3.1× more RAM", isFreeCode: false },
-  { tool: "codex", value: 163.6, displayValue: "163.6 MB", comparison: "4.3× more RAM", isFreeCode: false },
-  { tool: "claude_code", value: 185.1, displayValue: "185.1 MB", comparison: "4.8× more RAM", isFreeCode: false },
-  { tool: "cursor_agent", value: 244.9, displayValue: "244.9 MB", comparison: "6.4× more RAM", isFreeCode: false },
-  { tool: "copilot_cli", value: 277.2, displayValue: "277.2 MB", comparison: "7.2× more RAM", isFreeCode: false },
-  { tool: "antigravity_cli", value: 420.1, displayValue: "420.1 MB", comparison: "11.0× more RAM", isFreeCode: false },
-  { tool: "opencode", value: 1053.0, displayValue: "1,053.0 MB", comparison: "27.5× more RAM", isFreeCode: false },
-];
-
-const timeToReadyData: BenchmarkItem[] = [
-  { tool: "freecode", value: 1.098, displayValue: "1.10 s", comparison: "baseline", isFreeCode: true },
-  { tool: "claude_code", value: 1.409, displayValue: "1.41 s", comparison: "1.3× slower", isFreeCode: false },
-  { tool: "cursor_agent", value: 1.715, displayValue: "1.71 s", comparison: "1.6× slower", isFreeCode: false },
-  { tool: "pi", value: 4.623, displayValue: "4.62 s", comparison: "4.2× slower", isFreeCode: false },
-];
-
-const memory10SessionsData: BenchmarkItem[] = [
-  { tool: "freecode", value: 25.8, displayValue: "25.8 MB", comparison: "baseline", isFreeCode: true },
-  { tool: "codex", value: 56.1, displayValue: "56.1 MB", comparison: "2.2× more RAM", isFreeCode: false },
-  { tool: "pi", value: 92.8, displayValue: "92.8 MB", comparison: "3.6× more RAM", isFreeCode: false },
-  { tool: "claude_code", value: 164.7, displayValue: "164.7 MB", comparison: "6.4× more RAM", isFreeCode: false },
-  { tool: "copilot_cli", value: 179.4, displayValue: "179.4 MB", comparison: "7.0× more RAM", isFreeCode: false },
-  { tool: "cursor_agent", value: 210.9, displayValue: "210.9 MB", comparison: "8.2× more RAM", isFreeCode: false },
-  { tool: "antigravity_cli", value: 266.2, displayValue: "266.2 MB", comparison: "10.3× more RAM", isFreeCode: false },
-  { tool: "opencode", value: 794.3, displayValue: "794.3 MB", comparison: "30.8× more RAM", isFreeCode: false },
-];
+import {
+  memory1SessionData,
+  timeToReadyData,
+  memory10SessionsData,
+} from "../data/benchmark";
 
 export function Benchmark() {
   const [hoveredIndex, setHoveredIndex] = useState<string | null>(null);

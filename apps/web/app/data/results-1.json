@@ -1,0 +1,114 @@
+{
+  "cwd": "/home/ayan-de/Projects/freecode",
+  "sessions": 1,
+  "results": [
+    {
+      "tool": "freecode",
+      "sessions": 1,
+      "pss_mb": 139.0,
+      "process_count": 2,
+      "version": "0.2.0",
+      "seconds_to_visible_med": 0.04438859700167086,
+      "seconds_to_input_ready_med": 0.05640692400629632,
+      "notes": [
+        "session 1: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007"
+      ]
+    },
+    {
+      "tool": "pi",
+      "sessions": 1,
+      "pss_mb": 114.7,
+      "process_count": 1,
+      "version": "0.80.7",
+      "seconds_to_visible_med": 4.230804932994943,
+      "seconds_to_input_ready_med": 4.251176459998533,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28190;\u03c0 - freecode\u00078;;\u0007"
+      ]
+    },
+    {
+      "tool": "codex",
+      "sessions": 1,
+      "pss_mb": 158.2,
+      "process_count": 2,
+      "version": "codex-cli 0.144.5",
+      "seconds_to_visible_med": 7.999664274000679,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u28190;freecode\u00070;\u2807 freecode\u0007"
+      ]
+    },
+    {
+      "tool": "opencode",
+      "sessions": 1,
+      "pss_mb": 1089.6,
+      "process_count": 5,
+      "version": "1.18.2",
+      "seconds_to_visible_med": 4.217389060999267,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u00074;"
+      ]
+    },
+    {
+      "tool": "copilot_cli",
+      "sessions": 1,
+      "pss_mb": 279.0,
+      "process_count": 2,
+      "version": "GitHub Copilot CLI 1.0.71.",
+      "seconds_to_visible_med": 3.854561455998919,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007"
+      ]
+    },
+    {
+      "tool": "cursor_agent",
+      "sessions": 1,
+      "pss_mb": 249.8,
+      "process_count": 1,
+      "version": "2026.06.26-7079533",
+      "seconds_to_visible_med": 0.7601385340021807,
+      "seconds_to_input_ready_med": 0.7602152390027186,
+      "notes": [
+        "session 1: \u2502 \u26a0 Workspace Trust Required \u2502"
+      ]
+    },
+    {
+      "tool": "claude_code",
+      "sessions": 1,
+      "pss_mb": 228.0,
+      "process_count": 1,
+      "version": "2.1.209 (Claude Code)",
+      "seconds_to_visible_med": 0.430909722999786,
+      "seconds_to_input_ready_med": 0.51835629499692,
+      "notes": [
+        "session 1: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209"
+      ]
+    },
+    {
+      "tool": "antigravity_cli",
+      "sessions": 1,
+      "pss_mb": 427.4,
+      "process_count": 3,
+      "version": "1.0.13",
+      "seconds_to_visible_med": null,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: no meaningful screen content before timeout"
+      ]
+    },
+    {
+      "tool": "jcode",
+      "sessions": 1,
+      "pss_mb": 168.3,
+      "process_count": 2,
+      "version": "jcode v0.46.0 (725b0e2e)",
+      "seconds_to_visible_med": 0.9018894659966463,
+      "seconds_to_input_ready_med": 0.9019178269954864,
+      "notes": [
+        "session 1: Starting server..."
+      ]
+    }
+  ]
+}

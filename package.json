@@ -9,8 +9,8 @@
     "check-types": "turbo run check-types",
     "build:sea": "node scripts/build-sea.mjs",
     "build:bun": "node scripts/build-bun.mjs",
-    "bench:memory": "python3 scripts/bench_memory.py --sessions 1",
-    "bench:memory-multi": "python3 scripts/bench_memory.py --sessions 10 --json-out results-10.json",
+    "bench:memory": "python3 scripts/bench_memory.py --sessions 1 --json-out apps/web/app/data/results-1.json",
+    "bench:memory-multi": "python3 scripts/bench_memory.py --sessions 10 --json-out apps/web/app/data/results-10.json",
     "release": "pnpm build && pnpm publish -r --access public"
   },
   "devDependencies": {

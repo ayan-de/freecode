@@ -1,0 +1,195 @@
+{
+  "cwd": "/home/ayan-de/Projects/freecode",
+  "sessions": 10,
+  "results": [
+    {
+      "tool": "freecode",
+      "sessions": 10,
+      "pss_mb": 1037.2,
+      "process_count": 20,
+      "version": "0.2.0",
+      "seconds_to_visible_med": 0.04055327799869701,
+      "seconds_to_input_ready_med": 0.05320549899988691,
+      "notes": [
+        "session 1: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 2: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 3: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 4: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 5: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 6: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 7: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 8: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 9: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007",
+        "session 10: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007"
+      ]
+    },
+    {
+      "tool": "pi",
+      "sessions": 10,
+      "pss_mb": 929.0,
+      "process_count": 10,
+      "version": "0.80.7",
+      "seconds_to_visible_med": 3.7519669254979817,
+      "seconds_to_input_ready_med": 3.7766284065000946,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 2: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 3: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 4: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 5: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 6: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 7: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 8: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 9: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;\u03c0 - freecode\u00078;;\u0007",
+        "session 10: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;\u03c0 - freecode\u00078;;\u0007"
+      ]
+    },
+    {
+      "tool": "codex",
+      "sessions": 10,
+      "pss_mb": 599.2,
+      "process_count": 20,
+      "version": "codex-cli 0.144.5",
+      "seconds_to_visible_med": 6.135418975503853,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;freecode\u0007",
+        "session 2: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u28190;freecode\u0007",
+        "session 3: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u28190;freecode\u00070;\u2834 freecode\u00070;\u2826 freecode\u0007",
+        "session 4: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u28190;freecode\u0007",
+        "session 5: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28190;freecode\u00070;\u2807 freecode\u00070;\u280f freecode\u0007",
+        "session 6: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u28190;freecode\u0007",
+        "session 7: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28190;freecode\u00070;\u2834 freecode\u0007",
+        "session 8: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u28190;freecode\u00070;\u2838 freecode\u0007",
+        "session 9: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28190;freecode\u0007",
+        "session 10: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u28190;freecode\u00070;\u2839 freecode\u0007"
+      ]
+    },
+    {
+      "tool": "opencode",
+      "sessions": 10,
+      "pss_mb": 8128.7,
+      "process_count": 50,
+      "version": "1.18.2",
+      "seconds_to_visible_med": 4.914090770998882,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u0007",
+        "session 2: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;",
+        "session 3: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?",
+        "session 4: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;",
+        "session 5: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7",
+        "session 6: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u0007",
+        "session 7: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u00074;",
+        "session 8: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u00074;",
+        "session 9: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u00074;",
+        "session 10: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;"
+      ]
+    },
+    {
+      "tool": "copilot_cli",
+      "sessions": 10,
+      "pss_mb": 1829.6,
+      "process_count": 20,
+      "version": "GitHub Copilot CLI 1.0.71.",
+      "seconds_to_visible_med": 4.173690820003685,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 2: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 3: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 4: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 5: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 6: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 7: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 8: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 9: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007",
+        "session 10: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007"
+      ]
+    },
+    {
+      "tool": "cursor_agent",
+      "sessions": 10,
+      "pss_mb": 1625.0,
+      "process_count": 10,
+      "version": "2026.06.26-7079533",
+      "seconds_to_visible_med": 0.8515514835053182,
+      "seconds_to_input_ready_med": 0.8489841960035847,
+      "notes": [
+        "session 1: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 2: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 3: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 4: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 5: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 6: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 7: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 8: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 9: \u2502 \u26a0 Workspace Trust Required \u2502",
+        "session 10: \u2502 \u26a0 Workspace Trust Required \u2502"
+      ]
+    },
+    {
+      "tool": "claude_code",
+      "sessions": 10,
+      "pss_mb": 1814.0,
+      "process_count": 10,
+      "version": "2.1.209 (Claude Code)",
+      "seconds_to_visible_med": 0.4456329195018043,
+      "seconds_to_input_ready_med": 0.5439148575023864,
+      "notes": [
+        "session 1: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 2: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 3: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 4: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 5: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 6: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 7: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 8: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 9: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209",
+        "session 10: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209"
+      ]
+    },
+    {
+      "tool": "antigravity_cli",
+      "sessions": 10,
+      "pss_mb": 2689.8,
+      "process_count": 30,
+      "version": "1.0.13",
+      "seconds_to_visible_med": null,
+      "seconds_to_input_ready_med": null,
+      "notes": [
+        "session 1: no meaningful screen content before timeout",
+        "session 2: no meaningful screen content before timeout",
+        "session 3: no meaningful screen content before timeout",
+        "session 4: no meaningful screen content before timeout",
+        "session 5: no meaningful screen content before timeout",
+        "session 6: no meaningful screen content before timeout",
+        "session 7: no meaningful screen content before timeout",
+        "session 8: no meaningful screen content before timeout",
+        "session 9: no meaningful screen content before timeout",
+        "session 10: no meaningful screen content before timeout"
+      ]
+    },
+    {
+      "tool": "jcode",
+      "sessions": 10,
+      "pss_mb": 281.4,
+      "process_count": 11,
+      "version": "jcode v0.46.0 (725b0e2e)",
+      "seconds_to_visible_med": 0.6421292700033518,
+      "seconds_to_input_ready_med": 0.6488557580014458,
+      "notes": [
+        "session 1: Removed a stale jcode socket from a previous server.",
+        "session 2: Connecting to server...",
+        "session 3: Connecting to server...",
+        "session 4: Connecting to server...",
+        "session 5: Connecting to server...",
+        "session 6: Connecting to server...",
+        "session 7: Connecting to server...",
+        "session 8: Connecting to server...",
+        "session 9: Connecting to server...",
+        "session 10: Connecting to server..."
+      ]
+    }
+  ]
+}

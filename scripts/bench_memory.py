@@ -49,6 +49,7 @@ DEFAULT_TOOLS = [
     "cursor_agent",
     "claude_code",
     "antigravity_cli",
+    "jcode",
 ]
 
 
@@ -196,6 +197,7 @@ def build_specs() -> dict[str, ToolSpec]:
     cursor_agent = shutil_which("cursor-agent") or str(Path.home() / ".local/bin/cursor-agent")
     claude = shutil_which("claude") or str(Path.home() / ".local/bin/claude")
     agy = shutil_which("agy") or str(Path.home() / ".local/bin/agy")
+    jcode = shutil_which("jcode") or str(Path.home() / ".local/bin/jcode")
     specs = {
         "freecode": freecode_spec,
         "pi": ToolSpec(
@@ -232,6 +234,11 @@ def build_specs() -> dict[str, ToolSpec]:
             name="antigravity_cli",
             argv=[agy],
             version_argv=[agy, "--version"],
+        ),
+        "jcode": ToolSpec(
+            name="jcode",
+            argv=[jcode],
+            version_argv=[jcode, "--version"],
         ),
     }
     return specs
