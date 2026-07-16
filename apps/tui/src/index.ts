@@ -56,6 +56,7 @@ import {
   loadSessionMessages,
 } from "./components/index.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
+import { PromptEditor } from "./components/prompt-editor.js";
 import { createResumePicker } from "./components/resume-picker.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 import {
@@ -117,7 +118,7 @@ messageList = new VirtualMessageList(200, () =>
 messageList.setTui(tui);
 tui.addChild(messageList);
 
-const editor = new Editor(tui, defaultEditorTheme);
+const editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
 
 const autocompleteProvider = new CombinedAutocompleteProvider(
