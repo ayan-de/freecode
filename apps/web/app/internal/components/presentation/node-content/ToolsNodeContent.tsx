@@ -4,8 +4,16 @@ import {
   FileText,
   FileEdit,
   FilePlus,
-  Search,
   FolderOpen,
+  Search,
+  Code,
+  Terminal,
+  Bot,
+  Globe,
+  Download,
+  Sparkles,
+  ListTodo,
+  HelpCircle,
 } from "lucide-react";
 import styles from "../ArchitectureExplorer.module.css";
 import { NodeHeader } from "./NodeHeader";
@@ -16,58 +24,76 @@ const toolCategories = [
     icon: FileText,
     color: "#a855f7",
     tools: [
-      {
-        name: "Read",
-        icon: FileText,
-        description: "Read files or directories",
-      },
-      {
-        name: "Write",
-        icon: FilePlus,
-        description: "Create or overwrite files",
-      },
-      {
-        name: "Edit",
-        icon: FileEdit,
-        description: "In-place editing with 9 strategies",
-      },
-      {
-        name: "Glob",
-        icon: FolderOpen,
-        description: "Find files by glob patterns",
-      },
+      { name: "Read", icon: FileText, description: "Read file contents" },
+      { name: "Write", icon: FilePlus, description: "Create or overwrite files" },
+      { name: "Edit", icon: FileEdit, description: "In-place string replacement" },
     ],
   },
   {
-    category: "Search",
+    category: "Search & Code Intelligence",
     icon: Search,
     color: "#10b981",
     tools: [
-      {
-        name: "Grep",
-        icon: Search,
-        description: "Search file contents via regex",
-      },
+      { name: "Glob", icon: FolderOpen, description: "Find files by glob pattern" },
+      { name: "Grep", icon: Search, description: "Regex search over file contents" },
+      { name: "Lsp", icon: Code, description: "Language-server diagnostics & hover" },
+    ],
+  },
+  {
+    category: "Execution & Delegation",
+    icon: Terminal,
+    color: "#f97316",
+    tools: [
+      { name: "Bash", icon: Terminal, description: "Run shell commands" },
+      { name: "Agent", icon: Bot, description: "Spawn a sub-agent for a subtask" },
+    ],
+  },
+  {
+    category: "Web Access",
+    icon: Globe,
+    color: "#38bdf8",
+    tools: [
+      { name: "WebFetch", icon: Download, description: "Fetch and read a URL" },
+      { name: "WebSearch", icon: Globe, description: "Search the web" },
+    ],
+  },
+  {
+    category: "Workflow",
+    icon: Sparkles,
+    color: "#ec4899",
+    tools: [
+      { name: "Skill", icon: Sparkles, description: "Load a specialized skill" },
+      { name: "TodoWrite", icon: ListTodo, description: "Track a task checklist" },
+      { name: "Question", icon: HelpCircle, description: "Ask the user for input" },
     ],
   },
 ];
 
 const executionModes = [
-  { mode: "Sequential", tools: "Write, Edit", color: "#f97316" },
-  { mode: "Parallel", tools: "Read, Glob, Grep", color: "#10b981" },
+  {
+    mode: "Parallel",
+    tools: "Read, Grep, Glob, Lsp, WebFetch, WebSearch, Skill",
+    color: "#10b981",
+  },
+  {
+    mode: "Sequential",
+    tools: "Write, Edit, Bash, Agent, TodoWrite, Question",
+    color: "#f97316",
+  },
 ];
 
 export function ToolsNodeContent() {
   return (
     <>
-      <NodeHeader
-        title="Tool System"
-        subtext="5 Built-in Tools"
-      />
+      <NodeHeader title="Tool System" subtext="13 Built-in Tools + MCP" />
       <p className={styles.description}>
-        Tools extend the AI model with file operations, search, and execution
-        primitives. Results are returned to the{" "}
-        <strong>LLM / Browser Call Boundary</strong> for the next iteration.
+        Tools are how the model acts on the world. FreeCode ships{" "}
+        <strong>13 built-in tools</strong> — file I/O, search, code
+        intelligence, shell, web access, and sub-agents — plus any tools exposed
+        dynamically over <strong>MCP</strong>. Each is built through{" "}
+        <strong>factory.ts</strong> and run by the <strong>orchestrator</strong>,
+        which batches concurrency-safe tools to run in parallel and executes
+        mutating tools one at a time.
       </p>
 
       {/* Tool Categories */}
@@ -125,21 +151,23 @@ export function ToolsNodeContent() {
         <ul className={styles.filesList}>
           <li>
             <span className={styles.fileBadge}>Registry</span>
-            <a
-              href="file:///home/ayande/Project/freecode/apps/core/src/tools/index.ts"
-              className={styles.fileLink}
-            >
-              apps/core/src/tools/index.ts
-            </a>
+            <span className={styles.fileLink}>apps/core/src/tools/index.ts</span>
+          </li>
+          <li>
+            <span className={styles.fileBadge}>Factory</span>
+            <span className={styles.fileLink}>apps/core/src/tools/factory.ts</span>
           </li>
           <li>
             <span className={styles.fileBadge}>Orchestrator</span>
-            <a
-              href="file:///home/ayande/Project/freecode/apps/core/src/tools/orchestrator.ts"
-              className={styles.fileLink}
-            >
+            <span className={styles.fileLink}>
               apps/core/src/tools/orchestrator.ts
-            </a>
+            </span>
+          </li>
+          <li>
+            <span className={styles.fileBadge}>Batching</span>
+            <span className={styles.fileLink}>
+              apps/core/src/tools/batching.ts
+            </span>
           </li>
         </ul>
       </div>
