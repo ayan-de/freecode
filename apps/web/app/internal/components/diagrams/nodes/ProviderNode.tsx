@@ -33,7 +33,7 @@ export function ProviderNode({
         className={styles.providerHeader}
         textAnchor="middle"
       >
-        LLM / BROWSER
+        AI PROVIDERS
       </text>
       <line
         x1="476"
@@ -58,7 +58,7 @@ export function ProviderNode({
         className={styles.providerCardText}
         textAnchor="middle"
       >
-        Browser UI
+        Vercel AI SDK
       </text>
 
       <rect
@@ -76,7 +76,7 @@ export function ProviderNode({
         className={styles.providerCardText}
         textAnchor="middle"
       >
-        ChatGPT / Claude
+        Claude · GPT · Gemini
       </text>
 
       <text
@@ -85,7 +85,7 @@ export function ProviderNode({
         className={styles.providerSubtext}
         textAnchor="middle"
       >
-        external provider
+        streaming API
       </text>
     </g>
   );

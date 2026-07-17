@@ -7,11 +7,11 @@ const providers = [
   {
     id: "anthropic",
     name: "Anthropic",
-    model: "Claude 3.5 Sonnet",
+    model: "claude-sonnet-4-5",
     color: "#f97316",
   },
-  { id: "openai", name: "OpenAI", model: "GPT-4o", color: "#10b981" },
-  { id: "gemini", name: "Gemini", model: "Gemini Pro", color: "#3b82f6" },
+  { id: "openai", name: "OpenAI", model: "gpt-4o", color: "#10b981" },
+  { id: "gemini", name: "Gemini", model: "gemini-2.0-flash", color: "#3b82f6" },
   { id: "minimax", name: "MiniMax", model: "MiniMax-M2", color: "#8b5cf6" },
 ];
 
@@ -19,14 +19,20 @@ export function ProviderNodeContent() {
   return (
     <>
       <NodeHeader
-        title="LLM / Browser Call Boundary"
-        subtext="Multi-Provider External Automation"
+        title="AI Provider Layer"
+        subtext="Multi-Provider API · Vercel AI SDK"
       />
       <p className={styles.description}>
-        The CLI owns the browser automation path. The agent loop builds the task
-        prompt, the browser controller fills the provider UI, and provider
-        adapters isolate DOM selectors. Providers are swappable via the registry
-        pattern.
+        Every provider implements one common <strong>AIProvider</strong>{" "}
+        interface and self-registers into the <strong>registry</strong>, so
+        swapping Anthropic ↔ OpenAI ↔ Gemini ↔ MiniMax needs no change to the
+        loop. Calls go through the <strong>Vercel AI SDK</strong> with real{" "}
+        <strong>streaming</strong>, native <strong>tool calling</strong>,
+        extended <strong>thinking</strong>, prompt caching, and usage
+        accounting — all normalized into a single chunk stream. A{" "}
+        <strong>recovery</strong> layer retries transient errors and falls back
+        to a secondary provider. (Browser automation is a legacy path, not the
+        default.)
       </p>
 
       {/* Multi-Provider Grid */}
@@ -55,7 +61,9 @@ export function ProviderNodeContent() {
               >
                 {p.name}
               </div>
-              <div style={{ fontSize: "11px", color: "#aaa" }}>{p.model}</div>
+              <div style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>
+                {p.model}
+              </div>
             </div>
           ))}
         </div>
@@ -65,31 +73,28 @@ export function ProviderNodeContent() {
         <h5 className={styles.filesTitle}>🔑 Key Codebase Implementations:</h5>
         <ul className={styles.filesList}>
           <li>
-            <span className={styles.fileBadge}>Provider Registry</span>
-            <a
-              href="file:///home/ayande/Project/freecode/apps/core/src/providers/registry.ts"
-              className={styles.fileLink}
-            >
+            <span className={styles.fileBadge}>Registry</span>
+            <span className={styles.fileLink}>
               apps/core/src/providers/registry.ts
-            </a>
+            </span>
           </li>
           <li>
-            <span className={styles.fileBadge}>Provider Index</span>
-            <a
-              href="file:///home/ayande/Project/freecode/apps/core/src/providers/index.ts"
-              className={styles.fileLink}
-            >
-              apps/core/src/providers/index.ts
-            </a>
+            <span className={styles.fileBadge}>Adapters</span>
+            <span className={styles.fileLink}>
+              apps/core/src/providers/&#123;anthropic,openai,gemini,minimax&#125;.ts
+            </span>
           </li>
           <li>
-            <span className={styles.fileBadge}>Agent Loop</span>
-            <a
-              href="file:///home/ayande/Project/freecode/apps/core/src/agent/loop.ts"
-              className={styles.fileLink}
-            >
-              apps/core/src/agent/loop.ts
-            </a>
+            <span className={styles.fileBadge}>Streaming</span>
+            <span className={styles.fileLink}>
+              apps/core/src/providers/streaming.ts
+            </span>
+          </li>
+          <li>
+            <span className={styles.fileBadge}>Recovery</span>
+            <span className={styles.fileLink}>
+              apps/core/src/agent/recovery/manager.ts
+            </span>
           </li>
         </ul>
       </div>
@@ -101,9 +106,10 @@ export function ProviderNodeContent() {
         <div className={styles.simConsole}>
           <pre className={styles.jsonCode}>{`agent/loop.ts
   -> getProvider(provider)
-  -> provider.execute({ prompt })
-  -> returns ExecuteResult { content, usage, stopReason }
-  -> normalizeResponse() -> parseResponse()`}</pre>
+  -> recovery.callProvider(...)   // retry + fallback chain
+  -> provider.stream({ messages, system, tools })
+       yields text_delta | thinking_delta | tool_call | usage
+  -> loop executes tool_calls, feeds results into next turn`}</pre>
         </div>
       </div>
     </>
