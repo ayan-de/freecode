@@ -28,7 +28,6 @@ export function ClientsNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<span>💻</span>}
         title="You / Clients Frontends"
         subtext="Thin Client UI Presentation"
       />

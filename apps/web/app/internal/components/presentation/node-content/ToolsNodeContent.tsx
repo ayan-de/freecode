@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Wrench,
   FileText,
   FileEdit,
   FilePlus,
@@ -62,7 +61,6 @@ export function ToolsNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<Wrench size={20} color="#a855f7" />}
         title="Tool System"
         subtext="5 Built-in Tools"
       />

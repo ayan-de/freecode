@@ -44,7 +44,6 @@ export function SubagentsNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<span>🤖</span>}
         title="Parallel Sub-Agents"
         subtext="Distributed AI Workforces"
       />

@@ -17,7 +17,6 @@ export function ContextNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<span>📄</span>}
         title="Context Engine"
         subtext="Convention Rules & Custom Skills"
       />

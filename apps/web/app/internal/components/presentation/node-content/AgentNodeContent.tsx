@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { RefreshCw } from "lucide-react";
 import styles from "../ArchitectureExplorer.module.css";
 import { NodeHeader } from "./NodeHeader";
 import { BoundaryDiagram } from "../../diagrams";
@@ -78,8 +77,7 @@ export function AgentNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<RefreshCw size={24} />}
-        title="Agent Orchestrator Loop"
+        title="#Agent Orchestrator Loop"
         subtext="Stateful Turning Loop"
       />
 

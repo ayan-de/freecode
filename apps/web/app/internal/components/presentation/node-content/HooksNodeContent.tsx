@@ -12,7 +12,6 @@ export function HooksNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<span>⚡</span>}
         title="Hooks Safety Middleware"
         subtext="Pre & Post Execution Interceptors"
       />

@@ -87,7 +87,6 @@ export function MemoryNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<Brain size={24} color="#f59e0b" />}
         title="Memory & Log Compaction"
         subtext="Session Context Compaction"
       />

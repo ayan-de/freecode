@@ -54,24 +54,6 @@
   text-align: center;
 }
 
-.icon {
-  width: 48px;
-  height: 48px;
-  background: rgba(249, 115, 22, 0.1);
-  border: 1px solid rgba(249, 115, 22, 0.3);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #f97316;
-  animation: spin 3s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 .title {
   font-size: 18px;
   font-weight: 700;

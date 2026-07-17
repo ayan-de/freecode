@@ -1,6 +1,5 @@
 "use client";
 
-import { Globe } from "lucide-react";
 import styles from "../ArchitectureExplorer.module.css";
 import { NodeHeader } from "./NodeHeader";
 
@@ -20,7 +19,6 @@ export function ProviderNodeContent() {
   return (
     <>
       <NodeHeader
-        icon={<Globe size={24} color="#38bdf8" />}
         title="LLM / Browser Call Boundary"
         subtext="Multi-Provider External Automation"
       />
