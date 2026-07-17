@@ -55,7 +55,7 @@
 }
 
 .title {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--foreground);
   margin: 0;
@@ -71,11 +71,11 @@
 }
 
 .description {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 17px;
+  line-height: 1.7;
   color: var(--muted-foreground);
   margin-bottom: 20px;
-  text-align: center;
+  text-align: left;
 }
 
 .description strong {
