@@ -30,9 +30,25 @@ export function createAssistantMessage(content: string): MessageInstance {
 }
 
 /**
- * Add a system message to the store and return the message instance
+ * Add a system message to the store and return the message instance.
+ * Consecutive "[Recovery] ..." lines (retry attempts, fallback notices)
+ * update the previous recovery line in place instead of stacking a new
+ * message per attempt.
  */
 export function createSystemMessage(content: string): MessageInstance {
+  if (content.startsWith("[Recovery]")) {
+    const messages = getMessages();
+    const lastMessage = messages[messages.length - 1];
+    if (
+      lastMessage &&
+      lastMessage.type === "system" &&
+      lastMessage.content.startsWith("[Recovery]")
+    ) {
+      const component = createMessageComponent("system", content);
+      const updated = updateMessage(lastMessage.id, content, component);
+      if (updated) return updated;
+    }
+  }
   const component = createMessageComponent("system", content);
   return addMessage("system", content, component);
 }
