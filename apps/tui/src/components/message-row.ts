@@ -10,10 +10,27 @@ import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
 
+// Live output-token estimate for the streaming turn, fed from the streamed
+// text length in index.ts (see setLiveOutputTokens). Used by the in-progress
+// line while it has no final count yet, so the number tracks real generated
+// tokens instead of a time-based guess.
+let liveOutputTokens = 0;
+
+/** Set the live output-token estimate for the currently streaming turn. */
+export function setLiveOutputTokens(n: number): void {
+  liveOutputTokens = n;
+}
+
+/** Clear the live output-token estimate at the start/end of a turn. */
+export function resetLiveOutputTokens(): void {
+  liveOutputTokens = 0;
+}
+
 /**
  * In-progress message component with live timer and token counts.
  * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
- * Input tokens are estimated live based on elapsed time (~1k tokens per second).
+ * Output tokens track the live streamed-text estimate until the final usage
+ * arrives; input tokens show the real value once known (0 while streaming).
  */
 class InProgressMessage implements Component {
   private phrase: string;
@@ -44,10 +61,12 @@ class InProgressMessage implements Component {
 
   render(width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
-    // Estimate: ~1k tokens per second of processing (rough approximation)
-    const estimatedInputTokens = this.baseInputTokens + elapsed * 1000;
-    const inStr = formatTokenCount(estimatedInputTokens);
-    const outStr = formatTokenCount(this.outputTokens);
+    // Output tracks the live streamed-text estimate until the final usage
+    // lands (this.outputTokens > 0), at which point the real count wins.
+    const outputTokens =
+      this.outputTokens > 0 ? this.outputTokens : liveOutputTokens;
+    const inStr = formatTokenCount(this.baseInputTokens);
+    const outStr = formatTokenCount(outputTokens);
     let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
     if (this.cachedTokens > 0) {
       display += ` ${chalk.dim(`cached: ${formatTokenCount(this.cachedTokens)}`)}`;
@@ -55,7 +74,8 @@ class InProgressMessage implements Component {
     display += ` ${chalk.dim(`(x${this.turns})`)}`;
 
     if (this.contextLimit > 0) {
-      const contextTokens = estimatedInputTokens + this.cachedTokens;
+      const contextTokens =
+        this.baseInputTokens + outputTokens + this.cachedTokens;
       const pct = Math.min(contextTokens / this.contextLimit, 1);
       const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
       const filled = Math.round(pct * barWidth);

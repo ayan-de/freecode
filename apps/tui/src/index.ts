@@ -56,6 +56,10 @@ import {
   type MessageInstance,
   loadSessionMessages,
 } from "./components/index.js";
+import {
+  setLiveOutputTokens,
+  resetLiveOutputTokens,
+} from "./components/message-row.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
 import { PromptEditor } from "./components/prompt-editor.js";
 import { createResumePicker } from "./components/resume-picker.js";
@@ -90,6 +94,9 @@ let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
+// Running length of streamed assistant text for the active turn, converted to a
+// live output-token estimate (~4 chars/token) for the in-progress line.
+let streamedChars = 0;
 let modeLine: ModeLine;
 
 let modelSelector: SearchableSelectList | null = null;
@@ -515,6 +522,16 @@ function handleToolEvent(event: StreamEvent): void {
       tui.requestRender();
       break;
     }
+    case "text_delta":
+    case "thinking_delta": {
+      // Drive the in-progress line's live output-token estimate from the
+      // actual streamed text (~4 chars/token). The 1s in-progress tick picks
+      // this up on its next render, so the number tracks real generation
+      // instead of the old time-based guess.
+      streamedChars += event.delta.length;
+      setLiveOutputTokens(Math.round(streamedChars / 4));
+      break;
+    }
     case "question_asked": {
       // Render each question as a SelectList in sequence, collecting answers
       // indexed by question, then reply once the last one is answered.
@@ -564,13 +581,29 @@ async function submitPrompt(
   messageCount++;
   // First prompt reveals the fixed top status header.
   hasFirstMessage = true;
+  // Reset the live streamed-token estimate for this turn.
+  streamedChars = 0;
+  resetLiveOutputTokens();
 
   // A new prompt always returns the view to the live bottom of the history.
   messageList.scrollToBottom();
 
   // Create messages through the store - VirtualMessageList handles rendering
   createUserMessage(`**${chalk.red("You")}:** ${displayText ?? promptText}`);
-  const inProgressMsg = createInProgressMessage(getRandomInProgressPhrase());
+  // Seed ↓ with a live input estimate so it isn't 0 while streaming: prior
+  // accumulated context plus this prompt (~4 chars/token). Input is fixed at
+  // send time (the provider only reports the exact value at turn end), so this
+  // is a stable estimate that the real usage corrects on completion.
+  const turnContextLimit = getModelContextLimit(
+    `${currentProvider}/${currentModel}`,
+  );
+  const estimatedInput = contextTokens + Math.round(promptText.length / 4);
+  const inProgressMsg = createInProgressMessage(
+    getRandomInProgressPhrase(),
+    estimatedInput,
+    0,
+    turnContextLimit,
+  );
 
   startCli();
 
