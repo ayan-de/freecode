@@ -1,5 +1,6 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
+import { restoreScreen } from "../terminal-screen.js";
 
 const helpCommand: Command = {
   name: "help",
@@ -31,6 +32,7 @@ const exitCommand: Command = {
   name: "exit",
   description: "Exit FreeCode",
   execute: () => {
+    restoreScreen();
     process.exit(0);
   },
 };

@@ -60,6 +60,7 @@ import { VirtualMessageList } from "./components/virtual-message-list.js";
 import { PromptEditor } from "./components/prompt-editor.js";
 import { createResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
+import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 import {
   createProviderSelector,
@@ -103,23 +104,24 @@ tui = new TUI(terminal);
 import { Spacer } from "@earendil-works/pi-tui";
 import { getModelDisplayString } from "./utils/display.js";
 
-tui.addChild(
-  new ResponsiveInfoBox(
-    () => currentProvider,
-    () => currentModel,
-  ),
+const infoBox = new ResponsiveInfoBox(
+  () => currentProvider,
+  () => currentModel,
 );
-tui.addChild(new Spacer(1));
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
-// Create message list and add to tui BEFORE editor.
+// Create message list and add to tui BEFORE editor. infoBox renders as the
+// list's first entry (see VirtualMessageList) so it scrolls away with the
+// rest of the history instead of sitting fixed above the viewport.
 // The viewport callback tells the list how many rows it may use in scrolled
 // mode: terminal height minus the chrome below it (editor, spacers, mode line)
 // so the scrolled window and the input stay on screen together.
 const SCROLL_RESERVED_ROWS = 10;
-messageList = new VirtualMessageList(200, () =>
-  Math.max(6, terminal.rows - SCROLL_RESERVED_ROWS),
+messageList = new VirtualMessageList(
+  200,
+  () => Math.max(6, terminal.rows - SCROLL_RESERVED_ROWS),
+  infoBox,
 );
 messageList.setTui(tui);
 tui.addChild(messageList);
@@ -789,10 +791,30 @@ const interruptController = new InterruptController({
   },
   notify: (text) => showMessage(text),
   getSessionId: () => currentSession?.sessionId ?? null,
-  shutdown: () => tui?.stop(),
+  shutdown: () => {
+    tui?.stop();
+    // Must happen before printResumeHint() so the hint lands on the
+    // restored shell scrollback, not the alt screen we're about to leave.
+    restoreScreen();
+  },
 });
 
+// SGR mouse event: CSI < Cb ; Cx ; Cy M|m. Bit 0x40 marks a wheel event;
+// bit 0x01 then gives direction (0 = up, 1 = down). Non-wheel mouse events
+// (clicks/drags) are matched too so they're swallowed here instead of
+// leaking into the editor as garbage text.
+const SGR_MOUSE_RE = /^\x1b\[<(\d+);\d+;\d+[Mm]$/;
+const WHEEL_STEP = 3;
+
 tui.addInputListener((data) => {
+  const mouseEvent = SGR_MOUSE_RE.exec(data);
+  if (mouseEvent) {
+    const cb = Number(mouseEvent[1]);
+    if ((cb & 0x40) !== 0) {
+      messageList.scrollBy((cb & 0x01) === 1 ? WHEEL_STEP : -WHEEL_STEP);
+    }
+    return { consume: true };
+  }
   if (matchesKey(data, Key.ctrl("c"))) {
     // An open selector swallows Ctrl+C as a cancel, matching Escape.
     if (resumeSelector) {
@@ -889,5 +911,10 @@ if (resumeArg.present && resumeArg.id) {
 // (sound can only be playing if it was); see the /freecode dispatch above.
 let stopSoundFn: (() => void) | null = null;
 process.on("exit", () => stopSoundFn?.());
+// Safety net for crash / uncaught-exception exits that skip the explicit
+// shutdown() path above — restoreScreen() is idempotent, so this is a no-op
+// when the alt screen was already exited cleanly.
+process.on("exit", restoreScreen);
 
+process.stdout.write(ENTER_ALT_SCREEN);
 tui.start();
