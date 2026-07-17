@@ -1,5 +1,12 @@
 # @thisisayande/freecode
 
+## 0.3.6
+
+### Features
+
+- Fixed status header pinned to the top row once the first prompt is sent: agent mode and model on the left, live context-window usage with a progress bar on the right. The redundant mode/model line below the input is hidden after the first message
+- In-progress line now shows a real live output-token count derived from the streamed response text, replacing the time-based estimate that only mirrored the elapsed seconds. The input-token count is seeded with an estimate at turn start instead of showing 0 until completion
+
 ## 0.3.5
 
 ### Features
