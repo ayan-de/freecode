@@ -555,7 +555,16 @@ export async function handleRequest(
   }
 }
 
+// In the compiled binary the "run if executed directly" guard below matches
+// (import.meta.url and argv[1] both resolve to the bunfs entry path), so the
+// `serve` command would start the server a second time — double stdin
+// listeners, every request handled twice. Idempotency flag makes any second
+// call a no-op.
+let serverStarted = false;
+
 export async function startServer() {
+  if (serverStarted) return;
+  serverStarted = true;
   await initProviders();
   await initMcpServers();
 
