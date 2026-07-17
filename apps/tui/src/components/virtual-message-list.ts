@@ -182,14 +182,14 @@ export class VirtualMessageList implements Component {
     this.lastTotalLines = lines.length;
 
     // Content fits in the viewport outright — no windowing needed either way,
-    // but pad with leading blank lines up to the full budget so the editor
+    // but pad with trailing blank lines up to the full budget so the editor
     // (rendered right after this component) still bottom-anchors to the
     // last row instead of floating right under a short history.
     const content = this.contentRows();
     if (lines.length <= content) {
       this.scrollTop = null;
       const padding = content + 1 - lines.length;
-      return padding > 0 ? [...Array(padding).fill(""), ...lines] : lines;
+      return padding > 0 ? [...lines, ...Array(padding).fill("")] : lines;
     }
 
     if (this.scrollTop === null) {
