@@ -14,7 +14,7 @@ import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { defaultEditorTheme, MODE_COLORS, MODE_BG_COLORS } from "./themes.js";
+import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
 import {
   getRandomElapsedPhrase,
   getRandomInProgressPhrase,
@@ -63,6 +63,7 @@ import { InterruptController } from "./interrupt-controller.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 import { StatusHeader } from "./components/status-header.js";
+import { ModeLine } from "./components/mode-line.js";
 import {
   createProviderSelector,
   createModelSelector,
@@ -89,8 +90,7 @@ let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
-let agentModeDisplay: Text;
-let agentModeDisplayIdx = -1;
+let modeLine: ModeLine;
 
 let modelSelector: SearchableSelectList | null = null;
 let providerSelector: SearchableSelectList | null = null;
@@ -108,7 +108,6 @@ const terminal = new ProcessTerminal();
 tui = new TUI(terminal);
 
 import { Spacer } from "@earendil-works/pi-tui";
-import { getModelDisplayString } from "./utils/display.js";
 
 const infoBox = new ResponsiveInfoBox(
   () => currentProvider,
@@ -159,15 +158,15 @@ editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
 tui.addChild(new Spacer(1));
-{
-  const bgColor = MODE_BG_COLORS[currentAgentMode];
-  const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
-  const hintText = chalk.dim(" (shift+tab to cycle)");
-  const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(getModelDisplayString(currentProvider, currentModel))}`;
-  agentModeDisplay = new Text(`${modeText}${hintText}  ${modelText}`, 1, 0);
-}
-agentModeDisplayIdx = tui.children.length;
-tui.addChild(agentModeDisplay);
+// Mode/model line below the input. Hidden after the first prompt — the fixed
+// top StatusHeader carries the same info from then on.
+modeLine = new ModeLine(
+  () => hasFirstMessage,
+  () => currentAgentMode,
+  () => currentProvider,
+  () => currentModel,
+);
+tui.addChild(modeLine);
 
 tui.setFocus(editor);
 
@@ -185,18 +184,8 @@ function updateModelDisplay(): void {
 }
 
 function updateAgentModeDisplay(): void {
-  const displayText = getModelDisplayString(currentProvider, currentModel);
-
-  const bgColor = MODE_BG_COLORS[currentAgentMode];
-  const modeText = bgColor(chalk.bold.black(` ${currentAgentMode} `));
-  const hintText = chalk.dim(" (shift+tab to cycle)");
-  const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(displayText)}`;
-  const text = `${modeText}${hintText}  ${modelText}`;
-
-  agentModeDisplay = new Text(text, 1, 0);
-  if (agentModeDisplayIdx >= 0 && agentModeDisplayIdx < tui.children.length) {
-    tui.children[agentModeDisplayIdx] = agentModeDisplay;
-  }
+  // ModeLine and StatusHeader read mode/model through live getters, so a
+  // re-render is all that's needed to reflect a mode cycle or model change.
   tui.requestRender();
 }
 
