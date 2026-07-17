@@ -18,63 +18,73 @@ export function ContextNodeContent() {
     <>
       <NodeHeader
         title="Context Engine"
-        subtext="Convention Rules & Custom Skills"
+        subtext="File Tree · Instructions · Prompt Compilation"
       />
       <p className={styles.description}>
-        FreeCode is project-aware! On session startup, the Context Engine loads{" "}
-        <strong>AGENTS.md</strong> (prioritized) or falls back to{" "}
-        <strong>CLAUDE.md</strong>. These files contain rules. It also loads
-        reusable files called <strong>Skills</strong> from{" "}
-        <code>.claude/skills/</code>.
+        The Context Engine gives the model lightweight project awareness each
+        turn. <strong>tree-cache.ts</strong> builds a cached{" "}
+        <strong>ProjectContext</strong> — name, path, file tree, and git HEAD —
+        and invalidates it after any mutating tool. The{" "}
+        <strong>PromptCompiler</strong> then assembles the system prompt from the
+        provider/mode preamble, project <strong>instructions</strong>{" "}
+        (<code>CLAUDE.md</code>, falling back to <code>AGENTS.md</code>), the
+        project summary + file tree, and session memory. The file tree is cached
+        by git HEAD, so it only rebuilds when HEAD or ignore patterns change.
       </p>
       <div className={styles.filesBox}>
         <h5 className={styles.filesTitle}>🔑 Key Codebase Implementations:</h5>
         <ul className={styles.filesList}>
           <li>
-            <span className={styles.fileBadge}>Context Collector</span>
-            <a
-              href="file:///home/ayan-de/Projects/freecode/apps/core/src/context/collector.ts"
-              className={styles.fileLink}
-            >
-              apps/core/src/context/collector.ts
-            </a>
+            <span className={styles.fileBadge}>Tree Cache</span>
+            <span className={styles.fileLink}>
+              apps/core/src/context/tree-cache.ts
+            </span>
           </li>
           <li>
-            <span className={styles.fileBadge}>File Tree generator</span>
-            <a
-              href="file:///home/ayan-de/Projects/freecode/apps/core/src/context/file-tree.ts"
-              className={styles.fileLink}
-            >
-              apps/core/src/context/file-tree.ts
-            </a>
+            <span className={styles.fileBadge}>Prompt Compiler</span>
+            <span className={styles.fileLink}>
+              apps/core/src/context/compiler.ts
+            </span>
+          </li>
+          <li>
+            <span className={styles.fileBadge}>Instructions</span>
+            <span className={styles.fileLink}>
+              apps/core/src/context/instructions.ts
+            </span>
+          </li>
+          <li>
+            <span className={styles.fileBadge}>File Tree</span>
+            <span className={styles.fileLink}>
+              apps/core/src/context/strategies/file-tree.ts
+            </span>
           </li>
         </ul>
       </div>
       <div className={styles.simContainer}>
         <div className={styles.simHeader}>
-          <span>Startup Context Compilation Simulation</span>
+          <span>Per-Turn Context Compilation</span>
           <span className={styles.emeraldPulse}></span>
         </div>
         <div className={styles.contextCompiler}>
           <div className={styles.compilerStep}>
             <span className={styles.stepIndicator}>PASS 1</span>
             <span>
-              Scanning Workspace root for <strong>AGENTS.md</strong>...{" "}
-              <span className={styles.greenText}>FOUND (Priority)</span>
+              Resolve <strong>git HEAD</strong> + build file tree...{" "}
+              <span className={styles.greenText}>CACHED (by HEAD)</span>
             </span>
           </div>
           <div className={styles.compilerStep}>
             <span className={styles.stepIndicator}>PASS 2</span>
             <span>
-              Scanning <strong>.claude/skills/</strong> for custom behaviors...{" "}
-              <span className={styles.greenText}>LOADED (2 skills)</span>
+              Read instructions <strong>CLAUDE.md</strong> → AGENTS.md...{" "}
+              <span className={styles.greenText}>LOADED</span>
             </span>
           </div>
           <div className={styles.compilerStep}>
             <span className={styles.stepIndicator}>PASS 3</span>
             <span>
-              Constructing <strong>File Tree Map</strong>...{" "}
-              <span className={styles.greenText}>OK (18 nodes mapped)</span>
+              Compile <strong>SystemBlock[]</strong> (+ memory context)...{" "}
+              <span className={styles.greenText}>OK</span>
             </span>
           </div>
         </div>
