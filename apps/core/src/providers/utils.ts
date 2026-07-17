@@ -28,13 +28,13 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
         type: "tool-call";
         toolCallId: string;
         toolName: string;
-        args: unknown;
+        input: unknown;
       }> = [];
       const toolResults: Array<{
         type: "tool-result";
         toolCallId: string;
         toolName: string;
-        output: unknown;
+        output: { type: "text"; value: string };
       }> = [];
 
       for (const part of msg.parts) {
@@ -47,14 +47,22 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
             type: "tool-call",
             toolCallId: part.tool.id,
             toolName: part.tool.tool,
-            args: part.tool.args,
+            input: part.tool.args,
           });
           if (part.result !== undefined) {
             toolResults.push({
               type: "tool-result",
               toolCallId: part.tool.id,
               toolName: part.tool.tool,
-              output: part.result,
+              // AI SDK v6 requires a structured ToolResultOutput, not a raw
+              // string — otherwise the ModelMessage[] schema rejects it.
+              output: {
+                type: "text",
+                value:
+                  typeof part.result === "string"
+                    ? part.result
+                    : JSON.stringify(part.result),
+              },
             });
           }
         }
