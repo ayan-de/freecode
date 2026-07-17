@@ -19,6 +19,14 @@ import type { CommandModule } from "yargs";
 const tuiCommand: CommandModule = {
   command: "$0",
   describe: "start the freecode TUI",
+  builder: (yargs) =>
+    yargs.option("resume", {
+      alias: "r",
+      // string with no value (`--resume`) opens the session picker; with an id
+      // it resumes directly. index.ts reads this back off process.argv.
+      describe: "resume a previous session by id (omit id to pick from a list)",
+      type: "string",
+    }),
   handler: async () => {
     // Lazy: importing runs the TUI (index.ts calls tui.start()), and the
     // other commands must not pay its startup cost.

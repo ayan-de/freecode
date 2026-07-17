@@ -25,6 +25,7 @@ import {
   startCli,
   sessionStart,
   sessionSendStreaming,
+  sessionStop,
   sessionList,
   sessionResume,
   listProviders,
@@ -58,6 +59,7 @@ import {
 import { VirtualMessageList } from "./components/virtual-message-list.js";
 import { PromptEditor } from "./components/prompt-editor.js";
 import { createResumePicker } from "./components/resume-picker.js";
+import { InterruptController } from "./interrupt-controller.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 import {
   createProviderSelector,
@@ -73,6 +75,9 @@ let tui: TUI;
 let messageCount = 0;
 
 let currentSession: SessionInfo | null = null;
+// Session id of the turn currently streaming, or null when idle. Drives whether
+// Ctrl+C cancels the turn (busy) or moves toward exit (idle).
+let activeTurnSessionId: string | null = null;
 let currentProvider = "";
 let currentModel = "";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
@@ -584,6 +589,7 @@ async function submitPrompt(
   }
 
   try {
+    activeTurnSessionId = currentSession.sessionId;
     const result = await sessionSendStreaming(
       currentSession.sessionId,
       promptText,
@@ -652,6 +658,7 @@ async function submitPrompt(
       `**Error:** ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
+    activeTurnSessionId = null;
     editor.setText("");
   }
 }
@@ -773,12 +780,35 @@ void (async () => {
   }
 })();
 
+const interruptController = new InterruptController({
+  isTurnActive: () => activeTurnSessionId !== null,
+  cancelTurn: () => {
+    const id = activeTurnSessionId;
+    activeTurnSessionId = null;
+    if (id) void sessionStop(id);
+  },
+  notify: (text) => showMessage(text),
+  getSessionId: () => currentSession?.sessionId ?? null,
+  shutdown: () => tui?.stop(),
+});
+
 tui.addInputListener((data) => {
   if (matchesKey(data, Key.ctrl("c"))) {
-    if (tui) {
-      tui.stop();
+    // An open selector swallows Ctrl+C as a cancel, matching Escape.
+    if (resumeSelector) {
+      hideResumeSelector();
+      tui.setFocus(editor);
+      tui.requestRender();
+      return { consume: true };
     }
-    process.exit(0);
+    if (modelSelector || providerSelector) {
+      hideModelSelector();
+      tui.setFocus(editor);
+      tui.requestRender();
+      return { consume: true };
+    }
+    interruptController.handle();
+    return { consume: true };
   }
   if (matchesKey(data, Key.shift("tab"))) {
     cycleAgentMode();
@@ -818,7 +848,42 @@ async function checkForInterruptedSession(): Promise<void> {
   }
 }
 
-checkForInterruptedSession();
+// Parse `freecode --resume [id]` (alias `-r`). A bare `--resume` (no id) opens
+// the interactive picker; an id resumes that session directly at startup.
+function parseResumeArg(argv: string[]): { present: boolean; id?: string } {
+  const i = argv.findIndex((a) => a === "--resume" || a === "-r");
+  if (i === -1) return { present: false };
+  const next = argv[i + 1];
+  return { present: true, id: next && !next.startsWith("-") ? next : undefined };
+}
+
+async function resumeFromArgs(id: string): Promise<void> {
+  startCli();
+  showMessage("**Resuming session...**");
+  try {
+    const result = await sessionResume(id);
+    currentSession = { sessionId: result.sessionId };
+    if (result.messages && result.messages.length > 0) {
+      loadSessionMessages(result.messages);
+    }
+    showMessage(
+      `**Session resumed with ${result.messages?.length || 0} messages.**`,
+    );
+  } catch (err) {
+    showMessage(`**Error resuming session:** ${err}`);
+  }
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
+const resumeArg = parseResumeArg(process.argv);
+if (resumeArg.present && resumeArg.id) {
+  resumeFromArgs(resumeArg.id);
+} else if (resumeArg.present) {
+  showResumePicker();
+} else {
+  checkForInterruptedSession();
+}
 
 // stopSound only matters once the freecode module has been lazy-loaded
 // (sound can only be playing if it was); see the /freecode dispatch above.

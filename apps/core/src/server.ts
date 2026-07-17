@@ -269,12 +269,13 @@ const methodHandlers: Record<
 
   "session.stop": async (params: Record<string, unknown>): Promise<void> => {
     const { sessionId } = params as { sessionId: string };
-    // Abort the in-flight turn (provider stream + tools) before dropping state
+    // Abort the in-flight turn (provider stream + tools). The session mapping is
+    // kept so the conversation stays continuable — a Ctrl+C that cancels a turn
+    // must not drop the session out from under the next message. In-memory
+    // sessions are freed on process exit or explicit session.delete/archive.
     activeLoops.get(sessionId)?.interrupt();
-    const session = getSession(sessionId);
-    if (session) {
-      sessions.delete(sessionId);
-      logger.info("Session stopped", { sessionId });
+    if (getSession(sessionId)) {
+      logger.info("Session turn interrupted", { sessionId });
     }
   },
 
