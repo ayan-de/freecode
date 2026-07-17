@@ -23,6 +23,9 @@ const TOOL_COLORS: Record<string, (text: string) => string> = {
 };
 
 export class ToolResultMessage implements Component {
+  /** Max result lines shown before collapsing to a "… +N lines" tail. */
+  private static readonly MAX_PREVIEW_LINES = 5;
+
   private toolCallId: string;
   private toolName: string;
   private args: Record<string, unknown>;
@@ -58,11 +61,23 @@ export class ToolResultMessage implements Component {
     header = truncateToWidth(header, safeWidth);
     lines.push(header);
 
-    // Result with tree view character - account for prefix
+    // Result with tree view character - account for prefix.
+    // The result may span many lines; render() must return one terminal row
+    // per array element, so split and show a collapsed preview (pi-style).
     const resultWidth = safeWidth - 3; // 3 for " ⎿ "
     if (this.result) {
-      const truncatedResult = truncateToWidth(this.result, resultWidth);
-      lines.push(`${chalk.dim("⎿")} ${chalk.dim(truncatedResult)}`);
+      const resultLines = this.result.replace(/\r/g, "").split("\n");
+      const preview = resultLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
+      preview.forEach((raw, i) => {
+        const prefix = i === 0 ? chalk.dim("⎿") : " ";
+        lines.push(`${prefix} ${chalk.dim(truncateToWidth(raw, resultWidth))}`);
+      });
+      const hidden = resultLines.length - preview.length;
+      if (hidden > 0) {
+        lines.push(
+          `  ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`,
+        );
+      }
     } else if (this.success) {
       lines.push(`${chalk.dim("⎿")} ${chalk.dim("(no output)")}`);
     }
@@ -80,7 +95,12 @@ export class ToolResultMessage implements Component {
 
     let result = entries
       .map(([k, v]) => {
-        const vStr = typeof v === "string" ? v : JSON.stringify(v);
+        // String args (e.g. edit's old_string) may contain newlines — flatten
+        // so the header stays a single terminal row.
+        const vStr = (typeof v === "string" ? v : JSON.stringify(v)).replace(
+          /\s*\n\s*/g,
+          " ",
+        );
         return `${k}: ${chalk.green(truncate(vStr))}`;
       })
       .join(", ");

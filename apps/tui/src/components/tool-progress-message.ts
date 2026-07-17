@@ -97,7 +97,12 @@ export class ToolProgressMessage implements Component {
 
     let result = entries
       .map(([k, v]) => {
-        const vStr = typeof v === "string" ? v : JSON.stringify(v);
+        // String args (e.g. edit's old_string) may contain newlines — flatten
+        // so the header stays a single terminal row.
+        const vStr = (typeof v === "string" ? v : JSON.stringify(v)).replace(
+          /\s*\n\s*/g,
+          " ",
+        );
         return `${k}: ${chalk.green(truncate(vStr))}`;
       })
       .join(", ");
