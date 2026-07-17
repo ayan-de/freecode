@@ -45,38 +45,81 @@ export function SubagentsNodeContent() {
     <>
       <NodeHeader
         title="Parallel Sub-Agents"
-        subtext="Distributed AI Workforces"
+        subtext="Isolated Nested Agent Loops · 4 Roles"
       />
 
       <p className={styles.description}>
-        For large or complex tasks, the main agent orchestrator can delegate
-        discrete tasks to <strong>Sub-Agents</strong>. Each sub-agent runs in
-        its own isolated browser context, executing specialized tasks
-        concurrently and aggregates the code changes back to the main thread.
+        For large or branching tasks, the main loop delegates independent
+        subtasks through the <strong>agent</strong> tool. Each sub-agent is a
+        fresh <strong>AgentLoop</strong> with its own session id, tool set, and
+        iteration budget (default <strong>20</strong>) — fully isolated from the
+        parent&apos;s history. Read-only roles run in <strong>explore</strong>{" "}
+        mode, write-capable roles in <strong>build</strong> mode. Progress is
+        published on the bus (<code>subagentStarted</code> /{" "}
+        <code>subagentCompleted</code>) and the final result is returned to the
+        parent turn.
       </p>
 
       <div className={styles.filesBox}>
         <h5 className={styles.filesTitle}>🔑 Key Codebase Implementations:</h5>
         <ul className={styles.filesList}>
           <li>
-            <span className={styles.fileBadge}>Sub-Agent Spawner</span>
-            <a
-              href="file:///home/ayan-de/Projects/freecode/apps/core/src/tools/index.ts"
-              className={styles.fileLink}
-            >
-              apps/core/src/tools/index.ts
-            </a>
+            <span className={styles.fileBadge}>Spawner Tool</span>
+            <span className={styles.fileLink}>
+              apps/core/src/tools/agent.ts
+            </span>
           </li>
           <li>
-            <span className={styles.fileBadge}>Agent Router</span>
-            <a
-              href="file:///home/ayan-de/Projects/freecode/apps/core/src/agent/loop.ts"
-              className={styles.fileLink}
-            >
+            <span className={styles.fileBadge}>Sub-Agent Runtime</span>
+            <span className={styles.fileLink}>
+              apps/core/src/agent/subagent.ts
+            </span>
+          </li>
+          <li>
+            <span className={styles.fileBadge}>Nested Loop</span>
+            <span className={styles.fileLink}>
               apps/core/src/agent/loop.ts
-            </a>
+            </span>
           </li>
         </ul>
+      </div>
+
+      <div className={styles.execModes}>
+        <h5 className={styles.execTitle}>Sub-Agent Roles</h5>
+        <div className={styles.execList}>
+          <div className={styles.execItem}>
+            <span className={styles.execMode} style={{ background: "#3b82f6" }}>
+              explorer
+            </span>
+            <span className={styles.execTools}>
+              Search the codebase (read-only)
+            </span>
+          </div>
+          <div className={styles.execItem}>
+            <span className={styles.execMode} style={{ background: "#10b981" }}>
+              reviewer
+            </span>
+            <span className={styles.execTools}>
+              Review for bugs, security, performance (read-only)
+            </span>
+          </div>
+          <div className={styles.execItem}>
+            <span className={styles.execMode} style={{ background: "#f97316" }}>
+              tester
+            </span>
+            <span className={styles.execTools}>
+              Write and run tests (build mode)
+            </span>
+          </div>
+          <div className={styles.execItem}>
+            <span className={styles.execMode} style={{ background: "#a855f7" }}>
+              summarizer
+            </span>
+            <span className={styles.execTools}>
+              Summarize conversations, docs, or code (read-only)
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className={styles.simContainer}>
@@ -104,7 +147,7 @@ export function SubagentsNodeContent() {
             )}
             {subAgentState === "done" && (
               <span className={`${styles.statusLabel} ${styles.statusSuccess}`}>
-                AGGRAGATING CHANGELIST
+                AGGREGATING RESULTS
               </span>
             )}
           </div>
@@ -113,7 +156,7 @@ export function SubagentsNodeContent() {
             className={`${styles.threadRow} ${subAgentState === "running" ? styles.threadRunning : ""}`}
           >
             <span className={styles.threadName}>
-              🧵 Thread #1 (Code Reviewer)
+              🧵 reviewer (explore mode)
             </span>
             {subAgentState === "idle" && (
               <span className={`${styles.statusLabel} ${styles.statusIdle}`}>
@@ -124,12 +167,12 @@ export function SubagentsNodeContent() {
               <span
                 className={`${styles.statusLabel} ${styles.statusSpawning}`}
               >
-                SPAWNING BROWSER...
+                SPAWNING SUB-LOOP...
               </span>
             )}
             {subAgentState === "running" && (
               <span className={`${styles.statusLabel} ${styles.statusActive}`}>
-                RUNNING STATIC ANALYSIS
+                REVIEWING FOR BUGS
               </span>
             )}
             {subAgentState === "done" && (
@@ -143,7 +186,7 @@ export function SubagentsNodeContent() {
             className={`${styles.threadRow} ${subAgentState === "running" ? styles.threadRunning : ""}`}
           >
             <span className={styles.threadName}>
-              🧵 Thread #2 (Unit Tester)
+              🧵 tester (build mode)
             </span>
             {subAgentState === "idle" && (
               <span className={`${styles.statusLabel} ${styles.statusIdle}`}>
@@ -154,7 +197,7 @@ export function SubagentsNodeContent() {
               <span
                 className={`${styles.statusLabel} ${styles.statusSpawning}`}
               >
-                SPAWNING BROWSER...
+                SPAWNING SUB-LOOP...
               </span>
             )}
             {subAgentState === "running" && (
