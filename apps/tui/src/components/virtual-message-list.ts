@@ -9,6 +9,11 @@ import { subscribeToMessages, getMessages } from "../state/message-store.js";
  * Subscribes to MessageStore and re-renders when messages change.
  * Only renders the last N messages to avoid memory/performance issues.
  *
+ * An optional `header` component (the logo/tips info box) renders as the
+ * first entry in the scrollable content, not a fixed pane above it — it
+ * scrolls away with the rest of the history instead of permanently eating
+ * into the viewport.
+ *
  * Scrolling has two modes:
  * - Follow (default): renders the full history; the terminal's native
  *   scrollback holds older lines, and new content sticks to the bottom.
@@ -29,10 +34,16 @@ export class VirtualMessageList implements Component {
   /** Total line count from the last render — scroll math between renders. */
   private lastTotalLines = 0;
   private getViewportRows: () => number;
+  private header?: Component;
 
-  constructor(maxVisible = 100, getViewportRows: () => number = () => 24) {
+  constructor(
+    maxVisible = 100,
+    getViewportRows: () => number = () => 24,
+    header?: Component,
+  ) {
     this.maxVisible = maxVisible;
     this.getViewportRows = getViewportRows;
+    this.header = header;
     // Subscribe to message store changes
     this.unsubscribe = subscribeToMessages((msgs) => {
       this.messages = msgs;
@@ -90,26 +101,35 @@ export class VirtualMessageList implements Component {
     return this.scrollTop !== null;
   }
 
-  /** Scroll up by one page (enters scrolled mode from follow mode). */
-  scrollPageUp(): void {
+  /**
+   * Scroll by a signed line delta (negative = up, positive = down).
+   * Negative deltas can enter scrolled mode from follow mode; positive
+   * deltas are a no-op while already following the bottom, and return to
+   * follow mode once they reach it — same rules as the page methods below.
+   */
+  scrollBy(delta: number): void {
     const content = this.contentRows();
     const maxTop = Math.max(0, this.lastTotalLines - content);
-    if (maxTop === 0) return;
-    const step = Math.max(1, content - 1);
-    const current = this.scrollTop ?? maxTop;
-    this.scrollTop = Math.max(0, current - step);
+    if (maxTop === 0 || delta === 0) return;
+    if (delta < 0) {
+      const current = this.scrollTop ?? maxTop;
+      this.scrollTop = Math.max(0, current + delta);
+    } else {
+      if (this.scrollTop === null) return;
+      const next = this.scrollTop + delta;
+      this.scrollTop = next >= maxTop ? null : next;
+    }
     this.invalidate();
+  }
+
+  /** Scroll up by one page (enters scrolled mode from follow mode). */
+  scrollPageUp(): void {
+    this.scrollBy(-Math.max(1, this.contentRows() - 1));
   }
 
   /** Scroll down by one page; reaching the bottom returns to follow mode. */
   scrollPageDown(): void {
-    if (this.scrollTop === null) return;
-    const content = this.contentRows();
-    const maxTop = Math.max(0, this.lastTotalLines - content);
-    const step = Math.max(1, content - 1);
-    const next = this.scrollTop + step;
-    this.scrollTop = next >= maxTop ? null : next;
-    this.invalidate();
+    this.scrollBy(Math.max(1, this.contentRows() - 1));
   }
 
   /** Return to follow mode (bottom of the history). */
@@ -128,6 +148,10 @@ export class VirtualMessageList implements Component {
     this.invalidated = false;
 
     const lines: string[] = [];
+
+    if (this.header) {
+      lines.push(...this.header.render(width), "");
+    }
 
     // Separate in-progress message from others
     const regularMessages = this.messages.filter(
@@ -157,11 +181,25 @@ export class VirtualMessageList implements Component {
 
     this.lastTotalLines = lines.length;
 
-    // Follow mode, or content fits in the viewport: render everything.
+    // Content fits in the viewport outright — no windowing needed either way,
+    // but pad with leading blank lines up to the full budget so the editor
+    // (rendered right after this component) still bottom-anchors to the
+    // last row instead of floating right under a short history.
     const content = this.contentRows();
-    if (this.scrollTop === null || lines.length <= content) {
+    if (lines.length <= content) {
       this.scrollTop = null;
-      return lines;
+      const padding = content + 1 - lines.length;
+      return padding > 0 ? [...Array(padding).fill(""), ...lines] : lines;
+    }
+
+    if (this.scrollTop === null) {
+      // Follow mode: tail-anchored window using the full viewport budget
+      // (content + the row a scrolled indicator would take). Rendered
+      // height must stay identical to scrolled mode's `content + 1` below —
+      // otherwise the editor, which renders right after this component,
+      // jumps position the moment scrolling starts (the alt screen has no
+      // native scrollback to paper over a height that swings with mode).
+      return lines.slice(-(content + 1));
     }
 
     // Scrolled mode: return a stable window of lines plus an indicator row.
