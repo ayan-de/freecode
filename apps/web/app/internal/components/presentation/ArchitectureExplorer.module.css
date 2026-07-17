@@ -1,15 +1,10 @@
 .container {
   display: flex;
   flex-direction: column;
-  background: rgba(8, 8, 16, 0.7);
-  backdrop-filter: blur(16px);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 24px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  padding: 24px 0;
   min-height: 480px;
   justify-content: flex-start;
-  transition: all 0.3s ease;
 }
 
 .emptyState {
@@ -20,7 +15,7 @@
   text-align: center;
   flex: 1;
   padding: 40px 20px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--muted-foreground);
 }
 
 .emptyIcon {
@@ -38,7 +33,7 @@
 .emptyState h4 {
   font-size: 18px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--foreground);
   margin-bottom: 8px;
 }
 
@@ -80,15 +75,15 @@
 .title {
   font-size: 18px;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--foreground);
   margin: 0;
   text-align: center;
 }
 
 .subtext {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-  font-family: monospace;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
   margin: 2px 0 0 0;
   text-align: center;
 }
@@ -96,20 +91,20 @@
 .description {
   font-size: 14px;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted-foreground);
   margin-bottom: 20px;
   text-align: center;
 }
 
 .description strong {
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--foreground);
 }
 
 /* Key Files List */
 .filesBox {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--muted);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
   padding: 16px;
   margin-bottom: 20px;
 }
@@ -119,7 +114,7 @@
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--muted-foreground);
   margin: 0 0 12px 0;
 }
 
@@ -140,37 +135,37 @@
 }
 
 .fileBadge {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   width: 90px;
   text-align: center;
   flex-shrink: 0;
 }
 
 .fileLink {
-  color: rgba(129, 140, 248, 0.9);
-  font-family: monospace;
+  color: var(--primary);
+  font-family: var(--font-mono);
   text-decoration: underline;
   transition: color 0.2s ease;
   word-break: break-all;
 }
 
 .fileLink:hover {
-  color: rgba(129, 140, 248, 1);
-  text-shadow: 0 0 8px rgba(129, 140, 248, 0.4);
+  color: var(--primary);
+  opacity: 0.8;
 }
 
 /* ==================== SIMULATION PANELS ==================== */
 
 .simContainer {
-  background: #06060c;
+  background: var(--muted);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   overflow: hidden;
   margin-top: auto;
 }
@@ -179,14 +174,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--secondary);
   padding: 10px 16px;
   font-size: 11px;
   font-weight: 800;
-  font-family: monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.5px;
-  color: rgba(255, 255, 255, 0.5);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
 }
 
 .greenPulse, .orangePulse, .pinkPulse, .emeraldPulse, .amberPulse, .yellowPulse, .purplePulse, .bluePulse {
@@ -223,10 +218,10 @@
 }
 
 .jsonCode {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--foreground);
   margin: 0;
   white-space: pre-wrap;
 }
@@ -234,13 +229,13 @@
 /* Terminal simulation inside Agent */
 .simTerminal {
   padding: 16px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.6;
   max-height: 220px;
   overflow-y: auto;
-  color: rgba(255, 255, 255, 0.85);
-  background: #030307;
+  color: var(--foreground);
+  background: var(--muted);
 }
 
 .terminalLine {
@@ -265,10 +260,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--muted);
   padding: 10px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
   font-size: 12px;
   transition: all 0.3s ease;
 }
@@ -279,8 +274,8 @@
 }
 
 .threadName {
-  color: rgba(255, 255, 255, 0.85);
-  font-family: monospace;
+  color: var(--foreground);
+  font-family: var(--font-mono);
 }
 
 .statusLabel {
@@ -291,7 +286,7 @@
   border-radius: 4px;
 }
 
-.statusIdle { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); }
+.statusIdle { background: var(--secondary); color: var(--muted-foreground); }
 .statusWorking { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
 .statusSpawning { background: rgba(236,72,153,0.15); color: #ec4899; border: 1px solid rgba(236,72,153,0.3); }
 .statusActive { background: rgba(236,72,153,0.25); color: #ec4899; border: 1px solid #ec4899; animation: threadPulse 1s infinite alternate; }
@@ -312,7 +307,7 @@
 
 .compilerStep {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--foreground);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -336,28 +331,28 @@
 
 .compilerSystemPrompt {
   margin-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border);
   padding-top: 10px;
 }
 
 .promptHeader {
   font-size: 9px;
   font-weight: 800;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--muted-foreground);
   letter-spacing: 0.5px;
   margin-bottom: 6px;
 }
 
 .promptCode {
   margin: 0;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1.4;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(0, 0, 0, 0.4);
+  color: var(--muted-foreground);
+  background: var(--secondary);
   padding: 8px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
 }
 
 /* Memory & compaction dashboard */
@@ -372,15 +367,15 @@
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
-  font-family: monospace;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
 }
 
 .memoryProgressBar {
   height: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--muted);
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -464,9 +459,9 @@
 
 .toggleBtn {
   flex: 1;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.6);
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
   padding: 8px;
   border-radius: 6px;
   font-size: 11px;
@@ -476,8 +471,8 @@
 }
 
 .toggleBtn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: white;
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .toggleActiveSafe {
@@ -493,8 +488,8 @@
 }
 
 .sandboxOutput {
-  background: #030307;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
   min-height: 110px;
@@ -510,7 +505,7 @@
   margin-bottom: 5px;
 }
 
-.hookInfo { color: rgba(255,255,255,0.4); }
+.hookInfo { color: var(--muted-foreground); }
 .hookPre { color: #f97316; font-weight: 700; }
 .hookSuccess { color: #10b981; font-weight: 700; }
 .hookPost { color: #a855f7; font-weight: 700; }
@@ -529,10 +524,10 @@
 .closeButton {
   position: absolute;
   top: 16px;
-  right: 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.6);
+  right: 0;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -565,9 +560,9 @@
   align-items: center;
   gap: 12px;
   padding: 16px 16px;
-  background: rgba(249, 115, 22, 0.1);
+  background: rgba(249, 115, 22, 0.08);
   border-radius: 12px;
-  border: 1px solid rgba(249, 115, 22, 0.5);
+  border: 1px solid rgba(249, 115, 22, 0.35);
   width: 100%;
   max-width: 400px;
 }
@@ -595,14 +590,14 @@
 .flowTitle {
   font-size: 17px;
   font-weight: 600;
-  color: white;
+  color: var(--foreground);
   margin-bottom: 4px;
   text-align: center;
 }
 
 .flowDescription {
   font-size: 15px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted-foreground);
   margin-bottom: 8px;
   text-align: center;
 }
@@ -619,8 +614,8 @@
 
 .flowDetails li {
   font-size: 12px;
-  color: white;
-  background: rgba(249, 115, 22, 0.15);
+  color: var(--foreground);
+  background: rgba(249, 115, 22, 0.12);
   padding: 4px 10px;
   border-radius: 4px;
   border: 1px solid rgba(249, 115, 22, 0.3);
@@ -648,7 +643,7 @@
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: white;
+  color: var(--foreground);
   margin: 0;
   text-align: center;
 }
@@ -666,9 +661,12 @@
   border-color: rgba(245, 158, 11, 0.5);
 }
 
-.memoryFlow .flowStep .flowTitle,
+.memoryFlow .flowStep .flowTitle {
+  color: var(--foreground);
+}
+
 .memoryFlow .flowStep .flowDescription {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--muted-foreground);
 }
 
 .memoryFlow .flowArrow {
@@ -704,7 +702,7 @@
   flex: 1;
   max-width: 110px;
   min-width: 80px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--muted);
   border-radius: 8px;
   border: 1px solid rgba(168, 85, 247, 0.3);
   padding: 10px 8px;
@@ -715,7 +713,7 @@
 }
 
 .toolCardName {
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
   text-align: center;
@@ -723,16 +721,16 @@
 
 .toolCardDesc {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--muted-foreground);
   line-height: 1.3;
   text-align: center;
 }
 
 /* Execution Modes */
 .execModes {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--muted);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
   padding: 12px;
   margin-bottom: 16px;
 }
@@ -742,7 +740,7 @@
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--muted-foreground);
   margin: 0 0 10px 0;
 }
 
@@ -770,5 +768,5 @@
 }
 
 .execTools {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--muted-foreground);
 }

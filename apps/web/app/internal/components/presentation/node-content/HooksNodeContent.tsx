@@ -95,7 +95,7 @@ export function HooksNodeContent() {
                       fontSize: "11px",
                       marginTop: "4px",
                       fontWeight: "normal",
-                      color: "rgba(255, 255, 255, 0.7)",
+                      color: "var(--foreground)",
                     }}
                   >
                     The PreExecute Hooks daemon has terminated the execution.
