@@ -62,6 +62,7 @@ import { createResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
+import { StatusHeader } from "./components/status-header.js";
 import {
   createProviderSelector,
   createModelSelector,
@@ -83,6 +84,11 @@ let currentProvider = "";
 let currentModel = "";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
+// Fixed top status header: hidden until the first prompt is sent, then shows
+// mode/model on the left and live context-window usage on the right.
+let hasFirstMessage = false;
+let contextTokens = 0;
+let contextLimitTokens = 0;
 let agentModeDisplay: Text;
 let agentModeDisplayIdx = -1;
 
@@ -109,6 +115,19 @@ const infoBox = new ResponsiveInfoBox(
   () => currentModel,
 );
 
+// Fixed header pinned to the top row. Added as the TUI's first child so it
+// renders above the scrollable history and never scrolls away. Hidden (0 rows)
+// until the first prompt is sent — see hasFirstMessage.
+const statusHeader = new StatusHeader(
+  () => hasFirstMessage,
+  () => currentAgentMode,
+  () => currentProvider,
+  () => currentModel,
+  () => contextTokens,
+  () => contextLimitTokens,
+);
+tui.addChild(statusHeader);
+
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
 // Create message list and add to tui BEFORE editor. infoBox renders as the
@@ -116,11 +135,13 @@ const infoBox = new ResponsiveInfoBox(
 // rest of the history instead of sitting fixed above the viewport.
 // The viewport callback tells the list how many rows it may use in scrolled
 // mode: terminal height minus the chrome below it (editor, spacers, mode line)
-// so the scrolled window and the input stay on screen together.
+// and the fixed status header, so the scrolled window and the input stay on
+// screen together.
 const SCROLL_RESERVED_ROWS = 10;
 messageList = new VirtualMessageList(
   200,
-  () => Math.max(6, terminal.rows - SCROLL_RESERVED_ROWS),
+  () =>
+    Math.max(6, terminal.rows - SCROLL_RESERVED_ROWS - statusHeader.height()),
   infoBox,
 );
 messageList.setTui(tui);
@@ -552,6 +573,8 @@ async function submitPrompt(
   displayText?: string,
 ): Promise<void> {
   messageCount++;
+  // First prompt reveals the fixed top status header.
+  hasFirstMessage = true;
 
   // A new prompt always returns the view to the live bottom of the history.
   messageList.scrollToBottom();
@@ -638,8 +661,11 @@ async function submitPrompt(
         `${currentProvider}/${currentModel}`,
       );
       const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;
-      const contextTokens =
+      const contextTokensUsed =
         result.usage?.contextTokens ?? inTokens + cachedTokens;
+      // Feed the fixed top header's context-usage progress bar.
+      contextTokens = contextTokensUsed;
+      contextLimitTokens = contextLimit;
       let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
       if (cachedTokens > 0) {
         tokenInfo += ` cached: ${formatTokenCount(cachedTokens)}`;
