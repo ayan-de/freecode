@@ -1,5 +1,16 @@
 # @thisisayande/freecode
 
+## 0.3.4
+
+### Bug Fixes
+
+- Large multi-line tool results corrupted the display: they were rendered as a single row with embedded newlines, throwing off the renderer's row accounting. Results now show a collapsed 5-line preview with a "… +N lines" tail
+- Tool args containing newlines (e.g. edit's `old_string`) no longer break the tool header row
+
+### Maintenance
+
+- pi-tui upgraded 0.74.0 → 0.80.10: render throttling under streaming load, viewport reset after terminal shrink, full redraw on resize, and a stack-overflow fix for very large outputs
+
 ## 0.3.3
 
 ### Features
