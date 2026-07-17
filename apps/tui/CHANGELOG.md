@@ -1,5 +1,13 @@
 # @thisisayande/freecode
 
+## 0.3.5
+
+### Features
+
+- `freecode --resume <session-id>` resumes a previous session from the command line
+- Ctrl+C interrupt handling: first press stops the current generation, second press exits and prints the resume command
+- `/usage` shows real daily token usage instead of placeholder data
+
 ## 0.3.4
 
 ### Bug Fixes

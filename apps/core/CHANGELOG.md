@@ -1,5 +1,16 @@
 # @thisisayande/freecode-core
 
+## 0.3.5
+
+### Features
+
+- Daily token usage tracking persisted to `~/.freecode/usage.json`; the TUI `/usage` command now shows real data
+- `session.resume` support over IPC for resuming a previous session by ID
+
+### Bug Fixes
+
+- Tool-call and tool-result message structures updated for compatibility with AI SDK v6
+
 ## 0.3.4
 
 ### Bug Fixes
