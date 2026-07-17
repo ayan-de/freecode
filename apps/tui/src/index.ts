@@ -105,6 +105,7 @@ let resumeSelector: SelectList | null = null;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
+let editor: PromptEditor;
 let messageList: VirtualMessageList;
 const toolMessageComponents = new Map<
   string,
@@ -143,17 +144,25 @@ tui.addChild(statusHeader);
 // mode: terminal height minus the chrome below it (editor, spacers, mode line)
 // and the fixed status header, so the scrolled window and the input stay on
 // screen together.
-const SCROLL_RESERVED_ROWS = 10;
 messageList = new VirtualMessageList(
   200,
-  () =>
-    Math.max(6, terminal.rows - SCROLL_RESERVED_ROWS - statusHeader.height()),
+  () => {
+    const otherHeight = tui.children
+      .filter((child) => child !== messageList)
+      .reduce((sum, child) => {
+        if (child === statusHeader) {
+          return sum + statusHeader.height();
+        }
+        return sum + child.render(terminal.columns).length;
+      }, 0);
+    return Math.max(6, terminal.rows - otherHeight);
+  },
   infoBox,
 );
 messageList.setTui(tui);
 tui.addChild(messageList);
 
-const editor = new PromptEditor(tui, defaultEditorTheme);
+editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
 
 const autocompleteProvider = new CombinedAutocompleteProvider(
