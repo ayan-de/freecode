@@ -47,6 +47,7 @@ import { bus, BusEvents } from "../bus/index.js";
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js";
 import { type SessionStore, type SerializedMessage } from "../session/store.js";
 import { getInterruptHandler } from "../session/interrupt.js";
+import { recordDailyUsage } from "../usage/tracker.js";
 import { PromptCompiler } from "../context/compiler.js";
 import {
   HookRuntimeTag,
@@ -338,6 +339,15 @@ export class AgentLoop {
             (turnResult.usage.inputTokens ?? 0) +
             (turnResult.usage.cacheReadInputTokens ?? 0) +
             (turnResult.usage.cacheCreationInputTokens ?? 0);
+
+          // Persist this turn's total tokens into the daily usage heatmap
+          // (~/.freecode/usage.json), consumed by the TUI `/usage` command.
+          recordDailyUsage(
+            (turnResult.usage.inputTokens ?? 0) +
+              (turnResult.usage.outputTokens ?? 0) +
+              (turnResult.usage.cacheReadInputTokens ?? 0) +
+              (turnResult.usage.cacheCreationInputTokens ?? 0),
+          );
         }
 
         // No tool calls means we're done

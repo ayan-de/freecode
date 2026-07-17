@@ -88,6 +88,7 @@ const usageCommand: Command = {
     await startInteractiveHeatmap(data, {
       title: "Daily Token Usage",
       preset: "double-block",
+      countKey: "tokencount",
       allDayLabels: true,
       theme: {
         colors: ["#2d2d2d", "#82660a", "#C2990F", "#DCAE15", "#F5C71A"],
