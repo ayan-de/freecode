@@ -20,6 +20,7 @@ import { MemoryNode } from "./nodes/MemoryNode";
 import { HooksNode } from "./nodes/HooksNode";
 import { ToolsNode } from "./nodes/ToolsNode";
 import { ProviderNode } from "./nodes/ProviderNode";
+import { BusNode } from "./nodes/BusNode";
 import { InteractiveGuide } from "./InteractiveGuide";
 
 export type NodeType =
@@ -30,7 +31,8 @@ export type NodeType =
   | "memory"
   | "hooks"
   | "tools"
-  | "provider";
+  | "provider"
+  | "bus";
 
 interface FreeCodeInternalDiagramProps {
   selectedNode: NodeType | null;
@@ -73,6 +75,7 @@ export function FreeCodeInternalDiagram({
           <ProviderFlow />
 
           {/* ==================== NODES / INTERACTIVE CARDS ==================== */}
+          <BusNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
           <ClientsNode
             selectedNode={selectedNode}
             onSelectNode={onSelectNode}

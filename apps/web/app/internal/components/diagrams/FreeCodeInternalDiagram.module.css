@@ -207,6 +207,34 @@
   filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.4));
 }
 
+/* Event Bus / Spine */
+.nodeBoxBus {
+  fill: rgba(8, 24, 30, 0.85);
+  stroke: rgba(34, 211, 238, 0.4);
+  stroke-width: 1.8;
+  transition: all 0.3s ease;
+}
+
+.nodeGroup:hover .nodeBoxBus {
+  stroke: rgba(34, 211, 238, 0.9);
+  fill: rgba(10, 32, 40, 0.92);
+}
+
+.busLabel {
+  fill: #a5f3fc;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  font-family: monospace;
+}
+
+.busSublabel {
+  fill: rgba(165, 243, 252, 0.5);
+  font-size: 7px;
+  letter-spacing: 1px;
+  font-family: monospace;
+}
+
 /* Hooks Circle */
 .hooksCircle {
   fill: rgba(16, 185, 129, 0.15);
@@ -292,6 +320,13 @@
   stroke-width: 3.5;
   fill: rgba(16, 185, 129, 0.35);
   filter: drop-shadow(0 0 14px rgba(16, 185, 129, 0.6));
+}
+
+.activeNode .nodeBoxBus {
+  stroke: #22d3ee;
+  stroke-width: 3;
+  fill: rgba(12, 40, 48, 0.96);
+  filter: drop-shadow(0 0 14px rgba(34, 211, 238, 0.5));
 }
 
 /* Headers & Labels */

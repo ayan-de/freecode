@@ -14,6 +14,7 @@ import {
   HooksNodeContent,
   ToolsNodeContent,
   ProviderNodeContent,
+  BusNodeContent,
 } from "./node-content";
 
 interface ArchitectureExplorerProps {
@@ -50,6 +51,9 @@ export function ArchitectureExplorer({
 
       case "provider":
         return <ProviderNodeContent />;
+
+      case "bus":
+        return <BusNodeContent />;
 
       default:
         return (

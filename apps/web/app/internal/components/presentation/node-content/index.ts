@@ -7,3 +7,4 @@ export { MemoryNodeContent } from "./MemoryNodeContent";
 export { HooksNodeContent } from "./HooksNodeContent";
 export { ToolsNodeContent } from "./ToolsNodeContent";
 export { ProviderNodeContent } from "./ProviderNodeContent";
+export { BusNodeContent } from "./BusNodeContent";
