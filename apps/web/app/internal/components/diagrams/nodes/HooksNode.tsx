@@ -37,7 +37,7 @@ export function HooksNode({ selectedNode, onSelectNode }: HooksNodeProps) {
         className={styles.hooksSublabel}
         textAnchor="middle"
       >
-        (Safety Middleware)
+        (Permissions + Hooks)
       </text>
     </g>
   );
