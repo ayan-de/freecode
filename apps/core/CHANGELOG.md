@@ -1,5 +1,9 @@
 # @thisisayande/freecode-core
 
+## 0.3.8
+
+- No changes; version bump to stay in lockstep with the TUI (`@thisisayande/freecode` 0.3.8)
+
 ## 0.3.7
 
 ### Features

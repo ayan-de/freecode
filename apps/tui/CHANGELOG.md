@@ -1,5 +1,12 @@
 # @thisisayande/freecode
 
+## 0.3.8
+
+### Bug Fixes
+
+- `/usage` heatmap now renders reliably and exits cleanly. pi-tui is detached while the heatmap runs so its render loop no longer paints over the alternate screen and the Kitty keyboard protocol no longer swallows the `q`/`Esc`/`Ctrl+C` exit keys; freecode's alternate screen is restored afterwards so quitting returns to the chat instead of the shell scrollback
+- Bumped `@thisisayande/terminal-heatmap` to 1.3.0, which hardens the heatmap's own exit-key handling against input batched with mouse-motion reports
+
 ## 0.3.7
 
 ### Features
