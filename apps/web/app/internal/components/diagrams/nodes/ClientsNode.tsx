@@ -29,42 +29,76 @@ export function ClientsNode({ selectedNode, onSelectNode }: ClientsNodeProps) {
       </text>
       <line x1="25" y1="245" x2="135" y2="245" stroke="rgba(255,255,255,0.1)" />
 
-      {/* Sub-cards */}
+      {/* Sub-cards — all four thin-client frontends */}
       {/* TUI */}
       <rect
         x="25"
-        y="260"
+        y="252"
         width="110"
-        height="45"
+        height="28"
         rx="6"
         fill="rgba(129, 140, 248, 0.15)"
         stroke="rgba(129, 140, 248, 0.4)"
       />
-      <text x="80" y="280" className={styles.subCardText} textAnchor="middle">
+      <text x="80" y="264" className={styles.subCardText} textAnchor="middle">
         Terminal TUI
       </text>
-      <text x="80" y="293" className={styles.subCardDesc} textAnchor="middle">
-        pi-tui rendering
+      <text x="80" y="274" className={styles.subCardDesc} textAnchor="middle">
+        pi-tui
       </text>
 
       {/* VS Code Extension */}
       <rect
         x="25"
-        y="315"
+        y="282"
         width="110"
-        height="45"
+        height="28"
         rx="6"
         fill="rgba(129, 140, 248, 0.15)"
         stroke="rgba(129, 140, 248, 0.4)"
       />
-      <text x="80" y="335" className={styles.subCardText} textAnchor="middle">
+      <text x="80" y="294" className={styles.subCardText} textAnchor="middle">
         VSCode Ext
       </text>
-      <text x="80" y="348" className={styles.subCardDesc} textAnchor="middle">
+      <text x="80" y="304" className={styles.subCardDesc} textAnchor="middle">
         React webview
       </text>
 
-      <text x="80" y="382" className={styles.nodeInfoLabel} textAnchor="middle">
+      {/* Web (Next.js) */}
+      <rect
+        x="25"
+        y="312"
+        width="110"
+        height="28"
+        rx="6"
+        fill="rgba(129, 140, 248, 0.15)"
+        stroke="rgba(129, 140, 248, 0.4)"
+      />
+      <text x="80" y="324" className={styles.subCardText} textAnchor="middle">
+        Web
+      </text>
+      <text x="80" y="334" className={styles.subCardDesc} textAnchor="middle">
+        Next.js
+      </text>
+
+      {/* Desktop (Tauri) */}
+      <rect
+        x="25"
+        y="342"
+        width="110"
+        height="28"
+        rx="6"
+        fill="rgba(129, 140, 248, 0.15)"
+        stroke="rgba(129, 140, 248, 0.4)"
+      />
+      <text x="80" y="354" className={styles.subCardText} textAnchor="middle">
+        Desktop
+      </text>
+      <text x="80" y="364" className={styles.subCardDesc} textAnchor="middle">
+        Tauri + Vite
+      </text>
+
+      <text x="80" y="388" className={styles.nodeInfoLabel} textAnchor="middle">
         Thin clients
       </text>
     </g>

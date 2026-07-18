@@ -60,7 +60,7 @@ export function Installation() {
     <div ref={containerRef} id="installation" className="w-full max-w-2xl mx-auto">
       {/* Sticky Header Floating Command Bar */}
       {sticky && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center border border-border bg-card rounded-md shadow-md divide-x divide-border overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300 w-max max-w-[90vw] md:max-w-2xl">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center border border-primary bg-card rounded-md shadow-md divide-x divide-border overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300 w-max max-w-[90vw] md:max-w-2xl">
           <div className="px-4 py-2 font-mono text-xs md:text-sm text-foreground whitespace-nowrap overflow-hidden">
             {installers[active].command}
           </div>

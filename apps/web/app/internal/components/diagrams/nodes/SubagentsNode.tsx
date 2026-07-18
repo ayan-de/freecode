@@ -45,7 +45,7 @@ export function SubagentsNode({
           Sub-Agent
         </text>
         <text x="8" y="36" className={styles.miniCardSub}>
-          Tasker
+          Explorer
         </text>
       </g>
 

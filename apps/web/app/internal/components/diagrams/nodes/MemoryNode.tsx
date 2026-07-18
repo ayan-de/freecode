@@ -72,7 +72,7 @@ export function MemoryNode({ selectedNode, onSelectNode }: MemoryNodeProps) {
         />
 
         <text x="50" y="120" className={styles.dbLabel} textAnchor="middle">
-          Memory
+          Compaction
         </text>
       </g>
 

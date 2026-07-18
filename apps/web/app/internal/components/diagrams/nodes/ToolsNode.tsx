@@ -152,7 +152,7 @@ export function ToolsNode({ selectedNode, onSelectNode }: ToolsNodeProps) {
           className={styles.toolGridDesc}
           textAnchor="middle"
         >
-          grep.ts, find.ts
+          grep.ts
         </text>
       </g>
 
