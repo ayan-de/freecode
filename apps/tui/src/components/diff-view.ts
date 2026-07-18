@@ -17,21 +17,38 @@ export function looksLikeDiff(text: string): boolean {
   });
 }
 
+export function getDiffStats(diffText: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  diffText.split("\n").forEach((line) => {
+    const m = line.match(DIFF_LINE);
+    if (m) {
+      if (m[1] === "+") added++;
+      else if (m[1] === "-") removed++;
+    }
+  });
+  return { added, removed };
+}
+
 /**
  * Colorize a core-generated diff string into terminal rows.
- * Context lines are dim, removals red, additions green. Each row is truncated
- * to `width`. The frontend only paints colors — core owns the diff computation.
+ * Context lines are dim, removals red background, additions green background.
+ * Each row is truncated to `width`.
  */
 export function renderDiff(diffText: string, width: number): string[] {
   return diffText.split("\n").map((line) => {
     const m = line.match(DIFF_LINE);
     const row = truncateToWidth(line, width);
     if (!m) return chalk.dim(row);
+    
+    // Pad to fill the background color across the terminal width
+    const paddedRow = row.padEnd(width, " ");
+
     switch (m[1]) {
       case "+":
-        return chalk.green(row);
+        return chalk.bgHex("#143c1a").greenBright(paddedRow);
       case "-":
-        return chalk.red(row);
+        return chalk.bgHex("#4d1419").redBright(paddedRow);
       default:
         return chalk.dim(row);
     }

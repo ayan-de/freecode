@@ -1,6 +1,6 @@
 import { Component, Text, Box, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { renderDiff, looksLikeDiff } from "./diff-view.js";
+import { renderDiff, looksLikeDiff, getDiffStats } from "./diff-view.js";
 
 export interface ToolResultMessageOptions {
   toolCallId: string;
@@ -51,57 +51,86 @@ export class ToolResultMessage implements Component {
 
   render(width: number): string[] {
     const colorFn = TOOL_COLORS[this.toolName] || ((t: string) => t);
-    const statusIcon = this.success ? chalk.green("✓") : chalk.red("✗");
+    const statusIcon = this.success ? chalk.green("●") : chalk.red("✖");
     const argsStr = this.formatArgs();
     const duration = this.duration_ms ? `(${this.duration_ms}ms)` : "";
 
     const lines: string[] = [];
     lines.push(""); // Empty line above
 
-    // Header line: [✓/✗] ToolName (args) (duration) - truncated to safe width
     const safeWidth = Math.max(20, width - 1);
-    let header = `${chalk.dim("[")}${statusIcon}${chalk.dim("]")} ${colorFn(this.toolName)} ${chalk.dim("(")}${argsStr}${chalk.dim(")")} ${chalk.dim(duration)}`;
+    
+    let headerAction = this.toolName;
+    let headerTarget = `(${argsStr})`;
+    
+    // Custom formatting for common tools like Claude Code
+    const isFileUpdate = ["Write", "Edit", "replace_file_content", "multi_replace_file_content"].includes(this.toolName);
+    const isFileRead = ["Read", "view_file"].includes(this.toolName);
+    const isRun = ["Bash", "run_command"].includes(this.toolName);
+
+    if ((isFileUpdate || isFileRead) && this.args) {
+      const fileArg = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath) as string;
+      if (fileArg) {
+        headerAction = isFileUpdate ? "Update" : "Read";
+        const cwd = process.cwd();
+        const displayFile = fileArg.startsWith(cwd) ? fileArg.slice(cwd.length + 1) : fileArg;
+        headerTarget = `(${displayFile})`;
+      }
+    } else if (isRun && this.args) {
+      const cmdArg = (this.args.CommandLine || this.args.command || "") as string;
+      if (cmdArg) {
+        headerAction = "Run";
+        headerTarget = `(${cmdArg})`;
+      }
+    }
+
+    let header = `${statusIcon} ${chalk.bold(colorFn(headerAction))}${chalk.dim(headerTarget)}`;
+    if (duration) {
+       header += ` ${chalk.dim(duration)}`;
+    }
+    
     header = truncateToWidth(header, safeWidth);
     lines.push(header);
 
-    // Result with tree view character - account for prefix.
-    // The result may span many lines; render() must return one terminal row
-    // per array element, so split and show a collapsed preview (pi-style).
-    const resultWidth = safeWidth - 3; // 3 for " ⎿ "
-    // The stream delivers a tool's result as JSON ({ title, output, metadata })
-    // for object-returning tools; unwrap to the human-facing `output` so we
-    // render the diff/text instead of a raw JSON blob.
+    const resultWidth = safeWidth - 3; // 3 for "   " or "└─ "
     const displayResult = this.unwrapOutput(this.result);
+    
     if (displayResult && looksLikeDiff(displayResult)) {
-      // Edit/Write emit a line-numbered diff; colorize it and allow a larger
-      // budget than plain output since the diff is the point of the message.
+      const stats = getDiffStats(displayResult);
+      let statText = "No changes";
+      if (stats.added > 0 && stats.removed > 0) statText = `Added ${stats.added} line${stats.added === 1 ? "" : "s"}, removed ${stats.removed} line${stats.removed === 1 ? "" : "s"}`;
+      else if (stats.added > 0) statText = `Added ${stats.added} line${stats.added === 1 ? "" : "s"}`;
+      else if (stats.removed > 0) statText = `Removed ${stats.removed} line${stats.removed === 1 ? "" : "s"}`;
+
+      lines.push(`${chalk.dim("└─")} ${statText}`);
+
       const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth);
       const preview = colored.slice(0, ToolResultMessage.MAX_DIFF_LINES);
-      preview.forEach((raw, i) => {
-        const prefix = i === 0 ? chalk.dim("⎿") : " ";
-        lines.push(`${prefix} ${raw}`);
+      preview.forEach((raw) => {
+        lines.push(`   ${raw}`);
       });
       const hidden = colored.length - preview.length;
       if (hidden > 0) {
-        lines.push(
-          `  ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`,
-        );
+        lines.push(`   ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`);
       }
     } else if (displayResult) {
       const resultLines = displayResult.replace(/\r/g, "").split("\n");
       const preview = resultLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
+      
+      if (isRun) {
+        lines.push(`${chalk.dim("└─")} Output`);
+      }
+      
       preview.forEach((raw, i) => {
-        const prefix = i === 0 ? chalk.dim("⎿") : " ";
-        lines.push(`${prefix} ${chalk.dim(truncateToWidth(raw, resultWidth))}`);
+        const prefix = (i === 0 && !isRun) ? chalk.dim("└─") : "  ";
+        lines.push(` ${prefix} ${chalk.dim(truncateToWidth(raw, resultWidth))}`);
       });
       const hidden = resultLines.length - preview.length;
       if (hidden > 0) {
-        lines.push(
-          `  ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`,
-        );
+        lines.push(`    ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`);
       }
     } else if (this.success) {
-      lines.push(`${chalk.dim("⎿")} ${chalk.dim("(no output)")}`);
+      lines.push(` ${chalk.dim("└─")} ${chalk.dim("(no output)")}`);
     }
 
     lines.push(""); // Empty line below
