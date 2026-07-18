@@ -48,6 +48,10 @@ export const MODE_COLORS: Record<
   danger: (text: string) => chalk.redBright(text),
 };
 
+// Dark grey background for the fixed top status bar (mode + model + context).
+export const STATUS_BAR_BG = (text: string): string =>
+  chalk.bgHex("#262626")(text);
+
 export const MODE_BG_COLORS: Record<
   "plan" | "build" | "review" | "explore" | "danger",
   (text: string) => string

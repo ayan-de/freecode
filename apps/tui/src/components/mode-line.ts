@@ -24,7 +24,9 @@ export class ModeLine implements Component {
   render(): string[] {
     if (this.getHidden()) return [];
     const mode = this.getMode();
-    const modeText = MODE_BG_COLORS[mode](chalk.bold.black(` ${mode} `));
+    const modeText = MODE_BG_COLORS[mode](
+      chalk.bold.black(` ${mode.toUpperCase()} `),
+    );
     const hintText = chalk.dim(" (shift+tab to cycle)");
     const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(
       getModelDisplayString(this.getProvider(), this.getModel()),

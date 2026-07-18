@@ -1,6 +1,6 @@
 import { truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { MODE_BG_COLORS } from "../themes.js";
+import { MODE_BG_COLORS, STATUS_BAR_BG } from "../themes.js";
 import { getModelDisplayString } from "../utils/display.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
 
@@ -51,7 +51,7 @@ export class StatusHeader implements Component {
     if (!this.getVisible()) return [];
 
     const mode = this.getMode();
-    const badge = MODE_BG_COLORS[mode](chalk.bold.black(` ${mode} `));
+    const badge = MODE_BG_COLORS[mode](chalk.bold.black(` ${mode.toUpperCase()} `));
     const badgePlain = mode.length + 2;
 
     const modelStr = getModelDisplayString(this.getProvider(), this.getModel());
@@ -80,8 +80,12 @@ export class StatusHeader implements Component {
       1,
       width - LEADING - leftPlain - rightPlain - RIGHT_MARGIN,
     );
-    const line = ` ${left}${" ".repeat(gap)}${right}`;
-    return [truncateToWidth(line, width)];
+    // Pad to the full terminal width so the dark-grey background covers the
+    // whole row, not just the printed text.
+    const plainLen = LEADING + leftPlain + gap + rightPlain;
+    const tailPad = " ".repeat(Math.max(0, width - plainLen));
+    const line = ` ${left}${" ".repeat(gap)}${right}${tailPad}`;
+    return [STATUS_BAR_BG(truncateToWidth(line, width))];
   }
 
   invalidate(): void {}
