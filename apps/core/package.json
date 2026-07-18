@@ -27,6 +27,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@thisisayande/freecode-shared": "^0.2.0",
     "ai": "^6.0.191",
+    "diff": "^8.0.4",
     "effect": "^3.21.2",
     "fast-glob": "^3.3.3",
     "playwright": "^1.42.0",

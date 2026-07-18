@@ -8,6 +8,7 @@ import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { editToolUI } from "./edit/ui.js";
+import { generateDiffString } from "./diff-format.js";
 
 interface EditParams {
   filePath: string;
@@ -614,11 +615,13 @@ async function executeEdit(
 
     fs.writeFileSync(filepath, newContent, "utf-8");
 
+    const diff = generateDiffString(content, newContent);
+
     return {
       success: true,
       result: {
         title: path.basename(filepath),
-        output: "Edit applied successfully.",
+        output: diff || "Edit applied successfully.",
         metadata: { filepath },
       },
     };

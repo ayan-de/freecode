@@ -8,6 +8,7 @@ import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { writeToolUI } from "./write/ui.js";
+import { generateDiffString } from "./diff-format.js";
 
 interface WriteParams {
   content: string;
@@ -95,15 +96,21 @@ async function executeWrite(
     }
 
     const exists = fs.existsSync(filepath);
+    // Capture prior content before overwriting so an update can show a diff.
+    // New files skip the diff — echoing the whole file back adds no signal.
+    const oldContent = exists ? fs.readFileSync(filepath, "utf-8") : "";
     fs.writeFileSync(filepath, params.content, "utf-8");
+
+    const diff = exists
+      ? generateDiffString(oldContent, params.content)
+      : "";
 
     return {
       success: true,
       result: {
         title: path.basename(filepath),
-        output: exists
-          ? "File updated successfully."
-          : "File created successfully.",
+        output:
+          diff || (exists ? "File updated successfully." : "File created successfully."),
         metadata: { filepath, exists },
       },
     };
