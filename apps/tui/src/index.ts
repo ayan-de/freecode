@@ -61,7 +61,9 @@ import {
 import {
   setLiveOutputTokens,
   resetLiveOutputTokens,
+  ThinkingMessage,
 } from "./components/message-row.js";
+import { getMessages } from "./state/message-store.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
 import { PromptEditor } from "./components/prompt-editor.js";
 import { createResumePicker } from "./components/resume-picker.js";
@@ -486,7 +488,28 @@ async function loadCurrentModel(): Promise<void> {
   }
 }
 
-function handleToolEvent(event: StreamEvent): void {
+let globalThinkingStartTime: number | null = null;
+
+function handleToolEvent(event: StreamEvent) {
+  const isThinking =
+    event.type === "thinking" || event.type === "thinking_delta";
+
+  if (isThinking) {
+    if (globalThinkingStartTime === null) {
+      globalThinkingStartTime = Date.now();
+    }
+  } else {
+    // First non-thinking event ends the current reasoning block: freeze its
+    // elapsed timer so the header collapses to "Thought (Ns)".
+    const messages = getMessages();
+    const last = messages[messages.length - 1];
+    if (last?.component instanceof ThinkingMessage && !last.component.done) {
+      last.component.setDone();
+      globalThinkingStartTime = null;
+      tui.requestRender();
+    }
+  }
+
   switch (event.type) {
     case "tool_start": {
       const toolMsg = createToolProgressMessage(
@@ -530,7 +553,7 @@ function handleToolEvent(event: StreamEvent): void {
     }
     case "thinking": {
       // Create or update thinking message - dimmed cyan stream
-      const thinkingComponent = createThinkingMessage(event.content);
+      const thinkingComponent = createThinkingMessage(event.content, globalThinkingStartTime || Date.now());
       tui.requestRender();
       break;
     }
@@ -895,15 +918,19 @@ const interruptController = new InterruptController({
 // bit 0x01 then gives direction (0 = up, 1 = down). Non-wheel mouse events
 // (clicks/drags) are matched too so they're swallowed here instead of
 // leaking into the editor as garbage text.
-const SGR_MOUSE_RE = /^\x1b\[<(\d+);\d+;\d+[Mm]$/;
+const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)[Mm]$/;
 const WHEEL_STEP = 3;
 
 tui.addInputListener((data) => {
   const mouseEvent = SGR_MOUSE_RE.exec(data);
   if (mouseEvent) {
     const cb = Number(mouseEvent[1]);
+    const cx = Number(mouseEvent[2]);
+    const cy = Number(mouseEvent[3]);
     if ((cb & 0x40) !== 0) {
       messageList.scrollBy((cb & 0x01) === 1 ? WHEEL_STEP : -WHEEL_STEP);
+    } else if (cb === 0 && data.endsWith("M")) {
+      messageList.handleClick(cx, cy);
     }
     return { consume: true };
   }
@@ -927,6 +954,18 @@ tui.addInputListener((data) => {
   if (matchesKey(data, Key.shift("tab"))) {
     cycleAgentMode();
     return undefined;
+  }
+  if (matchesKey(data, Key.ctrl("t"))) {
+    const messages = getMessages();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.component instanceof ThinkingMessage) {
+        msg.component.toggle();
+        tui.requestRender();
+        break;
+      }
+    }
+    return { consume: true };
   }
   // Message history scrolling — consumed here so the editor never sees them.
   if (matchesKey(data, "pageUp")) {

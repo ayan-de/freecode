@@ -149,15 +149,29 @@ export function createUserMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
   const box = new Box(0, 0, (text: string) => {
-    return text
-      .split("\n")
-      .map((line) => chalk.bgRgb(80, 80, 80)(line))
+    const lines = text.split("\n");
+    if (lines.length > 0 && lines[0].startsWith("  ")) {
+      lines[0] = chalk.dim("❯") + lines[0].slice(1);
+    }
+    return lines
+      .map((line) => chalk.bgRgb(50, 50, 50)(line))
       .join("\n");
   });
-  const markdown = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
+  const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
   box.addChild(markdown);
 
-  return new WidthBounded(box);
+  const boundedBox = new WidthBounded(box);
+  
+  return {
+    render(width: number): string[] {
+      return [...boundedBox.render(width), ""];
+    },
+    invalidate() {
+      if (typeof boundedBox.invalidate === "function") boundedBox.invalidate();
+    },
+    addChild() {},
+    destroy() {},
+  } as Component;
 }
 
 /**
@@ -175,9 +189,31 @@ export function createAssistantMessageComponent(content: string): Component {
 
 export class ThinkingMessage implements Component {
   private content: string;
+  private isCollapsed = false;
+  private isDone = false;
+  private startTime: number;
+  private endTime?: number;
 
-  constructor(content: string) {
+  constructor(content: string, startTime?: number) {
     this.content = content;
+    this.startTime = startTime ?? Date.now();
+  }
+
+  get done(): boolean {
+    return this.isDone;
+  }
+
+  updateContent(content: string) {
+    this.content = content;
+  }
+
+  setDone() {
+    this.isDone = true;
+    this.endTime = Date.now();
+  }
+
+  toggle() {
+    this.isCollapsed = !this.isCollapsed;
   }
 
   invalidate(): void {}
@@ -186,12 +222,24 @@ export class ThinkingMessage implements Component {
     const lines: string[] = [];
     const maxContentWidth = Math.max(20, width - 4);
 
-    lines.push(chalk.yellow("Thinking..."));
+    let header = "";
+    if (!this.isDone) {
+      header = chalk.yellow(this.isCollapsed ? "▶ Thinking..." : "▼ Thinking...");
+    } else {
+      const duration = this.endTime ? ((this.endTime - this.startTime) / 1000).toFixed(1) : "0.0";
+      header = chalk.dim(this.isCollapsed ? `▶ Thought (${duration}s)` : `▼ Thought (${duration}s)`);
+    }
 
-    const rawLines = this.content.split("\n");
-    for (const line of rawLines) {
-      const truncated = truncateToWidth(line, maxContentWidth);
-      lines.push(`${chalk.dim.yellow("  │")} ${chalk.dim.yellow(truncated)}`);
+    lines.push(header);
+
+    if (!this.isCollapsed) {
+      const rawLines = this.content.split("\n");
+      for (const line of rawLines) {
+        const truncated = truncateToWidth(line, maxContentWidth);
+        const prefix = this.isDone ? chalk.dim("  │") : chalk.dim.yellow("  │");
+        const text = this.isDone ? chalk.dim(truncated) : chalk.dim.yellow(truncated);
+        lines.push(`${prefix} ${text}`);
+      }
     }
 
     return lines;
@@ -212,8 +260,11 @@ export class ThinkingMessage implements Component {
 /**
  * Create a thinking message component — yellow/dim yellow text with left-border decoration
  */
-export function createThinkingMessageComponent(content: string): Component {
-  return new WidthBounded(new ThinkingMessage(content));
+export function createThinkingMessageComponent(
+  content: string,
+  startTime?: number,
+): Component {
+  return new ThinkingMessage(content, startTime);
 }
 export function createSystemMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
@@ -269,7 +320,7 @@ export function createMessageComponent(
     case "system":
       return createSystemMessageComponent(content);
     case "thinking":
-      return createThinkingMessageComponent(content);
+      return createThinkingMessageComponent(content, startTime);
     case "in_progress":
       return createInProgressMessageComponent(
         content,

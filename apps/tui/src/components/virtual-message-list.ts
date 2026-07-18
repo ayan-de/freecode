@@ -2,6 +2,7 @@ import { type Component, type TUI } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import type { MessageInstance } from "./message-types.js";
 import { subscribeToMessages, getMessages } from "../state/message-store.js";
+import { ThinkingMessage } from "./message-row.js";
 
 /**
  * VirtualMessageList — scrollable message history that implements pi-tui's Component interface.
@@ -139,6 +140,29 @@ export class VirtualMessageList implements Component {
     this.invalidate();
   }
 
+  /** Maps each rendered line index to its owning message (null for header rows). */
+  private lastLineMap: { msg: MessageInstance | null }[] = [];
+
+  handleClick(_cx: number, cy: number): void {
+    const content = this.contentRows();
+    let startIndex = 0;
+
+    if (this.lastTotalLines <= content) {
+      startIndex = 0;
+    } else if (this.scrollTop === null) {
+      startIndex = this.lastTotalLines - (content + 1);
+    } else {
+      startIndex = this.scrollTop;
+    }
+
+    const clickedIndex = startIndex + (cy - 1);
+    const entry = this.lastLineMap[clickedIndex];
+    if (entry?.msg?.component instanceof ThinkingMessage) {
+      entry.msg.component.toggle();
+      this.invalidate();
+    }
+  }
+
   /**
    * Render the message list.
    * In-progress message always stays at the bottom; all other messages render above it.
@@ -148,9 +172,14 @@ export class VirtualMessageList implements Component {
     this.invalidated = false;
 
     const lines: string[] = [];
+    this.lastLineMap = [];
 
     if (this.header) {
-      lines.push(...this.header.render(width), "");
+      const headerLines = this.header.render(width);
+      lines.push(...headerLines, "");
+      for (let i = 0; i < headerLines.length + 1; i++) {
+        this.lastLineMap.push({ msg: null }); // Header rows own no message
+      }
     }
 
     // Separate in-progress message from others
@@ -168,6 +197,7 @@ export class VirtualMessageList implements Component {
       const msgLines = msg.component.render(width);
       for (const line of msgLines) {
         lines.push(line);
+        this.lastLineMap.push({ msg });
       }
     }
 
@@ -176,6 +206,7 @@ export class VirtualMessageList implements Component {
       const inProgressLines = inProgressMessage.component.render(width);
       for (const line of inProgressLines) {
         lines.push(line);
+        this.lastLineMap.push({ msg: inProgressMessage });
       }
     }
 

@@ -8,7 +8,7 @@ import {
   updateMessage,
   getMessages,
 } from "../state/message-store.js";
-import { createMessageComponent } from "./message-row.js";
+import { createMessageComponent, ThinkingMessage } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
 import { ToolProgressMessage } from "./tool-progress-message.js";
 import { ToolResultMessage } from "./tool-result-message.js";
@@ -145,17 +145,17 @@ export function createToolResultMessage(
 /**
  * Create or update a thinking message - yellow/dim yellow text showing LLM reasoning
  */
-export function createThinkingMessage(content: string): MessageInstance {
+export function createThinkingMessage(content: string, startTime?: number): MessageInstance {
   const messages = getMessages();
   const lastMessage = messages[messages.length - 1];
 
-  if (lastMessage && lastMessage.type === "thinking") {
-    const component = createMessageComponent("thinking", content);
-    const updated = updateMessage(lastMessage.id, content, component);
-    if (updated) return updated;
+  // Update the streaming thinking block in place, preserving its startTime.
+  if (lastMessage && lastMessage.component instanceof ThinkingMessage) {
+    lastMessage.component.updateContent(content);
+    return lastMessage;
   }
 
-  const component = createMessageComponent("thinking", content);
+  const component = createMessageComponent("thinking", content, startTime);
   return addMessage("thinking", content, component);
 }
 
