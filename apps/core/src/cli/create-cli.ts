@@ -18,6 +18,7 @@ import { mcpCommand } from "./commands/mcp/index.js";
 import { sessionCommand } from "./commands/session/index.js";
 import { webCommand } from "./commands/web.js";
 import { serveCommand } from "./commands/serve.js";
+import { runCommand } from "./commands/run.js";
 
 // ANSI color codes
 const yellowBright = "\x1b[93m";
@@ -81,6 +82,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(sessionCommand)
     .command(webCommand)
     .command(serveCommand)
+    .command(runCommand)
     .strict();
 
   for (const command of extraCommands) {
