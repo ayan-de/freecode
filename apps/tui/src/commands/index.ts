@@ -31,6 +31,14 @@ export interface CommandContext extends MessageCreators {
   showModelSelector?(): void;
   showResumePicker?(): void;
   handleToolEvent?(event: StreamEvent): void;
+  /**
+   * Release the terminal from pi-tui, run `fn` (typically an alternate-screen
+   * UI that owns stdin/stdout itself), then re-attach pi-tui afterwards.
+   * Needed for fullscreen takeovers like the `/usage` heatmap: while pi-tui
+   * holds the terminal it keeps its render loop and the Kitty keyboard
+   * protocol active, which paints over the alt-screen and mangles key input.
+   */
+  runFullscreen?(fn: () => Promise<void>): Promise<void>;
 }
 
 export interface Command {

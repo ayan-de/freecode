@@ -844,6 +844,24 @@ editor.onSubmit = async (value: string) => {
           },
           removeMessageById: (id: number) => removeMessageById(id),
           handleToolEvent,
+          runFullscreen: async (fn: () => Promise<void>) => {
+            // Detach pi-tui so it stops rendering and releases stdin (and the
+            // Kitty keyboard protocol) while the fullscreen UI owns the
+            // terminal. Always re-attach, even if fn throws.
+            tui.stop();
+            try {
+              await fn();
+            } finally {
+              // The heatmap runs in its own alternate screen; its exit
+              // (\x1b[?1049l) drops back to the PRIMARY (shell) buffer, not
+              // freecode's alt screen. Re-enter our alt screen and force a
+              // full repaint so the chat is restored instead of painting over
+              // the shell scrollback.
+              process.stdout.write(ENTER_ALT_SCREEN);
+              tui.start();
+              tui.requestRender(true);
+            }
+          },
         });
         return;
       } else {

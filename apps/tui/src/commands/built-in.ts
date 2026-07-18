@@ -80,29 +80,30 @@ const usageCommand: Command = {
       return;
     }
 
-    ctx.showMessage(
-      `*Launching interactive token usage heatmap... Press 'q' or 'Esc' to exit.*`,
-    );
-
     const { startInteractiveHeatmap } = await import(
       "@thisisayande/terminal-heatmap"
     );
-    await startInteractiveHeatmap(data, {
-      title: "Daily Token Usage",
-      preset: "double-block",
-      countKey: "tokencount",
-      allDayLabels: true,
-      theme: {
-        colors: ["#2d2d2d", "#82660a", "#C2990F", "#DCAE15", "#F5C71A"],
-      },
-    });
 
-    // Restore pi-tui terminal state
-    if (process.stdin.setRawMode) {
-      process.stdin.setRawMode(true);
+    const launch = () =>
+      startInteractiveHeatmap(data, {
+        title: "Daily Token Usage",
+        preset: "double-block",
+        countKey: "tokencount",
+        allDayLabels: true,
+        theme: {
+          colors: ["#2d2d2d", "#82660a", "#C2990F", "#DCAE15", "#F5C71A"],
+        },
+      });
+
+    // The heatmap is an alternate-screen UI that owns the terminal + stdin.
+    // pi-tui must release the terminal while it runs, otherwise its render
+    // loop paints over the heatmap and the Kitty keyboard protocol swallows
+    // the q/Esc/Ctrl+C exit keys. runFullscreen handles detach/re-attach.
+    if (ctx.runFullscreen) {
+      await ctx.runFullscreen(launch);
+    } else {
+      await launch();
     }
-    process.stdin.resume();
-    process.stdout.write("\x1b[?25l"); // hide hardware cursor
   },
 };
 
