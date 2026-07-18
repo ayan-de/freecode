@@ -43,7 +43,15 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers } from "./mcp/index.js";
-import { bus, BusEvents, answerQuestion, rejectQuestion } from "./bus/index.js";
+import {
+  bus,
+  BusEvents,
+  answerQuestion,
+  rejectQuestion,
+  answerPermission,
+  rejectPermission,
+  type PermissionAnswer,
+} from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
@@ -290,6 +298,24 @@ const methodHandlers: Record<
   "question.reject": async (params: Record<string, unknown>): Promise<void> => {
     const { requestId } = params as { requestId: string };
     rejectQuestion(requestId);
+  },
+
+  "permission.answer": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { requestId, decision, editedRule } = params as {
+      requestId: string;
+      decision: PermissionAnswer["decision"];
+      editedRule?: string;
+    };
+    answerPermission(requestId, { decision, editedRule });
+  },
+
+  "permission.reject": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { requestId } = params as { requestId: string };
+    rejectPermission(requestId);
   },
 
   "providers.list": async (): Promise<unknown[]> => {

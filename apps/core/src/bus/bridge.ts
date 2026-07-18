@@ -33,6 +33,19 @@ export function busEventToClientEvent(
     };
   }
 
+  if (event.type === "permission.asked") {
+    return {
+      type: "permission_asked",
+      requestId: event.requestId,
+      sessionId: event.sessionId,
+      toolName: event.toolName,
+      args: event.args,
+      description: event.description,
+      suggestedRule: event.suggestedRule,
+      reason: event.reason,
+    };
+  }
+
   // Lifecycle/progress events (session.*, subagent.*, mcp.server.*, tool.*)
   // are forwarded verbatim; frontends render what they recognize and ignore
   // the rest. Cast: these carry richer payloads than the base StreamEvent

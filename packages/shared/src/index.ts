@@ -24,6 +24,7 @@ export type {
   StreamResponse,
   StreamEvent,
   QuestionSpec,
+  PermissionPromptDecision,
   MethodName,
   MethodParams,
   MethodResult,

@@ -65,6 +65,14 @@ export interface QuestionSpec {
   custom?: boolean;
 }
 
+/** User's answer to a permission prompt */
+export type PermissionPromptDecision =
+  | "allow-once"
+  | "allow-session"
+  | "allow-project"
+  | "allow-always"
+  | "deny";
+
 export type StreamEvent =
   | {
       type: "tool_start";
@@ -92,6 +100,19 @@ export type StreamEvent =
       requestId: string;
       sessionId?: string;
       questions: QuestionSpec[];
+    }
+  | {
+      type: "permission_asked";
+      requestId: string;
+      sessionId?: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      /** Human-readable summary, e.g. the bash command or file path */
+      description: string;
+      /** Rule offered for "always allow", e.g. "Bash(npm run test:*)" */
+      suggestedRule?: string;
+      /** Which rule or mode default triggered the ask */
+      reason?: string;
     };
 
 // =============================================================================
@@ -136,6 +157,18 @@ export const METHODS = {
     result: undefined as void,
   },
   "question.reject": {
+    params: { requestId: "" },
+    result: undefined as void,
+  },
+  "permission.answer": {
+    params: {
+      requestId: "",
+      decision: "deny" as PermissionPromptDecision,
+      editedRule: undefined as string | undefined,
+    },
+    result: undefined as void,
+  },
+  "permission.reject": {
     params: { requestId: "" },
     result: undefined as void,
   },

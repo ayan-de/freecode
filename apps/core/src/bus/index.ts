@@ -129,6 +129,43 @@ export interface QuestionRejectedEvent {
 }
 
 // ============================================================================
+// Permission Events (interactive approval per permission-rules spec)
+// ============================================================================
+
+export interface PermissionAskedEvent {
+  type: "permission.asked";
+  requestId: string;
+  sessionId?: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  description: string;
+  suggestedRule?: string;
+  reason?: string;
+}
+
+export interface PermissionAnswer {
+  decision:
+    | "allow-once"
+    | "allow-session"
+    | "allow-project"
+    | "allow-always"
+    | "deny";
+  /** User may tighten/loosen the suggested rule before persisting */
+  editedRule?: string;
+}
+
+export interface PermissionAnsweredEvent {
+  type: "permission.answered";
+  requestId: string;
+  answer: PermissionAnswer;
+}
+
+export interface PermissionRejectedEvent {
+  type: "permission.rejected";
+  requestId: string;
+}
+
+// ============================================================================
 // MCP Server Events
 // ============================================================================
 
@@ -182,6 +219,9 @@ export type BusEvent =
   | QuestionAskedEvent
   | QuestionAnsweredEvent
   | QuestionRejectedEvent
+  | PermissionAskedEvent
+  | PermissionAnsweredEvent
+  | PermissionRejectedEvent
   | MCPServerStartedEvent
   | MCPServerStoppedEvent
   | MCPServerErrorEvent;
@@ -298,6 +338,79 @@ export function rejectQuestion(requestId: string): void {
   if (pending) {
     pending.reject(new Error("Question rejected by user"));
     pendingQuestions.delete(requestId);
+  }
+}
+
+// ============================================================================
+// Permission-specific Bus helpers
+// ============================================================================
+
+const pendingPermissions = new Map<
+  string,
+  {
+    resolve: (answer: PermissionAnswer) => void;
+    reject: (error: Error) => void;
+  }
+>();
+
+/**
+ * Ask for permission via the Bus. Publishes a PermissionAsked event and waits
+ * for PermissionAnswered/PermissionRejected. Headless (no subscribers) or
+ * timed-out asks reject — callers must treat that as deny, never allow.
+ */
+export async function askPermission(
+  requestId: string,
+  request: Omit<PermissionAskedEvent, "type" | "requestId">,
+  timeoutMs = 5 * 60 * 1000,
+): Promise<PermissionAnswer> {
+  return new Promise((resolve, reject) => {
+    // Headless: nobody is listening, so nobody could ever answer
+    if (
+      bus.listenerCount("permission.asked") === 0 &&
+      bus.listenerCount("*") === 0
+    ) {
+      reject(new Error("No frontend connected to answer permission request"));
+      return;
+    }
+
+    pendingPermissions.set(requestId, { resolve, reject });
+
+    bus.publish({
+      type: "permission.asked",
+      requestId,
+      ...request,
+    } as PermissionAskedEvent);
+
+    const timer = setTimeout(() => {
+      if (pendingPermissions.has(requestId)) {
+        pendingPermissions.delete(requestId);
+        reject(new Error("Permission request timed out"));
+      }
+    }, timeoutMs);
+    timer.unref?.();
+  });
+}
+
+/** Answer a pending permission request. Called by the frontend. */
+export function answerPermission(
+  requestId: string,
+  answer: PermissionAnswer,
+): void {
+  const pending = pendingPermissions.get(requestId);
+  if (pending) {
+    pending.resolve(answer);
+    pendingPermissions.delete(requestId);
+    bus.publish({ type: "permission.answered", requestId, answer });
+  }
+}
+
+/** Reject a pending permission request. Called by the frontend on dismiss. */
+export function rejectPermission(requestId: string): void {
+  const pending = pendingPermissions.get(requestId);
+  if (pending) {
+    pending.reject(new Error("Permission rejected by user"));
+    pendingPermissions.delete(requestId);
+    bus.publish({ type: "permission.rejected", requestId });
   }
 }
 
