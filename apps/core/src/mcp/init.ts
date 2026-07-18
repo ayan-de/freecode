@@ -72,13 +72,6 @@ export async function initMcpServers(): Promise<void> {
     enabledServers.map((server) => connectServer(server)),
   );
 
-  const connected = results.filter(
-    (r) => r.status === "fulfilled" && r.value !== null,
-  ).length;
-  console.error(
-    `[MCP] Initialized ${connected}/${enabledServers.length} servers`,
-  );
-
   // Emit tools changed for all servers that connected successfully
   for (const result of results) {
     if (result.status === "fulfilled" && result.value) {

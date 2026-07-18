@@ -42,7 +42,6 @@ export async function getThreadStore(): Promise<ThreadStore> {
 
   // Fall back to JSON store
   globalStore = createJsonThreadStore();
-  console.log("[ThreadStore] Using JSON file backend");
   return globalStore;
 }
 

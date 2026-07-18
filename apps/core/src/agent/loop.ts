@@ -447,7 +447,6 @@ export class AgentLoop {
         finalSystemBlocks = [{ text: hookResult.modifiedPrompt, cache: true }];
       }
 
-      console.log("[AgentLoop] Sending messages to provider...");
       const providerResult = await this.sendToProvider(
         this.history,
         finalSystemBlocks,
