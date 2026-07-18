@@ -34,11 +34,84 @@ const questionSchema: JsonSchema = {
   type: "object",
   properties: {
     questions: {
-      description: "Array of questions to ask",
+      type: "array",
+      description:
+        "Array of questions to ask. Each question is an object: " +
+        "{ question: string, header?: string, options: Array<{ label: string, description: string }>, multiple?: boolean, custom?: boolean }. " +
+        "`options` is REQUIRED and MUST be a non-empty array of objects, each with a `label`.",
+      items: { type: "object" },
     },
   },
   required: ["questions"],
 };
+
+// =============================================================================
+// Normalization — coerce unvalidated model output into well-formed questions
+// =============================================================================
+
+// The provider does not strictly enforce the nested option shape, so the model
+// can emit `options` as a non-array (or options without labels). formatQuestions
+// iterates `q.options`, so a non-iterable value crashes the tool. Normalize into
+// guaranteed { question, options: [{ label, description }] } shape, or return an
+// actionable error the model can recover from.
+function normalizeQuestions(
+  input: unknown,
+): { questions: Question[] } | { error: string } {
+  if (!Array.isArray(input) || input.length === 0) {
+    return { error: "No questions provided" };
+  }
+
+  const out: Question[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") {
+      return { error: "Each question must be an object with `question` and `options`" };
+    }
+    const q = raw as Record<string, unknown>;
+    const question = typeof q.question === "string" ? q.question : "";
+    if (!question) {
+      return { error: "Each question needs a non-empty `question` string" };
+    }
+
+    const rawOptions = Array.isArray(q.options) ? q.options : [];
+    const options: QuestionOption[] = [];
+    for (const o of rawOptions) {
+      if (typeof o === "string" && o.length > 0) {
+        options.push({ label: o, description: "" });
+        continue;
+      }
+      if (o && typeof o === "object") {
+        const oo = o as Record<string, unknown>;
+        const label =
+          typeof oo.label === "string" && oo.label.length > 0
+            ? oo.label
+            : typeof oo.description === "string"
+              ? oo.description
+              : "";
+        if (!label) continue;
+        options.push({
+          label,
+          description: typeof oo.description === "string" ? oo.description : "",
+        });
+      }
+    }
+
+    if (options.length === 0) {
+      return {
+        error: `Question "${question}" has no valid options; provide "options" as a non-empty array of { label, description }`,
+      };
+    }
+
+    out.push({
+      question,
+      header: typeof q.header === "string" ? q.header : undefined,
+      options,
+      multiple: typeof q.multiple === "boolean" ? q.multiple : undefined,
+      custom: typeof q.custom === "boolean" ? q.custom : undefined,
+    });
+  }
+
+  return { questions: out };
+}
 
 // =============================================================================
 // Input validation
@@ -104,9 +177,9 @@ async function executeQuestion(
     metadata?: Record<string, unknown>;
   }>
 > {
-  let questions: Question[];
+  let parsed: unknown;
   try {
-    questions =
+    parsed =
       typeof params.questions === "string"
         ? JSON.parse(params.questions)
         : params.questions;
@@ -117,12 +190,14 @@ async function executeQuestion(
     };
   }
 
-  if (!Array.isArray(questions) || questions.length === 0) {
+  const normalized = normalizeQuestions(parsed);
+  if ("error" in normalized) {
     return {
       success: false,
-      error: "No questions provided",
+      error: normalized.error,
     };
   }
+  const questions = normalized.questions;
 
   const requestId = randomUUID();
 
