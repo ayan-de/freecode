@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 
-export type TabId = "overview" | "cli" | "ipc" | "flow";
+export type TabId = "overview" | "cli" | "ipc" | "lifecycle";
 
 interface Tab {
   id: TabId;
@@ -23,9 +23,9 @@ const TABS: Tab[] = [
   },
   { id: "ipc", label: "IPC Protocol", description: "JSON-RPC communication" },
   {
-    id: "flow",
-    label: "Data Flow",
-    description: "Two-phase context collection",
+    id: "lifecycle",
+    label: "Lifecycle",
+    description: "The 14 agent lifecycle hooks",
   },
 ];
 

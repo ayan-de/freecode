@@ -1,0 +1,219 @@
+.container {
+  padding: 24px;
+}
+
+.intro {
+  margin-bottom: 32px;
+}
+
+.introTitle {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--foreground);
+  margin-bottom: 10px;
+}
+
+.introText {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--muted-foreground);
+  margin: 0 0 10px 0;
+}
+
+.introText:last-child {
+  margin-bottom: 0;
+}
+
+.introText strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.introText code {
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.phases {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.phase {
+  padding: 0;
+}
+
+.phaseHeader {
+  margin-bottom: 4px;
+}
+
+.phaseTitle {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.phaseWhen {
+  font-size: 14px;
+  color: var(--muted-foreground);
+  margin: 0 0 16px 0;
+  font-family: monospace;
+}
+
+.table {
+  overflow-x: auto;
+}
+
+.hooksTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.hooksTable th,
+.hooksTable td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.hooksTable th {
+  color: var(--muted-foreground);
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hooksTable tr:last-child td {
+  border-bottom: none;
+}
+
+.hookName {
+  color: var(--primary);
+  font-family: monospace;
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.purpose {
+  color: var(--foreground);
+  opacity: 0.85;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 13px;
+  font-family: monospace;
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+/* Can block: strong, filled primary */
+.blockYes {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  font-weight: 600;
+}
+
+/* Can modify: lighter, outlined primary */
+.modYes {
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 35%, transparent);
+}
+
+/* None */
+.blockNo,
+.modNo {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+  background: transparent;
+}
+
+.note {
+  margin-top: 40px;
+}
+
+.noteTitle {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--foreground);
+  margin: 0 0 10px 0;
+}
+
+.noteText {
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--muted-foreground);
+  margin: 0 0 10px 0;
+}
+
+.noteText:last-child {
+  margin-bottom: 0;
+}
+
+.noteText strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.noteText code {
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.files {
+  margin-top: 40px;
+}
+
+.filesTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin: 0 0 14px 0;
+}
+
+.filesList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.filesList li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fileBadge {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--primary) 30%, transparent);
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.fileLink {
+  font-family: monospace;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}

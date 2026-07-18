@@ -6,7 +6,7 @@ import {
   OverviewContainer,
   CLIContainer,
   IPCContainer,
-  FlowContainer,
+  LifecycleContainer,
 } from "./components/containers";
 import { useArchitectureTabs, type TabId } from "./hooks";
 import styles from "./page.module.css";
@@ -22,8 +22,8 @@ export function InternalArchitecture() {
         return <CLIContainer />;
       case "ipc":
         return <IPCContainer />;
-      case "flow":
-        return <FlowContainer />;
+      case "lifecycle":
+        return <LifecycleContainer />;
       default:
         return <OverviewContainer />;
     }
