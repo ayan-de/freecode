@@ -81,7 +81,7 @@ export interface HookRuntime {
     tool: ToolCall,
     ctx: HookContext,
   ): Promise<{
-    decision: "allow" | "deny" | "ask";
+    decision: "allow" | "deny" | "ask" | "passthrough";
     modifiedInput?: Record<string, unknown>;
     reason?: string;
   }>;
@@ -212,7 +212,7 @@ export function createHookRuntime(): HookRuntime {
       tool: ToolCall,
       ctx: HookContext,
     ): Promise<{
-      decision: "allow" | "deny" | "ask";
+      decision: "allow" | "deny" | "ask" | "passthrough";
       modifiedInput?: Record<string, unknown>;
       reason?: string;
     }> {

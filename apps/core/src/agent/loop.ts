@@ -29,6 +29,9 @@ import type {
 } from "./types.js";
 import type { SystemBlock } from "../providers/types.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
+import { evaluatePermission } from "../permission/evaluate.js";
+import { promptForPermission } from "../permission/prompt.js";
+import { PermissionSettingsManager } from "../permission/settings.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
@@ -100,6 +103,8 @@ export class AgentLoop {
   private sessionStore: SessionStore | undefined;
   private lastThinking: string | undefined;
   private compiler: PromptCompiler;
+  // Per-rule permission layer: project + user settings + session grants
+  private permissionSettings: PermissionSettingsManager | undefined;
   // Cancellation: aborted on interrupt(); threaded into provider requests and
   // tool contexts so in-flight work stops, not just the next loop check.
   private abort = new AbortController();
@@ -230,6 +235,14 @@ export class AgentLoop {
         "",
         this.state.agentMode,
       );
+
+      // Load permission rules for this project (project + user scopes)
+      if (this.permissionSettings === undefined) {
+        this.permissionSettings = new PermissionSettingsManager(
+          input.projectPath,
+        );
+        this.permissionSettings.watch();
+      }
 
       // Step 1: Collect project context (file tree, etc.)
       const contextResult = await this.collectContext(input.projectPath);
@@ -849,21 +862,6 @@ export class AgentLoop {
       toolName: toolCall.tool,
     };
 
-    // Plan mode: block write tools
-    if (this.state.agentMode === "plan") {
-      const writeTools = ["write", "edit", "delete", "bash", "agent"];
-      if (writeTools.includes(toolCall.tool)) {
-        const blockedResult = {
-          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          toolCallId: toolCall.id,
-          tool: toolCall.tool,
-          title: `Tool ${toolCall.tool}`,
-          error: `Tool "${toolCall.tool}" is not allowed in plan mode (read-only)`,
-        };
-        return blockedResult;
-      }
-    }
-
     // PreToolUse Hook — can block or modify tool call
     const preResult = await this.hooks.runPreToolUse(toolCall, hookContext);
     if (!preResult.allowed) {
@@ -896,33 +894,84 @@ export class AgentLoop {
       };
     }
 
-    // PermissionRequest Hook — can block dangerous operations requiring user approval
-    // Bypass permission check entirely in danger mode
+    // Permission pipeline (spec: 2026-07-18-permission-rules.md §5)
+    // danger bypass → mode enforcement + rules → PermissionRequest hooks
+    // (which may override ask→allow or anything→deny) → interactive ask.
     let permResult: PermissionRequestResult = {
       decision: "allow",
       modifiedInput: undefined,
     };
     if (this.state.agentMode !== "danger") {
+      const args = toolCall.args as Record<string, unknown>;
+      const evaluation = evaluatePermission({
+        toolName: toolCall.tool,
+        args,
+        mode: this.state.agentMode,
+        rules:
+          this.permissionSettings?.getRuleSet() ??
+          { allow: [], ask: [], deny: [] },
+        projectRoot: this.state.projectPath,
+      });
+
+      // Rule/mode deny is absolute — hooks cannot override deny→allow
+      if (evaluation.decision === "deny") {
+        return {
+          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          toolCallId: toolCall.id,
+          tool: toolCall.tool,
+          title: `Tool ${toolCall.tool}`,
+          error:
+            evaluation.source === "mode-enforced" && evaluation.matchedRule
+              ? evaluation.matchedRule
+              : `Permission denied${evaluation.matchedRule ? ` by rule: ${evaluation.matchedRule}` : ` (${evaluation.source})`}`,
+        };
+      }
+
       permResult = await this.hooks.runPermissionRequest(toolCall, hookContext);
-      if (permResult.decision === "deny") {
+      // No hook matched: the rules-engine decision stands
+      const decision =
+        permResult.decision === "passthrough"
+          ? evaluation.decision
+          : permResult.decision;
+
+      if (decision === "deny") {
         console.warn(
           `[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`,
         );
-        const blockedResult = {
+        return {
           id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           toolCallId: toolCall.id,
           tool: toolCall.tool,
           title: `Tool ${toolCall.tool}`,
           error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
         };
-        return blockedResult;
       }
-      // Notification Hook — agent needs user attention for approval
-      if (permResult.decision === "ask") {
+
+      if (decision === "ask") {
+        // Notification Hook — agent needs user attention for approval
         await this.hooks.runNotification(
-          `Permission needed: ${toolCall.tool}${permResult.reason ? ` — ${permResult.reason}` : ""}`,
+          `Permission needed: ${toolCall.tool}${evaluation.matchedRule ? ` — ${evaluation.matchedRule}` : ""}`,
           hookContext,
         );
+        const outcome = this.permissionSettings
+          ? await promptForPermission({
+              toolName: toolCall.tool,
+              args,
+              projectRoot: this.state.projectPath,
+              settings: this.permissionSettings,
+              sessionId: this.state.sessionId,
+              reason: evaluation.matchedRule ?? `${evaluation.source} (${this.state.agentMode} mode)`,
+            })
+          : { allowed: false, reason: "Permission system unavailable" };
+        if (!outcome.allowed) {
+          return {
+            id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            toolCallId: toolCall.id,
+            tool: toolCall.tool,
+            title: `Tool ${toolCall.tool}`,
+            error: `Permission denied: ${outcome.reason ?? "user declined"}`,
+          };
+        }
       }
     }
 

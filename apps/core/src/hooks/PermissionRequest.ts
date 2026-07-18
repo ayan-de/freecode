@@ -8,7 +8,11 @@ import { getMatchingHooks } from "./registry.js";
 import { executeHooks } from "./executors/index.js";
 import { bus } from "../bus/index.js";
 
-export type PermissionDecision = "allow" | "deny" | "ask";
+/**
+ * "passthrough" means no PermissionRequest hook matched — the caller should
+ * fall back to the rules-engine decision (permission/evaluate.ts).
+ */
+export type PermissionDecision = "allow" | "deny" | "ask" | "passthrough";
 
 export interface PermissionRequestResult {
   decision: PermissionDecision;
@@ -32,7 +36,7 @@ export async function runPermissionRequestHooks(
   const matchingHooks = getMatchingHooks("PermissionRequest", input, context);
 
   if (matchingHooks.length === 0) {
-    return { decision: "ask" }; // Default: ask user
+    return { decision: "passthrough" }; // No hook matched: rules engine decides
   }
 
   const result = await executeHooks(matchingHooks, input, context);
