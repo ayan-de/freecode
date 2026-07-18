@@ -1,5 +1,12 @@
 # @thisisayande/freecode
 
+## 0.3.7
+
+### Features
+
+- Agent mode label is now rendered in uppercase (e.g. `BUILD`) in both the top status header and the mode line below the input
+- The fixed top status bar (mode + model + context usage) now has a dark grey background spanning the full terminal width
+
 ## 0.3.6
 
 ### Features

@@ -1,5 +1,15 @@
 # @thisisayande/freecode-core
 
+## 0.3.7
+
+### Features
+
+- `freecode run [message..]` — headless single-turn execution. Streams assistant text to stdout and tool activity to stderr so output stays pipeable; supports `--model provider/model`, `--agent <mode>`, `--continue`, `--session <id>`, and reading the message from piped stdin
+
+### Maintenance
+
+- Removed stray startup/progress logs that leaked onto stdout (`[AgentLoop] Sending messages…`, `[ThreadStore] Using JSON file backend`, `[MCP] Initialized …`)
+
 ## 0.3.6
 
 - No changes; version bump to stay in lockstep with the TUI (`@thisisayande/freecode` 0.3.6)
