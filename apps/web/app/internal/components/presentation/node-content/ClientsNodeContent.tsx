@@ -65,7 +65,7 @@ export function ClientsNodeContent() {
           <li>
             <span className={styles.fileBadge}>Types/IPC</span>
             <a
-              href="file:///home/ayan-de/Projects/freecode/apps/core/src/ipc/protocol.ts"
+              href="file:///home/ayan-de/Projects/freecode/packages/shared/src/ipc/protocol.ts"
               className={styles.fileLink}
             >
               packages/shared/src/ipc/protocol.ts
@@ -91,7 +91,7 @@ export function ClientsNodeContent() {
   "method": "session.start",
   "params": {
     "projectPath": "/home/user/my-app",
-    "provider": "chatgpt"
+    "provider": "anthropic"
   }
 }`}</pre>
           )}
@@ -123,14 +123,10 @@ export function ClientsNodeContent() {
           {ipcStep === 3 && (
             <pre
               className={styles.jsonCode}
-            >{`<-- READ stdout (Streaming MessagePart):
+            >{`<-- READ stdout (StreamEvent line, not JSON-RPC):
 {
-  "jsonrpc": "2.0",
-  "id": 102,
-  "result": {
-    "type": "text",
-    "content": "Searching for database connection files..."
-  }
+  "type": "text_delta",
+  "delta": "Searching for database connection files..."
 }`}</pre>
           )}
         </div>
