@@ -1,5 +1,6 @@
 import { Component, Text, Box, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { renderDiff, looksLikeDiff } from "./diff-view.js";
 
 export interface ToolResultMessageOptions {
   toolCallId: string;
@@ -25,6 +26,8 @@ const TOOL_COLORS: Record<string, (text: string) => string> = {
 export class ToolResultMessage implements Component {
   /** Max result lines shown before collapsing to a "… +N lines" tail. */
   private static readonly MAX_PREVIEW_LINES = 5;
+  /** Diffs get a larger budget since they are the message's main content. */
+  private static readonly MAX_DIFF_LINES = 30;
 
   private toolCallId: string;
   private toolName: string;
@@ -65,8 +68,27 @@ export class ToolResultMessage implements Component {
     // The result may span many lines; render() must return one terminal row
     // per array element, so split and show a collapsed preview (pi-style).
     const resultWidth = safeWidth - 3; // 3 for " ⎿ "
-    if (this.result) {
-      const resultLines = this.result.replace(/\r/g, "").split("\n");
+    // The stream delivers a tool's result as JSON ({ title, output, metadata })
+    // for object-returning tools; unwrap to the human-facing `output` so we
+    // render the diff/text instead of a raw JSON blob.
+    const displayResult = this.unwrapOutput(this.result);
+    if (displayResult && looksLikeDiff(displayResult)) {
+      // Edit/Write emit a line-numbered diff; colorize it and allow a larger
+      // budget than plain output since the diff is the point of the message.
+      const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth);
+      const preview = colored.slice(0, ToolResultMessage.MAX_DIFF_LINES);
+      preview.forEach((raw, i) => {
+        const prefix = i === 0 ? chalk.dim("⎿") : " ";
+        lines.push(`${prefix} ${raw}`);
+      });
+      const hidden = colored.length - preview.length;
+      if (hidden > 0) {
+        lines.push(
+          `  ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`,
+        );
+      }
+    } else if (displayResult) {
+      const resultLines = displayResult.replace(/\r/g, "").split("\n");
       const preview = resultLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
       preview.forEach((raw, i) => {
         const prefix = i === 0 ? chalk.dim("⎿") : " ";
@@ -84,6 +106,21 @@ export class ToolResultMessage implements Component {
 
     lines.push(""); // Empty line below
     return lines;
+  }
+
+  // Object-returning tools arrive as JSON like { title, output, metadata }.
+  // Extract the `output` string for display; pass plain strings through as-is.
+  private unwrapOutput(result?: string): string | undefined {
+    if (!result) return result;
+    const trimmed = result.trimStart();
+    if (!trimmed.startsWith("{")) return result;
+    try {
+      const parsed = JSON.parse(result) as { output?: unknown };
+      if (parsed && typeof parsed.output === "string") return parsed.output;
+    } catch {
+      // Not JSON — fall through to the raw string.
+    }
+    return result;
   }
 
   private formatArgs(): string {
