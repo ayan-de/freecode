@@ -37,6 +37,8 @@ import {
   setApiKey,
   answerQuestion,
   rejectQuestion,
+  answerPermission,
+  rejectPermission,
   type SessionInfo,
   type ModelInfo,
 } from "./ipc/client.js";
@@ -74,6 +76,7 @@ import {
 } from "./components/model-picker.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { createQuestionPicker } from "./components/question-picker.js";
+import { createPermissionPicker } from "./components/permission-picker.js";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
@@ -575,6 +578,38 @@ function handleToolEvent(event: StreamEvent): void {
         tui.requestRender();
       };
       askAt(0);
+      break;
+    }
+    case "permission_asked": {
+      // Render the approval decisions as a SelectList; the choice is sent
+      // back over IPC and the agent loop resumes (or blocks) the tool call.
+      const picker = createPermissionPicker(
+        {
+          toolName: event.toolName,
+          description: event.description,
+          suggestedRule: event.suggestedRule,
+          reason: event.reason,
+        },
+        {
+          onSelect: (decision) => {
+            removeSelector(picker);
+            void answerPermission(event.requestId, decision);
+            tui.setFocus(editor);
+            tui.requestRender();
+          },
+          onCancel: () => {
+            removeSelector(picker);
+            void rejectPermission(event.requestId);
+            tui.setFocus(editor);
+            tui.requestRender();
+          },
+        },
+        defaultSelectListTheme,
+      );
+      const editorIdx = tui.children.indexOf(editor);
+      tui.children.splice(editorIdx + 1, 0, picker);
+      tui.setFocus(picker);
+      tui.requestRender();
       break;
     }
   }

@@ -286,6 +286,27 @@ export async function rejectQuestion(requestId: string): Promise<void> {
 }
 
 // =============================================================================
+// Permission Reply Methods
+// =============================================================================
+
+export async function answerPermission(
+  requestId: string,
+  decision:
+    | "allow-once"
+    | "allow-session"
+    | "allow-project"
+    | "allow-always"
+    | "deny",
+  editedRule?: string,
+): Promise<void> {
+  await sendRequest("permission.answer", { requestId, decision, editedRule });
+}
+
+export async function rejectPermission(requestId: string): Promise<void> {
+  await sendRequest("permission.reject", { requestId });
+}
+
+// =============================================================================
 // Provider Methods
 // =============================================================================
 
