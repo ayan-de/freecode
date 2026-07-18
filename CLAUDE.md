@@ -289,6 +289,14 @@ If a file exceeds ~150 lines, decompose (extract sub-components, move helpers to
 
 ---
 
+## Binary Builds & Distribution
+
+- **Release binary = `pnpm build:bun`** (`scripts/build-bun.mjs`). This is the only distributable binary: it bakes `FREECODE_BUNDLED=1` and bundles core, so it runs from anywhere. The release workflow (`.github/workflows/release.yml`) publishes these.
+- **`pnpm build:sea`** (`scripts/build-sea.mjs`) is a **TUI-shell-only, repo-root-only** dev artifact. It does *not* set `FREECODE_BUNDLED` and does *not* bundle core, so it spawns core from disk and only works inside the monorepo.
+- **Never `cp apps/tui/dist/freecode` (the SEA build) into `~/.freecode/builds/versions/`.** That directory is managed by the installer and expects the bun release binary; dropping a SEA build there breaks `freecode` everywhere except the repo root. For local end-to-end testing use `pnpm build:bun` (produces the self-contained `dist/freecode-bun`), or just run from the repo.
+
+---
+
 ## Deferred Items
 
 - **MCP server (expose)** — an MCP *client* exists (`mcp/`); serving FreeCode tools *as* an MCP server is not done.

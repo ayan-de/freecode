@@ -82,17 +82,38 @@ export function startCli(onStderr?: (msg: string) => void): void {
   } else {
     // Dev / monorepo: spawn the core backend from source or built dist.
     // Project root is the monorepo root (where pnpm-workspace.yaml lives).
-    // When running `pnpm dev` from apps/tui, cwd is apps/tui, so go up two levels.
-    let projectRoot = process.env.FREECODE_ROOT || process.cwd();
-    const rootMarker = `${projectRoot}/pnpm-workspace.yaml`;
-    if (!existsSync(rootMarker)) {
-      projectRoot = pathResolve(projectRoot, "..", "..");
+    // Walk up from the start dir to find it, rather than assuming a fixed
+    // number of levels (running from an arbitrary cwd used to resolve to `/`).
+    const startDir = process.env.FREECODE_ROOT || process.cwd();
+    let projectRoot = startDir;
+    let dir = startDir;
+    for (;;) {
+      if (existsSync(`${dir}/pnpm-workspace.yaml`)) {
+        projectRoot = dir;
+        break;
+      }
+      const parent = pathResolve(dir, "..");
+      if (parent === dir) break; // reached filesystem root
+      dir = parent;
     }
 
     // Prefer the pre-built core (node, fast); fall back to tsx transpiling
     // source on the fly (dev mode, ~150-300 ms slower per boot).
     const distPath = pathResolve(projectRoot, "apps/core/dist/server.js");
     const srcDir = pathResolve(projectRoot, "apps/core/src");
+
+    // A non-bundled binary can only run from inside the repo. If neither the
+    // built dist nor the source exists, this is almost certainly a SEA/dev
+    // build copied outside the monorepo — fail loudly instead of spawning
+    // `npx tsx <bad path>` and surfacing a cryptic ERR_MODULE_NOT_FOUND.
+    if (!existsSync(distPath) && !existsSync(pathResolve(srcDir, "server.ts"))) {
+      throw new Error(
+        "[freecode] could not locate the core backend. This build must run " +
+          "from the monorepo root (or set FREECODE_ROOT). If you installed " +
+          "freecode, reinstall the release binary: " +
+          "curl -fsSL https://freecode.ayande.xyz/install | bash",
+      );
+    }
 
     if (existsSync(distPath)) {
       try {
