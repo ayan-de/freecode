@@ -19,6 +19,7 @@ import { sessionCommand } from "./commands/session/index.js";
 import { webCommand } from "./commands/web.js";
 import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
+import { uninstallCommand } from "./commands/uninstall.js";
 
 // ANSI color codes
 const yellowBright = "\x1b[93m";
@@ -83,6 +84,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(webCommand)
     .command(serveCommand)
     .command(runCommand)
+    .command(uninstallCommand)
     .strict();
 
   for (const command of extraCommands) {
