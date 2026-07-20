@@ -15,19 +15,45 @@
 // @ts-ignore — resolved via core's package.json exports map
 import { createCli } from "@thisisayande/freecode-core/cli/create-cli";
 import type { CommandModule } from "yargs";
+import * as fs from "fs";
+import * as path from "path";
 
-const tuiCommand: CommandModule = {
-  command: "$0",
+interface TuiArgs {
+  project?: string;
+  resume?: string;
+}
+
+const tuiCommand: CommandModule<object, TuiArgs> = {
+  command: "$0 [project]",
   describe: "start the freecode TUI",
   builder: (yargs) =>
-    yargs.option("resume", {
-      alias: "r",
-      // string with no value (`--resume`) opens the session picker; with an id
-      // it resumes directly. index.ts reads this back off process.argv.
-      describe: "resume a previous session by id (omit id to pick from a list)",
-      type: "string",
-    }),
-  handler: async () => {
+    yargs
+      .positional("project", {
+        describe: "project directory to open (defaults to current directory)",
+        type: "string",
+      })
+      .option("resume", {
+        alias: "r",
+        // string with no value (`--resume`) opens the session picker; with an id
+        // it resumes directly. index.ts reads this back off process.argv.
+        describe: "resume a previous session by id (omit id to pick from a list)",
+        type: "string",
+      }),
+  handler: async (argv) => {
+    // Change to the specified project directory if provided
+    if (argv.project) {
+      const projectPath = path.resolve(argv.project);
+      try {
+        fs.accessSync(projectPath);
+        process.chdir(projectPath);
+      } catch {
+        process.stderr.write(
+          `[freecode] error: project directory not found: ${argv.project}\n`,
+        );
+        process.exit(1);
+      }
+    }
+
     // Lazy: importing runs the TUI (index.ts calls tui.start()), and the
     // other commands must not pay its startup cost.
     await import("./index.js");
