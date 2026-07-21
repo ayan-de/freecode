@@ -105,6 +105,11 @@ pub struct App {
     /// animation is a pure function of elapsed time and never re-triggers.
     pub started: Instant,
     in_progress: Option<usize>,
+    /// Activity "energy" in [0,1] driving the working oscilloscope's amplitude.
+    /// Streamed deltas and tool events bump it up; it decays every tick so the
+    /// waveform swells during bursts and settles to a gentle idle wobble in the
+    /// gaps between them.
+    energy: f32,
 }
 
 impl App {
@@ -124,6 +129,7 @@ impl App {
             tool_count: 0,
             started: Instant::now(),
             in_progress: None,
+            energy: 0.0,
         }
     }
 
@@ -136,6 +142,28 @@ impl App {
     /// transcript is empty. Once a message exists the landing is gone.
     pub fn intro_active(&self) -> bool {
         self.messages.is_empty()
+    }
+
+    /// Seconds since boot — the phase clock for the working oscilloscope.
+    pub fn osc_phase(&self) -> f32 {
+        self.started.elapsed().as_secs_f32()
+    }
+
+    /// Current activity energy in [0,1], driving the oscilloscope amplitude.
+    pub fn energy(&self) -> f32 {
+        self.energy
+    }
+
+    /// Decay the activity energy one render tick (~16ms) toward zero, so a
+    /// burst of streamed tokens fades to the idle wobble within ~100ms of the
+    /// stream going quiet.
+    pub fn decay_energy(&mut self) {
+        self.energy *= 0.90;
+    }
+
+    /// Bump energy up (clamped to 1) in response to streaming activity.
+    fn bump_energy(&mut self, amount: f32) {
+        self.energy = (self.energy + amount).min(1.0);
     }
 
     /// Advance to the next mode, wrapping at the end. Returns the new mode so
@@ -226,6 +254,7 @@ impl App {
             // `reveal_step` drains them at a fixed cadence for a smooth crawl.
             StreamEvent::TextDelta { delta } => {
                 self.messages[idx].content_pending.push_str(&delta);
+                self.bump_energy(0.06);
             }
             // Full snapshot at turn end: reconcile against what's already been
             // revealed so the remainder still crawls in rather than snapping.
@@ -240,6 +269,7 @@ impl App {
             }
             StreamEvent::ThinkingDelta { delta } => {
                 self.messages[idx].thinking_pending.push_str(&delta);
+                self.bump_energy(0.05);
             }
             StreamEvent::Thinking { content } => {
                 let m = &mut self.messages[idx];
@@ -252,10 +282,12 @@ impl App {
             }
             StreamEvent::ToolStart { tool_name, .. } => {
                 self.push_system(format!("→ running {tool_name}"));
+                self.bump_energy(0.9);
             }
             StreamEvent::ToolComplete { tool_name, success, .. } => {
                 let mark = if success { "done" } else { "failed" };
                 self.push_system(format!("← {tool_name} {mark}"));
+                self.bump_energy(0.7);
             }
             StreamEvent::Error { content } => {
                 self.push_system(format!("error: {content}"));

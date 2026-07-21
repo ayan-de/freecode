@@ -1,4 +1,5 @@
 mod markdown;
+mod oscilloscope;
 pub mod intro;
 pub mod status;
 
@@ -35,7 +36,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea) {
 }
 
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let center = status::center_segment(&app.provider, &app.model, app.status);
+    let center = status::center_segment(
+        &app.provider,
+        &app.model,
+        app.status,
+        app.osc_phase(),
+        app.energy(),
+    );
     let line = status::render(area.width, app.mode, app.context, &center);
     // Set bg on the Paragraph too — every span carries it as well, but the
     // widget-level style covers any cell that might fall outside the line's

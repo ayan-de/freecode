@@ -110,8 +110,12 @@ async fn run(
                 // Drain a slice of the pending token buffer into the visible
                 // text; only mark dirty (redraw) when there was something to
                 // reveal. The landing intro also animates off this tick, so keep
-                // redrawing while it's live regardless of token activity.
-                if app.reveal_step() || app.intro_active() {
+                // redrawing while it's live regardless of token activity. The
+                // working-state oscilloscope likewise animates every tick (and
+                // its energy decays here), so keep redrawing while sending.
+                app.decay_energy();
+                let working = app.status == Status::Sending;
+                if app.reveal_step() || app.intro_active() || working {
                     dirty = true;
                 }
             }
