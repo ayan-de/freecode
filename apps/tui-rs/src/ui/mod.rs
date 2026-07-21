@@ -163,7 +163,7 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
             Role::User => {
                 user_turn += 1;
                 let bg = Style::default().bg(Color::Rgb(60, 60, 60)).fg(Color::White);
-                let prefix = format!("{user_turn}> ");
+                let prefix = format!("{user_turn}❯ ");
                 let pad = " ".repeat(prefix.chars().count());
                 let mut first = true;
                 for line in msg.content.lines() {
@@ -240,7 +240,7 @@ fn draw_input(frame: &mut Frame, app: &App, input: &TextArea, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            "> ",
+            "❯ ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
