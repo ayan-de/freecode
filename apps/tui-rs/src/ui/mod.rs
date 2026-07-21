@@ -1,4 +1,5 @@
 mod markdown;
+pub mod status;
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -7,7 +8,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 use tui_textarea::TextArea;
 
-use crate::app::{App, Role, Status};
+use crate::app::{App, Role};
 
 /// All layout, styling, and rendering lives here — this is the file to
 /// gut when designing the real look. Nothing in app.rs or ipc/ depends
@@ -33,17 +34,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea) {
 }
 
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let status = match app.status {
-        Status::Idle => "idle",
-        Status::Sending => "working…",
-    };
-    let text = format!(
-        " freecode  ·  {}/{}  ·  {}",
-        if app.provider.is_empty() { "-" } else { &app.provider },
-        if app.model.is_empty() { "-" } else { &app.model },
-        status
-    );
-    let bar = Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let center = status::center_segment(&app.provider, &app.model, app.status);
+    let line = status::render(area.width, app.mode, app.context, &center);
+    // Set bg on the Paragraph too — every span carries it as well, but the
+    // widget-level style covers any cell that might fall outside the line's
+    // measured width (defensive against width=0 or future truncation).
+    let bar = Paragraph::new(line).style(Style::default().bg(status::status_bg()));
     frame.render_widget(bar, area);
 }
 

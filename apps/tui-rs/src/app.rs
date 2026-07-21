@@ -1,5 +1,41 @@
 use crate::ipc::StreamEvent;
 
+/// Agent mode drives tool/permissive behavior on the core side and the badge
+/// shown in the status bar. Order matches `apps/tui/src/themes.ts` and
+/// `apps/core/src/agent/types.ts` so Shift+Tab cycles through the same set
+/// the TS TUI exposes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    #[default]
+    Plan,
+    Build,
+    Review,
+    Explore,
+    Danger,
+}
+
+impl Mode {
+    /// Ordered list used by `cycle_mode`. Keeping it on the type (rather than
+    /// duplicating in App) means new modes only need to be added in one place.
+    pub const ALL: &'static [Mode] = &[
+        Mode::Plan,
+        Mode::Build,
+        Mode::Review,
+        Mode::Explore,
+        Mode::Danger,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Mode::Plan => "PLAN",
+            Mode::Build => "BUILD",
+            Mode::Review => "REVIEW",
+            Mode::Explore => "EXPLORE",
+            Mode::Danger => "DANGER",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Role {
     User,
@@ -23,12 +59,33 @@ pub enum Status {
     Sending,
 }
 
+/// Context-window usage pulled from the session. `limit == 0` means the core
+/// hasn't reported a window size yet — the status bar will hide the meter
+/// rather than show a divide-by-zero bar.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ContextUsage {
+    pub tokens: u64,
+    pub limit: u64,
+}
+
+impl ContextUsage {
+    pub fn ratio(self) -> Option<f64> {
+        if self.limit == 0 {
+            None
+        } else {
+            Some((self.tokens as f64) / (self.limit as f64))
+        }
+    }
+}
+
 pub struct App {
     pub messages: Vec<ChatMessage>,
     pub session_id: Option<String>,
     pub provider: String,
     pub model: String,
     pub status: Status,
+    pub mode: Mode,
+    pub context: ContextUsage,
     pub should_quit: bool,
     pub scroll: u16,
     /// When true the transcript sticks to the bottom as new content streams in;
@@ -47,6 +104,8 @@ impl App {
             provider: String::new(),
             model: String::new(),
             status: Status::Idle,
+            mode: Mode::default(),
+            context: ContextUsage::default(),
             should_quit: false,
             scroll: 0,
             follow: true,
@@ -54,6 +113,26 @@ impl App {
             tool_count: 0,
             in_progress: None,
         }
+    }
+
+    /// Advance to the next mode, wrapping at the end. Returns the new mode so
+    /// callers (e.g., IPC push of the new agent mode) can react without
+    /// re-reading `app.mode`.
+    pub fn cycle_mode(&mut self) -> Mode {
+        let idx = Mode::ALL
+            .iter()
+            .position(|m| *m == self.mode)
+            .unwrap_or(0);
+        self.mode = Mode::ALL[(idx + 1) % Mode::ALL.len()];
+        self.mode
+    }
+
+    /// Update the provider/model. The context-window size is resolved
+    /// separately by core (`models.contextLimit`) and applied via
+    /// `context.limit`, keeping this frontend free of any hardcoded table.
+    pub fn set_model(&mut self, provider: String, model: String) {
+        self.provider = provider;
+        self.model = model;
     }
 
     /// The turn number the composer is about to send (1-indexed), matching
@@ -105,6 +184,13 @@ impl App {
     }
 
     pub fn apply_stream_event(&mut self, event: StreamEvent) {
+        // Token usage is derived from the `session.send` RPC result, which
+        // resolves *after* the turn's Done event — by which point `in_progress`
+        // is already cleared. Handle it before the in-progress guard below.
+        if let StreamEvent::Usage { context_tokens } = &event {
+            self.context.tokens = *context_tokens;
+            return;
+        }
         let Some(idx) = self.in_progress else { return };
         match event {
             StreamEvent::TextDelta { delta } => {
@@ -139,3 +225,4 @@ impl App {
         }
     }
 }
+

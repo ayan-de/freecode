@@ -74,6 +74,11 @@ pub enum StreamEvent {
     Error {
         content: String,
     },
+    /// Synthesized locally (core never sends this) from the `session.send`
+    /// RPC result's usage, so the status bar's context meter can update.
+    Usage {
+        context_tokens: u64,
+    },
 }
 
 /// A line read from the core's stdout is either a JSON-RPC response
@@ -135,6 +140,31 @@ pub struct SessionSendResult {
     pub success: bool,
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub usage: Option<TokenUsage>,
+}
+
+/// Token accounting from the agent loop's final `LoopResult.usage`
+/// (`apps/core/src/agent/types.ts`). `context_tokens` is the last API call's
+/// full input — true context-window occupancy; when the core omits it we fall
+/// back to `input + cache_read`, mirroring `apps/tui/src/index.ts`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TokenUsage {
+    #[serde(rename = "inputTokens", default)]
+    pub input_tokens: u64,
+    #[serde(rename = "cacheReadInputTokens", default)]
+    pub cache_read_input_tokens: u64,
+    #[serde(rename = "contextTokens", default)]
+    pub context_tokens: Option<u64>,
+}
+
+impl TokenUsage {
+    /// True context-window occupancy: the core's `contextTokens` when present,
+    /// otherwise the input + cache-read fallback the TS TUI uses.
+    pub fn context_tokens(&self) -> u64 {
+        self.context_tokens
+            .unwrap_or(self.input_tokens + self.cache_read_input_tokens)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

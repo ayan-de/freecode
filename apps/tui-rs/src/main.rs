@@ -1,6 +1,4 @@
-mod app;
-mod ipc;
-mod ui;
+use freecode_tui::{app, ipc, ui};
 
 use std::io::stdout;
 use std::time::Duration;
@@ -65,8 +63,15 @@ async fn run(
         Err(err) => app.push_system(format!("failed to start session: {err}")),
     }
     if let Ok(Some(current)) = client.current_model().await {
-        app.provider = current.provider;
-        app.model = current.model;
+        // Context-window size is resolved by core from models.dev, not a
+        // table baked into this frontend.
+        if let Ok(limit) = client
+            .model_context_limit(&current.provider, &current.model)
+            .await
+        {
+            app.context.limit = limit;
+        }
+        app.set_model(current.provider, current.model);
     }
     if let Ok(tools) = client.tools_list().await {
         app.tool_count = tools.len();
@@ -137,6 +142,13 @@ async fn handle_terminal_event(
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                 app.should_quit = true;
                 return Ok(true);
+            }
+            // Shift+Tab: crossterm reports this as BackTab on most terminals.
+            // The (Tab, SHIFT) arm is a defensive fallback for terminals that
+            // don't translate.
+            (KeyCode::BackTab, _) | (KeyCode::Tab, KeyModifiers::SHIFT) => {
+                app.cycle_mode();
+                return Ok(false);
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 let text = input.lines().join("\n");

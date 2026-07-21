@@ -27,6 +27,10 @@ pub struct IpcClient {
     pending: PendingMap,
     _child: Child,
     pub events: Mutex<mpsc::UnboundedReceiver<StreamEvent>>,
+    /// Sender side of `events`, kept so RPC-result-derived events (e.g. token
+    /// usage from `session.send`) can be injected into the same stream the
+    /// UI loop already drains.
+    event_tx: mpsc::UnboundedSender<StreamEvent>,
 }
 
 fn find_project_root() -> PathBuf {
@@ -79,6 +83,7 @@ impl IpcClient {
 
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let reader_tx = event_tx.clone();
 
         let pending_reader = pending.clone();
         tokio::spawn(async move {
@@ -100,7 +105,7 @@ impl IpcClient {
                         }
                     }
                     IncomingLine::Event(evt) => {
-                        let _ = event_tx.send(evt);
+                        let _ = reader_tx.send(evt);
                     }
                     IncomingLine::Unparseable => {}
                 }
@@ -134,6 +139,7 @@ impl IpcClient {
             pending,
             _child: child,
             events: Mutex::new(event_rx),
+            event_tx,
         })
     }
 
@@ -198,7 +204,28 @@ impl IpcClient {
             "model": model,
         });
         let value = self.call("session.send", Some(params)).await?;
-        Ok(serde_json::from_value(value)?)
+        let result: SessionSendResult = serde_json::from_value(value)?;
+        // The RPC result resolves after the turn's Done stream event; inject the
+        // turn's context-window occupancy into the same event stream so the UI
+        // loop updates the status bar's context meter.
+        if let Some(usage) = &result.usage {
+            let _ = self.event_tx.send(StreamEvent::Usage {
+                context_tokens: usage.context_tokens(),
+            });
+        }
+        Ok(result)
+    }
+
+    /// The context-window size for a model, resolved by core from models.dev
+    /// (the single source of truth). Returns 0 when the model is unknown.
+    pub async fn model_context_limit(&self, provider: &str, model: &str) -> Result<u64> {
+        let value = self
+            .call(
+                "models.contextLimit",
+                Some(serde_json::json!({ "provider": provider, "model": model })),
+            )
+            .await?;
+        Ok(value.as_u64().unwrap_or(0))
     }
 
     pub async fn session_stop(&self, session_id: &str) -> Result<()> {
