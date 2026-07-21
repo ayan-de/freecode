@@ -108,8 +108,10 @@ async fn run(
             }
             _ = tick.tick() => {
                 // Drain a slice of the pending token buffer into the visible
-                // text; only mark dirty (redraw) when there was something to reveal.
-                if app.reveal_step() {
+                // text; only mark dirty (redraw) when there was something to
+                // reveal. The landing intro also animates off this tick, so keep
+                // redrawing while it's live regardless of token activity.
+                if app.reveal_step() || app.intro_active() {
                     dirty = true;
                 }
             }

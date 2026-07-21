@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::ipc::StreamEvent;
 
 /// Agent mode drives tool/permissive behavior on the core side and the badge
@@ -98,6 +100,10 @@ pub struct App {
     pub follow: bool,
     pub cwd: String,
     pub tool_count: usize,
+    /// Wall clock started when the app boots — drives the landing "particle
+    /// materialize" intro (see `ui::intro`). Fixed at construction so the
+    /// animation is a pure function of elapsed time and never re-triggers.
+    pub started: Instant,
     in_progress: Option<usize>,
 }
 
@@ -116,8 +122,20 @@ impl App {
             follow: true,
             cwd: String::new(),
             tool_count: 0,
+            started: Instant::now(),
             in_progress: None,
         }
+    }
+
+    /// Milliseconds since boot, as a float for the intro animation clock.
+    pub fn intro_elapsed_ms(&self) -> f32 {
+        self.started.elapsed().as_secs_f32() * 1000.0
+    }
+
+    /// The landing intro (looping logo materialize) is live whenever the
+    /// transcript is empty. Once a message exists the landing is gone.
+    pub fn intro_active(&self) -> bool {
+        self.messages.is_empty()
     }
 
     /// Advance to the next mode, wrapping at the end. Returns the new mode so

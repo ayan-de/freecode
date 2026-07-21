@@ -1,4 +1,5 @@
 mod markdown;
+pub mod intro;
 pub mod status;
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
@@ -87,29 +88,40 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(Span::styled("⟨tui-rs · dev⟩", dim())).alignment(Alignment::Center),
     );
 
-    let pink = Style::default()
-        .fg(Color::Rgb(255, 105, 180))
-        .add_modifier(Modifier::BOLD);
-    let cyan = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::BOLD);
-    for line in LOGO {
-        // `split_at` requires a byte index on a char boundary; the box-drawing
-        // characters in LOGO are 3 bytes each, so count chars and project to
-        // the byte offset of the 17th char.
-        let split_byte = line
-            .char_indices()
-            .nth(LOGO_FREE_CHARS)
-            .map(|(i, _)| i)
-            .unwrap_or(line.len());
-        let (free, code) = line.split_at(split_byte);
-        lines.push(
-            Line::from(vec![
-                Span::styled(free, pink),
-                Span::styled(code, cyan),
-            ])
-            .alignment(Alignment::Center),
-        );
+    // The logo animates on a loop while the transcript is empty. During that
+    // time reserve its rows as blanks so `intro::draw_logo` owns those cells;
+    // all surrounding text stays exactly as it is. When the intro is inactive
+    // (a message exists), the logo renders as the static gradient below.
+    let intro_active = app.intro_active();
+    if intro_active {
+        for _ in 0..intro::logo_height() {
+            lines.push(Line::from(""));
+        }
+    } else {
+        let pink = Style::default()
+            .fg(Color::Rgb(255, 105, 180))
+            .add_modifier(Modifier::BOLD);
+        let cyan = Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+        for line in LOGO {
+            // `split_at` requires a byte index on a char boundary; the box-drawing
+            // characters in LOGO are 3 bytes each, so count chars and project to
+            // the byte offset of the 17th char.
+            let split_byte = line
+                .char_indices()
+                .nth(LOGO_FREE_CHARS)
+                .map(|(i, _)| i)
+                .unwrap_or(line.len());
+            let (free, code) = line.split_at(split_byte);
+            lines.push(
+                Line::from(vec![
+                    Span::styled(free, pink),
+                    Span::styled(code, cyan),
+                ])
+                .alignment(Alignment::Center),
+            );
+        }
     }
     lines.push(
         Line::from(Span::styled(
@@ -151,6 +163,12 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
 
     let paragraph = Paragraph::new(lines).alignment(Alignment::Center);
     frame.render_widget(paragraph, area);
+
+    // Overlay the looping logo onto the reserved rows (index 2..5 of the
+    // paragraph: one blank + the "⟨tui-rs · dev⟩" line precede it).
+    if intro_active {
+        intro::draw_logo(frame, area, area.y + 2, app.intro_elapsed_ms());
+    }
 }
 
 fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
