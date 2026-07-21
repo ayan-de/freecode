@@ -78,10 +78,17 @@ async fn run(
     }
 
     let mut crossterm_events = EventStream::new();
-    let mut tick = interval(Duration::from_millis(100));
+    // ~60 FPS: the tick paces the buffered-reveal crawl so streamed tokens
+    // appear smoothly rather than in network-sized bursts. We only redraw when
+    // something actually changed (`dirty`), so an idle TUI stays quiet.
+    let mut tick = interval(Duration::from_millis(16));
+    let mut dirty = true;
 
     loop {
-        terminal.draw(|frame| ui::draw(frame, &mut app, &input))?;
+        if dirty {
+            terminal.draw(|frame| ui::draw(frame, &mut app, &input))?;
+            dirty = false;
+        }
 
         tokio::select! {
             maybe_event = crossterm_events.next() => {
@@ -89,15 +96,23 @@ async fn run(
                 if handle_terminal_event(event, &mut app, &mut input, client).await? {
                     break;
                 }
+                dirty = true;
             }
             event = async {
                 client.events.lock().await.recv().await
             } => {
                 if let Some(evt) = event {
                     app.apply_stream_event(evt);
+                    dirty = true;
                 }
             }
-            _ = tick.tick() => {}
+            _ = tick.tick() => {
+                // Drain a slice of the pending token buffer into the visible
+                // text; only mark dirty (redraw) when there was something to reveal.
+                if app.reveal_step() {
+                    dirty = true;
+                }
+            }
         }
 
         if app.should_quit {

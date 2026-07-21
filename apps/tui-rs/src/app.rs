@@ -50,6 +50,11 @@ pub struct ChatMessage {
     /// Assistant reasoning streamed before/alongside the answer. Empty for
     /// user/system messages and assistant turns without a thinking phase.
     pub thinking: String,
+    /// Buffered-reveal tails: streamed deltas land here first and are drained
+    /// into `content`/`thinking` at a fixed frame cadence (`reveal_step`), so
+    /// uneven network chunks crawl in smoothly instead of appearing in bursts.
+    pub content_pending: String,
+    pub thinking_pending: String,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +168,8 @@ impl App {
             role: Role::User,
             content,
             thinking: String::new(),
+            content_pending: String::new(),
+            thinking_pending: String::new(),
         });
     }
 
@@ -171,6 +178,8 @@ impl App {
             role: Role::System,
             content,
             thinking: String::new(),
+            content_pending: String::new(),
+            thinking_pending: String::new(),
         });
     }
 
@@ -179,6 +188,8 @@ impl App {
             role: Role::Assistant,
             content: String::new(),
             thinking: String::new(),
+            content_pending: String::new(),
+            thinking_pending: String::new(),
         });
         self.in_progress = Some(self.messages.len() - 1);
     }
@@ -193,17 +204,33 @@ impl App {
         }
         let Some(idx) = self.in_progress else { return };
         match event {
+            // Streamed deltas land in the pending tail, not directly on screen;
+            // `reveal_step` drains them at a fixed cadence for a smooth crawl.
             StreamEvent::TextDelta { delta } => {
-                self.messages[idx].content.push_str(&delta);
+                self.messages[idx].content_pending.push_str(&delta);
             }
+            // Full snapshot at turn end: reconcile against what's already been
+            // revealed so the remainder still crawls in rather than snapping.
             StreamEvent::Text { content } => {
-                self.messages[idx].content = content;
+                let m = &mut self.messages[idx];
+                if let Some(rest) = content.strip_prefix(m.content.as_str()) {
+                    m.content_pending = rest.to_string();
+                } else {
+                    m.content.clear();
+                    m.content_pending = content;
+                }
             }
             StreamEvent::ThinkingDelta { delta } => {
-                self.messages[idx].thinking.push_str(&delta);
+                self.messages[idx].thinking_pending.push_str(&delta);
             }
             StreamEvent::Thinking { content } => {
-                self.messages[idx].thinking = content;
+                let m = &mut self.messages[idx];
+                if let Some(rest) = content.strip_prefix(m.thinking.as_str()) {
+                    m.thinking_pending = rest.to_string();
+                } else {
+                    m.thinking.clear();
+                    m.thinking_pending = content;
+                }
             }
             StreamEvent::ToolStart { tool_name, .. } => {
                 self.push_system(format!("→ running {tool_name}"));
@@ -224,5 +251,41 @@ impl App {
             _ => {}
         }
     }
+
+    /// Drain a slice of each message's pending tail into the visible text.
+    /// Called once per render tick; returns `true` if anything changed so the
+    /// caller can mark the frame dirty. Draining every message (not just the
+    /// in-progress one) lets the crawl finish naturally after `Done` clears
+    /// `in_progress`.
+    pub fn reveal_step(&mut self) -> bool {
+        let mut changed = false;
+        for msg in &mut self.messages {
+            if !msg.content_pending.is_empty() {
+                reveal_chars(&mut msg.content, &mut msg.content_pending);
+                changed = true;
+            }
+            if !msg.thinking_pending.is_empty() {
+                reveal_chars(&mut msg.thinking, &mut msg.thinking_pending);
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
+/// Move an adaptive number of chars from the front of `pending` to the end of
+/// `visible`, respecting UTF-8 boundaries. Reveals ~1/5 of the backlog (min 3)
+/// per call, so at a ~60 FPS tick a steady stream stays smooth (~80ms behind)
+/// while a large burst is caught up within a few frames.
+fn reveal_chars(visible: &mut String, pending: &mut String) {
+    let backlog = pending.chars().count();
+    let take = (backlog / 5).max(3);
+    let byte_end = pending
+        .char_indices()
+        .nth(take)
+        .map(|(i, _)| i)
+        .unwrap_or(pending.len());
+    visible.push_str(&pending[..byte_end]);
+    pending.replace_range(..byte_end, "");
 }
 
