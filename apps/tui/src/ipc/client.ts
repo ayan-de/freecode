@@ -339,10 +339,25 @@ export interface ModelInfo {
   id: string;
   name: string;
   description?: string;
+  limit?: { context: number; output: number };
 }
 
 export async function listModels(providerId: string): Promise<ModelInfo[]> {
   return (await sendRequest("models.list", { providerId })) as ModelInfo[];
+}
+
+/**
+ * Context-window size for a model, resolved by core from models.dev (the
+ * single source of truth). Returns 0 when the model is unknown.
+ */
+export async function getModelContextLimit(
+  provider: string,
+  model: string,
+): Promise<number> {
+  return (await sendRequest("models.contextLimit", {
+    provider,
+    model,
+  })) as number;
 }
 
 // Prompt commands (e.g. /init) — defined once in core, fetched by every frontend.

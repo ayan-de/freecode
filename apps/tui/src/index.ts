@@ -661,7 +661,7 @@ async function submitPrompt(
   // accumulated context plus this prompt (~4 chars/token). Input is fixed at
   // send time (the provider only reports the exact value at turn end), so this
   // is a stable estimate that the real usage corrects on completion.
-  const turnContextLimit = getModelContextLimit(
+  const turnContextLimit = await getModelContextLimit(
     `${currentProvider}/${currentModel}`,
   );
   const estimatedInput = contextTokens + Math.round(promptText.length / 4);
@@ -715,7 +715,7 @@ async function submitPrompt(
     );
 
     // Update in-progress message with token counts from result
-    const contextLimit = getModelContextLimit(
+    const contextLimit = await getModelContextLimit(
       `${currentProvider}/${currentModel}`,
     );
     updateInProgressMessage(
@@ -746,7 +746,7 @@ async function submitPrompt(
       createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
       const inTokens = result.usage?.inputTokens ?? 0;
       const outTokens = result.usage?.outputTokens ?? 0;
-      const contextLimit = getModelContextLimit(
+      const contextLimit = await getModelContextLimit(
         `${currentProvider}/${currentModel}`,
       );
       const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;

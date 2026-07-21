@@ -10,10 +10,20 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_DIR = path.join(os.homedir(), ".freecode", "cache");
 const CACHE_FILE = path.join(CACHE_DIR, "models-dev.json");
 
+/** Token limits for a model, as reported by models.dev. */
+export interface ModelLimit {
+  /** Context-window size (max input tokens). */
+  context: number;
+  /** Max output tokens per response. */
+  output: number;
+}
+
 export interface ProviderModel {
   id: string;
   name: string;
   description?: string;
+  /** Present when models.dev reports limits for this model. */
+  limit?: ModelLimit;
 }
 
 export interface Provider {
@@ -76,6 +86,14 @@ async function fetchFromNetwork(): Promise<Provider[]> {
                   name: modelData.name || modelId,
                   description:
                     modelData.description || modelData.name || modelId,
+                  limit:
+                    modelData.limit &&
+                    typeof modelData.limit.context === "number"
+                      ? {
+                          context: modelData.limit.context,
+                          output: modelData.limit.output ?? 0,
+                        }
+                      : undefined,
                 });
               }
 
@@ -129,4 +147,25 @@ export async function getProviderModels(
   const providers = await getProviders();
   const provider = providers.find((p) => p.id === providerId);
   return provider?.models || [];
+}
+
+/**
+ * The single source of truth for a model's context-window size. Reads the
+ * limit models.dev reports for `providerId/modelId`; frontends call this over
+ * IPC (`models.contextLimit`) instead of hardcoding their own tables.
+ *
+ * Matching is exact first, then case-insensitive on the model id, since
+ * provider/model ids from config vary in casing. Returns `0` when the model
+ * is unknown so callers can hide a context meter rather than divide by zero.
+ */
+export async function getModelContextLimit(
+  providerId: string,
+  modelId: string,
+): Promise<number> {
+  const models = await getProviderModels(providerId);
+  const exact = models.find((m) => m.id === modelId);
+  if (exact) return exact.limit?.context ?? 0;
+  const lower = modelId.toLowerCase();
+  const ci = models.find((m) => m.id.toLowerCase() === lower);
+  return ci?.limit?.context ?? 0;
 }

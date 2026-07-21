@@ -9,7 +9,11 @@ import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
 import { getAppRuntime } from "./effect/runtime.js";
 import { SessionStoreTag } from "./effect/context.js";
 import { initProviders, listProviders } from "./providers/index.js";
-import { getProviders, getProviderModels } from "./models-dev.js";
+import {
+  getProviders,
+  getProviderModels,
+  getModelContextLimit,
+} from "./models-dev.js";
 import {
   readConfig,
   writeConfig,
@@ -334,6 +338,13 @@ const methodHandlers: Record<
     const { providerId } = params as { providerId: string };
     const models = await getProviderModels(providerId);
     return models;
+  },
+
+  "models.contextLimit": async (
+    params: Record<string, unknown>,
+  ): Promise<number> => {
+    const { provider, model } = params as { provider: string; model: string };
+    return getModelContextLimit(provider, model);
   },
 
   "commands.list": async (): Promise<unknown[]> => {

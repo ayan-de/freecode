@@ -114,7 +114,7 @@ ${formatProviderList()}`);
       );
 
       // Update in-progress message with token counts
-      const contextLimit = getModelContextLimit(
+      const contextLimit = await getModelContextLimit(
         `${currentProvider}/MiniMax-M2`,
       );
       ctx.updateInProgressMessage(
