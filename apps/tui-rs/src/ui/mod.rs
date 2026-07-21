@@ -67,6 +67,18 @@ fn dirs_home() -> Option<String> {
     std::env::var("HOME").ok()
 }
 
+/// ASCII logo mirrored from `apps/tui/src/assets/logo.ts`. Each line is 34
+/// characters wide; the first 17 characters render "Free" in pink, the
+/// remaining 17 characters render "Code" in cyan. Box-drawing chars are
+/// 3 bytes each in UTF-8, so the split has to be on a character boundary
+/// rather than a byte offset.
+const LOGO: [&str; 3] = [
+    "█▀▀ █▀▀█ █▀▀ █▀▀ █▀▀ █▀▀█ █▀▀▄ █▀▀",
+    "█▀▀ █▄▄▀ █▀▀ █▀▀ █▒▒ █▒▒█ █▒▒█ █▀▀",
+    "▀   ▀ ▀▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀▀ ▀▀▀  ▀▀▀",
+];
+const LOGO_FREE_CHARS: usize = 17;
+
 /// Centered status screen shown before the first message — server/client
 /// identity, provider availability, and working dir at a glance, in the
 /// vein of jcode's welcome header but backed only by data freecode actually
@@ -78,15 +90,31 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(
         Line::from(Span::styled("⟨tui-rs · dev⟩", dim())).alignment(Alignment::Center),
     );
-    lines.push(
-        Line::from(Span::styled(
-            "freecode",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .alignment(Alignment::Center),
-    );
+
+    let pink = Style::default()
+        .fg(Color::Rgb(255, 105, 180))
+        .add_modifier(Modifier::BOLD);
+    let cyan = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    for line in LOGO {
+        // `split_at` requires a byte index on a char boundary; the box-drawing
+        // characters in LOGO are 3 bytes each, so count chars and project to
+        // the byte offset of the 17th char.
+        let split_byte = line
+            .char_indices()
+            .nth(LOGO_FREE_CHARS)
+            .map(|(i, _)| i)
+            .unwrap_or(line.len());
+        let (free, code) = line.split_at(split_byte);
+        lines.push(
+            Line::from(vec![
+                Span::styled(free, pink),
+                Span::styled(code, cyan),
+            ])
+            .alignment(Alignment::Center),
+        );
+    }
     lines.push(
         Line::from(Span::styled(
             format!("client: freecode-tui · v{}", env!("CARGO_PKG_VERSION")),
