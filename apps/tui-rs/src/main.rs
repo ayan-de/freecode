@@ -200,6 +200,29 @@ async fn handle_terminal_event(
 /// Drive the open modal. Every path that closes it sends core an answer —
 /// leaving it unanswered would hang the turn forever.
 fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
+    // The free-text "Other" field owns the keyboard while focused: keys type
+    // into it rather than driving the picker.
+    if app.prompt.as_ref().is_some_and(|p| p.editing_other) {
+        let outcome = match code {
+            KeyCode::Enter => app.confirm_other(),
+            KeyCode::Esc => {
+                app.prompt.as_mut().map(Prompt::stop_editing_other);
+                None
+            }
+            KeyCode::Backspace => {
+                app.prompt.as_mut().map(Prompt::other_backspace);
+                None
+            }
+            KeyCode::Char(c) => {
+                app.prompt.as_mut().map(|p| p.other_push(c));
+                None
+            }
+            _ => None,
+        };
+        dispatch_prompt_outcome(outcome, client);
+        return;
+    }
+
     let outcome = match code {
         KeyCode::Up | KeyCode::Char('k') => {
             app.prompt.as_mut().map(Prompt::move_up);
@@ -210,31 +233,39 @@ fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
             None
         }
         KeyCode::Char(' ') => {
-            app.prompt.as_mut().map(Prompt::toggle);
+            app.toggle_prompt();
             None
         }
-        // Number keys jump straight to an option; in single-select they pick it.
+        // Number keys jump straight to an option; in single-select they pick it
+        // (or open the "Other" field), in multi-select they toggle it.
         KeyCode::Char(c @ '1'..='9') => {
             let idx = c as usize - '1' as usize;
-            let multiple = app.prompt.as_ref().is_some_and(|p| p.multiple);
-            match app.prompt.as_mut() {
-                Some(p) if idx < p.options.len() => {
-                    p.selected = idx;
-                    if multiple {
-                        p.toggle();
-                        None
-                    } else {
-                        app.submit_prompt()
-                    }
+            let in_range = app.prompt.as_ref().is_some_and(|p| idx < p.options.len());
+            if in_range {
+                let multiple = app.prompt.as_ref().is_some_and(|p| p.multiple);
+                app.prompt.as_mut().unwrap().selected = idx;
+                if multiple {
+                    app.toggle_prompt();
+                    None
+                } else {
+                    app.activate_prompt()
                 }
-                _ => None,
+            } else {
+                None
             }
         }
-        KeyCode::Enter => app.submit_prompt(),
+        KeyCode::Enter => app.activate_prompt(),
         KeyCode::Esc => app.cancel_prompt(),
         _ => None,
     };
 
+    dispatch_prompt_outcome(outcome, client);
+}
+
+/// Fire the RPC for a resolved prompt outcome. Every closing outcome must reach
+/// core, or the blocked turn hangs forever; `More`/`None` mean the modal is
+/// still open, so there is nothing to send yet.
+fn dispatch_prompt_outcome(outcome: Option<PromptOutcome>, client: &Arc<IpcClient>) {
     let client = client.clone();
     match outcome {
         Some(PromptOutcome::Answer { request_id, answers }) => {

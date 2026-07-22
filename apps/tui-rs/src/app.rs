@@ -145,6 +145,14 @@ pub struct Prompt {
     /// Multi-select (question `multiple`): Space toggles, Enter submits.
     pub multiple: bool,
     pub checked: Vec<bool>,
+    /// Index of the synthetic free-text "Other" row (always the last option on
+    /// a question). `None` for permission prompts, which have no escape hatch.
+    other_index: Option<usize>,
+    /// True while the "Other" text field is focused: keys type into
+    /// `other_text` instead of driving the picker.
+    pub editing_other: bool,
+    /// The custom answer typed into the "Other" field.
+    pub other_text: String,
     /// Remaining questions in a multi-question ask, and the answers collected
     /// so far. Empty for permission prompts.
     pending: Vec<QuestionSpec>,
@@ -153,11 +161,18 @@ pub struct Prompt {
 
 impl Prompt {
     fn from_question(request_id: String, spec: QuestionSpec, pending: Vec<QuestionSpec>, answers: Vec<String>) -> Self {
-        let options: Vec<PromptOption> = spec
+        let mut options: Vec<PromptOption> = spec
             .options
             .into_iter()
             .map(|o| PromptOption { label: o.label, description: o.description })
             .collect();
+        // Every question gets a free-text escape hatch as its last row, so the
+        // user can answer with something none of the offered options cover.
+        let other_index = Some(options.len());
+        options.push(PromptOption {
+            label: "Other".to_string(),
+            description: "Type your own answer".to_string(),
+        });
         Self {
             kind: PromptKind::Question,
             request_id,
@@ -167,9 +182,36 @@ impl Prompt {
             options,
             selected: 0,
             multiple: spec.multiple,
+            other_index,
+            editing_other: false,
+            other_text: String::new(),
             pending,
             answers,
         }
+    }
+
+    fn selected_is_other(&self) -> bool {
+        Some(self.selected) == self.other_index
+    }
+
+    /// Focus the free-text field, moving the cursor onto the "Other" row.
+    pub fn start_editing_other(&mut self) {
+        if let Some(i) = self.other_index {
+            self.selected = i;
+            self.editing_other = true;
+        }
+    }
+
+    pub fn stop_editing_other(&mut self) {
+        self.editing_other = false;
+    }
+
+    pub fn other_push(&mut self, c: char) {
+        self.other_text.push(c);
+    }
+
+    pub fn other_backspace(&mut self) {
+        self.other_text.pop();
     }
 
     pub fn move_up(&mut self) {
@@ -194,21 +236,27 @@ impl Prompt {
     /// back to the highlighted one if nothing was checked).
     fn chosen(&self) -> Vec<String> {
         if self.multiple {
-            let picked: Vec<String> = self
-                .options
-                .iter()
-                .zip(&self.checked)
-                .filter(|(_, c)| **c)
-                .map(|(o, _)| o.label.clone())
+            let picked: Vec<String> = (0..self.options.len())
+                .filter(|&i| self.checked.get(i).copied().unwrap_or(false))
+                .filter_map(|i| self.label_for(i))
                 .collect();
             if !picked.is_empty() {
                 return picked;
             }
         }
-        self.options
-            .get(self.selected)
-            .map(|o| vec![o.label.clone()])
-            .unwrap_or_default()
+        self.label_for(self.selected).map(|l| vec![l]).unwrap_or_default()
+    }
+
+    /// The answer string for option `i`: the typed text for the free-text
+    /// "Other" row, the option's label otherwise. `None` when it's the "Other"
+    /// row but nothing was typed, so a blank custom answer is never sent.
+    fn label_for(&self, i: usize) -> Option<String> {
+        if Some(i) == self.other_index {
+            let t = self.other_text.trim();
+            (!t.is_empty()).then(|| t.to_string())
+        } else {
+            self.options.get(i).map(|o| o.label.clone())
+        }
     }
 }
 
@@ -423,6 +471,48 @@ impl App {
         Some(PromptOutcome::More)
     }
 
+    /// Enter (or a number key in single-select) on the picker. Choosing the
+    /// free-text "Other" row opens its input field instead of submitting; every
+    /// other row submits. In multi-select, Enter submits all checked options.
+    pub fn activate_prompt(&mut self) -> Option<PromptOutcome> {
+        let p = self.prompt.as_mut()?;
+        if !p.multiple && p.selected_is_other() {
+            p.start_editing_other();
+            return None;
+        }
+        self.submit_prompt()
+    }
+
+    /// Space / number-key toggle. On the "Other" row this opens the free-text
+    /// field; on any other row it toggles the checkbox (multi-select only).
+    pub fn toggle_prompt(&mut self) {
+        if let Some(p) = self.prompt.as_mut() {
+            if p.selected_is_other() {
+                p.start_editing_other();
+            } else {
+                p.toggle();
+            }
+        }
+    }
+
+    /// Confirm the typed free-text answer. Single-select submits it right away;
+    /// multi-select records it (checking the "Other" row) and returns to the
+    /// picker. Empty text just closes the field, leaving "Other" unchecked.
+    pub fn confirm_other(&mut self) -> Option<PromptOutcome> {
+        let p = self.prompt.as_mut()?;
+        let empty = p.other_text.trim().is_empty();
+        if let Some(i) = p.other_index {
+            if let Some(c) = p.checked.get_mut(i) {
+                *c = !empty;
+            }
+        }
+        p.stop_editing_other();
+        if empty || p.multiple {
+            return None;
+        }
+        self.submit_prompt()
+    }
+
     /// Esc: reject the question outright, or deny the permission. Either way
     /// core unblocks — never leave it waiting.
     pub fn cancel_prompt(&mut self) -> Option<PromptOutcome> {
@@ -562,6 +652,9 @@ impl App {
                     selected: 0,
                     multiple: false,
                     checked: vec![false; 4],
+                    other_index: None,
+                    editing_other: false,
+                    other_text: String::new(),
                     pending: Vec::new(),
                     answers: Vec::new(),
                 });
@@ -753,6 +846,73 @@ mod tests {
             other => panic!("expected a final answer, got {other:?}"),
         }
         assert!(app.prompt.is_none());
+    }
+
+    /// Single-select: choosing "Other" opens the field, and the typed text is
+    /// what gets sent — not the literal word "Other".
+    #[test]
+    fn other_option_sends_typed_free_text() {
+        let mut app = App::new();
+        app.apply_stream_event(
+            serde_json::from_value(json!({
+                "type": "question_asked",
+                "requestId": "r3",
+                "questions": [question("pick", false)],
+            }))
+            .unwrap(),
+        );
+
+        // Options are [A, B, Other]; jump to the "Other" row and activate it.
+        let p = app.prompt.as_mut().unwrap();
+        p.selected = 2;
+        assert!(app.activate_prompt().is_none(), "activating Other opens the field, does not submit");
+        assert!(app.prompt.as_ref().unwrap().editing_other);
+
+        // Type an answer, then submit it.
+        let p = app.prompt.as_mut().unwrap();
+        for c in "custom".chars() {
+            p.other_push(c);
+        }
+        match app.confirm_other() {
+            Some(PromptOutcome::Answer { request_id, answers }) => {
+                assert_eq!(request_id, "r3");
+                assert_eq!(answers, ["custom"]);
+            }
+            other => panic!("expected the typed answer, got {other:?}"),
+        }
+        assert!(app.prompt.is_none());
+    }
+
+    /// Multi-select: a typed "Other" answer is included alongside checked
+    /// options, and confirming it returns to the picker rather than submitting.
+    #[test]
+    fn other_option_combines_with_multi_select() {
+        let mut app = App::new();
+        app.apply_stream_event(
+            serde_json::from_value(json!({
+                "type": "question_asked",
+                "requestId": "r4",
+                "questions": [question("pick", true)],
+            }))
+            .unwrap(),
+        );
+
+        // Check A, then open + type into Other (index 2).
+        let p = app.prompt.as_mut().unwrap();
+        p.toggle(); // A
+        p.selected = 2;
+        app.toggle_prompt(); // opens the Other field
+        assert!(app.prompt.as_ref().unwrap().editing_other);
+        for c in "extra".chars() {
+            app.prompt.as_mut().unwrap().other_push(c);
+        }
+        assert!(app.confirm_other().is_none(), "multi-select confirm returns to picker");
+        assert!(!app.prompt.as_ref().unwrap().editing_other);
+
+        match app.submit_prompt() {
+            Some(PromptOutcome::Answer { answers, .. }) => assert_eq!(answers, ["A", "extra"]),
+            other => panic!("expected A + typed answer, got {other:?}"),
+        }
     }
 
     /// Esc must always unblock core — denying, never silently closing.

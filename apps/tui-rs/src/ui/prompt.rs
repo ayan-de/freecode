@@ -11,7 +11,11 @@ use ratatui::Frame;
 use crate::app::{Prompt, PromptKind};
 
 const PINK: Color = Color::Rgb(255, 105, 180);
-const CARD_BG: Color = Color::Rgb(24, 24, 28);
+/// Card background — same `DarkGray` as the top status bar (`ui::status`).
+const CARD_BG: Color = Color::DarkGray;
+/// Background of the active row and the "Other" text field — one shade lighter
+/// than the card so the focused element reads as a raised input box.
+const INPUT_BG: Color = Color::Rgb(55, 55, 62);
 /// Widest the card gets, so it stays readable on a full-screen terminal.
 const MAX_WIDTH: u16 = 78;
 
@@ -83,7 +87,7 @@ fn body(prompt: &Prompt) -> Vec<Line<'static>> {
         let label_style = if active {
             Style::default()
                 .fg(Color::White)
-                .bg(Color::Rgb(55, 55, 62))
+                .bg(INPUT_BG)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Gray).bg(CARD_BG)
@@ -102,8 +106,26 @@ fn body(prompt: &Prompt) -> Vec<Line<'static>> {
         }
     }
 
+    // Free-text field for the "Other" row: rendered right under the options
+    // while focused, with a placeholder until the user types and a block cursor.
+    if prompt.editing_other {
+        let (text, style) = if prompt.other_text.is_empty() {
+            ("type your answer…".to_string(), Style::default().fg(Color::DarkGray).bg(INPUT_BG))
+        } else {
+            (prompt.other_text.clone(), Style::default().fg(Color::White).bg(INPUT_BG))
+        };
+        lines.push(Line::from(vec![
+            Span::styled("     ", Style::default().bg(CARD_BG)),
+            Span::styled("› ", Style::default().fg(PINK).bg(INPUT_BG)),
+            Span::styled(text, style),
+            Span::styled("▏", Style::default().fg(PINK).bg(INPUT_BG)),
+        ]));
+    }
+
     lines.push(Line::from(""));
-    let hint = if prompt.multiple {
+    let hint = if prompt.editing_other {
+        "type your answer · enter submit · esc back"
+    } else if prompt.multiple {
         "↑↓ move · space toggle · 1-9 jump · enter submit · esc cancel"
     } else {
         "↑↓ move · 1-9 jump · enter select · esc cancel"
