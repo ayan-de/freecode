@@ -1,4 +1,6 @@
 mod markdown;
+mod prompt;
+mod tool;
 mod oscilloscope;
 pub mod intro;
 pub mod status;
@@ -33,6 +35,11 @@ pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea) {
         draw_messages(frame, app, chunks[1]);
     }
     draw_input(frame, app, input, chunks[2]);
+    // Drawn last so it sits above the transcript and the composer — core is
+    // blocked until it is answered.
+    if let Some(p) = &app.prompt {
+        prompt::draw(frame, p, chunks[1]);
+    }
 }
 
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
@@ -197,6 +204,11 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                     first = false;
                 }
             }
+            Role::Tool => {
+                if let Some(call) = &msg.tool {
+                    lines.extend(tool::render(call, app.osc_phase(), app.tools_expanded));
+                }
+            }
             Role::System => {
                 lines.push(Line::from(Span::styled("·", dim())));
                 for line in msg.content.lines() {
@@ -213,9 +225,9 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                 if !msg.thinking.is_empty() {
                     lines.push(Line::from(Span::styled(
                         "Thinking…",
-                        Style::default().fg(Color::Yellow),
+                        Style::default().fg(Color::Cyan),
                     )));
-                    let think = Style::default().fg(Color::Yellow).add_modifier(Modifier::DIM);
+                    let think = Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM);
                     for line in msg.thinking.lines() {
                         lines.push(Line::from(vec![
                             Span::styled("  │ ", think),
