@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio::time::interval;
 use tui_textarea::{Input, TextArea};
 
-use app::{App, Status};
+use app::{App, Prompt, PromptOutcome, Status};
 use ipc::{protocol::SessionConfig, IpcClient};
 
 #[tokio::main]
@@ -147,6 +147,12 @@ async fn handle_terminal_event(
         if key.kind != KeyEventKind::Press {
             return Ok(false);
         }
+        // A blocking prompt owns the keyboard: core is stopped until it is
+        // answered, so nothing else may consume these keys.
+        if app.prompt.is_some() {
+            handle_prompt_key(key.code, app, client);
+            return Ok(false);
+        }
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) => {
                 app.should_quit = true;
@@ -158,6 +164,10 @@ async fn handle_terminal_event(
             }
             (KeyCode::PageDown, _) => {
                 app.scroll_down(10);
+                return Ok(false);
+            }
+            (KeyCode::Char('o'), KeyModifiers::CONTROL) => {
+                app.toggle_tools_expanded();
                 return Ok(false);
             }
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
@@ -187,6 +197,64 @@ async fn handle_terminal_event(
     Ok(false)
 }
 
+/// Drive the open modal. Every path that closes it sends core an answer —
+/// leaving it unanswered would hang the turn forever.
+fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
+    let outcome = match code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.prompt.as_mut().map(Prompt::move_up);
+            None
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.prompt.as_mut().map(Prompt::move_down);
+            None
+        }
+        KeyCode::Char(' ') => {
+            app.prompt.as_mut().map(Prompt::toggle);
+            None
+        }
+        // Number keys jump straight to an option; in single-select they pick it.
+        KeyCode::Char(c @ '1'..='9') => {
+            let idx = c as usize - '1' as usize;
+            let multiple = app.prompt.as_ref().is_some_and(|p| p.multiple);
+            match app.prompt.as_mut() {
+                Some(p) if idx < p.options.len() => {
+                    p.selected = idx;
+                    if multiple {
+                        p.toggle();
+                        None
+                    } else {
+                        app.submit_prompt()
+                    }
+                }
+                _ => None,
+            }
+        }
+        KeyCode::Enter => app.submit_prompt(),
+        KeyCode::Esc => app.cancel_prompt(),
+        _ => None,
+    };
+
+    let client = client.clone();
+    match outcome {
+        Some(PromptOutcome::Answer { request_id, answers }) => {
+            tokio::spawn(async move {
+                if let Err(err) = client.question_answer(&request_id, answers).await {
+                    eprintln!("[question.answer error] {err}");
+                }
+            });
+        }
+        Some(PromptOutcome::Permission { request_id, decision }) => {
+            tokio::spawn(async move {
+                if let Err(err) = client.permission_answer(&request_id, &decision).await {
+                    eprintln!("[permission.answer error] {err}");
+                }
+            });
+        }
+        Some(PromptOutcome::More) | None => {}
+    }
+}
+
 /// Fires the RPC in the background; the response's StreamEvents arrive on
 /// the shared IPC channel and are applied to `app` in the main select loop.
 fn send_message(text: String, app: &mut App, client: &Arc<IpcClient>) {
@@ -195,7 +263,6 @@ fn send_message(text: String, app: &mut App, client: &Arc<IpcClient>) {
         return;
     };
     app.push_user(text.clone());
-    app.begin_assistant_turn();
     app.status = Status::Sending;
 
     let client = client.clone();
