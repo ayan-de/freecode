@@ -1,3 +1,4 @@
+mod command;
 mod markdown;
 mod prompt;
 mod tool;
@@ -13,11 +14,12 @@ use ratatui::Frame;
 use tui_textarea::TextArea;
 
 use crate::app::{App, Role};
+use crate::commands::{self, CommandRegistry};
 
 /// All layout, styling, and rendering lives here — this is the file to
 /// gut when designing the real look. Nothing in app.rs or ipc/ depends
 /// on how a frame is drawn.
-pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea) {
+pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea, registry: &CommandRegistry) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -35,10 +37,18 @@ pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea) {
         draw_messages(frame, app, chunks[1]);
     }
     draw_input(frame, app, input, chunks[2]);
-    // Drawn last so it sits above the transcript and the composer — core is
-    // blocked until it is answered.
+    // Drawn last so it sits above the transcript and the composer. A blocking
+    // prompt takes precedence (core is stopped until it is answered); otherwise
+    // the slash-command menu shows while the composer holds a command prefix.
     if let Some(p) = &app.prompt {
         prompt::draw(frame, p, chunks[1]);
+    } else {
+        let text = input.lines().join("\n");
+        let matches = commands::completions(registry, &text);
+        if !matches.is_empty() {
+            let selected = app.command_cursor(matches.len());
+            command::draw(frame, &matches, selected, chunks[1]);
+        }
     }
 }
 

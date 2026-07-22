@@ -1,4 +1,4 @@
-use freecode_tui::{app, ipc, ui};
+use freecode_tui::{app, commands, ipc, ui};
 
 use std::io::stdout;
 use std::time::Duration;
@@ -18,6 +18,7 @@ use tokio::time::interval;
 use tui_textarea::{Input, TextArea};
 
 use app::{App, Prompt, PromptOutcome, Status};
+use commands::{CommandOutcome, CommandRegistry};
 use ipc::{protocol::SessionConfig, IpcClient};
 
 #[tokio::main]
@@ -48,6 +49,7 @@ async fn run(
     client: &Arc<IpcClient>,
 ) -> Result<()> {
     let mut app = App::new();
+    let registry = CommandRegistry::with_builtins();
     let mut input = TextArea::default();
     input.set_placeholder_text("Type a message, Enter to send, Esc to quit");
 
@@ -86,14 +88,14 @@ async fn run(
 
     loop {
         if dirty {
-            terminal.draw(|frame| ui::draw(frame, &mut app, &input))?;
+            terminal.draw(|frame| ui::draw(frame, &mut app, &input, &registry))?;
             dirty = false;
         }
 
         tokio::select! {
             maybe_event = crossterm_events.next() => {
                 let Some(Ok(event)) = maybe_event else { continue };
-                if handle_terminal_event(event, &mut app, &mut input, client).await? {
+                if handle_terminal_event(event, &mut app, &mut input, &registry, client).await? {
                     break;
                 }
                 dirty = true;
@@ -133,6 +135,7 @@ async fn handle_terminal_event(
     event: Event,
     app: &mut App,
     input: &mut TextArea<'_>,
+    registry: &CommandRegistry,
     client: &Arc<IpcClient>,
 ) -> Result<bool> {
     if let Event::Mouse(mouse) = &event {
@@ -150,8 +153,36 @@ async fn handle_terminal_event(
         // A blocking prompt owns the keyboard: core is stopped until it is
         // answered, so nothing else may consume these keys.
         if app.prompt.is_some() {
-            handle_prompt_key(key.code, app, client);
+            handle_prompt_key(key.code, app, client).await;
             return Ok(false);
+        }
+        // While the composer holds a slash-command prefix, the completion menu
+        // owns Up/Down (select) and Tab (complete). Everything else — including
+        // Enter to run — falls through to the normal composer handling below.
+        let text = input.lines().join("\n");
+        let menu_len = commands::completions(registry, &text).len();
+        if menu_len > 0 {
+            match key.code {
+                KeyCode::Up => {
+                    app.command_menu_up();
+                    return Ok(false);
+                }
+                KeyCode::Down => {
+                    app.command_menu_down(menu_len);
+                    return Ok(false);
+                }
+                KeyCode::Tab => {
+                    let matches = commands::completions(registry, &text);
+                    let idx = app.command_cursor(menu_len);
+                    if let Some(cmd) = matches.get(idx) {
+                        reset_composer(input);
+                        input.insert_str(format!("/{} ", cmd.name()));
+                        app.reset_command_cursor();
+                    }
+                    return Ok(false);
+                }
+                _ => {}
+            }
         }
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) => {
@@ -184,9 +215,22 @@ async fn handle_terminal_event(
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 let text = input.lines().join("\n");
                 if !text.trim().is_empty() {
-                    *input = TextArea::default();
-                    input.set_placeholder_text("Type a message, Enter to send, Esc to quit");
-                    send_message(text, app, client);
+                    reset_composer(input);
+                    app.reset_command_cursor();
+                    if commands::is_command(&text) {
+                        match commands::dispatch(registry, &text, app) {
+                            CommandOutcome::Quit => {
+                                app.should_quit = true;
+                                return Ok(true);
+                            }
+                            CommandOutcome::OpenModelPicker => {
+                                open_provider_picker(app, client).await;
+                            }
+                            CommandOutcome::Done => {}
+                        }
+                    } else {
+                        send_message(text, app, client);
+                    }
                 }
                 return Ok(false);
             }
@@ -197,9 +241,17 @@ async fn handle_terminal_event(
     Ok(false)
 }
 
-/// Drive the open modal. Every path that closes it sends core an answer —
-/// leaving it unanswered would hang the turn forever.
-fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
+/// Empty the composer and restore its placeholder — used after sending a
+/// message, running a command, or accepting a completion.
+fn reset_composer(input: &mut TextArea<'_>) {
+    *input = TextArea::default();
+    input.set_placeholder_text("Type a message, Enter to send, Esc to quit");
+}
+
+/// Drive the open modal. Every path that closes a core-blocking prompt sends an
+/// answer — leaving it unanswered would hang the turn forever. The local
+/// `/model` pickers instead chain (provider → models) or persist the choice.
+async fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
     // The free-text "Other" field owns the keyboard while focused: keys type
     // into it rather than driving the picker.
     if app.prompt.as_ref().is_some_and(|p| p.editing_other) {
@@ -214,7 +266,9 @@ fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
                 None
             }
             KeyCode::Char(c) => {
-                app.prompt.as_mut().map(|p| p.other_push(c));
+                if let Some(p) = app.prompt.as_mut() {
+                    p.other_push(c);
+                }
                 None
             }
             _ => None,
@@ -223,48 +277,111 @@ fn handle_prompt_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
         return;
     }
 
-    let outcome = match code {
-        KeyCode::Up | KeyCode::Char('k') => {
-            app.prompt.as_mut().map(Prompt::move_up);
-            None
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            app.prompt.as_mut().map(Prompt::move_down);
-            None
-        }
-        KeyCode::Char(' ') => {
-            app.toggle_prompt();
-            None
-        }
-        // Number keys jump straight to an option; in single-select they pick it
-        // (or open the "Other" field), in multi-select they toggle it.
-        KeyCode::Char(c @ '1'..='9') => {
-            let idx = c as usize - '1' as usize;
-            let in_range = app.prompt.as_ref().is_some_and(|p| idx < p.options.len());
-            if in_range {
-                let multiple = app.prompt.as_ref().is_some_and(|p| p.multiple);
-                app.prompt.as_mut().unwrap().selected = idx;
-                if multiple {
-                    app.toggle_prompt();
-                    None
-                } else {
-                    app.activate_prompt()
-                }
-            } else {
+    // Searchable `/model` pickers own printable keys for the search query, so
+    // only the arrows/enter/esc/backspace drive the list; number keys and j/k
+    // are search text here, not navigation.
+    let outcome = if app.prompt.as_ref().is_some_and(Prompt::is_searchable) {
+        match code {
+            KeyCode::Up => {
+                app.prompt.as_mut().map(Prompt::move_up);
                 None
             }
+            KeyCode::Down => {
+                app.prompt.as_mut().map(Prompt::move_down);
+                None
+            }
+            KeyCode::Backspace => {
+                app.prompt.as_mut().map(Prompt::search_backspace);
+                None
+            }
+            KeyCode::Char(c) => {
+                if let Some(p) = app.prompt.as_mut() {
+                    p.search_push(c);
+                }
+                None
+            }
+            KeyCode::Enter => app.activate_prompt(),
+            KeyCode::Esc => app.cancel_prompt(),
+            _ => None,
         }
-        KeyCode::Enter => app.activate_prompt(),
-        KeyCode::Esc => app.cancel_prompt(),
-        _ => None,
+    } else {
+        match code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.prompt.as_mut().map(Prompt::move_up);
+                None
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                app.prompt.as_mut().map(Prompt::move_down);
+                None
+            }
+            KeyCode::Char(' ') => {
+                app.toggle_prompt();
+                None
+            }
+            // Number keys jump straight to an option; in single-select they pick
+            // it (or open the "Other" field), in multi-select they toggle it.
+            KeyCode::Char(c @ '1'..='9') => {
+                let idx = c as usize - '1' as usize;
+                let in_range = app.prompt.as_ref().is_some_and(|p| idx < p.options.len());
+                if in_range {
+                    let multiple = app.prompt.as_ref().is_some_and(|p| p.multiple);
+                    app.prompt.as_mut().unwrap().selected = idx;
+                    if multiple {
+                        app.toggle_prompt();
+                        None
+                    } else {
+                        app.activate_prompt()
+                    }
+                } else {
+                    None
+                }
+            }
+            KeyCode::Enter => app.activate_prompt(),
+            KeyCode::Esc => app.cancel_prompt(),
+            _ => None,
+        }
     };
 
-    dispatch_prompt_outcome(outcome, client);
+    match outcome {
+        // Step 1 → step 2: load the chosen provider's models and open the
+        // model picker, pre-selecting the active model only when it belongs to
+        // that provider.
+        Some(PromptOutcome::Provider { provider }) => {
+            let current = if provider == app.provider {
+                app.model.clone()
+            } else {
+                String::new()
+            };
+            match client.models_list(&provider).await {
+                Ok(models) if !models.is_empty() => {
+                    app.open_model_picker(provider, current, models);
+                }
+                Ok(_) => app.push_system(format!("No models available for provider {provider}.")),
+                Err(err) => app.push_system(format!("Failed to load models: {err}")),
+            }
+        }
+        // Step 2: update local state (badge + meter) and persist the choice.
+        Some(PromptOutcome::Model { provider, model }) => {
+            app.set_model(provider.clone(), model.clone());
+            app.push_system(format!("Model set to {provider}/{model}"));
+            let client = client.clone();
+            tokio::spawn(async move {
+                if let Err(err) = client.set_current_model(&provider, &model).await {
+                    eprintln!("[config.setCurrentModel error] {err}");
+                }
+            });
+        }
+        // Core-bound replies (question/permission) route through the shared
+        // dispatcher; `More`/`None` leave the modal open.
+        other => dispatch_prompt_outcome(other, client),
+    }
 }
 
 /// Fire the RPC for a resolved prompt outcome. Every closing outcome must reach
 /// core, or the blocked turn hangs forever; `More`/`None` mean the modal is
-/// still open, so there is nothing to send yet.
+/// still open, so there is nothing to send yet. The local `/model` outcomes
+/// (`Provider`/`Model`) are handled by the caller (they need `app`), so they
+/// are no-ops here.
 fn dispatch_prompt_outcome(outcome: Option<PromptOutcome>, client: &Arc<IpcClient>) {
     let client = client.clone();
     match outcome {
@@ -282,7 +399,10 @@ fn dispatch_prompt_outcome(outcome: Option<PromptOutcome>, client: &Arc<IpcClien
                 }
             });
         }
-        Some(PromptOutcome::More) | None => {}
+        Some(PromptOutcome::Provider { .. })
+        | Some(PromptOutcome::Model { .. })
+        | Some(PromptOutcome::More)
+        | None => {}
     }
 }
 
@@ -302,4 +422,26 @@ fn send_message(text: String, app: &mut App, client: &Arc<IpcClient>) {
             eprintln!("[session.send error] {err}");
         }
     });
+}
+
+/// Open the first `/model` step. Fetches the provider list over IPC (awaited
+/// inline in the event loop, like `session_start` at boot) and opens the
+/// picker, pre-selecting the active provider. Failures surface as a system
+/// message rather than an empty modal. Selecting a provider then loads its
+/// models — see the `Provider` arm in `handle_prompt_key`.
+async fn open_provider_picker(app: &mut App, client: &Arc<IpcClient>) {
+    let current_provider = client
+        .current_model()
+        .await
+        .ok()
+        .flatten()
+        .map(|c| c.provider)
+        .unwrap_or_default();
+    match client.providers_list().await {
+        Ok(providers) if !providers.is_empty() => {
+            app.open_provider_picker(providers, current_provider);
+        }
+        Ok(_) => app.push_system("No providers available.".into()),
+        Err(err) => app.push_system(format!("Failed to load providers: {err}")),
+    }
 }

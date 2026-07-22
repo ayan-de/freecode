@@ -36,6 +36,19 @@ impl Mode {
             Mode::Danger => "DANGER",
         }
     }
+
+    /// Parse a lowercase keyword (e.g. from `/mode build`) into a `Mode`. The
+    /// inverse of `label`, so the `/mode` command and the badge stay in sync.
+    pub fn from_keyword(s: &str) -> Option<Mode> {
+        match s {
+            "plan" => Some(Mode::Plan),
+            "build" => Some(Mode::Build),
+            "review" => Some(Mode::Review),
+            "explore" => Some(Mode::Explore),
+            "danger" => Some(Mode::Danger),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -124,12 +137,20 @@ pub enum PromptKind {
     Question,
     /// `permission.answer` with a `PermissionPromptDecision` value.
     Permission,
+    /// First step of `/model`: pick a provider, then its models load.
+    Provider,
+    /// Second step of `/model` — `config.setCurrentModel`, not a core ask.
+    Model,
 }
 
 #[derive(Debug, Clone)]
 pub struct PromptOption {
     pub label: String,
     pub description: String,
+    /// The value to send when this row is chosen, if it differs from `label`.
+    /// Model rows carry the model id here (the label is the pretty name);
+    /// questions/permissions leave it `None` and answer with the label.
+    pub value: Option<String>,
 }
 
 /// A modal awaiting the user. While one is open core is blocked, so the
@@ -153,6 +174,14 @@ pub struct Prompt {
     pub editing_other: bool,
     /// The custom answer typed into the "Other" field.
     pub other_text: String,
+    /// For the model picker (`PromptKind::Model`), the provider its models
+    /// belong to — so submitting resolves to `provider/model`, even when the
+    /// user switched providers first. `None` for every other kind.
+    target_provider: Option<String>,
+    /// Type-to-search query for the `/model` pickers (`is_searchable`). Filters
+    /// the option list by substring on label/value; empty for questions and
+    /// permissions, which are never searchable.
+    pub search: String,
     /// Remaining questions in a multi-question ask, and the answers collected
     /// so far. Empty for permission prompts.
     pending: Vec<QuestionSpec>,
@@ -164,7 +193,7 @@ impl Prompt {
         let mut options: Vec<PromptOption> = spec
             .options
             .into_iter()
-            .map(|o| PromptOption { label: o.label, description: o.description })
+            .map(|o| PromptOption { label: o.label, description: o.description, value: None })
             .collect();
         // Every question gets a free-text escape hatch as its last row, so the
         // user can answer with something none of the offered options cover.
@@ -172,6 +201,7 @@ impl Prompt {
         options.push(PromptOption {
             label: "Other".to_string(),
             description: "Type your own answer".to_string(),
+            value: None,
         });
         Self {
             kind: PromptKind::Question,
@@ -185,8 +215,91 @@ impl Prompt {
             other_index,
             editing_other: false,
             other_text: String::new(),
+            target_provider: None,
+            search: String::new(),
             pending,
             answers,
+        }
+    }
+
+    /// First step of `/model`: pick a provider. The current one is pre-selected
+    /// and badged; providers without an API key are flagged so the choice is
+    /// informed. Selecting one loads its models (`ui::prompt` renders this like
+    /// the question modal).
+    fn provider(providers: Vec<crate::ipc::protocol::ProviderInfo>, current: String) -> Self {
+        let selected = providers.iter().position(|p| p.id == current).unwrap_or(0);
+        let options: Vec<PromptOption> = providers
+            .into_iter()
+            .map(|p| {
+                let is_current = p.id == current;
+                let mut description = p.description;
+                if !p.has_api_key {
+                    description = if description.is_empty() {
+                        "needs API key".to_string()
+                    } else {
+                        format!("{description} · needs API key")
+                    };
+                }
+                PromptOption {
+                    label: if is_current { format!("{}  (current)", p.name) } else { p.name },
+                    description,
+                    value: Some(p.id),
+                }
+            })
+            .collect();
+        Self {
+            kind: PromptKind::Provider,
+            request_id: String::new(),
+            title: "Select provider".to_string(),
+            subtitle: "Choose a provider, then a model".to_string(),
+            checked: vec![false; options.len()],
+            options,
+            selected,
+            multiple: false,
+            other_index: None,
+            editing_other: false,
+            other_text: String::new(),
+            target_provider: None,
+            search: String::new(),
+            pending: Vec::new(),
+            answers: Vec::new(),
+        }
+    }
+
+    /// Second step of `/model`: one row per model for `provider`, the current
+    /// one pre-selected and badged. Resolves to `config.setCurrentModel` on
+    /// submit; `provider` is stashed so a cross-provider switch persists the
+    /// right pair.
+    fn model(provider: String, current: String, models: Vec<crate::ipc::protocol::ModelInfo>) -> Self {
+        let selected = models.iter().position(|m| m.id == current).unwrap_or(0);
+        let options: Vec<PromptOption> = models
+            .into_iter()
+            .map(|m| {
+                let is_current = m.id == current;
+                let name = m.name.unwrap_or_else(|| m.id.clone());
+                PromptOption {
+                    label: if is_current { format!("{name}  (current)") } else { name },
+                    description: m.description.unwrap_or_default(),
+                    value: Some(m.id),
+                }
+            })
+            .collect();
+        Self {
+            kind: PromptKind::Model,
+            request_id: String::new(),
+            title: format!("Model · {provider}"),
+            subtitle: "Select the active model".to_string(),
+            checked: vec![false; options.len()],
+            options,
+            selected,
+            multiple: false,
+            other_index: None,
+            editing_other: false,
+            other_text: String::new(),
+            target_provider: Some(provider),
+            search: String::new(),
+            pending: Vec::new(),
+            answers: Vec::new(),
         }
     }
 
@@ -215,13 +328,60 @@ impl Prompt {
     }
 
     pub fn move_up(&mut self) {
-        self.selected = self.selected.checked_sub(1).unwrap_or(self.options.len().saturating_sub(1));
+        let n = self.filtered_indices().len();
+        self.selected = self.selected.checked_sub(1).unwrap_or(n.saturating_sub(1));
     }
 
     pub fn move_down(&mut self) {
-        if !self.options.is_empty() {
-            self.selected = (self.selected + 1) % self.options.len();
+        let n = self.filtered_indices().len();
+        if n > 0 {
+            self.selected = (self.selected + 1) % n;
         }
+    }
+
+    /// Whether this modal has a type-to-search line above a scrolling list —
+    /// the `/model` provider and model pickers. Questions/permissions do not.
+    pub fn is_searchable(&self) -> bool {
+        matches!(self.kind, PromptKind::Provider | PromptKind::Model)
+    }
+
+    /// Indices into `options` that match the current `search`, preserving order.
+    /// With no query (all non-searchable modals) this is simply every index, so
+    /// `selected` indexes it identically to `options` — keeping questions and
+    /// permissions unchanged.
+    pub fn filtered_indices(&self) -> Vec<usize> {
+        if self.search.is_empty() {
+            return (0..self.options.len()).collect();
+        }
+        let q = self.search.to_lowercase();
+        self.options
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| {
+                o.label.to_lowercase().contains(&q)
+                    || o.value.as_deref().is_some_and(|v| v.to_lowercase().contains(&q))
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The option under the cursor, mapping the filtered view position back to
+    /// the underlying `options`. `None` when the search matches nothing.
+    fn selected_option(&self) -> Option<&PromptOption> {
+        let idx = *self.filtered_indices().get(self.selected)?;
+        self.options.get(idx)
+    }
+
+    /// Append to the search query and reset the cursor to the first match, the
+    /// way the TS TUI rebuilds its list on each keystroke.
+    pub fn search_push(&mut self, c: char) {
+        self.search.push(c);
+        self.selected = 0;
+    }
+
+    pub fn search_backspace(&mut self) {
+        self.search.pop();
+        self.selected = 0;
     }
 
     pub fn toggle(&mut self) {
@@ -267,6 +427,10 @@ pub enum PromptOutcome {
     Answer { request_id: String, answers: Vec<String> },
     /// `permission.answer` with a decision value.
     Permission { request_id: String, decision: String },
+    /// `/model` step 1: a provider was chosen; load its models next.
+    Provider { provider: String },
+    /// `/model` step 2: persist `provider`/`model` via `config.setCurrentModel`.
+    Model { provider: String, model: String },
     /// More questions remain in this ask; nothing to send yet.
     More,
 }
@@ -300,6 +464,10 @@ pub struct App {
     /// waveform swells during bursts and settles to a gentle idle wobble in the
     /// gaps between them.
     energy: f32,
+    /// Highlighted row in the slash-command completion menu. Clamped to the
+    /// live match count on read (`command_cursor`), so it stays valid as the
+    /// user types and the match list shrinks.
+    cmd_cursor: usize,
 }
 
 impl App {
@@ -322,7 +490,37 @@ impl App {
             started: Instant::now(),
             in_progress: None,
             energy: 0.0,
+            cmd_cursor: 0,
         }
+    }
+
+    /// Drop the transcript and reset scroll/turn state. The core session is
+    /// untouched — this only clears what the frontend shows (`/clear`).
+    pub fn clear_messages(&mut self) {
+        self.messages.clear();
+        self.scroll = 0;
+        self.follow = true;
+        self.in_progress = None;
+    }
+
+    /// The highlighted completion row, clamped to the current `count` of
+    /// matches so a stale index from a longer list never points past the end.
+    pub fn command_cursor(&self, count: usize) -> usize {
+        self.cmd_cursor.min(count.saturating_sub(1))
+    }
+
+    pub fn command_menu_up(&mut self) {
+        self.cmd_cursor = self.cmd_cursor.saturating_sub(1);
+    }
+
+    pub fn command_menu_down(&mut self, count: usize) {
+        if count > 0 {
+            self.cmd_cursor = (self.cmd_cursor + 1).min(count - 1);
+        }
+    }
+
+    pub fn reset_command_cursor(&mut self) {
+        self.cmd_cursor = 0;
     }
 
     /// Milliseconds since boot, as a float for the intro animation clock.
@@ -451,7 +649,6 @@ impl App {
     /// returns what to send to core.
     pub fn submit_prompt(&mut self) -> Option<PromptOutcome> {
         let prompt = self.prompt.take()?;
-        let chosen = prompt.chosen();
 
         if prompt.kind == PromptKind::Permission {
             return Some(PromptOutcome::Permission {
@@ -459,6 +656,27 @@ impl App {
                 decision: permission_decision(prompt.selected),
             });
         }
+
+        if prompt.kind == PromptKind::Provider {
+            // Rows carry the provider id in `value`; the loop loads its models.
+            return prompt
+                .selected_option()
+                .and_then(|o| o.value.clone())
+                .map(|provider| PromptOutcome::Provider { provider });
+        }
+
+        if prompt.kind == PromptKind::Model {
+            // Each row carries its model id in `value`; the label is the pretty
+            // name. `target_provider` names the provider the list was loaded
+            // for, so a cross-provider switch persists the right pair.
+            let provider = prompt.target_provider.clone().unwrap_or_default();
+            return prompt
+                .selected_option()
+                .and_then(|o| o.value.clone())
+                .map(|model| PromptOutcome::Model { provider, model });
+        }
+
+        let chosen = prompt.chosen();
 
         let mut answers = prompt.answers;
         answers.extend(chosen);
@@ -471,6 +689,30 @@ impl App {
         Some(PromptOutcome::More)
     }
 
+    /// Open the first `/model` step: the provider picker, pre-selecting the
+    /// active provider. Re-arms follow so the transcript isn't left scrolled up
+    /// behind the modal.
+    pub fn open_provider_picker(
+        &mut self,
+        providers: Vec<crate::ipc::protocol::ProviderInfo>,
+        current_provider: String,
+    ) {
+        self.follow = true;
+        self.prompt = Some(Prompt::provider(providers, current_provider));
+    }
+
+    /// Open the second `/model` step: the model picker for `provider`,
+    /// pre-selecting `current`.
+    pub fn open_model_picker(
+        &mut self,
+        provider: String,
+        current: String,
+        models: Vec<crate::ipc::protocol::ModelInfo>,
+    ) {
+        self.follow = true;
+        self.prompt = Some(Prompt::model(provider, current, models));
+    }
+
     /// Enter (or a number key in single-select) on the picker. Choosing the
     /// free-text "Other" row opens its input field instead of submitting; every
     /// other row submits. In multi-select, Enter submits all checked options.
@@ -478,6 +720,11 @@ impl App {
         let p = self.prompt.as_mut()?;
         if !p.multiple && p.selected_is_other() {
             p.start_editing_other();
+            return None;
+        }
+        // A searchable picker with no match under the cursor: ignore Enter so
+        // the modal stays open rather than closing on an empty selection.
+        if p.is_searchable() && p.selected_option().is_none() {
             return None;
         }
         self.submit_prompt()
@@ -526,6 +773,9 @@ impl App {
                 request_id: prompt.request_id,
                 answers: Vec::new(),
             }),
+            // The `/model` pickers are local overlays — Esc just closes them;
+            // core was never blocked, so there is nothing to unblock.
+            PromptKind::Provider | PromptKind::Model => None,
         }
     }
 
@@ -544,6 +794,12 @@ impl App {
         // is already cleared. Handle it before the in-progress guard below.
         if let StreamEvent::Usage { context_tokens } = &event {
             self.context.tokens = *context_tokens;
+            return;
+        }
+        // Emitted by `set_current_model` after a `/model` switch so the meter's
+        // denominator follows the newly selected model's window.
+        if let StreamEvent::ContextLimit { limit } = &event {
+            self.context.limit = *limit;
             return;
         }
         // Text/thinking events lazily open an assistant message. A tool call
@@ -655,6 +911,8 @@ impl App {
                     other_index: None,
                     editing_other: false,
                     other_text: String::new(),
+                    target_provider: None,
+                    search: String::new(),
                     pending: Vec::new(),
                     answers: Vec::new(),
                 });
@@ -732,10 +990,10 @@ fn permission_options(suggested_rule: Option<String>) -> Vec<PromptOption> {
         None => "Always allow".to_string(),
     };
     vec![
-        PromptOption { label: "Allow once".into(), description: "Run this one time".into() },
-        PromptOption { label: "Allow for this session".into(), description: "Stop asking until you quit".into() },
-        PromptOption { label: always, description: "Persist a permission rule".into() },
-        PromptOption { label: "Deny".into(), description: "Refuse and tell the agent".into() },
+        PromptOption { label: "Allow once".into(), description: "Run this one time".into(), value: None },
+        PromptOption { label: "Allow for this session".into(), description: "Stop asking until you quit".into(), value: None },
+        PromptOption { label: always, description: "Persist a permission rule".into(), value: None },
+        PromptOption { label: "Deny".into(), description: "Refuse and tell the agent".into(), value: None },
     ]
 }
 
@@ -913,6 +1171,92 @@ mod tests {
             Some(PromptOutcome::Answer { answers, .. }) => assert_eq!(answers, ["A", "extra"]),
             other => panic!("expected A + typed answer, got {other:?}"),
         }
+    }
+
+    /// The model picker pre-selects the current model and, on submit, resolves
+    /// to the chosen model's *id* (from `value`) rather than its display label.
+    #[test]
+    fn model_picker_submits_selected_id_not_label() {
+        use crate::ipc::protocol::ModelInfo;
+        let mut app = App::new();
+        let models = vec![
+            ModelInfo { id: "opus-4-8".into(), name: Some("Opus 4.8".into()), description: None },
+            ModelInfo { id: "sonnet-5".into(), name: Some("Sonnet 5".into()), description: None },
+        ];
+        app.open_model_picker("anthropic".into(), "sonnet-5".into(), models);
+        assert_eq!(app.prompt.as_ref().unwrap().selected, 1, "current model is pre-selected");
+
+        // Pick Opus (index 0) and submit.
+        app.prompt.as_mut().unwrap().selected = 0;
+        match app.submit_prompt() {
+            Some(PromptOutcome::Model { provider, model }) => {
+                assert_eq!(provider, "anthropic");
+                assert_eq!(model, "opus-4-8");
+            }
+            other => panic!("expected a model outcome, got {other:?}"),
+        }
+        assert!(app.prompt.is_none());
+
+        // Esc on a picker just closes it — core was never blocked.
+        app.open_model_picker("anthropic".into(), "opus-4-8".into(), vec![
+            ModelInfo { id: "opus-4-8".into(), name: None, description: None },
+        ]);
+        assert!(app.cancel_prompt().is_none());
+        assert!(app.prompt.is_none());
+    }
+
+    /// Step 1 of `/model`: the provider picker pre-selects the active provider
+    /// and, on submit, resolves to the chosen provider id (not its label).
+    #[test]
+    fn provider_picker_submits_selected_id() {
+        use crate::ipc::protocol::ProviderInfo;
+        let mut app = App::new();
+        let providers = vec![
+            ProviderInfo { id: "anthropic".into(), name: "Anthropic".into(), description: String::new(), has_api_key: true },
+            ProviderInfo { id: "openai".into(), name: "OpenAI".into(), description: String::new(), has_api_key: false },
+        ];
+        app.open_provider_picker(providers, "openai".into());
+        assert_eq!(app.prompt.as_ref().unwrap().selected, 1, "current provider is pre-selected");
+
+        app.prompt.as_mut().unwrap().selected = 0;
+        match app.submit_prompt() {
+            Some(PromptOutcome::Provider { provider }) => assert_eq!(provider, "anthropic"),
+            other => panic!("expected a provider outcome, got {other:?}"),
+        }
+        assert!(app.prompt.is_none());
+    }
+
+    /// Typing in a picker filters by substring, resets the cursor to the first
+    /// match, and submits the matched id. Enter with no match keeps the modal.
+    #[test]
+    fn picker_search_filters_and_guards_empty() {
+        use crate::ipc::protocol::ProviderInfo;
+        let providers = vec![
+            ProviderInfo { id: "anthropic".into(), name: "Anthropic".into(), description: String::new(), has_api_key: true },
+            ProviderInfo { id: "openai".into(), name: "OpenAI".into(), description: String::new(), has_api_key: true },
+            ProviderInfo { id: "gemini".into(), name: "Gemini".into(), description: String::new(), has_api_key: false },
+        ];
+
+        let mut app = App::new();
+        app.open_provider_picker(providers.clone(), "anthropic".into());
+        let p = app.prompt.as_mut().unwrap();
+        for c in "gem".chars() {
+            p.search_push(c);
+        }
+        assert_eq!(p.filtered_indices(), vec![2], "only Gemini matches 'gem'");
+        assert_eq!(p.selected, 0, "cursor jumps to the first match");
+        match app.submit_prompt() {
+            Some(PromptOutcome::Provider { provider }) => assert_eq!(provider, "gemini"),
+            other => panic!("expected gemini, got {other:?}"),
+        }
+
+        // A query that matches nothing: Enter is ignored, the modal stays open.
+        app.open_provider_picker(providers, "anthropic".into());
+        for c in "zzz".chars() {
+            app.prompt.as_mut().unwrap().search_push(c);
+        }
+        assert!(app.activate_prompt().is_none());
+        assert!(app.prompt.is_some(), "no-match Enter keeps the picker open");
     }
 
     /// Esc must always unblock core — denying, never silently closing.

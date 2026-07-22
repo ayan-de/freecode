@@ -1,6 +1,7 @@
-//! The blocking modal: question and permission asks. Core is stopped while
-//! this is on screen, so it reads as a hard interrupt — a centered card over a
-//! dimmed transcript rather than another line in the scroll.
+//! The modal card: question/permission asks (core is stopped while these are
+//! on screen, so they read as a hard interrupt) and the local `/model` provider
+//! and model pickers. Searchable pickers add a type-to-search line above a
+//! windowed, scrolling list so long provider/model lists stay navigable.
 
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -18,6 +19,9 @@ const CARD_BG: Color = Color::DarkGray;
 const INPUT_BG: Color = Color::Rgb(55, 55, 62);
 /// Widest the card gets, so it stays readable on a full-screen terminal.
 const MAX_WIDTH: u16 = 78;
+/// Rows of a searchable list shown at once before it scrolls (matches the TS
+/// TUI's `SearchableSelectList`). The rest are reached with ↑/↓.
+const MAX_VISIBLE: usize = 10;
 
 fn dim() -> Style {
     Style::default().fg(Color::DarkGray).bg(CARD_BG)
@@ -33,6 +37,8 @@ pub fn draw(frame: &mut Frame, prompt: &Prompt, area: Rect) {
     let accent = match prompt.kind {
         PromptKind::Question => PINK,
         PromptKind::Permission => Color::Cyan,
+        // Both `/model` steps share the magenta of the model badge.
+        PromptKind::Provider | PromptKind::Model => Color::Magenta,
     };
 
     let block = Block::default()
@@ -60,6 +66,10 @@ pub fn draw(frame: &mut Frame, prompt: &Prompt, area: Rect) {
 }
 
 fn body(prompt: &Prompt) -> Vec<Line<'static>> {
+    if prompt.is_searchable() {
+        return searchable_body(prompt);
+    }
+
     let mut lines = Vec::new();
 
     if !prompt.subtitle.is_empty() {
@@ -132,6 +142,86 @@ fn body(prompt: &Prompt) -> Vec<Line<'static>> {
     };
     lines.push(Line::from(Span::styled(hint, dim())));
     lines
+}
+
+/// The `/model` provider and model pickers: a type-to-search line above a
+/// scrolling window of the matching rows, with "N more" markers for the parts
+/// off-screen above/below.
+fn searchable_body(prompt: &Prompt) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+
+    // Search line: the live query with a block cursor, or a hint when empty.
+    if prompt.search.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "Type to search · ↑↓ select · enter confirm · esc cancel",
+            dim(),
+        )));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("Search: ", dim()),
+            Span::styled(prompt.search.clone(), Style::default().fg(Color::White).bg(CARD_BG)),
+            Span::styled("▏", Style::default().fg(Color::Magenta).bg(CARD_BG)),
+        ]));
+    }
+    lines.push(Line::from(""));
+
+    let filtered = prompt.filtered_indices();
+    if filtered.is_empty() {
+        lines.push(Line::from(Span::styled("  no matches", dim())));
+        return lines;
+    }
+
+    let (start, end) = window(prompt.selected, filtered.len(), MAX_VISIBLE);
+    if start > 0 {
+        lines.push(Line::from(Span::styled(format!("  ↑ {start} more"), dim())));
+    }
+    for (offset, &opt_idx) in filtered[start..end].iter().enumerate() {
+        let option = &prompt.options[opt_idx];
+        let active = start + offset == prompt.selected;
+        let row_bg = if active { INPUT_BG } else { CARD_BG };
+        let label_style = if active {
+            Style::default().fg(Color::White).bg(row_bg).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray).bg(row_bg)
+        };
+        let mut spans = vec![
+            Span::styled(if active { "❯ " } else { "  " }, Style::default().fg(Color::Magenta).bg(row_bg)),
+            Span::styled(option.label.clone(), label_style),
+        ];
+        if !option.description.is_empty() {
+            spans.push(Span::styled(
+                format!("  {}", truncate(&option.description, 44)),
+                Style::default().fg(Color::DarkGray).bg(row_bg),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    if end < filtered.len() {
+        lines.push(Line::from(Span::styled(
+            format!("  ↓ {} more", filtered.len() - end),
+            dim(),
+        )));
+    }
+    lines
+}
+
+/// The visible slice `[start, end)` of a `total`-length list that keeps
+/// `selected` on screen within `max` rows, biasing toward centering the cursor.
+fn window(selected: usize, total: usize, max: usize) -> (usize, usize) {
+    if total <= max {
+        return (0, total);
+    }
+    let start = selected.saturating_sub(max / 2).min(total - max);
+    (start, start + max)
+}
+
+/// Trim `s` to at most `max` chars, adding an ellipsis when it was cut.
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let kept: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{kept}…")
 }
 
 /// A card of `width`×`height` centered in `area`, clamped to it.
