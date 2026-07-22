@@ -74,11 +74,51 @@ pub enum StreamEvent {
     Error {
         content: String,
     },
+    /// Core is blocked waiting for the user to answer. Ignoring these hangs
+    /// the turn — the agent loop only resumes on `question.answer`/`reject`.
+    QuestionAsked {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        questions: Vec<QuestionSpec>,
+    },
+    /// Core is blocked waiting for a permission decision (`permission.answer`).
+    PermissionAsked {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(default)]
+        description: String,
+        #[serde(rename = "suggestedRule", default)]
+        suggested_rule: Option<String>,
+        #[serde(default)]
+        reason: Option<String>,
+    },
     /// Synthesized locally (core never sends this) from the `session.send`
     /// RPC result's usage, so the status bar's context meter can update.
     Usage {
         context_tokens: u64,
     },
+}
+
+/// One question in a `question_asked` event; mirrors `QuestionSpec` in
+/// `packages/shared/src/ipc/protocol.ts`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuestionSpec {
+    pub question: String,
+    #[serde(default)]
+    pub header: Option<String>,
+    #[serde(default)]
+    pub options: Vec<QuestionOption>,
+    #[serde(default)]
+    pub multiple: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuestionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
 }
 
 /// A line read from the core's stdout is either a JSON-RPC response

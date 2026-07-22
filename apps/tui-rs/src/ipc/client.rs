@@ -228,6 +228,28 @@ impl IpcClient {
         Ok(value.as_u64().unwrap_or(0))
     }
 
+    /// Unblock a `question_asked`. An empty `answers` list rejects it, which
+    /// core surfaces to the agent as "the user declined to answer".
+    pub async fn question_answer(&self, request_id: &str, answers: Vec<String>) -> Result<()> {
+        let method = if answers.is_empty() { "question.reject" } else { "question.answer" };
+        self.call(
+            method,
+            Some(serde_json::json!({ "requestId": request_id, "answers": answers })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Unblock a `permission_asked` with a `PermissionPromptDecision` value.
+    pub async fn permission_answer(&self, request_id: &str, decision: &str) -> Result<()> {
+        self.call(
+            "permission.answer",
+            Some(serde_json::json!({ "requestId": request_id, "decision": decision })),
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn session_stop(&self, session_id: &str) -> Result<()> {
         self.call("session.stop", Some(serde_json::json!({ "sessionId": session_id })))
             .await?;
