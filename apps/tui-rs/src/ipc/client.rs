@@ -15,7 +15,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::protocol::{
-    parse_line, CurrentModel, IncomingLine, JsonRpcRequest, ProviderInfo, SessionConfig,
+    parse_line, CurrentModel, IncomingLine, JsonRpcRequest, ModelInfo, ProviderInfo, SessionConfig,
     SessionInfo, SessionSendResult, StreamEvent, ToolListItem,
 };
 
@@ -185,6 +185,30 @@ impl IpcClient {
             return Ok(None);
         }
         Ok(Some(serde_json::from_value(value)?))
+    }
+
+    /// The models offered by `provider_id` (`models.list`), for the `/model`
+    /// picker. Returns them in the order core lists them.
+    pub async fn models_list(&self, provider_id: &str) -> Result<Vec<ModelInfo>> {
+        let value = self
+            .call("models.list", Some(serde_json::json!({ "providerId": provider_id })))
+            .await?;
+        Ok(serde_json::from_value(value)?)
+    }
+
+    /// Persist the active model (`config.setCurrentModel`) and emit the new
+    /// context-window limit as a synthetic event, so the status meter's
+    /// denominator updates the same way it does at startup.
+    pub async fn set_current_model(&self, provider: &str, model: &str) -> Result<()> {
+        self.call(
+            "config.setCurrentModel",
+            Some(serde_json::json!({ "provider": provider, "model": model })),
+        )
+        .await?;
+        if let Ok(limit) = self.model_context_limit(provider, model).await {
+            let _ = self.event_tx.send(StreamEvent::ContextLimit { limit });
+        }
+        Ok(())
     }
 
     pub async fn session_start(&self, config: SessionConfig) -> Result<SessionInfo> {

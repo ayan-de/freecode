@@ -99,6 +99,11 @@ pub enum StreamEvent {
     Usage {
         context_tokens: u64,
     },
+    /// Synthesized locally after a model switch (core never sends this) so the
+    /// status meter's denominator tracks the newly selected model's window.
+    ContextLimit {
+        limit: u64,
+    },
 }
 
 /// One question in a `question_asked` event; mirrors `QuestionSpec` in
@@ -170,8 +175,12 @@ pub struct SessionInfo {
 pub struct ProviderInfo {
     pub id: String,
     pub name: String,
-    #[allow(dead_code)]
+    #[serde(default)]
     pub description: String,
+    /// Whether core can find an API key for this provider (config or env). The
+    /// picker badges providers that still need one.
+    #[serde(rename = "hasApiKey", default)]
+    pub has_api_key: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -219,4 +228,17 @@ pub struct ToolListItem {
 pub struct CurrentModel {
     pub provider: String,
     pub model: String,
+}
+
+/// One entry from `models.list`; mirrors `ModelInfo` in
+/// `apps/tui/src/ipc/client.ts`. Only `id` is required — `name` falls back to
+/// the id, and the model's context/output limits are ignored here (the status
+/// bar resolves the window via `models.contextLimit`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelInfo {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
