@@ -49,6 +49,30 @@ fn dim() -> Style {
     Style::default().fg(Color::DarkGray)
 }
 
+/// Icon shown in a tool's chip, keyed by tool name. Everything maps to the same
+/// glyph for now; give a tool its own icon by adding an arm above the catch-all
+/// (e.g. `"bash" => ""`). MCP tools arrive as `server_tool` names and fall
+/// through to the default until listed.
+fn tool_icon(name: &str) -> &'static str {
+    match name {
+        "read" => "",
+        "write" => "",
+        "glob" => "󱆃",
+        "grep" => "󰛄",
+        "edit" => "",
+        "bash" => "",
+        "skill" => "",
+        "agent" => "󰵰",
+        "question" => "",
+        "webfetch" => "",
+        "websearch" => "󰜏",
+        "todowrite" => "",
+        "lsp" => "",
+        // MCP tools (server-prefixed names) and anything unlisted:
+        _ => "󰟶",
+    }
+}
+
 pub fn render(call: &ToolCall, phase: f32, expanded: bool) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(header(call, phase, expanded))];
 
@@ -84,7 +108,7 @@ fn header(call: &ToolCall, phase: f32, expanded: bool) -> Vec<Span<'static>> {
     let mut spans = vec![
         Span::styled(format!("{marker} "), Style::default().fg(color)),
         Span::styled(
-            format!(" {} ", call.name),
+            format!(" {} {} ", tool_icon(&call.name), call.name),
             Style::default()
                 .bg(CHIP_BG)
                 .fg(Color::Black)

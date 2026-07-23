@@ -266,7 +266,7 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                     } else {
                         let expanded = app.is_thought_expanded(idx);
                         let mut header = vec![Span::styled(
-                            " Thought ",
+                            " 󰟶 Thought ",
                             Style::default()
                                 .bg(Color::Cyan)
                                 .fg(Color::Black)
