@@ -38,6 +38,18 @@ impl Mode {
         }
     }
 
+    /// Nerd Font icon shown before the label in the mode badge. Empty modes fall
+    /// back to just the label until an icon is chosen for them.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Mode::Plan => "",
+            Mode::Build => "",
+            Mode::Review => "",
+            Mode::Explore => "",
+            Mode::Danger => "󰯆",
+        }
+    }
+
     /// Lowercase keyword sent to core as `agentMode` (`plan`/`build`/…). Core
     /// expects lowercase, so this is the wire form of `label`.
     pub fn keyword(self) -> &'static str {

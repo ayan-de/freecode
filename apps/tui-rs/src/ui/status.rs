@@ -141,8 +141,14 @@ fn context_segment(usage: ContextUsage) -> Vec<Span<'static>> {
 /// (`MODE_BG`) so the mode reads as a distinct container on the status row.
 /// No per-mode coloring, no inline hint text.
 fn mode_segment(mode: Mode) -> Vec<Span<'static>> {
+    let icon = mode.icon();
+    let text = if icon.is_empty() {
+        format!(" {} ", mode.label())
+    } else {
+        format!(" {} {} ", icon, mode.label())
+    };
     vec![Span::styled(
-        format!(" {} ", mode.label()),
+        text,
         Style::default()
             .bg(MODE_BG)
             .fg(MODE_FG)
