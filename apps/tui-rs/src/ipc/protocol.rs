@@ -74,6 +74,24 @@ pub enum StreamEvent {
     Error {
         content: String,
     },
+    /// Compaction began (summarizing older turns to free context).
+    CompactionStart {
+        #[serde(default)]
+        trigger: String,
+    },
+    /// Compaction finished; carries the before/after token estimates.
+    CompactionComplete {
+        #[serde(default)]
+        trigger: String,
+        #[serde(default)]
+        compacted: bool,
+        #[serde(rename = "tokensBefore", default)]
+        tokens_before: u64,
+        #[serde(rename = "tokensAfter", default)]
+        tokens_after: u64,
+        #[serde(default)]
+        reason: Option<String>,
+    },
     /// Core is blocked waiting for the user to answer. Ignoring these hangs
     /// the turn — the agent loop only resumes on `question.answer`/`reject`.
     QuestionAsked {

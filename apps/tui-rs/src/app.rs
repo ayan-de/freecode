@@ -814,6 +814,30 @@ impl App {
             self.context.limit = *limit;
             return;
         }
+        // Compaction progress — a system line, no assistant message involved.
+        if let StreamEvent::CompactionStart { .. } = &event {
+            self.push_system("Compacting conversation…".into());
+            return;
+        }
+        if let StreamEvent::CompactionComplete {
+            compacted,
+            tokens_before,
+            tokens_after,
+            reason,
+            trigger,
+            ..
+        } = &event
+        {
+            if *compacted {
+                self.push_system(format!(
+                    "Compacted context: ~{tokens_before} → ~{tokens_after} tokens"
+                ));
+            } else if trigger == "manual" {
+                let why = reason.clone().unwrap_or_else(|| "nothing to compact".into());
+                self.push_system(format!("Nothing to compact ({why})."));
+            }
+            return;
+        }
         // Text/thinking events lazily open an assistant message. A tool call
         // closes the current one, so the next step's text lands *after* the
         // tool in the transcript rather than being folded back into the text

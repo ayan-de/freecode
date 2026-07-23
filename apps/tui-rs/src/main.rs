@@ -230,6 +230,20 @@ async fn handle_terminal_event(
                             CommandOutcome::OpenModelPicker => {
                                 open_provider_picker(app, client).await;
                             }
+                            CommandOutcome::CompactSession => {
+                                // Fire in the background; compaction_* stream
+                                // events render progress on the shared channel.
+                                if let Some(session_id) = app.session_id.clone() {
+                                    let client = client.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(err) =
+                                            client.session_compact(&session_id).await
+                                        {
+                                            eprintln!("[session.compact error] {err}");
+                                        }
+                                    });
+                                }
+                            }
                             CommandOutcome::Done => {}
                         }
                     } else {

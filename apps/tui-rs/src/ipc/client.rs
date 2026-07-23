@@ -242,6 +242,18 @@ impl IpcClient {
         Ok(result)
     }
 
+    /// Manually compact the session (`session.compact`). Progress and the
+    /// result are delivered as `compaction_*` stream events on the persistent
+    /// channel, so the body is discarded here.
+    pub async fn session_compact(&self, session_id: &str) -> Result<()> {
+        self.call(
+            "session.compact",
+            Some(serde_json::json!({ "sessionId": session_id })),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// The context-window size for a model, resolved by core from models.dev
     /// (the single source of truth). Returns 0 when the model is unknown.
     pub async fn model_context_limit(&self, provider: &str, model: &str) -> Result<u64> {

@@ -4,6 +4,7 @@
 //! plus one `register` line in `with_builtins` — nothing else changes.
 
 mod clear;
+mod compact;
 mod help;
 mod mode;
 mod model;
@@ -22,6 +23,9 @@ pub enum CommandOutcome {
     /// Fetch the model list over IPC and open the model picker modal. Handled
     /// by the main loop because it needs async IPC before showing the modal.
     OpenModelPicker,
+    /// Manually compact the session (`session.compact`). Handled by the main
+    /// loop because it needs an async IPC call.
+    CompactSession,
 }
 
 /// Everything a command may touch. Grouping capabilities behind a context means
@@ -61,6 +65,7 @@ impl CommandRegistry {
         registry.register(Box::new(clear::Clear));
         registry.register(Box::new(model::ModelCommand));
         registry.register(Box::new(mode::ModeCommand));
+        registry.register(Box::new(compact::CompactCommand));
         registry.register(Box::new(quit::Quit));
         registry
     }
