@@ -30,6 +30,8 @@ export interface CommandContext extends MessageCreators {
   showMessage(content: string): void;
   showModelSelector?(): void;
   showResumePicker?(): void;
+  /** Trigger manual compaction of the current session (the /compact command). */
+  compactSession?(): Promise<void>;
   handleToolEvent?(event: StreamEvent): void;
   /**
    * Release the terminal from pi-tui, run `fn` (typically an alternate-screen

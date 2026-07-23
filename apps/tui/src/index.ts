@@ -26,6 +26,7 @@ import {
   sessionStart,
   sessionSendStreaming,
   sessionStop,
+  sessionCompact,
   sessionList,
   sessionResume,
   listProviders,
@@ -635,6 +636,20 @@ function handleToolEvent(event: StreamEvent) {
       tui.requestRender();
       break;
     }
+    // Auto-compaction only — manual /compact renders from its own RPC result
+    // (the stream listener isn't guaranteed active between turns).
+    case "compaction_start": {
+      if (event.trigger === "auto") showMessage("*Compacting conversation…*");
+      break;
+    }
+    case "compaction_complete": {
+      if (event.trigger === "auto" && event.compacted) {
+        showMessage(
+          `*Compacted context: ~${event.tokensBefore.toLocaleString()} → ~${event.tokensAfter.toLocaleString()} tokens*`,
+        );
+      }
+      break;
+    }
   }
 }
 
@@ -802,6 +817,29 @@ editor.onSubmit = async (value: string) => {
           showMessage,
           showModelSelector: showProviderSelector,
           showResumePicker: showResumePicker,
+          compactSession: async () => {
+            if (!currentSession) {
+              showMessage("*No active session to compact.*");
+              return;
+            }
+            showMessage("*Compacting conversation…*");
+            try {
+              const r = await sessionCompact(currentSession.sessionId);
+              if (r.compacted) {
+                showMessage(
+                  `*Compacted context: ~${r.tokensBefore.toLocaleString()} → ~${r.tokensAfter.toLocaleString()} tokens*`,
+                );
+              } else {
+                showMessage(
+                  `*Nothing to compact${r.reason ? ` (${r.reason})` : ""}.*`,
+                );
+              }
+            } catch (err) {
+              showMessage(
+                `**Error:** Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          },
           createUserMessage: (content: string) => createUserMessage(content),
           createAssistantMessage: (content: string) =>
             createAssistantMessage(content),

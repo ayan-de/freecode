@@ -12,6 +12,7 @@ const helpCommand: Command = {
 - **/clear** - Clear all messages
 - **/model** - Select AI model
 - **/resume** - Resume a previous session
+- **/compact** - Summarize older turns to free up context
 - **/usage** - Show daily token usage heatmap
 - **/exit** - Exit FreeCode
 
@@ -51,6 +52,14 @@ const resumeCommand: Command = {
   execute: (_args, ctx) => {
     ctx.showMessage(`**Select a session to resume:**`);
     ctx.showResumePicker?.();
+  },
+};
+
+const compactCommand: Command = {
+  name: "compact",
+  description: "Summarize older turns to free up context",
+  execute: (_args, ctx) => {
+    void ctx.compactSession?.();
   },
 };
 
@@ -113,5 +122,6 @@ export function registerBuiltInCommands(): void {
   registerCommand(exitCommand);
   registerCommand(modelCommand);
   registerCommand(resumeCommand);
+  registerCommand(compactCommand);
   registerCommand(usageCommand);
 }

@@ -235,6 +235,19 @@ export async function sessionStop(sessionId: string): Promise<void> {
   await sendRequest("session.stop", { sessionId });
 }
 
+export interface CompactResult {
+  compacted: boolean;
+  tokensBefore: number;
+  tokensAfter: number;
+  reason?: string;
+}
+
+export async function sessionCompact(
+  sessionId: string,
+): Promise<CompactResult> {
+  return (await sendRequest("session.compact", { sessionId })) as CompactResult;
+}
+
 export interface SessionSendResult {
   success: boolean;
   message?: string;
