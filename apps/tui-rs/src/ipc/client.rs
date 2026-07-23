@@ -221,11 +221,13 @@ impl IpcClient {
         session_id: &str,
         message: &str,
         model: Option<&str>,
+        agent_mode: Option<&str>,
     ) -> Result<SessionSendResult> {
         let params = serde_json::json!({
             "sessionId": session_id,
             "message": message,
             "model": model,
+            "agentMode": agent_mode,
         });
         let value = self.call("session.send", Some(params)).await?;
         let result: SessionSendResult = serde_json::from_value(value)?;

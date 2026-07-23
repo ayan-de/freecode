@@ -163,6 +163,8 @@ pub struct SessionConfig {
     pub project_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    #[serde(rename = "agentMode", skip_serializing_if = "Option::is_none")]
+    pub agent_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -56,7 +56,11 @@ async fn run(
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
     app.cwd = cwd.clone();
     match client
-        .session_start(SessionConfig { project_path: cwd, provider: None })
+        .session_start(SessionConfig {
+            project_path: cwd,
+            provider: None,
+            agent_mode: Some(app.mode.keyword().into()),
+        })
         .await
     {
         Ok(info) => {
@@ -416,9 +420,15 @@ fn send_message(text: String, app: &mut App, client: &Arc<IpcClient>) {
     app.push_user(text.clone());
     app.status = Status::Sending;
 
+    // Read the current mode now; core reads agentMode per turn, so cycling
+    // (Shift+Tab) takes effect on the next send.
+    let agent_mode = app.mode.keyword();
     let client = client.clone();
     tokio::spawn(async move {
-        if let Err(err) = client.session_send(&session_id, &text, None).await {
+        if let Err(err) = client
+            .session_send(&session_id, &text, None, Some(agent_mode))
+            .await
+        {
             eprintln!("[session.send error] {err}");
         }
     });

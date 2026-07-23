@@ -8,8 +8,8 @@ use crate::ipc::protocol::{QuestionSpec, StreamEvent};
 /// the TS TUI exposes.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    #[default]
     Plan,
+    #[default]
     Build,
     Review,
     Explore,
@@ -34,6 +34,18 @@ impl Mode {
             Mode::Review => "REVIEW",
             Mode::Explore => "EXPLORE",
             Mode::Danger => "DANGER",
+        }
+    }
+
+    /// Lowercase keyword sent to core as `agentMode` (`plan`/`build`/…). Core
+    /// expects lowercase, so this is the wire form of `label`.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Mode::Plan => "plan",
+            Mode::Build => "build",
+            Mode::Review => "review",
+            Mode::Explore => "explore",
+            Mode::Danger => "danger",
         }
     }
 
