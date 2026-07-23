@@ -231,11 +231,6 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
             Role::Assistant => {
-                lines.push(Line::from(Span::styled(
-                    "●",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                )));
-
                 // Reasoning. While it's still streaming (no answer text yet) it
                 // shows live as "Thinking…"; once the answer starts it collapses
                 // to a cyan "Thought" chip that clicking expands (like tools).
@@ -252,10 +247,15 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                         && msg.content.is_empty()
                         && msg.content_pending.is_empty();
                     if streaming {
-                        lines.push(Line::from(Span::styled(
-                            "Thinking…",
-                            Style::default().fg(Color::Cyan),
-                        )));
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                "● ",
+                                Style::default()
+                                    .fg(Color::Green)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled("Thinking…", Style::default().fg(Color::Cyan)),
+                        ]));
                         for line in msg.thinking.lines() {
                             lines.push(Line::from(vec![
                                 Span::styled("  │ ", think),
@@ -265,13 +265,21 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                         lines.push(Line::from(""));
                     } else {
                         let expanded = app.is_thought_expanded(idx);
-                        let mut header = vec![Span::styled(
-                            " 󰟶 Thought ",
-                            Style::default()
-                                .bg(Color::Cyan)
-                                .fg(Color::Black)
-                                .add_modifier(Modifier::BOLD),
-                        )];
+                        let mut header = vec![
+                            Span::styled(
+                                "● ",
+                                Style::default()
+                                    .fg(Color::Green)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(
+                                " 󰟶 Thought ",
+                                Style::default()
+                                    .bg(Color::Cyan)
+                                    .fg(Color::Black)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ];
                         header.push(Span::styled(
                             if expanded { " ⌃" } else { " ⌄" },
                             dim(),
@@ -290,7 +298,19 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                     }
                 }
 
-                lines.extend(markdown::render(&msg.content));
+                // The green dot marks where the answer begins — prepend it to
+                // the first rendered line of the answer so the bullet sits next
+                // to the output rather than floating on a line of its own. When
+                // there is no answer text yet (pure reasoning), no dot shows.
+                let mut body = markdown::render(&msg.content);
+                let dot = Span::styled(
+                    "● ",
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                );
+                if let Some(line) = body.iter_mut().find(|l| l.width() > 0) {
+                    line.spans.insert(0, dot);
+                }
+                lines.extend(body);
             }
         }
         lines.push(Line::from(""));
