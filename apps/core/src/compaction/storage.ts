@@ -3,14 +3,20 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { MemoryState } from "./types.js";
 
-const SESSION_DIR = ".freecode/sessions";
+// Home-rooted like every other ~/.freecode subsystem (sessions, rollout,
+// state, config). Previously this defaulted to process.cwd(), which scattered
+// compaction memory into whatever directory core was launched from (e.g. the
+// repo root) and orphaned it from the session it belongs to.
+const MEMORY_ROOT = join(homedir(), ".freecode", "memory");
 
 export interface MemoryStorage {
   save(state: MemoryState): void;
@@ -20,10 +26,10 @@ export interface MemoryStorage {
 }
 
 export class FileMemoryStorage implements MemoryStorage {
-  constructor(private readonly basePath = process.cwd()) {}
+  constructor(private readonly basePath = MEMORY_ROOT) {}
 
   private sessionDir(sessionId: string): string {
-    return join(this.basePath, SESSION_DIR, sessionId);
+    return join(this.basePath, sessionId);
   }
 
   private memoryPath(sessionId: string): string {
@@ -32,10 +38,13 @@ export class FileMemoryStorage implements MemoryStorage {
 
   save(state: MemoryState): void {
     mkdirSync(this.sessionDir(state.sessionId), { recursive: true });
-    writeFileSync(
-      this.memoryPath(state.sessionId),
-      JSON.stringify(state, null, 2),
-    );
+    // Atomic write: a crash mid-write must not corrupt memory.json (load()
+    // treats a corrupt file as "no memory" and discards the whole session's
+    // state). Write to a temp file, then rename — rename is atomic on POSIX.
+    const dest = this.memoryPath(state.sessionId);
+    const tmp = `${dest}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(state, null, 2));
+    renameSync(tmp, dest);
   }
 
   load(sessionId: string): MemoryState | undefined {
@@ -50,10 +59,9 @@ export class FileMemoryStorage implements MemoryStorage {
   }
 
   listSessions(): string[] {
-    const dir = join(this.basePath, SESSION_DIR);
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir).filter((entry) =>
-      statSync(join(dir, entry)).isDirectory(),
+    if (!existsSync(this.basePath)) return [];
+    return readdirSync(this.basePath).filter((entry) =>
+      statSync(join(this.basePath, entry)).isDirectory(),
     );
   }
 

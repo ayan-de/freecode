@@ -28,9 +28,7 @@ export interface MemoryState {
 
 export interface CompactionConfig {
   autoCompactBufferTokens: number;
-  warningBufferTokens: number;
   preserveRecentTurns: number;
-  minPreserveRecentTokens: number;
   maxPreserveRecentTokens: number;
   maxToolOutputChars: number;
 }
@@ -61,9 +59,7 @@ export interface PromptMemoryContext {
 
 export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   autoCompactBufferTokens: 13_000,
-  warningBufferTokens: 20_000,
   preserveRecentTurns: 2,
-  minPreserveRecentTokens: 2_000,
   maxPreserveRecentTokens: 8_000,
   maxToolOutputChars: 2_000,
 };

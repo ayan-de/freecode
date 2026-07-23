@@ -43,6 +43,9 @@ import {
   invalidateProjectContext,
 } from "../context/tree-cache.js";
 import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
+import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
+import type { CompactOptions } from "../compaction/service.js";
+import { getModelContextLimit } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
@@ -392,6 +395,40 @@ export class AgentLoop {
     }
   }
 
+  // Resolve the model's real context window from models.dev so compaction
+  // fires against the actual limit (200K/1M) rather than a conservative
+  // fallback. Returns undefined on lookup failure (offline / unknown model),
+  // which makes shouldCompact fall back to the local model table.
+  private async resolveContextLimit(
+    provider: string,
+    model: string | undefined,
+  ): Promise<number | undefined> {
+    if (!model) return undefined;
+    try {
+      const limit = await getModelContextLimit(provider, model);
+      return limit > 0 ? limit : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Build compaction options that summarize via the active provider/model.
+  // Cancellable through the loop's AbortController. On provider-lookup failure
+  // returns {}, so MemoryService.compact falls back to the heuristic summary.
+  private compactOptions(
+    provider: string,
+    model: string | undefined,
+  ): CompactOptions {
+    try {
+      const aiProvider = getProvider(provider as any);
+      return {
+        llmSummarize: createLlmSummarizer(aiProvider, model, this.abort.signal),
+      };
+    } catch {
+      return {};
+    }
+  }
+
   // ===========================================================================
   // PRIVATE: executeTurn()
   // One iteration: build prompt → send to provider → normalize → parse → execute
@@ -511,9 +548,12 @@ export class AgentLoop {
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
         await this.appendAssistantMessage(providerResult.content);
-        if (this.memory.shouldCompact(model ?? provider)) {
+        const contextLimit = await this.resolveContextLimit(provider, model);
+        if (this.memory.shouldCompact(model ?? provider, contextLimit)) {
           // PreCompact/PostCompact hooks run inside MemoryService.compact()
-          const result = await this.memory.compact();
+          const result = await this.memory.compact(
+            this.compactOptions(provider, model),
+          );
           if (result.success && result.summary) {
             this.recorder.recordCompactOccurred(
               result.tokenCountBefore,
@@ -576,9 +616,12 @@ export class AgentLoop {
         providerResult.content || `[Executed ${toolCalls.length} tools]`,
       );
 
-      if (this.memory.shouldCompact(model ?? provider)) {
+      const contextLimit = await this.resolveContextLimit(provider, model);
+      if (this.memory.shouldCompact(model ?? provider, contextLimit)) {
         // PreCompact/PostCompact hooks run inside MemoryService.compact()
-        const result = await this.memory.compact();
+        const result = await this.memory.compact(
+          this.compactOptions(provider, model),
+        );
         if (result.success && result.summary) {
           this.recorder.recordCompactOccurred(
             result.tokenCountBefore,
