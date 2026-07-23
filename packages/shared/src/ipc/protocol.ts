@@ -95,6 +95,15 @@ export type StreamEvent =
   | { type: "thinking_delta"; delta: string } // incremental reasoning chunk (streaming path)
   | { type: "done"; content: string }
   | { type: "error"; content: string }
+  | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
+  | {
+      type: "compaction_complete";
+      trigger: "auto" | "manual";
+      compacted: boolean; // false when there was nothing to compact / it was blocked
+      tokensBefore: number;
+      tokensAfter: number;
+      reason?: string; // why it didn't compact, when compacted=false
+    }
   | {
       type: "question_asked";
       requestId: string;
@@ -139,6 +148,15 @@ export const METHODS = {
   "session.stop": {
     params: { sessionId: "" },
     result: undefined as void,
+  },
+  "session.compact": {
+    params: { sessionId: "" },
+    result: {} as {
+      compacted: boolean;
+      tokensBefore: number;
+      tokensAfter: number;
+      reason?: string;
+    },
   },
   "providers.list": {
     params: undefined,
