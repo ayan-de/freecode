@@ -464,6 +464,9 @@ pub struct App {
     pub tool_count: usize,
     /// Ctrl+O expands finished tool calls to show their output.
     pub tools_expanded: bool,
+    /// Whether finished "Thought" chips are expanded to show the reasoning.
+    /// Toggled by clicking (left mouse button) in the transcript.
+    pub thoughts_expanded: bool,
     /// Open modal (question or permission). Core is blocked while this is set.
     pub prompt: Option<Prompt>,
     /// Wall clock started when the app boots — drives the landing "particle
@@ -498,6 +501,7 @@ impl App {
             cwd: String::new(),
             tool_count: 0,
             tools_expanded: false,
+            thoughts_expanded: false,
             prompt: None,
             started: Instant::now(),
             in_progress: None,
@@ -641,6 +645,10 @@ impl App {
     /// grows a cursor.
     pub fn toggle_tools_expanded(&mut self) {
         self.tools_expanded = !self.tools_expanded;
+    }
+
+    pub fn toggle_thoughts_expanded(&mut self) {
+        self.thoughts_expanded = !self.thoughts_expanded;
     }
 
     /// The assistant message currently receiving text, opening a new one if a

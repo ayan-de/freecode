@@ -13,7 +13,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 use tui_textarea::TextArea;
 
-use crate::app::{App, Role};
+use crate::app::{App, Role, Status};
 use crate::commands::{self, CommandRegistry};
 
 /// All layout, styling, and rendering lives here — this is the file to
@@ -198,7 +198,9 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     let mut user_turn = 0usize;
-    for msg in &app.messages {
+    let last_idx = app.messages.len().saturating_sub(1);
+    for (idx, msg) in app.messages.iter().enumerate() {
+        let is_last = idx == last_idx;
         match msg.role {
             // User prompts render inline as "N> text" on a dark-grey bar,
             // mirroring the composer's "N>" prompt so the turn persists.
@@ -231,20 +233,55 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                 )));
 
-                // Reasoning phase, "Thinking..." over dim-yellow rules.
+                // Reasoning. While it's still streaming (no answer text yet) it
+                // shows live as "Thinking…"; once the answer starts it collapses
+                // to a cyan "Thought" chip that clicking expands (like tools).
                 if !msg.thinking.is_empty() {
-                    lines.push(Line::from(Span::styled(
-                        "Thinking…",
-                        Style::default().fg(Color::Cyan),
-                    )));
                     let think = Style::default().fg(Color::Cyan).add_modifier(Modifier::DIM);
-                    for line in msg.thinking.lines() {
-                        lines.push(Line::from(vec![
-                            Span::styled("  │ ", think),
-                            Span::styled(line.to_string(), think),
-                        ]));
+                    // A reasoning block is only "live" while it's the last message,
+                    // has no answer text yet, and the turn is still running. Once a
+                    // tool call or answer text follows (a new message is appended)
+                    // or the turn ends, it collapses to a "Thought" chip — so the
+                    // think→tool→think→…→text sequence yields one chip per segment
+                    // instead of many stuck "Thinking…" blocks.
+                    let streaming = is_last
+                        && app.status == Status::Sending
+                        && msg.content.is_empty()
+                        && msg.content_pending.is_empty();
+                    if streaming {
+                        lines.push(Line::from(Span::styled(
+                            "Thinking…",
+                            Style::default().fg(Color::Cyan),
+                        )));
+                        for line in msg.thinking.lines() {
+                            lines.push(Line::from(vec![
+                                Span::styled("  │ ", think),
+                                Span::styled(line.to_string(), think),
+                            ]));
+                        }
+                        lines.push(Line::from(""));
+                    } else {
+                        let mut header = vec![Span::styled(
+                            " Thought ",
+                            Style::default()
+                                .bg(Color::Cyan)
+                                .fg(Color::Black)
+                                .add_modifier(Modifier::BOLD),
+                        )];
+                        if !app.thoughts_expanded {
+                            header.push(Span::styled(" ⌄", dim()));
+                        }
+                        lines.push(Line::from(header));
+                        if app.thoughts_expanded {
+                            for line in msg.thinking.lines() {
+                                lines.push(Line::from(vec![
+                                    Span::styled("  │ ", think),
+                                    Span::styled(line.to_string(), think),
+                                ]));
+                            }
+                        }
+                        lines.push(Line::from(""));
                     }
-                    lines.push(Line::from(""));
                 }
 
                 lines.extend(markdown::render(&msg.content));

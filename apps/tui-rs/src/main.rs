@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind,
-    KeyModifiers, MouseEventKind,
+    KeyModifiers, MouseButton, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -146,6 +146,8 @@ async fn handle_terminal_event(
         match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(3),
             MouseEventKind::ScrollDown => app.scroll_down(3),
+            // Click to open/close the collapsed "Thought" chips.
+            MouseEventKind::Down(MouseButton::Left) => app.toggle_thoughts_expanded(),
             _ => {}
         }
         return Ok(false);
