@@ -11,8 +11,16 @@ import {
 } from "./types.js";
 import { estimateTokenCount, shouldCompact } from "./tokens.js";
 import { selectForCompaction } from "./selector.js";
-import { summarizeMessages } from "./summarizer.js";
+import { makeSummary, summarizeMessages } from "./summarizer.js";
+import type { LlmSummarize } from "./llm-summarizer.js";
 import { FileMemoryStorage, type MemoryStorage } from "./storage.js";
+
+export interface CompactOptions {
+  // When provided, used to generate the summary; on failure the heuristic
+  // summarizer is used instead. The agent loop supplies this with the current
+  // provider/model so summaries are real LLM output rather than keyword bullets.
+  llmSummarize?: LlmSummarize;
+}
 
 interface MemoryServiceOptions {
   config?: Partial<CompactionConfig>;
@@ -68,7 +76,9 @@ export class MemoryService {
     return message;
   }
 
-  shouldCompact(model: string): boolean {
+  // `contextLimit` comes from models.dev (getModelContextLimit) when available;
+  // omit it to fall back to the local model table in tokens.ts.
+  shouldCompact(model: string, contextLimit?: number): boolean {
     if (
       this.blockedAtTokenCount !== undefined &&
       this.state.tokenCount <
@@ -80,6 +90,7 @@ export class MemoryService {
       this.state.tokenCount,
       model,
       this.config.autoCompactBufferTokens,
+      contextLimit,
     );
   }
 
@@ -91,7 +102,7 @@ export class MemoryService {
     };
   }
 
-  async compact(): Promise<CompactionResult> {
+  async compact(options: CompactOptions = {}): Promise<CompactionResult> {
     const selected = selectForCompaction(this.state.messages, this.config);
     if (selected.summarize.length === 0) {
       return {
@@ -121,11 +132,23 @@ export class MemoryService {
     }
 
     const previousSummary = this.state.summaries.at(-1)?.content;
-    const summary = summarizeMessages({
+    const summarizeInput = {
       sessionId: this.state.sessionId,
       previousSummary,
       messages: selected.summarize,
-    });
+    };
+    let summary = summarizeMessages(summarizeInput);
+    if (options.llmSummarize) {
+      try {
+        const content = await options.llmSummarize(summarizeInput);
+        summary = makeSummary(summarizeInput, content);
+      } catch (err) {
+        // Fall back to the heuristic summary already computed above.
+        console.warn(
+          `[MemoryService] LLM summarization failed, using heuristic: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     const tokenCountAfter =
       summary.summaryTokenCount + selected.preserveTokenCount;
