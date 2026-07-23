@@ -36,6 +36,8 @@ const STATUS_DIM: Color = Color::Gray;
 const MODE_BG: Color = Color::Cyan;
 /// Foreground of the mode badge — dark text for legible contrast on cyan.
 const MODE_FG: Color = Color::Black;
+/// Color of the oscilloscope waveforms flanking the model name.
+const WAVE_FG: Color = Color::Rgb(255, 105, 180);
 
 /// Public re-export so callers (e.g., the `Paragraph` wrapper) can apply the
 /// same bg color to the widget itself without re-declaring it.
@@ -167,14 +169,23 @@ fn build_line(
     let plain_left = plain_width(left);
     let plain_right = plain_width(right);
     let plain_center = plain_width(center);
+    let width = width as usize;
 
-    let used = plain_left + SEGMENT_GAP + plain_center + SEGMENT_GAP + plain_right;
-    // Distribute any extra terminal width evenly across the two gaps so the
-    // center segment stays roughly centered between the left/right wings.
-    let slack = (width as usize).saturating_sub(used);
-    let left_gap = SEGMENT_GAP + slack / 2;
-    let right_gap = SEGMENT_GAP + slack - slack / 2;
-    let tail = " ".repeat((width as usize).saturating_sub(used + slack));
+    // Center the identity on the *whole row* (not on the gap between the
+    // wings), then flush the right segment to the far edge. Centering within
+    // the inter-wing space would offset the name by half the wings' width
+    // difference; anchoring to the row keeps `provider/model` visually centered
+    // regardless of how wide the mode badge or context meter are.
+    let ideal_start = width.saturating_sub(plain_center) / 2;
+    let min_start = plain_left + SEGMENT_GAP;
+    let max_start = width.saturating_sub(plain_right + SEGMENT_GAP + plain_center);
+    let center_start = ideal_start.clamp(min_start, max_start.max(min_start));
+
+    let left_gap = center_start.saturating_sub(plain_left);
+    let right_start = width.saturating_sub(plain_right);
+    let right_gap = right_start.saturating_sub(center_start + plain_center);
+    // Right segment is flush to the row edge, so there is nothing after it.
+    let tail = String::new();
 
     // Every span in the row — segments, gaps, and tail — must carry the bg,
     // otherwise the cells between segments would inherit the terminal's
@@ -183,9 +194,11 @@ fn build_line(
     let fg_style = Style::default().bg(STATUS_BG).fg(STATUS_FG);
     let dim_style = Style::default().bg(STATUS_BG).fg(STATUS_DIM);
 
-    // Recoloring patches both bg and fg. All three segments share the row's
-    // theme, so there's no per-mode color to preserve — patching is uniform.
-    let recolor_fg = Style::default().fg(STATUS_FG);
+    // Recoloring patches both bg and fg. The center segment carries its own
+    // fg via `fg_style` (STATUS_FG) as a base, so its override is empty —
+    // that lets spans with an explicit color (the pink oscilloscope waves)
+    // survive while the plain name still falls back to the row foreground.
+    let center_fg = Style::default();
     let dim_fg = Style::default().fg(STATUS_DIM);
 
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -195,7 +208,7 @@ fn build_line(
     if left_gap > 0 {
         spans.push(Span::styled(" ".repeat(left_gap), bg_only));
     }
-    spans.extend(recolor(center, fg_style, recolor_fg));
+    spans.extend(recolor(center, fg_style, center_fg));
     if right_gap > 0 {
         spans.push(Span::styled(" ".repeat(right_gap), bg_only));
     }
@@ -275,7 +288,7 @@ pub fn center_segment(
     } else {
         Modifier::empty()
     };
-    let wave_style = Style::default().add_modifier(modifier);
+    let wave_style = Style::default().fg(WAVE_FG).add_modifier(modifier);
     // Mirror the left side so the two waveforms are symmetric around the name.
     let left: String = wave.chars().rev().collect();
 
