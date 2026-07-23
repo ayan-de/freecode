@@ -8,39 +8,39 @@ import { NodeHeader } from "./NodeHeader";
 const MEMORY_FLOW_STEPS = [
   {
     number: 1,
-    title: "addMessage(role, content)",
+    title: "1. Write down each message",
     description:
-      "MemoryService records each turn, truncates long tool output, and estimates its token cost",
+      "Every user prompt and model reply is saved, and we estimate its size in tokens (≈ 4 characters = 1 token). Long tool output is trimmed first so it can't hog space.",
   },
   {
     number: 2,
-    title: "shouldCompact(model)",
+    title: "2. Are we running out of room?",
     description:
-      "Trigger when tokenCount passes the model's context limit minus the auto-compact buffer",
+      "After each turn we compare the running token count to the model's real context limit (looked up from models.dev) minus a 13,000-token safety buffer. Cross that line and compaction kicks in.",
   },
   {
     number: 3,
-    title: "selectForCompaction()",
+    title: "3. Decide what to keep vs. fold away",
     description:
-      "Keep the last 2 user turns (bounded by token caps); mark everything older to summarize",
+      "The last 2 user turns (capped at 8,000 tokens) are kept word-for-word so recent detail survives. Everything older is marked to be summarized.",
   },
   {
     number: 4,
-    title: "runPreCompact() hook",
+    title: "4. Ask permission (PreCompact hook)",
     description:
-      "PreCompact may block — if it does, retry is deferred until +5k more tokens accumulate",
+      "A PreCompact hook can veto the compaction. If it blocks, we back off and don't retry until another 5,000 tokens pile up — so we don't re-ask every message.",
   },
   {
     number: 5,
-    title: "summarizeMessages()",
+    title: "5. Summarize the old messages",
     description:
-      "Fold old turns into an anchored summary: Goal · Done · In Progress · Files · Next Steps",
+      "The active model writes a short, structured recap (Goal · Done · In Progress · Blocked · Decisions · Files · Next Steps). If that call fails, a keyword-based summary is used as a fallback.",
   },
   {
     number: 6,
-    title: "commit + runPostCompact() hook",
+    title: "6. Swap it in and save",
     description:
-      "Replace history with [summary + preserved turns], persist, then notify PostCompact",
+      "History becomes [summary + preserved recent turns], the token count drops back down, state is written to disk atomically, and a PostCompact hook is notified.",
   },
 ];
 
@@ -48,21 +48,21 @@ const memoryComponents = [
   {
     name: "MemoryService",
     file: "apps/core/src/compaction/service.ts",
-    description: "Orchestrates recording, threshold checks, and compaction",
+    description: "Orchestrates recording, the threshold check, and compaction",
     icon: Brain,
     color: "#f59e0b",
   },
   {
     name: "FileMemoryStorage",
     file: "apps/core/src/compaction/storage.ts",
-    description: "JSON persistence of session memory state",
+    description: "Atomic JSON persistence at ~/.freecode/memory/{sessionId}",
     icon: Database,
     color: "#f59e0b",
   },
   {
     name: "tokens.ts",
     file: "apps/core/src/compaction/tokens.ts",
-    description: "Token estimation + per-model context limits",
+    description: "Token estimate + the 'should we compact?' math",
     icon: Zap,
     color: "#f59e0b",
   },
@@ -76,7 +76,7 @@ const memoryComponents = [
   {
     name: "summarizer.ts",
     file: "apps/core/src/compaction/summarizer.ts",
-    description: "Anchored summary carrying forward the previous one",
+    description: "LLM summary (with a heuristic fallback), carried forward",
     icon: FileText,
     color: "#f59e0b",
   },
@@ -85,9 +85,7 @@ const memoryComponents = [
 const compactionStats = [
   { label: "preserveRecentTurns", value: "2 turns" },
   { label: "autoCompactBufferTokens", value: "13,000" },
-  { label: "warningBufferTokens", value: "20,000" },
   { label: "maxPreserveRecentTokens", value: "8,000" },
-  { label: "minPreserveRecentTokens", value: "2,000" },
   { label: "maxToolOutputChars", value: "2,000" },
 ];
 
@@ -99,15 +97,34 @@ export function MemoryNodeContent() {
         subtext="Session Context Compaction"
       />
       <p className={styles.description}>
-        The <strong>compaction system</strong> keeps long sessions inside the
-        model&apos;s context window. After each turn the loop asks{" "}
-        <strong>MemoryService</strong> whether the running token count has
-        crossed the model&apos;s budget; when it has, older turns are folded
-        into an <strong>anchored summary</strong> while the most recent turns
-        are preserved verbatim. The whole thing is <strong>model-aware</strong>{" "}
-        (context limits per model) and <strong>hook-gated</strong> (PreCompact
-        can veto, PostCompact is notified). A separate idle-gap micro-compaction
-        in the loop also trims stale tool output on cold restarts.
+        <strong>The problem:</strong> a model can only read so much at once — its{" "}
+        <strong>context window</strong>. Think of it like a whiteboard with
+        limited space. As a conversation grows, the whiteboard fills up, and
+        eventually there&apos;s no room left to write the next reply.
+      </p>
+      <p className={styles.description}>
+        <strong>Compaction</strong> is how FreeCode keeps long sessions from
+        overflowing. When the conversation gets close to full, it{" "}
+        <strong>erases the old notes and replaces them with a short summary</strong>{" "}
+        — while keeping the last couple of turns exactly as they were. The
+        session keeps going, the gist is preserved, and there&apos;s room to
+        write again.
+      </p>
+
+      {/* Worked example — the trigger is BEFORE the window is full */}
+      <div className={styles.compactAlert}>
+        EXAMPLE · 1,000,000-token window
+        <br />
+        compaction fires at 1,000,000 − 13,000 = 987,000 tokens
+        <br />
+        (it triggers just BEFORE full, leaving ~13k headroom for the reply)
+      </div>
+
+      <p className={styles.description}>
+        Notice it does <strong>not</strong> wait until the window is completely
+        full — it fires a little early, on purpose, so there&apos;s always
+        headroom for the model to answer. Here&apos;s the whole cycle, step by
+        step:
       </p>
 
       {/* Memory Flow */}
@@ -144,7 +161,7 @@ export function MemoryNodeContent() {
 
       {/* Compaction Stats */}
       <div className={styles.execModes}>
-        <h5 className={styles.execTitle}>Compaction Config</h5>
+        <h5 className={styles.execTitle}>Compaction Config (the knobs)</h5>
         <div className={styles.execList}>
           {compactionStats.map((stat) => (
             <div key={stat.label} className={styles.execItem}>
