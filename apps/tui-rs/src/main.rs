@@ -146,8 +146,12 @@ async fn handle_terminal_event(
         match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(3),
             MouseEventKind::ScrollDown => app.scroll_down(3),
-            // Click to open/close the collapsed "Thought" chips.
-            MouseEventKind::Down(MouseButton::Left) => app.toggle_thoughts_expanded(),
+            // Click a "Thought" chip to open/close just that one.
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(idx) = app.thought_at(mouse.row) {
+                    app.toggle_thought(idx);
+                }
+            }
             _ => {}
         }
         return Ok(false);

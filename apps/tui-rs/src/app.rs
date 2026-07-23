@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Instant;
 
 use crate::ipc::protocol::{QuestionSpec, StreamEvent};
@@ -464,9 +465,15 @@ pub struct App {
     pub tool_count: usize,
     /// Ctrl+O expands finished tool calls to show their output.
     pub tools_expanded: bool,
-    /// Whether finished "Thought" chips are expanded to show the reasoning.
-    /// Toggled by clicking (left mouse button) in the transcript.
-    pub thoughts_expanded: bool,
+    /// Message indices whose "Thought" chip is expanded. Clicking a chip toggles
+    /// just that one (per-thought, not global).
+    pub expanded_thoughts: HashSet<usize>,
+    /// Click hit-testing for "Thought" chips, refreshed each render:
+    /// `(wrapped_row, message_index)` for each chip, plus the transcript's top
+    /// row and height so a mouse row maps back to a specific chip.
+    pub thought_hits: Vec<(u16, usize)>,
+    pub transcript_top: u16,
+    pub transcript_height: u16,
     /// Open modal (question or permission). Core is blocked while this is set.
     pub prompt: Option<Prompt>,
     /// Wall clock started when the app boots — drives the landing "particle
@@ -501,7 +508,10 @@ impl App {
             cwd: String::new(),
             tool_count: 0,
             tools_expanded: false,
-            thoughts_expanded: false,
+            expanded_thoughts: HashSet::new(),
+            thought_hits: Vec::new(),
+            transcript_top: 0,
+            transcript_height: 0,
             prompt: None,
             started: Instant::now(),
             in_progress: None,
@@ -514,6 +524,8 @@ impl App {
     /// untouched — this only clears what the frontend shows (`/clear`).
     pub fn clear_messages(&mut self) {
         self.messages.clear();
+        self.expanded_thoughts.clear();
+        self.thought_hits.clear();
         self.scroll = 0;
         self.follow = true;
         self.in_progress = None;
@@ -647,8 +659,30 @@ impl App {
         self.tools_expanded = !self.tools_expanded;
     }
 
-    pub fn toggle_thoughts_expanded(&mut self) {
-        self.thoughts_expanded = !self.thoughts_expanded;
+    pub fn is_thought_expanded(&self, msg_idx: usize) -> bool {
+        self.expanded_thoughts.contains(&msg_idx)
+    }
+
+    pub fn toggle_thought(&mut self, msg_idx: usize) {
+        if !self.expanded_thoughts.remove(&msg_idx) {
+            self.expanded_thoughts.insert(msg_idx);
+        }
+    }
+
+    /// Which "Thought" chip (message index) sits at absolute terminal `row`, if
+    /// any. Uses the hit map recorded during the last render: a chip occupies a
+    /// single wrapped row, offset by the transcript's scroll and top.
+    pub fn thought_at(&self, row: u16) -> Option<usize> {
+        if row < self.transcript_top
+            || row >= self.transcript_top + self.transcript_height
+        {
+            return None;
+        }
+        let visual = self.scroll + (row - self.transcript_top);
+        self.thought_hits
+            .iter()
+            .find(|(wrapped_row, _)| *wrapped_row == visual)
+            .map(|(_, idx)| *idx)
     }
 
     /// The assistant message currently receiving text, opening a new one if a

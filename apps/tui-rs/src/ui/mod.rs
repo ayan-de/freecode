@@ -198,6 +198,9 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     let mut user_turn = 0usize;
+    // (line index of a "Thought" chip header, message index) — used after the
+    // build to map click rows to a specific chip.
+    let mut thought_headers: Vec<(usize, usize)> = Vec::new();
     let last_idx = app.messages.len().saturating_sub(1);
     for (idx, msg) in app.messages.iter().enumerate() {
         let is_last = idx == last_idx;
@@ -261,6 +264,7 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                         }
                         lines.push(Line::from(""));
                     } else {
+                        let expanded = app.is_thought_expanded(idx);
                         let mut header = vec![Span::styled(
                             " Thought ",
                             Style::default()
@@ -268,11 +272,13 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                                 .fg(Color::Black)
                                 .add_modifier(Modifier::BOLD),
                         )];
-                        if !app.thoughts_expanded {
-                            header.push(Span::styled(" ⌄", dim()));
-                        }
+                        header.push(Span::styled(
+                            if expanded { " ⌃" } else { " ⌄" },
+                            dim(),
+                        ));
+                        thought_headers.push((lines.len(), idx));
                         lines.push(Line::from(header));
-                        if app.thoughts_expanded {
+                        if expanded {
                             for line in msg.thinking.lines() {
                                 lines.push(Line::from(vec![
                                     Span::styled("  │ ", think),
@@ -289,6 +295,29 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         lines.push(Line::from(""));
     }
+
+    // Record where each "Thought" chip lands (in wrapped rows) so a click can
+    // target that specific chip. Lines wrap independently, so a chip's start row
+    // is the sum of the wrapped heights of the lines before it. Only computed
+    // when chips exist, so a chip-free transcript pays nothing.
+    let mut hits: Vec<(u16, usize)> = Vec::new();
+    if !thought_headers.is_empty() {
+        let mut cum: u16 = 0;
+        let mut headers = thought_headers.iter().peekable();
+        for (i, line) in lines.iter().enumerate() {
+            while matches!(headers.peek(), Some((li, _)) if *li == i) {
+                hits.push((cum, headers.next().unwrap().1));
+            }
+            let h = Paragraph::new(line.clone())
+                .wrap(Wrap { trim: false })
+                .line_count(area.width)
+                .max(1) as u16;
+            cum = cum.saturating_add(h);
+        }
+    }
+    app.thought_hits = hits;
+    app.transcript_top = area.y;
+    app.transcript_height = area.height;
 
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
 
