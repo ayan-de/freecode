@@ -8,7 +8,10 @@ import { listCommandInfos, resolveCommand } from "./commands/registry.js";
 import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
 import { getAppRuntime } from "./effect/runtime.js";
 import { SessionStoreTag } from "./effect/context.js";
-import { initProviders, listProviders } from "./providers/index.js";
+import { initProviders, listProviders, getProvider } from "./providers/index.js";
+import { MemoryService } from "./compaction/service.js";
+import { createLlmSummarizer } from "./compaction/llm-summarizer.js";
+import { applyCompaction } from "./session/compact-apply.js";
 import {
   getProviders,
   getProviderModels,
@@ -289,6 +292,58 @@ const methodHandlers: Record<
     if (getSession(sessionId)) {
       logger.info("Session turn interrupted", { sessionId });
     }
+  },
+
+  // Manual /compact: summarize older turns now (between turns), trimming the
+  // session store so the next turn sends fewer tokens. Emits the same
+  // compaction UI events as auto-compaction.
+  "session.compact": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { sessionId } = params as { sessionId: string };
+    const session = getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const config = readConfig();
+    const provider = config.current?.provider || session.provider;
+    const model = config.current?.model || session.model;
+    const store = await getSessionStore();
+    const memory = new MemoryService(sessionId);
+
+    let compactOptions = {};
+    try {
+      const aiProvider = getProvider(provider as ProviderId);
+      compactOptions = { llmSummarize: createLlmSummarizer(aiProvider, model) };
+    } catch {
+      // No provider configured — fall back to the heuristic summary.
+    }
+
+    BusEvents.stream(sessionId, { type: "compaction_start", trigger: "manual" });
+    const outcome = await applyCompaction({
+      memory,
+      store,
+      sessionId,
+      projectPath: session.projectPath,
+      compactOptions,
+    });
+    BusEvents.stream(sessionId, {
+      type: "compaction_complete",
+      trigger: "manual",
+      compacted: outcome.compacted,
+      tokensBefore: outcome.tokensBefore,
+      tokensAfter: outcome.tokensAfter,
+      reason: outcome.reason,
+    });
+
+    logger.info("Session compacted", { sessionId, ...outcome });
+    return {
+      compacted: outcome.compacted,
+      tokensBefore: outcome.tokensBefore,
+      tokensAfter: outcome.tokensAfter,
+      reason: outcome.reason,
+    };
   },
 
   "question.answer": async (params: Record<string, unknown>): Promise<void> => {

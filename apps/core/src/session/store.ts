@@ -87,6 +87,13 @@ export interface SessionStore {
     sessionId: string,
     projectPath?: string,
   ): Promise<SerializedMessage[]>;
+  // Overwrite the whole message log (used by compaction to drop summarized
+  // turns so the next turn loads a smaller history).
+  replaceMessages(
+    sessionId: string,
+    messages: SerializedMessage[],
+    projectPath?: string,
+  ): Promise<void>;
   markInterrupted(
     sessionId: string,
     messageId: string,
@@ -330,6 +337,22 @@ class SessionStoreImpl implements SessionStore {
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as SerializedMessage);
+  }
+
+  async replaceMessages(
+    sessionId: string,
+    messages: SerializedMessage[],
+    projectPath?: string,
+  ): Promise<void> {
+    const content =
+      messages.length === 0
+        ? ""
+        : messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
+    await writeFile(
+      this.messagesPath(sessionId, projectPath),
+      content,
+      "utf-8",
+    );
   }
 
   async markInterrupted(

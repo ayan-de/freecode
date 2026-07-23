@@ -45,6 +45,10 @@ import {
 import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
+import {
+  applyCompaction,
+  type ApplyCompactionResult,
+} from "../session/compact-apply.js";
 import { getModelContextLimit } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
@@ -429,6 +433,77 @@ export class AgentLoop {
     }
   }
 
+  // Compact if the running token count crossed the threshold. Emits UI events
+  // and trims the session store so the reduction persists across turns.
+  private async maybeCompact(
+    provider: string,
+    model: string | undefined,
+  ): Promise<void> {
+    const contextLimit = await this.resolveContextLimit(provider, model);
+    if (!this.memory.shouldCompact(model ?? provider, contextLimit)) return;
+    await this.runCompaction(provider, model, "auto");
+  }
+
+  // Runs one compaction: summary via MemoryService (stays in the system
+  // prompt), history trimmed in the session store. PreCompact/PostCompact hooks
+  // run inside MemoryService.compact(). Emits compaction_start/_complete for the
+  // frontend UI. Shared by auto-compaction and the manual /compact path.
+  async runCompaction(
+    provider: string,
+    model: string | undefined,
+    trigger: "auto" | "manual",
+  ): Promise<ApplyCompactionResult> {
+    BusEvents.stream(this.state.sessionId, { type: "compaction_start", trigger });
+    const compactOptions = this.compactOptions(provider, model);
+
+    let outcome: ApplyCompactionResult;
+    if (this.sessionStore) {
+      outcome = await applyCompaction({
+        memory: this.memory,
+        store: this.sessionStore,
+        sessionId: this.state.sessionId,
+        projectPath: this.state.projectPath,
+        compactOptions,
+      });
+      // Reload so this.history matches the trimmed store.
+      if (outcome.compacted) await this.loadHistory();
+    } else {
+      // No store (e.g. tests): memory-only compaction, slice native history.
+      const result = await this.memory.compact(compactOptions);
+      const compacted = result.success && !!result.summary;
+      if (compacted) {
+        this.history = this.history.slice(-result.preservedMessageIds.length);
+      }
+      outcome = {
+        compacted,
+        reason: result.success ? undefined : result.reason,
+        tokensBefore: result.tokenCountBefore,
+        tokensAfter: result.tokenCountAfter,
+        messagesBefore: 0,
+        messagesAfter: 0,
+      };
+    }
+
+    if (outcome.compacted) {
+      this.recorder.recordCompactOccurred(
+        outcome.tokensBefore,
+        outcome.tokensAfter,
+      );
+    } else {
+      console.warn(`[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`);
+    }
+
+    BusEvents.stream(this.state.sessionId, {
+      type: "compaction_complete",
+      trigger,
+      compacted: outcome.compacted,
+      tokensBefore: outcome.tokensBefore,
+      tokensAfter: outcome.tokensAfter,
+      reason: outcome.reason,
+    });
+    return outcome;
+  }
+
   // ===========================================================================
   // PRIVATE: executeTurn()
   // One iteration: build prompt → send to provider → normalize → parse → execute
@@ -548,27 +623,7 @@ export class AgentLoop {
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
         await this.appendAssistantMessage(providerResult.content);
-        const contextLimit = await this.resolveContextLimit(provider, model);
-        if (this.memory.shouldCompact(model ?? provider, contextLimit)) {
-          // PreCompact/PostCompact hooks run inside MemoryService.compact()
-          const result = await this.memory.compact(
-            this.compactOptions(provider, model),
-          );
-          if (result.success && result.summary) {
-            this.recorder.recordCompactOccurred(
-              result.tokenCountBefore,
-              result.tokenCountAfter,
-            );
-            // Sync native history with preserved messages
-            const preserveCount = result.preservedMessageIds.length;
-            this.history = this.history.slice(-preserveCount);
-          }
-          if (!result.success) {
-            console.warn(
-              `[AgentLoop] Memory compaction ${result.blocked ? "blocked by hook" : "skipped"}: ${result.reason ?? "unknown reason"}`,
-            );
-          }
-        }
+        await this.maybeCompact(provider, model);
         return {
           success: true,
           toolResults: [],
@@ -616,27 +671,7 @@ export class AgentLoop {
         providerResult.content || `[Executed ${toolCalls.length} tools]`,
       );
 
-      const contextLimit = await this.resolveContextLimit(provider, model);
-      if (this.memory.shouldCompact(model ?? provider, contextLimit)) {
-        // PreCompact/PostCompact hooks run inside MemoryService.compact()
-        const result = await this.memory.compact(
-          this.compactOptions(provider, model),
-        );
-        if (result.success && result.summary) {
-          this.recorder.recordCompactOccurred(
-            result.tokenCountBefore,
-            result.tokenCountAfter,
-          );
-          // Sync native history with preserved messages
-          const preserveCount = result.preservedMessageIds.length;
-          this.history = this.history.slice(-preserveCount);
-        }
-        if (!result.success) {
-          console.warn(
-            `[AgentLoop] Memory compaction ${result.blocked ? "blocked by hook" : "skipped"}: ${result.reason ?? "unknown reason"}`,
-          );
-        }
-      }
+      await this.maybeCompact(provider, model);
 
       return {
         success: true,
