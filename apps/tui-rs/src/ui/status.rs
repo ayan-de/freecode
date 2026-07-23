@@ -18,9 +18,8 @@ use ratatui::text::{Line, Span};
 use super::oscilloscope;
 use crate::app::{ContextUsage, Mode, Status};
 
-/// Width, in braille cells, of the working-state oscilloscope that replaces the
-/// "idle" word while the agent is streaming.
-const WAVE_CELLS: usize = 12;
+/// Width, in braille cells, of each oscilloscope that flanks the model name.
+const WAVE_CELLS: usize = 8;
 
 // ─── palette ────────────────────────────────────────────────────────────────
 
@@ -242,10 +241,11 @@ fn format_tokens(n: u64) -> String {
 
 // ─── helpers exported for ui/mod.rs to build the center segment ─────────────
 
-/// The center identity row: `freecode · provider/model · <idle | ~waveform~>`.
-/// Pulled out so `ui/mod.rs` doesn't need to know how the segments compose.
-/// `phase`/`energy` drive the working-state oscilloscope and are ignored while
-/// idle.
+/// The center identity row. While the agent is streaming an oscilloscope flanks
+/// the model name on both sides (`~wave~ provider/model ~wave~`); at rest it is
+/// just `provider/model`. `phase`/`energy` drive the waveform. `build_line`
+/// recolors center spans to the row foreground, so the waveform pulses via
+/// BOLD/DIM modifiers (which survive that recolor) rather than carrying colour.
 pub fn center_segment(
     provider: &str,
     model: &str,
@@ -256,31 +256,28 @@ pub fn center_segment(
     let provider = if provider.is_empty() { "-" } else { provider };
     let model = if model.is_empty() { "-" } else { model };
 
-    // Trailing indicator: a dim "idle" word at rest, or a live braille
-    // oscilloscope while streaming. `build_line` recolors center spans to the
-    // row foreground, so the waveform can't carry its own colour — it pulses
-    // via BOLD/DIM modifiers instead, which survive that recolor, so its
-    // brightness tracks the activity energy.
-    let status_span = match status {
-        Status::Idle => Span::styled("idle".to_string(), Style::default().fg(STATUS_DIM)),
-        Status::Sending => {
-            let wave = oscilloscope::waveform(WAVE_CELLS, phase, energy);
-            let modifier = if energy > 0.5 {
-                Modifier::BOLD
-            } else if energy < 0.15 {
-                Modifier::DIM
-            } else {
-                Modifier::empty()
-            };
-            Span::styled(wave, Style::default().add_modifier(modifier))
-        }
+    let name = Span::styled(format!("{provider}/{model}"), Style::default());
+    if status == Status::Idle {
+        return vec![name];
+    }
+
+    let wave = oscilloscope::waveform(WAVE_CELLS, phase, energy);
+    let modifier = if energy > 0.5 {
+        Modifier::BOLD
+    } else if energy < 0.15 {
+        Modifier::DIM
+    } else {
+        Modifier::empty()
     };
+    let wave_style = Style::default().add_modifier(modifier);
+    // Mirror the left side so the two waveforms are symmetric around the name.
+    let left: String = wave.chars().rev().collect();
 
     vec![
-        Span::styled("freecode".to_string(), Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled(" · ".to_string(), dim()),
-        Span::styled(format!("{provider}/{model}"), Style::default()),
-        Span::styled(" · ".to_string(), dim()),
-        status_span,
+        Span::styled(left, wave_style),
+        Span::styled("  ".to_string(), dim()),
+        name,
+        Span::styled("  ".to_string(), dim()),
+        Span::styled(wave, wave_style),
     ]
 }
