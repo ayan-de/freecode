@@ -1,10 +1,32 @@
 import type { CompactionSummary, MemoryMessage } from "./types.js";
 import { estimateTokenCount } from "./tokens.js";
 
-interface SummarizeInput {
+export interface SummarizeInput {
   sessionId: string;
   previousSummary?: string;
   messages: MemoryMessage[];
+}
+
+/**
+ * Wrap summary content (from either the heuristic or an LLM) into a
+ * CompactionSummary, computing the token bookkeeping consistently.
+ */
+export function makeSummary(
+  input: SummarizeInput,
+  content: string,
+): CompactionSummary {
+  const originalTokenCount = input.messages.reduce(
+    (sum, message) => sum + message.tokenCount,
+    0,
+  );
+  return {
+    id: `summary-${input.sessionId}-${Date.now()}`,
+    createdAt: Date.now(),
+    originalMessageCount: input.messages.length,
+    originalTokenCount,
+    summaryTokenCount: estimateTokenCount(content),
+    content,
+  };
 }
 
 function clip(text: string, maxChars: number): string {
@@ -47,11 +69,15 @@ function extractWorkStatus(messages: MemoryMessage[]): {
     const content = msg.content.toLowerCase();
     const summary = clip(msg.content, 120);
 
-    if (
-      content.includes("blocked") ||
-      content.includes("waiting") ||
-      content.includes("error")
-    ) {
+    // Word-boundary match so "no errors"/"error handling" don't count as a
+    // blocker, and negations ("no error", "without errors") are excluded.
+    const isBlocked =
+      /\b(blocked|waiting|errors?|failed|failing)\b/.test(content) &&
+      !/\b(no|without|zero|resolved|fixed)\s+(errors?|blockers?|issues?)\b/.test(
+        content,
+      );
+
+    if (isBlocked) {
       if (!blocked.includes(summary)) blocked.push(summary);
     } else if (
       content.includes("working on") ||
@@ -187,18 +213,5 @@ export function summarizeMessages(input: SummarizeInput): CompactionSummary {
     lines.push("- Continue from where the session left off");
   }
 
-  const content = lines.join("\n");
-  const originalTokenCount = input.messages.reduce(
-    (sum, message) => sum + message.tokenCount,
-    0,
-  );
-
-  return {
-    id: `summary-${input.sessionId}-${Date.now()}`,
-    createdAt: Date.now(),
-    originalMessageCount: input.messages.length,
-    originalTokenCount,
-    summaryTokenCount: estimateTokenCount(content),
-    content,
-  };
+  return makeSummary(input, lines.join("\n"));
 }
