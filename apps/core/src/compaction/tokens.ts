@@ -1,32 +1,22 @@
 const CHARS_PER_TOKEN = 4;
 
-export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-  "gpt-4o": 128_000,
-  "gpt-4-turbo": 128_000,
-  "gpt-4": 8_192,
-  "gpt-3.5-turbo": 16_385,
-  "claude-3-5-sonnet": 200_000,
-  "claude-3-opus": 200_000,
-  "claude-3-sonnet": 200_000,
-  "gemini-1.5-pro": 1_000_000,
-  "gemini-1.5-flash": 1_000_000,
-  default: 100_000,
-};
+// Conservative offline floor. The live source of truth is models.dev, resolved
+// via getModelContextLimit() and passed into shouldCompact() as an explicit
+// limit; this constant is used only when that lookup returns nothing (no
+// network, cold cache, or unknown model). A per-model table here would just
+// drift out of date — being wrong only makes us compact slightly early, never
+// lose data, so a single safe value is enough.
+export const FALLBACK_CONTEXT_LIMIT = 100_000;
 
 export function estimateTokenCount(text: string): number {
   if (text.length === 0) return 0;
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-export function getContextLimit(model: string): number {
-  const exact = MODEL_CONTEXT_LIMITS[model];
-  if (exact !== undefined) return exact;
-  // Prefix match so versioned ids ("claude-3-5-sonnet-20241022") resolve.
-  // Longest key first so "gpt-4o" wins over "gpt-4".
-  const prefix = Object.keys(MODEL_CONTEXT_LIMITS)
-    .filter((key) => model.startsWith(key))
-    .sort((a, b) => b.length - a.length)[0];
-  return prefix ? MODEL_CONTEXT_LIMITS[prefix] : MODEL_CONTEXT_LIMITS.default;
+// Kept for callers/tests; always returns the offline floor now that the live
+// limit comes from models.dev via shouldCompact's contextLimit argument.
+export function getContextLimit(_model: string): number {
+  return FALLBACK_CONTEXT_LIMIT;
 }
 
 export function getAutoCompactThreshold(
@@ -40,6 +30,10 @@ export function shouldCompact(
   tokenCount: number,
   model: string,
   bufferTokens: number,
+  contextLimit?: number,
 ): boolean {
-  return tokenCount >= getAutoCompactThreshold(model, bufferTokens);
+  // Prefer an explicit (models.dev) limit; fall back to the local table.
+  const limit =
+    contextLimit && contextLimit > 0 ? contextLimit : getContextLimit(model);
+  return tokenCount >= Math.max(0, limit - bufferTokens);
 }
