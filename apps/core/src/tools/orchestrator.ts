@@ -262,22 +262,32 @@ export function createToolOrchestrator(
             error: execResult.error,
           };
         }
-        // Success case - result.result is the tool output
-        const output =
-          typeof execResult.result === "string"
-            ? execResult.result
-            : JSON.stringify(execResult.result);
+        // Success case. Tools built via factory.ts return a structured
+        // `{ title, output, metadata }`; unwrap `.output` so the diff/text
+        // reaches the frontend as-is. Only a bare string or other shape falls
+        // back to JSON. (A raw object without `.output` still stringifies.)
+        const r = execResult.result as unknown;
+        const structured =
+          r && typeof r === "object" && typeof (r as any).output === "string"
+            ? (r as { title?: string; output: string; metadata?: Record<string, unknown> })
+            : null;
+        const output = structured
+          ? structured.output
+          : typeof r === "string"
+            ? r
+            : JSON.stringify(r);
         const truncated = output.length > MAX_MODEL_OUTPUT_CHARS;
         return {
           id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           toolCallId: toolId,
           tool,
-          title: toolDef.description,
+          title: structured?.title ?? toolDef.description,
           displayOutput: output,
           modelOutput: truncated
             ? output.slice(0, MAX_MODEL_OUTPUT_CHARS) + "..."
             : output,
           stdout: output, // Legacy
+          structuredData: structured?.metadata,
           truncated,
         };
       } catch (err) {
