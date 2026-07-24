@@ -51,7 +51,7 @@ async fn run(
     let mut app = App::new();
     let registry = CommandRegistry::with_builtins();
     let mut input = TextArea::default();
-    input.set_placeholder_text("Type a message, Enter to send, Esc to quit");
+    input.set_placeholder_text("Type a message · Enter to send · Shift+Enter for newline · Esc to quit");
 
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
     app.cwd = cwd.clone();
@@ -222,6 +222,12 @@ async fn handle_terminal_event(
                 app.cycle_mode();
                 return Ok(false);
             }
+            // Shift+Enter (and Alt+Enter, for terminals that don't send the
+            // former) inserts a newline instead of submitting.
+            (KeyCode::Enter, KeyModifiers::SHIFT) | (KeyCode::Enter, KeyModifiers::ALT) => {
+                input.insert_newline();
+                return Ok(false);
+            }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 let text = input.lines().join("\n");
                 if !text.trim().is_empty() {
@@ -269,7 +275,7 @@ async fn handle_terminal_event(
 /// message, running a command, or accepting a completion.
 fn reset_composer(input: &mut TextArea<'_>) {
     *input = TextArea::default();
-    input.set_placeholder_text("Type a message, Enter to send, Esc to quit");
+    input.set_placeholder_text("Type a message · Enter to send · Shift+Enter for newline · Esc to quit");
 }
 
 /// Drive the open modal. Every path that closes a core-blocking prompt sends an
