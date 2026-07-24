@@ -7,7 +7,7 @@ import * as path from "path";
 import * as os from "os";
 import type { PermissionRule, PermissionRuleSet, PermissionSettings } from "./rule-types.js";
 
-const PATH_TOOLS = new Set(["read", "write", "edit", "glob", "grep"]);
+const PATH_TOOLS = new Set(["read", "ls", "write", "edit", "glob", "grep"]);
 const URL_TOOLS = new Set(["webfetch", "websearch"]);
 // Shell separators: a prefix rule never matches a command containing one
 const SHELL_SEPARATORS = /(\|\||&&|;|\||\n|`|\$\()/;

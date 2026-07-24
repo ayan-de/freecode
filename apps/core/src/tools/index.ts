@@ -11,6 +11,7 @@ import { WebFetchTool } from "./webfetch.js";
 import { WebSearchTool } from "./websearch.js";
 import { TodoWriteTool } from "./todo.js";
 import { LspTool } from "./lsp.js";
+import { LsTool } from "./ls.js";
 import {
   createToolOrchestrator,
   type ToolOrchestrator,
@@ -83,6 +84,7 @@ export const tools = {
   websearch: WebSearchTool,
   todowrite: TodoWriteTool,
   lsp: LspTool,
+  ls: LsTool,
 } as const;
 
 export type ToolId = keyof typeof tools;

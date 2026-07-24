@@ -13,7 +13,7 @@ import { extractTarget } from "./rules.js";
 export type ToolKind = "readonly" | "mutating";
 
 const READONLY_TOOLS = new Set([
-  "read", "glob", "grep", "skill", "question", "todowrite", "todo", "lsp",
+  "read", "ls", "glob", "grep", "skill", "question", "todowrite", "todo", "lsp",
   "webfetch", "websearch",
 ]);
 

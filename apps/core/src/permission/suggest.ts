@@ -8,6 +8,7 @@ import { extractTarget } from "./rules.js";
 
 const DISPLAY_NAMES: Record<string, string> = {
   read: "Read",
+  ls: "Ls",
   write: "Write",
   edit: "Edit",
   glob: "Glob",
