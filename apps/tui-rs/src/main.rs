@@ -204,10 +204,22 @@ async fn handle_terminal_event(
                 _ => {}
             }
         }
+        // Any key other than Esc cancels a pending quit.
+        if key.code != KeyCode::Esc {
+            app.esc_armed = None;
+        }
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) => {
-                app.should_quit = true;
-                return Ok(true);
+                let armed = app
+                    .esc_armed
+                    .is_some_and(|t| t.elapsed() < Duration::from_secs(2));
+                if armed {
+                    app.should_quit = true;
+                    return Ok(true);
+                }
+                app.esc_armed = Some(std::time::Instant::now());
+                app.push_system("Press Esc again to quit.".into());
+                return Ok(false);
             }
             (KeyCode::PageUp, _) => {
                 app.scroll_up(10);

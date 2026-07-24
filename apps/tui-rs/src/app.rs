@@ -502,6 +502,9 @@ pub struct App {
     /// live match count on read (`command_cursor`), so it stays valid as the
     /// user types and the match list shrinks.
     cmd_cursor: usize,
+    /// First Esc "arms" quit; a second Esc within a short window confirms it.
+    /// Any other key disarms. Guards against a stray Esc killing the session.
+    pub esc_armed: Option<Instant>,
 }
 
 impl App {
@@ -529,6 +532,7 @@ impl App {
             in_progress: None,
             energy: 0.0,
             cmd_cursor: 0,
+            esc_armed: None,
         }
     }
 
