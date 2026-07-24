@@ -36,7 +36,10 @@ const editSchema: JsonSchema = {
     filePath: { description: "Absolute path to the file to edit" },
     oldString: { description: "The exact text to replace" },
     newString: { description: "The replacement text" },
-    replaceAll: { description: "Replace all occurrences (default: false)" },
+    replaceAll: {
+      type: "boolean",
+      description: "Replace all occurrences (default: false)",
+    },
   },
   required: ["filePath", "oldString", "newString"],
 };
@@ -604,7 +607,10 @@ async function executeEdit(
         content,
         oldNormalized,
         params.newString,
-        params.replaceAll ?? false,
+        // Coerce: some providers send booleans as strings. A bare truthiness
+        // check would treat "false" as true and replace every occurrence.
+        (params.replaceAll as unknown) === true ||
+          (params.replaceAll as unknown) === "true",
       );
     } catch (err) {
       return {

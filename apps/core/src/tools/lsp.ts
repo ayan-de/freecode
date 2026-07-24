@@ -66,7 +66,11 @@ function validateLspInput(
     return { valid: false, error: "filePath is required and must be a string" };
   }
   if (p.operation !== "diagnostics") {
-    if (typeof p.line !== "number" || typeof p.character !== "number") {
+    // Accept numeric strings too — some providers quote numbers.
+    const isNum = (v: unknown) =>
+      typeof v === "number" ||
+      (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)));
+    if (!isNum(p.line) || !isNum(p.character)) {
       return {
         valid: false,
         error: `operation '${p.operation}' requires line and character`,
@@ -169,8 +173,8 @@ async function executeLsp(
       };
     }
 
-    const line = (params.line ?? 1) - 1;
-    const character = (params.character ?? 1) - 1;
+    const line = (Number(params.line) || 1) - 1;
+    const character = (Number(params.character) || 1) - 1;
     const result = await lspRequest(params.operation, file, root, line, character);
     const output =
       params.operation === "hover" ? formatHover(result) : formatLocations(result);

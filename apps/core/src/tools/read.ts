@@ -55,17 +55,32 @@ const readSchema: JsonSchema = {
   type: "object",
   properties: {
     filePath: {
+      type: "string",
       description: "The absolute path to the file or directory to read",
     },
     offset: {
+      type: "number",
       description: "The line number to start reading from (1-indexed)",
     },
     limit: {
+      type: "number",
       description: "The maximum number of lines to read (defaults to 2000)",
     },
   },
   required: ["filePath"],
 };
+
+// Some providers (notably MiniMax via the Anthropic-compat endpoint) serialize
+// numeric tool args as strings ("260"). Accept a number or a numeric string;
+// return undefined for anything else so callers fall back to their default.
+function coerceNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
 
 // =============================================================================
 // Input validation
@@ -81,10 +96,10 @@ function validateReadInput(
   if (typeof p.filePath !== "string" || p.filePath.length === 0) {
     return { valid: false, error: "filePath is required and must be a string" };
   }
-  if (p.offset !== undefined && typeof p.offset !== "number") {
+  if (p.offset !== undefined && coerceNumber(p.offset) === undefined) {
     return { valid: false, error: "offset must be a number" };
   }
-  if (p.limit !== undefined && typeof p.limit !== "number") {
+  if (p.limit !== undefined && coerceNumber(p.limit) === undefined) {
     return { valid: false, error: "limit must be a number" };
   }
   return { valid: true };
@@ -147,10 +162,9 @@ async function executeRead(
       };
     }
 
-    const lines = readLines(filepath, {
-      limit: params.limit ?? DEFAULT_LIMIT,
-      offset: params.offset || 1,
-    });
+    const limit = coerceNumber(params.limit) ?? DEFAULT_LIMIT;
+    const offset = coerceNumber(params.offset) ?? 1;
+    const lines = readLines(filepath, { limit, offset });
 
     let output = [
       `<path>${filepath}</path>`,
@@ -158,16 +172,16 @@ async function executeRead(
       "<content>\n",
     ].join("\n");
     output += lines.raw
-      .map((line, i) => `${i + (params.offset || 1)}: ${line}`)
+      .map((line, i) => `${i + offset}: ${line}`)
       .join("\n");
 
-    const last = (params.offset || 1) + lines.raw.length - 1;
+    const last = offset + lines.raw.length - 1;
     const next = last + 1;
 
     if (lines.cut) {
-      output += `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${params.offset || 1}-${last}. Use offset=${next} to continue.)`;
+      output += `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset}-${last}. Use offset=${next} to continue.)`;
     } else if (lines.more) {
-      output += `\n\n(Showing lines ${params.offset || 1}-${last} of ${lines.count}. Use offset=${next} to continue.)`;
+      output += `\n\n(Showing lines ${offset}-${last} of ${lines.count}. Use offset=${next} to continue.)`;
     } else {
       output += `\n\n(End of file - total ${lines.count} lines)`;
     }

@@ -26,7 +26,7 @@ const bashSchema: JsonSchema = {
   type: "object",
   properties: {
     command: { description: "The shell command to execute" },
-    timeout: { description: "Timeout in milliseconds (default: 60000)" },
+    timeout: { type: "number", description: "Timeout in milliseconds (default: 60000)" },
     workdir: { description: "Working directory for the command" },
   },
   required: ["command"],
