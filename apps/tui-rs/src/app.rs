@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use crate::ipc::protocol::{QuestionSpec, StreamEvent};
+use crate::ipc::protocol::{QuestionSpec, SerializedMessage, SessionMeta, StreamEvent};
 
 /// Agent mode drives tool/permissive behavior on the core side and the badge
 /// shown in the status bar. Order matches `apps/tui/src/themes.ts` and
@@ -76,7 +77,7 @@ impl Mode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Role {
     User,
     Assistant,
@@ -127,6 +128,55 @@ impl Default for ChatMessage {
             tool: None,
         }
     }
+}
+
+/// Flatten persisted `SerializedMessage`s into the transcript's `ChatMessage`
+/// list. Text/code parts fold into the owning user/assistant bubble (code
+/// fenced so the markdown renderer highlights it); each tool part becomes its
+/// own `Role::Tool` entry, mirroring how a live turn renders.
+fn flatten_messages(messages: &[SerializedMessage]) -> Vec<ChatMessage> {
+    let mut out = Vec::new();
+    for msg in messages {
+        let role = if msg.role == "user" {
+            Role::User
+        } else {
+            Role::Assistant
+        };
+        let mut content = String::new();
+        for part in &msg.parts {
+            match part.kind.as_str() {
+                "tool" => {
+                    if !content.trim().is_empty() {
+                        out.push(ChatMessage { role, content: std::mem::take(&mut content), ..Default::default() });
+                    }
+                    out.push(ChatMessage {
+                        role: Role::Tool,
+                        tool: Some(ToolCall {
+                            name: part.tool.as_ref().map(|t| t.name.clone()).unwrap_or_default(),
+                            result: part.result.clone().unwrap_or_default(),
+                            success: Some(true),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    });
+                }
+                "code" => {
+                    let lang = part.language.clone().unwrap_or_default();
+                    let body = part.content.clone().unwrap_or_default();
+                    content.push_str(&format!("\n```{lang}\n{body}\n```\n"));
+                }
+                _ => {
+                    if let Some(text) = &part.content {
+                        content.push_str(text);
+                    }
+                }
+            }
+        }
+        if !content.trim().is_empty() {
+            out.push(ChatMessage { role, content, ..Default::default() });
+        }
+    }
+    out
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -467,6 +517,35 @@ pub enum Chip {
     Tool(usize),
 }
 
+/// The `/session` modal: a session list on the left, a markdown transcript
+/// preview of the highlighted session on the right. Transcripts are fetched
+/// lazily (via `session.resume`) and cached as the cursor moves.
+pub struct SessionPicker {
+    pub sessions: Vec<SessionMeta>,
+    pub cursor: usize,
+    pub previews: HashMap<String, Vec<SerializedMessage>>,
+    pub preview_scroll: u16,
+    /// True when the preview pane has focus (Tab toggles); arrows scroll it
+    /// instead of moving the list cursor.
+    pub preview_focus: bool,
+}
+
+impl SessionPicker {
+    pub fn selected_id(&self) -> Option<&str> {
+        self.sessions.get(self.cursor).map(|s| s.id.as_str())
+    }
+
+    pub fn move_by(&mut self, delta: isize) {
+        if self.sessions.is_empty() {
+            return;
+        }
+        let len = self.sessions.len() as isize;
+        let next = (self.cursor as isize + delta).rem_euclid(len);
+        self.cursor = next as usize;
+        self.preview_scroll = 0;
+    }
+}
+
 pub struct App {
     pub messages: Vec<ChatMessage>,
     pub session_id: Option<String>,
@@ -515,6 +594,8 @@ pub struct App {
     /// First Esc "arms" quit; a second Esc within a short window confirms it.
     /// Any other key disarms. Guards against a stray Esc killing the session.
     pub esc_armed: Option<Instant>,
+    /// The `/session` resume modal, when open.
+    pub session_picker: Option<SessionPicker>,
 }
 
 impl App {
@@ -544,6 +625,7 @@ impl App {
             energy: 0.0,
             cmd_cursor: 0,
             esc_armed: None,
+            session_picker: None,
         }
     }
 
@@ -671,6 +753,11 @@ impl App {
         });
     }
 
+    /// Whether the `/session` modal is open (steals the keyboard while shown).
+    pub fn session_picker_open(&self) -> bool {
+        self.session_picker.is_some()
+    }
+
     pub fn begin_assistant_turn(&mut self) {
         self.messages.push(ChatMessage {
             role: Role::Assistant,
@@ -793,6 +880,28 @@ impl App {
     ) {
         self.follow = true;
         self.prompt = Some(Prompt::provider(providers, current_provider));
+    }
+
+    /// Open the `/session` resume modal with the fetched session list.
+    pub fn open_session_picker(&mut self, sessions: Vec<SessionMeta>) {
+        self.session_picker = Some(SessionPicker {
+            sessions,
+            cursor: 0,
+            previews: HashMap::new(),
+            preview_scroll: 0,
+            preview_focus: false,
+        });
+    }
+
+    /// Adopt a resumed session: replace the transcript with its messages and
+    /// point subsequent sends at it. Closes the picker.
+    pub fn load_session(&mut self, session_id: String, messages: &[SerializedMessage]) {
+        self.clear_messages();
+        self.messages = flatten_messages(messages);
+        self.session_id = Some(session_id);
+        self.session_picker = None;
+        self.follow = true;
+        self.scroll = 0;
     }
 
     /// Open the second `/model` step: the model picker for `provider`,

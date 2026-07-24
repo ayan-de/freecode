@@ -176,6 +176,11 @@ async fn handle_terminal_event(
             handle_prompt_key(key.code, app, client).await;
             return Ok(false);
         }
+        // The `/session` modal likewise owns the keyboard while open.
+        if app.session_picker_open() {
+            handle_session_key(key.code, app, client).await;
+            return Ok(false);
+        }
         // While the composer holds a slash-command prefix, the completion menu
         // owns Up/Down (select) and Tab (complete). Everything else — including
         // Enter to run — falls through to the normal composer handling below.
@@ -277,6 +282,9 @@ async fn handle_terminal_event(
                                         }
                                     });
                                 }
+                            }
+                            CommandOutcome::OpenSessionPicker => {
+                                open_session_picker(app, client).await;
                             }
                             CommandOutcome::Done => {}
                         }
@@ -487,6 +495,109 @@ fn send_message(text: String, app: &mut App, client: &Arc<IpcClient>) {
 /// picker, pre-selecting the active provider. Failures surface as a system
 /// message rather than an empty modal. Selecting a provider then loads its
 /// models — see the `Provider` arm in `handle_prompt_key`.
+async fn open_session_picker(app: &mut App, client: &Arc<IpcClient>) {
+    match client.session_list().await {
+        Ok(sessions) if !sessions.is_empty() => {
+            app.open_session_picker(sessions);
+            ensure_preview(app, client).await;
+        }
+        Ok(_) => app.push_system("No previous sessions to resume.".into()),
+        Err(err) => app.push_system(format!("Failed to list sessions: {err}")),
+    }
+}
+
+/// Fetch and cache the highlighted session's transcript if not already cached.
+async fn ensure_preview(app: &mut App, client: &Arc<IpcClient>) {
+    let id = match app.session_picker.as_ref() {
+        Some(p) => match p.selected_id() {
+            Some(id) if !p.previews.contains_key(id) => id.to_string(),
+            _ => return,
+        },
+        None => return,
+    };
+    if let Ok(msgs) = client.session_resume(&id).await {
+        if let Some(p) = app.session_picker.as_mut() {
+            p.previews.insert(id, msgs);
+        }
+    }
+}
+
+async fn handle_session_key(code: KeyCode, app: &mut App, client: &Arc<IpcClient>) {
+    let focus_preview = app
+        .session_picker
+        .as_ref()
+        .map(|p| p.preview_focus)
+        .unwrap_or(false);
+    match code {
+        KeyCode::Esc => {
+            app.session_picker = None;
+            return;
+        }
+        // Tab moves focus between the list and the preview pane.
+        KeyCode::Tab | KeyCode::BackTab => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.preview_focus = !p.preview_focus;
+            }
+            return;
+        }
+        // With the preview focused, arrows/j/k scroll it; otherwise they move
+        // the list selection.
+        KeyCode::Up | KeyCode::Char('k') if focus_preview => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.preview_scroll = p.preview_scroll.saturating_sub(1);
+            }
+            return;
+        }
+        KeyCode::Down | KeyCode::Char('j') if focus_preview => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.preview_scroll = p.preview_scroll.saturating_add(1);
+            }
+            return;
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.move_by(-1);
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.move_by(1);
+            }
+        }
+        KeyCode::PageUp => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.preview_scroll = p.preview_scroll.saturating_sub(5);
+            }
+            return;
+        }
+        KeyCode::PageDown => {
+            if let Some(p) = app.session_picker.as_mut() {
+                p.preview_scroll = p.preview_scroll.saturating_add(5);
+            }
+            return;
+        }
+        KeyCode::Enter => {
+            let id = app
+                .session_picker
+                .as_ref()
+                .and_then(|p| p.selected_id().map(String::from));
+            if let Some(id) = id {
+                match client.session_resume(&id).await {
+                    Ok(msgs) => app.load_session(id, &msgs),
+                    Err(err) => {
+                        app.session_picker = None;
+                        app.push_system(format!("Failed to resume session: {err}"));
+                    }
+                }
+            }
+            return;
+        }
+        _ => return,
+    }
+    // A move changed the selection — make sure its preview is loaded.
+    ensure_preview(app, client).await;
+}
+
 async fn open_provider_picker(app: &mut App, client: &Arc<IpcClient>) {
     let current_provider = client
         .current_model()
