@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode, KeyEventKind,
-    KeyModifiers, MouseButton, MouseEventKind,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
+    EventStream, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
     enable_raw_mode()?;
     let mut out = stdout();
-    execute!(out, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(out, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(out);
     let mut terminal = Terminal::new(backend)?;
 
@@ -37,7 +37,8 @@ async fn main() -> Result<()> {
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        DisableMouseCapture
+        DisableMouseCapture,
+        DisableBracketedPaste
     )?;
     terminal.show_cursor()?;
 
@@ -142,6 +143,15 @@ async fn handle_terminal_event(
     registry: &CommandRegistry,
     client: &Arc<IpcClient>,
 ) -> Result<bool> {
+    // Bracketed paste: the terminal hands us the whole block at once, so it
+    // lands in the composer verbatim (newlines and all) instead of each line
+    // replaying as an Enter that submits. A prompt modal ignores pastes.
+    if let Event::Paste(data) = &event {
+        if app.prompt.is_none() {
+            input.insert_str(data.replace('\r', "\n"));
+        }
+        return Ok(false);
+    }
     if let Event::Mouse(mouse) = &event {
         match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(3),
