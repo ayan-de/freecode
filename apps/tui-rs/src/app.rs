@@ -460,6 +460,13 @@ pub enum PromptOutcome {
     More,
 }
 
+/// A clickable transcript chip and the message index it toggles.
+#[derive(Clone, Copy)]
+pub enum Chip {
+    Thought(usize),
+    Tool(usize),
+}
+
 pub struct App {
     pub messages: Vec<ChatMessage>,
     pub session_id: Option<String>,
@@ -480,10 +487,13 @@ pub struct App {
     /// Message indices whose "Thought" chip is expanded. Clicking a chip toggles
     /// just that one (per-thought, not global).
     pub expanded_thoughts: HashSet<usize>,
-    /// Click hit-testing for "Thought" chips, refreshed each render:
-    /// `(wrapped_row, message_index)` for each chip, plus the transcript's top
-    /// row and height so a mouse row maps back to a specific chip.
-    pub thought_hits: Vec<(u16, usize)>,
+    /// Message indices whose tool call is individually expanded by a click.
+    /// Independent of `tools_expanded` (Ctrl+O), which expands all at once.
+    pub expanded_tools: HashSet<usize>,
+    /// Click hit-testing for "Thought" and tool chips, refreshed each render:
+    /// `(wrapped_row, chip)` for each chip, plus the transcript's top row and
+    /// height so a mouse row maps back to a specific chip.
+    pub chip_hits: Vec<(u16, Chip)>,
     pub transcript_top: u16,
     pub transcript_height: u16,
     /// Open modal (question or permission). Core is blocked while this is set.
@@ -524,7 +534,8 @@ impl App {
             tool_count: 0,
             tools_expanded: false,
             expanded_thoughts: HashSet::new(),
-            thought_hits: Vec::new(),
+            expanded_tools: HashSet::new(),
+            chip_hits: Vec::new(),
             transcript_top: 0,
             transcript_height: 0,
             prompt: None,
@@ -541,7 +552,8 @@ impl App {
     pub fn clear_messages(&mut self) {
         self.messages.clear();
         self.expanded_thoughts.clear();
-        self.thought_hits.clear();
+        self.expanded_tools.clear();
+        self.chip_hits.clear();
         self.scroll = 0;
         self.follow = true;
         self.in_progress = None;
@@ -679,26 +691,38 @@ impl App {
         self.expanded_thoughts.contains(&msg_idx)
     }
 
-    pub fn toggle_thought(&mut self, msg_idx: usize) {
-        if !self.expanded_thoughts.remove(&msg_idx) {
-            self.expanded_thoughts.insert(msg_idx);
+    pub fn is_tool_expanded(&self, msg_idx: usize) -> bool {
+        self.expanded_tools.contains(&msg_idx)
+    }
+
+    /// Toggle whichever chip was clicked.
+    pub fn toggle_chip(&mut self, chip: Chip) {
+        let set = match chip {
+            Chip::Thought(_) => &mut self.expanded_thoughts,
+            Chip::Tool(_) => &mut self.expanded_tools,
+        };
+        let idx = match chip {
+            Chip::Thought(i) | Chip::Tool(i) => i,
+        };
+        if !set.remove(&idx) {
+            set.insert(idx);
         }
     }
 
-    /// Which "Thought" chip (message index) sits at absolute terminal `row`, if
-    /// any. Uses the hit map recorded during the last render: a chip occupies a
-    /// single wrapped row, offset by the transcript's scroll and top.
-    pub fn thought_at(&self, row: u16) -> Option<usize> {
+    /// Which chip sits at absolute terminal `row`, if any. Uses the hit map
+    /// recorded during the last render: a chip header occupies a single wrapped
+    /// row, offset by the transcript's scroll and top.
+    pub fn chip_at(&self, row: u16) -> Option<Chip> {
         if row < self.transcript_top
             || row >= self.transcript_top + self.transcript_height
         {
             return None;
         }
         let visual = self.scroll + (row - self.transcript_top);
-        self.thought_hits
+        self.chip_hits
             .iter()
             .find(|(wrapped_row, _)| *wrapped_row == visual)
-            .map(|(_, idx)| *idx)
+            .map(|(_, chip)| *chip)
     }
 
     /// The assistant message currently receiving text, opening a new one if a

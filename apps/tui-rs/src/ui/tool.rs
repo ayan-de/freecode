@@ -133,9 +133,9 @@ fn header(call: &ToolCall, phase: f32, expanded: bool) -> Vec<Span<'static>> {
     if let Some(ms) = call.duration_ms {
         spans.push(Span::styled(format!(" · {:.1}s", ms as f64 / 1000.0), dim()));
     }
-    // Only advertise the toggle for calls that actually have something hidden.
-    if call.success.is_some() && !expanded && !call.result.trim().is_empty() {
-        spans.push(Span::styled(" ⌄", dim()));
+    // Advertise the click toggle for finished calls that have output.
+    if call.success.is_some() && !call.result.trim().is_empty() {
+        spans.push(Span::styled(if expanded { " " } else { " " }, dim()));
     }
     spans
 }

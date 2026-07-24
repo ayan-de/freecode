@@ -158,8 +158,8 @@ async fn handle_terminal_event(
             MouseEventKind::ScrollDown => app.scroll_down(3),
             // Click a "Thought" chip to open/close just that one.
             MouseEventKind::Down(MouseButton::Left) => {
-                if let Some(idx) = app.thought_at(mouse.row) {
-                    app.toggle_thought(idx);
+                if let Some(chip) = app.chip_at(mouse.row) {
+                    app.toggle_chip(chip);
                 }
             }
             _ => {}

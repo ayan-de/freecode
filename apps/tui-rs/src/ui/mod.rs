@@ -13,7 +13,7 @@ use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 use tui_textarea::TextArea;
 
-use crate::app::{App, Role, Status};
+use crate::app::{App, Chip, Role, Status};
 use crate::commands::{self, CommandRegistry};
 
 /// All layout, styling, and rendering lives here — this is the file to
@@ -198,9 +198,9 @@ fn draw_empty_state(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     let mut user_turn = 0usize;
-    // (line index of a "Thought" chip header, message index) — used after the
-    // build to map click rows to a specific chip.
-    let mut thought_headers: Vec<(usize, usize)> = Vec::new();
+    // (line index of a chip header, which chip) — used after the build to map
+    // click rows to a specific Thought or tool chip.
+    let mut chip_headers: Vec<(usize, Chip)> = Vec::new();
     let last_idx = app.messages.len().saturating_sub(1);
     for (idx, msg) in app.messages.iter().enumerate() {
         let is_last = idx == last_idx;
@@ -221,7 +221,14 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
             }
             Role::Tool => {
                 if let Some(call) = &msg.tool {
-                    lines.extend(tool::render(call, app.osc_phase(), app.tools_expanded));
+                    let expanded = app.tools_expanded || app.is_tool_expanded(idx);
+                    // The header is the first rendered line — record it as a
+                    // click target only once the call has finished (a running
+                    // call has nothing hidden to open).
+                    if call.success.is_some() && !call.result.trim().is_empty() {
+                        chip_headers.push((lines.len(), Chip::Tool(idx)));
+                    }
+                    lines.extend(tool::render(call, app.osc_phase(), expanded));
                 }
             }
             Role::System => {
@@ -284,7 +291,7 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                             if expanded { " ⌃" } else { " ⌄" },
                             dim(),
                         ));
-                        thought_headers.push((lines.len(), idx));
+                        chip_headers.push((lines.len(), Chip::Thought(idx)));
                         lines.push(Line::from(header));
                         if expanded {
                             for line in msg.thinking.lines() {
@@ -320,10 +327,11 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     // target that specific chip. Lines wrap independently, so a chip's start row
     // is the sum of the wrapped heights of the lines before it. Only computed
     // when chips exist, so a chip-free transcript pays nothing.
-    let mut hits: Vec<(u16, usize)> = Vec::new();
-    if !thought_headers.is_empty() {
+    let mut hits: Vec<(u16, Chip)> = Vec::new();
+    if !chip_headers.is_empty() {
+        chip_headers.sort_by_key(|(li, _)| *li);
         let mut cum: u16 = 0;
-        let mut headers = thought_headers.iter().peekable();
+        let mut headers = chip_headers.iter().peekable();
         for (i, line) in lines.iter().enumerate() {
             while matches!(headers.peek(), Some((li, _)) if *li == i) {
                 hits.push((cum, headers.next().unwrap().1));
@@ -335,7 +343,7 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
             cum = cum.saturating_add(h);
         }
     }
-    app.thought_hits = hits;
+    app.chip_hits = hits;
     app.transcript_top = area.y;
     app.transcript_height = area.height;
 
