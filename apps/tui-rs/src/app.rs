@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::ipc::protocol::{QuestionSpec, SerializedMessage, SessionMeta, StreamEvent};
@@ -596,6 +597,12 @@ pub struct App {
     pub esc_armed: Option<Instant>,
     /// The `/session` resume modal, when open.
     pub session_picker: Option<SessionPicker>,
+    /// Permission asks that arrived while another prompt was open. A batch of
+    /// concurrency-safe tools raises several asks at once; core blocks on each,
+    /// so every one must be answered. They surface one at a time as each active
+    /// prompt is resolved — without this queue a later ask overwrote `prompt`
+    /// and its tool hung forever.
+    permission_queue: VecDeque<Prompt>,
 }
 
 impl App {
@@ -626,6 +633,7 @@ impl App {
             cmd_cursor: 0,
             esc_armed: None,
             session_picker: None,
+            permission_queue: VecDeque::new(),
         }
     }
 
@@ -831,43 +839,53 @@ impl App {
     pub fn submit_prompt(&mut self) -> Option<PromptOutcome> {
         let prompt = self.prompt.take()?;
 
-        if prompt.kind == PromptKind::Permission {
-            return Some(PromptOutcome::Permission {
+        let outcome = if prompt.kind == PromptKind::Permission {
+            Some(PromptOutcome::Permission {
                 request_id: prompt.request_id,
                 decision: permission_decision(prompt.selected),
-            });
-        }
-
-        if prompt.kind == PromptKind::Provider {
+            })
+        } else if prompt.kind == PromptKind::Provider {
             // Rows carry the provider id in `value`; the loop loads its models.
-            return prompt
+            prompt
                 .selected_option()
                 .and_then(|o| o.value.clone())
-                .map(|provider| PromptOutcome::Provider { provider });
-        }
-
-        if prompt.kind == PromptKind::Model {
+                .map(|provider| PromptOutcome::Provider { provider })
+        } else if prompt.kind == PromptKind::Model {
             // Each row carries its model id in `value`; the label is the pretty
             // name. `target_provider` names the provider the list was loaded
             // for, so a cross-provider switch persists the right pair.
             let provider = prompt.target_provider.clone().unwrap_or_default();
-            return prompt
+            prompt
                 .selected_option()
                 .and_then(|o| o.value.clone())
-                .map(|model| PromptOutcome::Model { provider, model });
-        }
+                .map(|model| PromptOutcome::Model { provider, model })
+        } else {
+            let chosen = prompt.chosen();
+            let mut answers = prompt.answers;
+            answers.extend(chosen);
+            let mut pending = prompt.pending;
+            if pending.is_empty() {
+                Some(PromptOutcome::Answer { request_id: prompt.request_id, answers })
+            } else {
+                let next = pending.remove(0);
+                self.prompt = Some(Prompt::from_question(prompt.request_id, next, pending, answers));
+                return Some(PromptOutcome::More);
+            }
+        };
 
-        let chosen = prompt.chosen();
+        // A queued permission (from a concurrent tool batch) surfaces next.
+        self.dequeue_permission();
+        outcome
+    }
 
-        let mut answers = prompt.answers;
-        answers.extend(chosen);
-        let mut pending = prompt.pending;
-        if pending.is_empty() {
-            return Some(PromptOutcome::Answer { request_id: prompt.request_id, answers });
+    /// If no prompt is open, pop the next queued permission ask into view.
+    fn dequeue_permission(&mut self) {
+        if self.prompt.is_none() {
+            if let Some(next) = self.permission_queue.pop_front() {
+                self.follow = true;
+                self.prompt = Some(next);
+            }
         }
-        let next = pending.remove(0);
-        self.prompt = Some(Prompt::from_question(prompt.request_id, next, pending, answers));
-        Some(PromptOutcome::More)
     }
 
     /// Open the first `/model` step: the provider picker, pre-selecting the
@@ -967,7 +985,7 @@ impl App {
     /// core unblocks — never leave it waiting.
     pub fn cancel_prompt(&mut self) -> Option<PromptOutcome> {
         let prompt = self.prompt.take()?;
-        match prompt.kind {
+        let outcome = match prompt.kind {
             PromptKind::Permission => Some(PromptOutcome::Permission {
                 request_id: prompt.request_id,
                 decision: "deny".to_string(),
@@ -979,7 +997,10 @@ impl App {
             // The `/model` pickers are local overlays — Esc just closes them;
             // core was never blocked, so there is nothing to unblock.
             PromptKind::Provider | PromptKind::Model => None,
-        }
+        };
+        // Surface the next queued permission ask, if any.
+        self.dequeue_permission();
+        outcome
     }
 
     /// The tool entry for `id`, searched from the end since the call being
@@ -1126,7 +1147,7 @@ impl App {
                 reason,
             } => {
                 self.follow = true;
-                self.prompt = Some(Prompt {
+                let prompt = Prompt {
                     kind: PromptKind::Permission,
                     request_id,
                     title: format!("{tool_name} wants to run"),
@@ -1142,7 +1163,14 @@ impl App {
                     search: String::new(),
                     pending: Vec::new(),
                     answers: Vec::new(),
-                });
+                };
+                // Show now only if nothing else is open; otherwise queue it so
+                // it isn't lost (which would hang its tool). Drained on resolve.
+                if self.prompt.is_some() {
+                    self.permission_queue.push_back(prompt);
+                } else {
+                    self.prompt = Some(prompt);
+                }
             }
             StreamEvent::Error { content } => {
                 self.push_system(format!("error: {content}"));
@@ -1507,6 +1535,40 @@ mod tests {
             }
             other => panic!("expected a deny, got {other:?}"),
         }
+    }
+
+    /// Two concurrent permission asks must both be answerable: the second
+    /// queues behind the first instead of overwriting it (which hung its tool).
+    #[test]
+    fn concurrent_permission_asks_queue() {
+        let mut app = App::new();
+        let ask = |id: &str, path: &str| {
+            serde_json::from_value(json!({
+                "type": "permission_asked",
+                "requestId": id,
+                "toolName": "read",
+                "description": path,
+            }))
+            .unwrap()
+        };
+        app.apply_stream_event(ask("r1", "/xyz"));
+        app.apply_stream_event(ask("r2", "/xxx"));
+
+        // Only the first is shown; the second is parked.
+        assert_eq!(app.prompt.as_ref().unwrap().request_id, "r1");
+
+        // Answering the first surfaces the second (not the editor / a hang).
+        match app.submit_prompt() {
+            Some(PromptOutcome::Permission { request_id, .. }) => assert_eq!(request_id, "r1"),
+            other => panic!("expected r1 permission, got {other:?}"),
+        }
+        assert_eq!(app.prompt.as_ref().unwrap().request_id, "r2");
+
+        match app.submit_prompt() {
+            Some(PromptOutcome::Permission { request_id, .. }) => assert_eq!(request_id, "r2"),
+            other => panic!("expected r2 permission, got {other:?}"),
+        }
+        assert!(app.prompt.is_none(), "queue drained, no prompt left open");
     }
 
     #[test]

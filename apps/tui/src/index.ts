@@ -229,6 +229,14 @@ function showMessage(content: string): void {
   createSystemMessage(content);
 }
 
+// Permission asks can arrive in bursts — a batch of concurrency-safe tools
+// (two greps, two reads) each raises its own ask nearly simultaneously. The
+// TUI shows one picker at a time; extra asks queue here and surface in order as
+// each is answered, so none is left orphaned and unfocused (which read as a hang).
+type PermissionAsk = Extract<StreamEvent, { type: "permission_asked" }>;
+const permissionQueue: PermissionAsk[] = [];
+let activePermissionPicker: SelectList | null = null;
+
 function removeSelector(
   selector: SelectList | SearchableSelectList | null,
 ): void {
@@ -239,6 +247,46 @@ function removeSelector(
     }
     selector = null;
   }
+}
+
+// Pop the next queued permission ask and render its picker. After the user
+// answers or cancels, it recurses to drain the queue, or returns focus to the
+// editor when empty. Only ever one picker on screen at a time.
+function showNextPermission(): void {
+  const event = permissionQueue.shift();
+  if (!event) {
+    activePermissionPicker = null;
+    tui.setFocus(editor);
+    tui.requestRender();
+    return;
+  }
+
+  const picker = createPermissionPicker(
+    {
+      toolName: event.toolName,
+      description: event.description,
+      suggestedRule: event.suggestedRule,
+      reason: event.reason,
+    },
+    {
+      onSelect: (decision) => {
+        removeSelector(picker);
+        void answerPermission(event.requestId, decision);
+        showNextPermission();
+      },
+      onCancel: () => {
+        removeSelector(picker);
+        void rejectPermission(event.requestId);
+        showNextPermission();
+      },
+    },
+    defaultSelectListTheme,
+  );
+  activePermissionPicker = picker;
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, picker);
+  tui.setFocus(picker);
+  tui.requestRender();
 }
 
 function hideModelSelector(): void {
@@ -605,35 +653,10 @@ function handleToolEvent(event: StreamEvent) {
       break;
     }
     case "permission_asked": {
-      // Render the approval decisions as a SelectList; the choice is sent
-      // back over IPC and the agent loop resumes (or blocks) the tool call.
-      const picker = createPermissionPicker(
-        {
-          toolName: event.toolName,
-          description: event.description,
-          suggestedRule: event.suggestedRule,
-          reason: event.reason,
-        },
-        {
-          onSelect: (decision) => {
-            removeSelector(picker);
-            void answerPermission(event.requestId, decision);
-            tui.setFocus(editor);
-            tui.requestRender();
-          },
-          onCancel: () => {
-            removeSelector(picker);
-            void rejectPermission(event.requestId);
-            tui.setFocus(editor);
-            tui.requestRender();
-          },
-        },
-        defaultSelectListTheme,
-      );
-      const editorIdx = tui.children.indexOf(editor);
-      tui.children.splice(editorIdx + 1, 0, picker);
-      tui.setFocus(picker);
-      tui.requestRender();
+      // Enqueue; show immediately only if no picker is already up. Answering
+      // one drains the next (showNextPermission), so bursts don't stack pickers.
+      permissionQueue.push(event);
+      if (!activePermissionPicker) showNextPermission();
       break;
     }
     // Auto-compaction only — manual /compact renders from its own RPC result
