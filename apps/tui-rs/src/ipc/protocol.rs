@@ -191,6 +191,56 @@ pub struct SessionInfo {
     pub session_id: String,
 }
 
+/// One session as returned by `session.list` (`SessionContext` in core, minus
+/// the messages, which the list omits). Used to populate the `/session` picker.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionMeta {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(rename = "projectPath", default)]
+    pub project_path: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(rename = "turnCount", default)]
+    pub turn_count: u64,
+    #[serde(rename = "lastTurnAt", default)]
+    pub last_turn_at: u64,
+    #[serde(rename = "createdAt", default)]
+    pub created_at: u64,
+}
+
+/// A persisted message from `session.resume` (`SerializedMessage` in core).
+#[derive(Debug, Clone, Deserialize)]
+pub struct SerializedMessage {
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub parts: Vec<MessagePart>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MessagePart {
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub tool: Option<PartTool>,
+    #[serde(default)]
+    pub result: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PartTool {
+    #[serde(default)]
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderInfo {
     pub id: String,

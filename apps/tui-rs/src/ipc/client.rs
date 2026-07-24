@@ -15,8 +15,9 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::protocol::{
-    parse_line, CurrentModel, IncomingLine, JsonRpcRequest, ModelInfo, ProviderInfo, SessionConfig,
-    SessionInfo, SessionSendResult, StreamEvent, ToolListItem,
+    parse_line, CurrentModel, IncomingLine, JsonRpcRequest, ModelInfo, ProviderInfo,
+    SerializedMessage, SessionConfig, SessionInfo, SessionMeta, SessionSendResult, StreamEvent,
+    ToolListItem,
 };
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
@@ -292,5 +293,26 @@ impl IpcClient {
         self.call("session.stop", Some(serde_json::json!({ "sessionId": session_id })))
             .await?;
         Ok(())
+    }
+
+    /// All sessions for the `/session` picker, newest activity first.
+    pub async fn session_list(&self) -> Result<Vec<SessionMeta>> {
+        let value = self.call("session.list", None).await?;
+        let mut sessions: Vec<SessionMeta> = serde_json::from_value(value)?;
+        sessions.sort_by(|a, b| b.last_turn_at.cmp(&a.last_turn_at));
+        Ok(sessions)
+    }
+
+    /// Resume a session, returning its persisted transcript. Core also adopts
+    /// this session for subsequent `session.send` calls.
+    pub async fn session_resume(&self, session_id: &str) -> Result<Vec<SerializedMessage>> {
+        let value = self
+            .call("session.resume", Some(serde_json::json!({ "sessionId": session_id })))
+            .await?;
+        let messages = value
+            .get("messages")
+            .cloned()
+            .unwrap_or(Value::Array(vec![]));
+        Ok(serde_json::from_value(messages)?)
     }
 }
