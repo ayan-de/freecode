@@ -1,6 +1,7 @@
 mod command;
 mod markdown;
 mod prompt;
+mod session;
 mod tool;
 mod oscilloscope;
 pub mod intro;
@@ -40,7 +41,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea, registry: &Comma
     // Drawn last so it sits above the transcript and the composer. A blocking
     // prompt takes precedence (core is stopped until it is answered); otherwise
     // the slash-command menu shows while the composer holds a command prefix.
-    if let Some(p) = &app.prompt {
+    if let Some(picker) = &app.session_picker {
+        session::draw(frame, picker, area);
+    } else if let Some(p) = &app.prompt {
         prompt::draw(frame, p, chunks[1]);
     } else {
         let text = input.lines().join("\n");
