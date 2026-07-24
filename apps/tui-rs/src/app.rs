@@ -1127,7 +1127,8 @@ impl App {
                     call.success = Some(success);
                     call.result = result;
                     call.duration_ms = duration_ms;
-                    call.output.clear();
+                    // Keep the streamed output: some tools (bash) carry their
+                    // payload in the stream, not the result string.
                 }
                 self.bump_energy(0.7);
             }

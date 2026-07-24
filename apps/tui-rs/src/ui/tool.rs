@@ -78,22 +78,53 @@ pub fn render(call: &ToolCall, phase: f32, expanded: bool) -> Vec<Line<'static>>
     let mut lines = vec![Line::from(header(call, phase, expanded))];
 
     if call.success.is_none() {
-        // Running: last few output lines, dimmed, discarded once complete.
+        // Running: last few streamed output lines, dimmed.
         for line in call.output.iter().rev().take(TAIL_ROWS).rev() {
             lines.push(body_line(line));
         }
-    } else if expanded {
-        let diff = looks_like_diff(&call.result);
-        for line in call.result.lines().take(EXPANDED_ROWS) {
-            lines.push(if diff { diff_line(line) } else { body_line(line) });
-        }
-        let extra = call.result.lines().count().saturating_sub(EXPANDED_ROWS);
-        if extra > 0 {
-            lines.push(body_line(&format!("… +{extra} more lines")));
-        }
+        return lines;
+    }
+
+    // Completed. Prefer the result; fall back to streamed output (bash and
+    // friends carry their payload in the stream, not the result string).
+    let joined;
+    let body: &str = if call.result.trim().is_empty() {
+        joined = call.output.join("\n");
+        &joined
+    } else {
+        &call.result
+    };
+    if body.trim().is_empty() {
+        return lines;
+    }
+
+    let budget = if expanded { EXPANDED_ROWS } else { preview_rows(&call.name) };
+    if budget == 0 {
+        return lines;
+    }
+
+    let diff = looks_like_diff(body);
+    for line in body.lines().take(budget) {
+        lines.push(if diff { diff_line(line) } else { body_line(line) });
+    }
+    let extra = body.lines().count().saturating_sub(budget);
+    if extra > 0 {
+        lines.push(body_line(&format!("… +{extra} more lines")));
     }
 
     lines
+}
+
+/// Output rows shown for a finished call while *collapsed*, keyed by tool.
+/// Tools whose output is the point (bash/grep/ls/searches) and diffs from
+/// edit/write get an inline preview; read and unlisted tools stay quiet until
+/// the call is expanded.
+fn preview_rows(name: &str) -> usize {
+    match name {
+        "bash" | "grep" | "glob" | "ls" | "websearch" => 6,
+        "edit" | "write" => 8,
+        _ => 0,
+    }
 }
 
 fn header(call: &ToolCall, phase: f32, expanded: bool) -> Vec<Span<'static>> {
@@ -135,7 +166,8 @@ fn header(call: &ToolCall, phase: f32, expanded: bool) -> Vec<Span<'static>> {
         spans.push(Span::styled(format!(" · {:.1}s", ms as f64 / 1000.0), dim()));
     }
     // Advertise the click toggle for finished calls that have output.
-    if call.success.is_some() && !call.result.trim().is_empty() {
+    let has_body = !call.result.trim().is_empty() || !call.output.is_empty();
+    if call.success.is_some() && has_body {
         spans.push(Span::styled(if expanded { " " } else { " " }, dim()));
     }
     spans
@@ -198,5 +230,26 @@ mod tests {
     fn plain_output_is_not_a_diff() {
         assert!(!looks_like_diff("total 0\ndrwxr-xr-x src"));
         assert_eq!(diff_stats("read 240 lines"), (0, 0));
+    }
+
+    #[test]
+    fn completed_bash_renders_streamed_output_when_result_empty() {
+        let call = ToolCall {
+            name: "bash".into(),
+            success: Some(true),
+            output: vec!["line one".into(), "line two".into()],
+            ..Default::default()
+        };
+        // Collapsed: header + both output rows (bash previews inline).
+        let lines = render(&call, 0.0, false);
+        assert_eq!(lines.len(), 3);
+        // read stays quiet when collapsed.
+        let read = ToolCall {
+            name: "read".into(),
+            success: Some(true),
+            result: "240 lines".into(),
+            ..Default::default()
+        };
+        assert_eq!(render(&read, 0.0, false).len(), 1);
     }
 }
