@@ -18,8 +18,23 @@ import { isToolAllowed, type PermissionProfile } from "../permission/index.js";
 import type { Tool } from "./tool.types.js";
 import { isTransientError } from "../agent/recovery/manager.js";
 
-// Max output length for model (truncation to save tokens)
-const MAX_MODEL_OUTPUT_CHARS = 500;
+// Max output length sent to the model (truncation to bound context growth).
+// Matches claude-code's Bash cap (30KB); full output stays in displayOutput.
+// ponytail: char cap, not token-aware — good enough, tighten if a provider still overflows.
+const MAX_MODEL_OUTPUT_CHARS = 30_000;
+
+// Truncate keeping the head; the tail marker tells the model output was cut so
+// it can re-read narrower (offset/limit, grep) instead of assuming completeness.
+function capModelOutput(output: string): { modelOutput: string; truncated: boolean } {
+  if (output.length <= MAX_MODEL_OUTPUT_CHARS) {
+    return { modelOutput: output, truncated: false };
+  }
+  const kept = output.slice(0, MAX_MODEL_OUTPUT_CHARS);
+  return {
+    modelOutput: `${kept}\n\n... [truncated, ${output.length} chars total — re-read a narrower slice if you need the rest] ...`,
+    truncated: true,
+  };
+}
 
 // =============================================================================
 // Orchestrator Interface
@@ -94,7 +109,7 @@ function mapToolResult(
   call: ToolCall,
 ): ToolResult {
   const output = toolResult.output;
-  const truncated = output.length > MAX_MODEL_OUTPUT_CHARS;
+  const { modelOutput, truncated } = capModelOutput(output);
 
   return {
     id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -102,9 +117,7 @@ function mapToolResult(
     tool: call.tool,
     title: toolResult.title,
     displayOutput: output,
-    modelOutput: truncated
-      ? output.slice(0, MAX_MODEL_OUTPUT_CHARS) + "..."
-      : output,
+    modelOutput,
     stdout: toolResult.output, // Legacy
     stderr: toolResult.error,
     structuredData: toolResult.metadata ?? undefined,
@@ -276,16 +289,14 @@ export function createToolOrchestrator(
           : typeof r === "string"
             ? r
             : JSON.stringify(r);
-        const truncated = output.length > MAX_MODEL_OUTPUT_CHARS;
+        const { modelOutput, truncated } = capModelOutput(output);
         return {
           id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           toolCallId: toolId,
           tool,
           title: structured?.title ?? toolDef.description,
           displayOutput: output,
-          modelOutput: truncated
-            ? output.slice(0, MAX_MODEL_OUTPUT_CHARS) + "..."
-            : output,
+          modelOutput,
           stdout: output, // Legacy
           structuredData: structured?.metadata,
           truncated,

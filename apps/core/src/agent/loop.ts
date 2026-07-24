@@ -659,7 +659,10 @@ export class AgentLoop {
             (p) => p.type === "tool" && p.tool.id === tc.id,
           );
           if (part && part.type === "tool") {
-            part.result = result.stdout || result.error || "";
+            // modelOutput is the context-capped output; stdout is the full
+            // (untruncated) copy kept only for UI. Re-sending stdout every turn
+            // is what overflowed provider context windows.
+            part.result = result.modelOutput || result.error || "";
           }
           await this.appendToolMessage(tc, result);
         }
@@ -1451,7 +1454,9 @@ export class AgentLoop {
             name: toolCall.tool,
             args: toolCall.args as Record<string, unknown>,
           },
-          result: result.stdout || result.error || "",
+          // Persist the context-capped output (see appendToolMessage caller):
+          // this is reloaded into history and re-sent to the provider.
+          result: result.modelOutput || result.error || "",
         },
       ],
       timestamp: Date.now(),
