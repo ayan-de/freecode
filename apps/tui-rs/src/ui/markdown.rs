@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 const CODE: Color = Color::LightGreen;
 
 pub fn render(md: &str) -> Vec<Line<'static>> {
-    let parser = Parser::new_ext(md, Options::ENABLE_STRIKETHROUGH);
+    let parser = Parser::new_ext(md, Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES);
     let mut r = Renderer::default();
     for event in parser {
         r.event(event);
@@ -29,11 +29,24 @@ struct Renderer {
     in_code_block: bool,
     /// Nesting: each entry is Some(next ordered index) or None for a bullet.
     lists: Vec<Option<u64>>,
+    /// Table state: collected rows of plain-text cells, plus the in-progress cell.
+    table: Option<Vec<Vec<String>>>,
+    cell: String,
+    /// Blockquote nesting depth; each flushed line gets a "▌ " marker.
+    quote: usize,
+    /// Destination of the link currently being rendered, appended on close.
+    link: Option<String>,
 }
 
 impl Renderer {
     fn flush_line(&mut self) {
         if !self.cur.is_empty() {
+            if self.quote > 0 {
+                self.cur.insert(0, Span::styled(
+                    "▌ ".repeat(self.quote),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
             self.lines.push(Line::from(std::mem::take(&mut self.cur)));
         }
     }
@@ -51,6 +64,40 @@ impl Renderer {
             .push(Span::styled(text.to_string(), self.style));
     }
 
+    fn emit_table(&mut self) {
+        let Some(rows) = self.table.take() else { return };
+        if rows.is_empty() {
+            return;
+        }
+        let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+        let mut widths = vec![0usize; cols];
+        for row in &rows {
+            for (i, cell) in row.iter().enumerate() {
+                widths[i] = widths[i].max(cell.chars().count());
+            }
+        }
+        let render_row = |row: &[String]| {
+            let cells: Vec<String> = (0..cols)
+                .map(|i| {
+                    let c = row.get(i).map(String::as_str).unwrap_or("");
+                    format!("{c:<w$}", w = widths[i])
+                })
+                .collect();
+            format!("│ {} │", cells.join(" │ "))
+        };
+        for (i, row) in rows.iter().enumerate() {
+            self.lines.push(Line::from(render_row(row)));
+            if i == 0 {
+                let sep: Vec<String> = widths.iter().map(|w| "─".repeat(w + 2)).collect();
+                self.lines.push(Line::from(Span::styled(
+                    format!("├{}┤", sep.join("┼")),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
+        self.blank();
+    }
+
     fn indent(&self) -> String {
         "  ".repeat(self.lists.len().saturating_sub(1))
     }
@@ -60,7 +107,9 @@ impl Renderer {
             Event::Start(tag) => self.start(tag),
             Event::End(tag) => self.end(tag),
             Event::Text(text) => {
-                if self.in_code_block {
+                if self.table.is_some() {
+                    self.cell.push_str(&text);
+                } else if self.in_code_block {
                     for (i, line) in text.split('\n').enumerate() {
                         if i > 0 {
                             self.flush_line();
@@ -75,6 +124,10 @@ impl Renderer {
                 }
             }
             Event::Code(code) => {
+                if self.table.is_some() {
+                    self.cell.push_str(&code);
+                    return;
+                }
                 self.cur
                     .push(Span::styled(format!(" {code} "), Style::default().fg(CODE)));
             }
@@ -116,6 +169,21 @@ impl Renderer {
                     }
                 }
             }
+            Tag::Table(_) => {
+                self.blank();
+                self.table = Some(Vec::new());
+            }
+            Tag::TableHead | Tag::TableRow => {
+                if let Some(rows) = self.table.as_mut() {
+                    rows.push(Vec::new());
+                }
+            }
+            Tag::TableCell => self.cell.clear(),
+            Tag::BlockQuote(_) => {
+                self.blank();
+                self.quote += 1;
+            }
+            Tag::Link { dest_url, .. } => self.link = Some(dest_url.into_string()),
             Tag::List(start) => self.lists.push(start),
             Tag::Item => {
                 self.flush_line();
@@ -157,7 +225,29 @@ impl Renderer {
                     self.blank();
                 }
             }
-            TagEnd::Item => self.flush_line(),
+            TagEnd::BlockQuote(_) => {
+                self.quote = self.quote.saturating_sub(1);
+                if self.quote == 0 {
+                    self.blank();
+                }
+            }
+            TagEnd::Link => {
+                if let Some(url) = self.link.take() {
+                    if self.table.is_some() {
+                        return;
+                    }
+                    self.cur.push(Span::styled(
+                        format!(" ({url})"),
+                        Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
+                    ));
+                }
+            }
+            TagEnd::TableCell => {
+                if let Some(row) = self.table.as_mut().and_then(|r| r.last_mut()) {
+                    row.push(std::mem::take(&mut self.cell).trim().to_string());
+                }
+            }
+            TagEnd::Table => self.emit_table(),
             _ => {}
         }
     }
@@ -186,5 +276,29 @@ mod tests {
             s.content.contains("bold") && s.style.add_modifier.contains(Modifier::BOLD)
         });
         assert!(has_bold);
+    }
+
+    #[test]
+    fn renders_table() {
+        let lines = render("| # | Command |\n|---|---------|\n| 1 | /help |\n| 2 | /quit |");
+        let text: String = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("│ 1 │ /help"), "got:\n{text}");
+        assert!(text.contains("├"));
+    }
+
+    #[test]
+    fn renders_quote_and_link() {
+        let lines = render("> a quote\n\nsee [docs](http://x.io)");
+        let text: String = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("▌ a quote"), "got:\n{text}");
+        assert!(text.contains("docs (http://x.io)"), "got:\n{text}");
     }
 }
