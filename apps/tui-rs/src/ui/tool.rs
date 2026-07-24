@@ -57,6 +57,7 @@ fn tool_icon(name: &str) -> &'static str {
     match name {
         "read" => "",
         "write" => "",
+        "ls" => "",
         "glob" => "󱆃",
         "grep" => "󰛄",
         "edit" => "",
