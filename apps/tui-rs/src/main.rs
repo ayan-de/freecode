@@ -56,19 +56,9 @@ async fn run(
 
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
     app.cwd = cwd.clone();
-    match client
-        .session_start(SessionConfig {
-            project_path: cwd,
-            provider: None,
-            agent_mode: Some(app.mode.keyword().into()),
-        })
-        .await
-    {
-        Ok(info) => {
-            app.session_id = Some(info.session_id);
-        }
-        Err(err) => app.push_system(format!("failed to start session: {err}")),
-    }
+    // The session is created lazily on the first prompt (see `ensure_session`),
+    // so launching the TUI and quitting without typing anything never persists
+    // an empty session.
     if let Ok(Some(current)) = client.current_model().await {
         // Context-window size is resolved by core from models.dev, not a
         // table baked into this frontend.
@@ -288,7 +278,7 @@ async fn handle_terminal_event(
                             }
                             CommandOutcome::Done => {}
                         }
-                    } else {
+                    } else if ensure_session(app, client).await {
                         send_message(text, app, client);
                     }
                 }
@@ -468,6 +458,32 @@ fn dispatch_prompt_outcome(outcome: Option<PromptOutcome>, client: &Arc<IpcClien
 
 /// Fires the RPC in the background; the response's StreamEvents arrive on
 /// the shared IPC channel and are applied to `app` in the main select loop.
+/// Create the session on demand (first prompt or a resume never ran). Returns
+/// true once a session id is available; false if creation failed, in which case
+/// the caller must not send. Keeps empty sessions off disk.
+async fn ensure_session(app: &mut App, client: &Arc<IpcClient>) -> bool {
+    if app.session_id.is_some() {
+        return true;
+    }
+    match client
+        .session_start(SessionConfig {
+            project_path: app.cwd.clone(),
+            provider: None,
+            agent_mode: Some(app.mode.keyword().into()),
+        })
+        .await
+    {
+        Ok(info) => {
+            app.session_id = Some(info.session_id);
+            true
+        }
+        Err(err) => {
+            app.push_system(format!("failed to start session: {err}"));
+            false
+        }
+    }
+}
+
 fn send_message(text: String, app: &mut App, client: &Arc<IpcClient>) {
     let Some(session_id) = app.session_id.clone() else {
         app.push_system("no active session".into());
