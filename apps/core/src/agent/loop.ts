@@ -1222,13 +1222,10 @@ export class AgentLoop {
       repeatedTools: identicalCount - 1, // -1 because current call is in the array
     };
 
-    // B. Track stagnant turns (no file changes)
+    // B. Track stagnant turns (no file changes). A mutating tool that returned
+    // without an error counts as progress; scraping stdout wording is brittle.
     const madeFileChange =
-      result.stdout &&
-      (result.stdout.includes("Written") ||
-        result.stdout.includes("Created") ||
-        result.stdout.includes("Modified") ||
-        result.stdout.includes("Deleted"));
+      getTool(toolCall.tool)?.behavior?.isDestructive === true && !result.error;
     if (!madeFileChange) {
       this.state.loopHealth = {
         ...this.state.loopHealth,
@@ -1248,7 +1245,7 @@ export class AgentLoop {
       typeof toolCall.args === "object"
     ) {
       const args = toolCall.args as Record<string, unknown>;
-      const filePath = args.path as string;
+      const filePath = (args.filePath ?? args.path) as string;
       if (filePath) {
         this.lastFileStates.push(filePath);
         if (this.lastFileStates.length > 10) {

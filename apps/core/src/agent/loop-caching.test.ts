@@ -10,7 +10,7 @@ import {
 import { PromptCompiler } from "../context/compiler.js";
 import type { Message, ToolCall } from "./types.js";
 
-test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correctly", () => {
+test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correctly", async () => {
   const compiler = new PromptCompiler(
     "/path/to/project",
     "my-project",
@@ -19,7 +19,7 @@ test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correct
   const tree = "📄 index.js";
   const gitHead = "abc12345";
 
-  const blocks = compiler.compileSystemBlocks(
+  const blocks = await compiler.compileSystemBlocks(
     tree,
     gitHead,
     "",
