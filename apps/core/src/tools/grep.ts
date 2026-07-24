@@ -87,13 +87,36 @@ function countMatches(output: string, mode: string): number {
 // runRipgrep
 // =============================================================================
 
+const RIPGREP_TIMEOUT_MS = 30_000;
+
 function runRipgrep(
   args: string[],
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const rg = spawn("rg", args);
+    // stdin: "ignore" — never let rg block reading stdin when it's given no
+    // path to search (that was the silent hang: rg waits on stdin forever).
+    const rg = spawn("rg", args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const finish = (r: { stdout: string; stderr: string; exitCode: number }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+
+    // Hard ceiling so a pathological search (huge tree, /proc, symlink loop)
+    // can't wedge the agent loop and freeze every frontend.
+    const timer = setTimeout(() => {
+      rg.kill("SIGKILL");
+      finish({
+        stdout,
+        stderr: `ripgrep timed out after ${RIPGREP_TIMEOUT_MS / 1000}s`,
+        exitCode: 1,
+      });
+    }, RIPGREP_TIMEOUT_MS);
 
     rg.stdout.on("data", (data) => {
       stdout += data.toString();
@@ -104,19 +127,11 @@ function runRipgrep(
     });
 
     rg.on("close", (code) => {
-      resolve({
-        stdout,
-        stderr,
-        exitCode: code ?? 0,
-      });
+      finish({ stdout, stderr, exitCode: code ?? 0 });
     });
 
     rg.on("error", (err) => {
-      resolve({
-        stdout: "",
-        stderr: err.message,
-        exitCode: 1,
-      });
+      finish({ stdout: "", stderr: err.message, exitCode: 1 });
     });
   });
 }
@@ -152,7 +167,7 @@ async function executeGrep(
       args.push("--line-number");
     }
 
-    if (params["-i"]) args.push("--case-insensitive");
+    if (params["-i"]) args.push("--ignore-case");
     if (params["-n"]) args.push("--line-number");
     if (params["-C"]) args.push(`--context=${params["-C"]}`);
     if (params["-B"]) args.push(`--before-context=${params["-B"]}`);
@@ -167,9 +182,9 @@ async function executeGrep(
     }
 
     args.push(params.pattern);
-    if (mode === "content" || mode === "count") {
-      args.push(searchPath);
-    }
+    // Always give rg an explicit path. Without one it reads stdin and blocks
+    // forever — this was the files_with_matches hang.
+    args.push(searchPath);
 
     const result = await runRipgrep(args);
 
