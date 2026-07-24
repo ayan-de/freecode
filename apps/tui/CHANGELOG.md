@@ -1,5 +1,14 @@
 # @thisisayande/freecode
 
+## 0.4.0
+
+### Features
+
+- Compaction indicator plus a `/compact` command
+- Permission "ask" prompts are now queued so concurrent requests are handled cleanly
+- `ls` tool renders with its own icon in tool output
+- `tui` command supports navigating to a project directory
+
 ## 0.3.8
 
 ### Bug Fixes

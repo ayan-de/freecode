@@ -1,5 +1,22 @@
 # @thisisayande/freecode-core
 
+## 0.4.0
+
+### Features
+
+- New `ls` tool for listing directory contents, registered across the permission/UI tables
+- Schema properties now declare types, with input coercion so string-typed provider payloads (e.g. MiniMax) no longer trigger validation reject-loops
+- Compaction is wired end to end: LLM-backed summaries with a heuristic fallback, models.dev-sourced context limits, persistence to the session store, and `session.compact` IPC + compaction stream events
+- `grep` now enforces a ripgrep timeout and hardens path handling
+- Agent mode is threaded through session config and message sending
+- `uninstall` CLI command to remove FreeCode and related files
+
+### Bug Fixes
+
+- Memory is stored under the home root and written atomically
+- Non-bundled builds fail clearly when they can't locate core
+- Improved file-change tracking and model-output truncation in the orchestrator
+
 ## 0.3.8
 
 - No changes; version bump to stay in lockstep with the TUI (`@thisisayande/freecode` 0.3.8)
