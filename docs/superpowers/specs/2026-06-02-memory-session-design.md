@@ -28,14 +28,27 @@ All session data lives centrally, not in project directories. This enables:
 │       ├── meta.json           # Session metadata
 │       ├── messages.jsonl      # Full message transcript (streaming append)
 │       └── memory.json          # Session-level memory state (compaction)
-├── memory/                     # Project-level persistent memory
-│   └── {projectSlug}/
-│       └── memory.md           # Auto-extracted conversation notes
+├── projects/{projectSlug}/
+│   └── memory/                 # Project-level persistent memory (source of truth)
+│       ├── {type}/*.md         # user | feedback | project | reference entries
+│       ├── MEMORY.md           # human-readable index
+│       └── .graph/             # DERIVED knowledge-graph sidecar (rebuildable)
+│           ├── embeddings.bin  # packed f32 vectors, content-hash keyed
+│           ├── meta.json       # model id, dims, schema version, hash→id map
+│           └── graph.json      # nodes + edges (tags, wikilinks, clusters)
+├── models/                     # Lazily-downloaded ONNX embedding model (~87 MB, not bundled)
 ├── state/
 │   ├── freecode.db             # SQLite (threads, turns, tool_calls)
 │   └── store.json              # JSON fallback
 └── config.json                # Zod-validated config
 ```
+
+The markdown files under `projects/{projectSlug}/memory/` are the source of
+truth. The `.graph/` sidecar (embeddings + knowledge graph) is a *derived* index
+that can be deleted and rebuilt from those files at any time (`freecode memory
+graph rebuild`). It powers semantic + cascade retrieval of the *k* most relevant
+memories per turn — see **`2026-07-26-memory-knowledge-graph.md`** for the full
+design (local ONNX embeddings, graph edges, clusters, async injection).
 
 ### Project-Level `.freecode/` (Optional)
 
