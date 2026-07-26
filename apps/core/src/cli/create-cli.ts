@@ -16,6 +16,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import { mcpCommand } from "./commands/mcp/index.js";
 import { sessionCommand } from "./commands/session/index.js";
+import { memoryCommand } from "./commands/memory/index.js";
 import { webCommand } from "./commands/web.js";
 import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
@@ -81,6 +82,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .alias("v", "version")
     .command(mcpCommand)
     .command(sessionCommand)
+    .command(memoryCommand)
     .command(webCommand)
     .command(serveCommand)
     .command(runCommand)

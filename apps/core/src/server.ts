@@ -35,10 +35,10 @@ import type {
 } from "@thisisayande/freecode-shared";
 import {
   getMemoryStore,
+  getMemoryGraphService,
   type MemoryEntry,
   type MemoryType,
 } from "./memory/index.js";
-import { findRelevantMemories } from "./memory/mem-query.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
@@ -498,8 +498,27 @@ const methodHandlers: Record<
       limit?: number;
       types?: MemoryType[];
     };
-    const store = getMemoryStore(projectPath || process.cwd());
-    return findRelevantMemories(query, store, { limit, types });
+    // Route through the graph service: semantic top-k + cascade, with the
+    // keyword scorer as the built-in fallback when embeddings are unavailable.
+    const service = getMemoryGraphService(projectPath || process.cwd());
+    return service.retrieve(query, { limit, types });
+  },
+
+  "memory.graph.rebuild": async (
+    params: Record<string, unknown>,
+  ): Promise<ReturnType<ReturnType<typeof getMemoryGraphService>["stats"]>> => {
+    const { projectPath } = params as { projectPath?: string };
+    const service = getMemoryGraphService(projectPath || process.cwd());
+    await service.rebuild();
+    return service.stats();
+  },
+
+  "memory.graph.stats": async (
+    params: Record<string, unknown>,
+  ): Promise<ReturnType<ReturnType<typeof getMemoryGraphService>["stats"]>> => {
+    const { projectPath } = params as { projectPath?: string };
+    const service = getMemoryGraphService(projectPath || process.cwd());
+    return service.stats();
   },
 
   "memory.buildPrompt": async (

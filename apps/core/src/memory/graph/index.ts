@@ -18,6 +18,7 @@ import { GraphStore } from "./graph-store.js";
 import { deriveGraph, graphSignature, memoryId } from "./builder.js";
 import { cascadeRetrieve } from "./cascade.js";
 import { computeClusters } from "./clusters.js";
+import { containsSecret } from "./secret-filter.js";
 import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 
 const GRAPH_DIR = ".graph";
@@ -123,9 +124,17 @@ export class MemoryGraphService {
         if (!embedder.available()) return;
         const e = change.entry;
         const id = memoryId(e.type, e.name);
-        const hash = hashOf(embedText(e));
+        const text = embedText(e);
+        // Never embed a secret-bearing memory (spec §7); drop any stale vector.
+        if (containsSecret(text)) {
+          if (this.vectors.has(id)) {
+            await this.enqueue(async () => this.vectors.remove(id));
+          }
+          return;
+        }
+        const hash = hashOf(text);
         if (this.vectors.hasFresh(id, hash)) return;
-        const vec = await embedder.embed(embedText(e));
+        const vec = await embedder.embed(text);
         await this.enqueue(async () => this.vectors.put(id, hash, vec));
       }
     } catch {
@@ -173,10 +182,19 @@ export class MemoryGraphService {
     for (const e of entries) {
       const id = memoryId(e.type, e.name);
       liveIds.add(id);
-      const hash = hashOf(embedText(e));
+      const text = embedText(e);
+      // Secret-bearing memories are never embedded (spec §7); prune any vector
+      // that predates the secret (or a prior non-secret version).
+      if (containsSecret(text)) {
+        if (this.vectors.has(id)) {
+          await this.enqueue(async () => this.vectors.remove(id));
+        }
+        continue;
+      }
+      const hash = hashOf(text);
       if (this.vectors.hasFresh(id, hash)) continue;
       if (!embedder.available()) return; // backend died mid-sync → bail
-      const vec = await embedder.embed(embedText(e));
+      const vec = await embedder.embed(text);
       await this.enqueue(async () => this.vectors.put(id, hash, vec));
     }
     for (const id of this.vectors.allIds()) {

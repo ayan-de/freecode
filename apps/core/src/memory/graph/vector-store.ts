@@ -118,6 +118,10 @@ export class VectorStore {
     return !!e && e.hash === hash;
   }
 
+  has(id: string): boolean {
+    return this.entries.some((e) => e.id === id);
+  }
+
   allIds(): Set<string> {
     return new Set(this.entries.map((e) => e.id));
   }

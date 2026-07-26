@@ -3,3 +3,4 @@ export * from "./mem-types.js";
 export * from "./mem-store.js";
 export * from "./mem-query.js";
 export * from "./mem-prompt.js";
+export { getMemoryGraphService, MemoryGraphService } from "./graph/index.js";
