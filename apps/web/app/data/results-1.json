@@ -7,69 +7,69 @@
       "sessions": 1,
       "pss_mb": 107.3,
       "process_count": 2,
-      "version": "0.2.0",
-      "seconds_to_visible_med": 0.04187201899912907,
-      "seconds_to_input_ready_med": 0.05519018400082132,
+      "version": "0.4.0",
+      "seconds_to_visible_med": 0.13403573099640198,
+      "seconds_to_input_ready_med": 0.13960827598930337,
       "notes": [
-        "session 1: \u2502 \u2502 >_ FreeCode (v0.2.0) \u25028;;\u0007"
+        "session 1: \u2502 \u2502 >_ FreeCode (v0.4.0) \u25028;;\u0007"
       ]
     },
     {
       "tool": "pi",
       "sessions": 1,
-      "pss_mb": 112.8,
+      "pss_mb": 160.3,
       "process_count": 1,
-      "version": "0.80.7",
-      "seconds_to_visible_med": 15.503273323003668,
-      "seconds_to_input_ready_med": 15.532293086005666,
+      "version": "0.82.1",
+      "seconds_to_visible_med": 5.237601989007089,
+      "seconds_to_input_ready_med": 5.287229314009892,
       "notes": [
-        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28190;\u03c0 - freecode\u00078;;\u0007"
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u28190;\u03c0 - freecode\u00078;;\u0007"
       ]
     },
     {
       "tool": "codex",
       "sessions": 1,
-      "pss_mb": 154.4,
-      "process_count": 2,
-      "version": "codex-cli 0.144.5",
-      "seconds_to_visible_med": 4.638218374006101,
-      "seconds_to_input_ready_med": null,
+      "pss_mb": 237.5,
+      "process_count": 3,
+      "version": "npm error A complete log of this run can be found in: /home/ayan-de/.npm/_logs/2026-07-26T14_34_21_879Z-debug-0.log",
+      "seconds_to_visible_med": 4.183231431001332,
+      "seconds_to_input_ready_med": 4.183372311992571,
       "notes": [
-        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u28190;freecode\u00070;\u2834 freecode\u0007"
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827npm error A complete log of this run can be found in: /home/ayan-de/.npm/_logs/2026-07-26T14_34_26_939Z-debug-0.l"
       ]
     },
     {
       "tool": "opencode",
       "sessions": 1,
-      "pss_mb": 1076.1,
-      "process_count": 5,
-      "version": "1.18.2",
-      "seconds_to_visible_med": 4.0081651200016495,
+      "pss_mb": 658.4,
+      "process_count": 1,
+      "version": "1.18.5",
+      "seconds_to_visible_med": 6.638571563991718,
       "seconds_to_input_ready_med": null,
       "notes": [
-        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u00074;8;"
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819+q4d7399;i=opentui-notifications:p=?;1337;Capabilities66;w=1; 66;s=2; Gi=31337,s=1,v=1,a=q,t=d,f=24;AAAA4;1;?\u00074;2;?\u00074;3;?\u00074;4;?\u00074;5;?\u00074;6;?\u00074;7;?\u00074;8"
       ]
     },
     {
       "tool": "copilot_cli",
       "sessions": 1,
-      "pss_mb": 272.7,
+      "pss_mb": 340.8,
       "process_count": 2,
-      "version": "GitHub Copilot CLI 1.0.71.",
-      "seconds_to_visible_med": 3.795245404005982,
+      "version": "GitHub Copilot CLI 1.0.75.",
+      "seconds_to_visible_med": 6.9380468190065585,
       "seconds_to_input_ready_med": null,
       "notes": [
-        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007"
+        "session 1: \u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u28194;0;?4;1;?4;2;?4;3;?4;4;?4;5;?4;6;?4;7;?4;8;?4;9;?4;10;?4;11;?4;12;?4;13;?4;14;?4;15;?0;GitHub Copilot\u000711;#0D1117\u000710;#F0F6FC\u0007"
       ]
     },
     {
       "tool": "cursor_agent",
       "sessions": 1,
-      "pss_mb": 246.9,
+      "pss_mb": 247.4,
       "process_count": 1,
       "version": "2026.06.26-7079533",
-      "seconds_to_visible_med": 0.7595891290038708,
-      "seconds_to_input_ready_med": 0.7596548250003252,
+      "seconds_to_visible_med": 0.7912028009886853,
+      "seconds_to_input_ready_med": 0.7912767000088934,
       "notes": [
         "session 1: \u2502 \u26a0 Workspace Trust Required \u2502"
       ]
@@ -77,21 +77,21 @@
     {
       "tool": "claude_code",
       "sessions": 1,
-      "pss_mb": 264.9,
+      "pss_mb": 229.4,
       "process_count": 1,
-      "version": "2.1.209 (Claude Code)",
-      "seconds_to_visible_med": 0.4517625799999223,
-      "seconds_to_input_ready_med": 0.5623391840053955,
+      "version": "2.1.215 (Claude Code)",
+      "seconds_to_visible_med": 0.42955310799879953,
+      "seconds_to_input_ready_med": 0.5701029270130675,
       "notes": [
-        "session 1: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.209"
+        "session 1: \u001b7\u001b80;\u2733 Claude Code\u0007 \u2590\u259b\u2588\u2588\u2588\u259c\u258cClaudeCodev2.1.215"
       ]
     },
     {
       "tool": "antigravity_cli",
       "sessions": 1,
-      "pss_mb": 410.4,
+      "pss_mb": 375.2,
       "process_count": 3,
-      "version": "1.0.13",
+      "version": "1.1.4",
       "seconds_to_visible_med": null,
       "seconds_to_input_ready_med": null,
       "notes": [
@@ -101,11 +101,11 @@
     {
       "tool": "jcode",
       "sessions": 1,
-      "pss_mb": 169.3,
+      "pss_mb": 156.4,
       "process_count": 2,
       "version": "jcode v0.47.0 (f7f5898c)",
-      "seconds_to_visible_med": 0.7441095319954911,
-      "seconds_to_input_ready_med": 0.744149035999726,
+      "seconds_to_visible_med": 0.9523107149871066,
+      "seconds_to_input_ready_med": 0.9523429480032064,
       "notes": [
         "session 1: Removed a stale jcode socket from a previous server."
       ]
