@@ -2,7 +2,7 @@
 
 > **Date:** 2026-07-26
 > **Spec:** `docs/superpowers/specs/2026-07-26-memory-knowledge-graph.md`
-> **Status:** Proposed — nothing here is committed work.
+> **Status:** Implemented (2026-07-27) — all phases (0–5) shipped in `apps/core/src/memory/graph/`.
 > **Scope (locked):** KG over persistent memory (`mem-store.ts`), local ONNX embeddings.
 
 Each phase is independently shippable and leaves the loop working (D6 fallback).

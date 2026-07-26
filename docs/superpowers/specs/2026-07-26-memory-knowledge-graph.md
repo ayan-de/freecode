@@ -1,7 +1,7 @@
 # Memory Knowledge Graph
 
 **Date:** 2026-07-26
-**Status:** Draft
+**Status:** Implemented (2026-07-27) — all phases live in `apps/core/src/memory/graph/`
 **Supersedes:** none (extends `2026-06-02-memory-session-design.md`)
 **Companion plan:** `docs/superpowers/plans/2026-07-26-memory-knowledge-graph.md`
 **Prior art:** jcode `docs/MEMORY_ARCHITECTURE.md` (Rust, petgraph); gap item #1 in
