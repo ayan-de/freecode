@@ -137,6 +137,8 @@ export class MemoryStore {
       content: parsed.content,
       createdAt: stat.birthtimeMs,
       updatedAt: stat.mtimeMs,
+      tags: parsed.metadata.tags,
+      supersedes: parsed.metadata.supersedes,
     };
   }
 

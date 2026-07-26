@@ -23,6 +23,10 @@ export interface MemoryEntry {
   content: string;
   createdAt: number;
   updatedAt: number;
+  // Optional graph metadata (back-compatible; absent = none). Feed the KG:
+  // tags → HasTag edges, supersedes → Supersedes edges (spec D3).
+  tags?: string[];
+  supersedes?: string[];
 }
 
 export interface MemoryIndexEntry {
@@ -52,8 +56,20 @@ export interface ParsedMemory {
     name?: string;
     description?: string;
     type?: MemoryType;
+    tags?: string[];
+    supersedes?: string[];
   };
   content: string;
+}
+
+// Parse a comma-separated frontmatter list (`a, b, c`). Empty → undefined.
+function parseList(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const items = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return items.length > 0 ? items : undefined;
 }
 
 export function parseMemoryFrontmatter(content: string): ParsedMemory {
@@ -79,19 +95,28 @@ export function parseMemoryFrontmatter(content: string): ParsedMemory {
       name: metadata.name,
       description: metadata.description,
       type: metadata.type && isMemoryType(metadata.type) ? metadata.type : undefined,
+      tags: parseList(metadata.tags),
+      supersedes: parseList(metadata.supersedes),
     },
     content: body.trim(),
   };
 }
 
 export function serializeMemoryEntry(entry: MemoryEntry): string {
-  const frontmatter = [
+  const lines = [
     "---",
     `name: ${entry.name}`,
     `description: ${entry.description}`,
     `type: ${entry.type}`,
-    "---",
-  ].join("\n");
+  ];
+  // Only emit optional fields when present — keeps existing files unchanged.
+  if (entry.tags && entry.tags.length > 0) {
+    lines.push(`tags: ${entry.tags.join(", ")}`);
+  }
+  if (entry.supersedes && entry.supersedes.length > 0) {
+    lines.push(`supersedes: ${entry.supersedes.join(", ")}`);
+  }
+  lines.push("---");
 
-  return `${frontmatter}\n${entry.content}`;
+  return `${lines.join("\n")}\n${entry.content}`;
 }
