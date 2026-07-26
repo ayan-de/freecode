@@ -148,6 +148,18 @@ retrieval **falls back to the existing keyword scorer + wikilink/tag graph walk*
 (no vectors). Memory must never throw into the agent loop. The graph traversal
 alone already beats today's blank-query behaviour.
 
+**The self-contained `build:bun` release binary is one such environment.**
+`bun build --compile` bundles the JS but not onnxruntime's sibling native
+`libonnxruntime.so.*`, so the embedder fails to load *inside the binary*
+(`libonnxruntime.so.1: cannot open shared object file`). This is handled, not
+fixed: the first embed marks the backend permanently unavailable and retrieval
+degrades to the keyword/graph path. **Semantic retrieval therefore runs only on
+the `node` / npm-installed core path, not the compiled binary** (decision:
+ship as-is; a WASM backend that bundles cleanly is the future option). Because
+the failure is at ONNX *run* time rather than import time, `embed()` must flip
+`available()` to `false` on error and `sync()` must swallow it — otherwise
+`memory.graph.rebuild` / IPC would surface a hard error instead of degrading.
+
 ## 4. Module layout (`apps/core/src/memory/graph/`)
 
 Each file does one thing (project rule: ~150 lines, decompose):

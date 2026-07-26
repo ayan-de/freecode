@@ -194,7 +194,15 @@ export class MemoryGraphService {
       const hash = hashOf(text);
       if (this.vectors.hasFresh(id, hash)) continue;
       if (!embedder.available()) return; // backend died mid-sync → bail
-      const vec = await embedder.embed(text);
+      let vec: Float32Array;
+      try {
+        vec = await embedder.embed(text);
+      } catch {
+        // Backend just went unavailable (e.g. missing native lib). embed()
+        // flipped available() → false; stop embedding and let retrieval fall
+        // back to keyword/graph. Never throw out of sync (spec D6).
+        return;
+      }
       await this.enqueue(async () => this.vectors.put(id, hash, vec));
     }
     for (const id of this.vectors.allIds()) {

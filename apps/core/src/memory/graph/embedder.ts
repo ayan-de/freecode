@@ -44,11 +44,19 @@ export function available(): boolean {
   return !broken;
 }
 
-// Embed a single string. Throws if the backend is unavailable (caller catches).
+// Embed a single string. On any failure the backend is marked permanently
+// unavailable (e.g. a missing native lib in a compiled binary — the failure is
+// process-fatal, not transient) so callers stop retrying and fall back to the
+// keyword path (spec D6) instead of throwing on every turn.
 export async function embed(text: string): Promise<Float32Array> {
-  const model = await getModel();
-  for await (const batch of model.embed([text], 1)) {
-    if (batch[0]) return batch[0];
+  try {
+    const model = await getModel();
+    for await (const batch of model.embed([text], 1)) {
+      if (batch[0]) return batch[0];
+    }
+    throw new Error("embedder returned no vector");
+  } catch (err) {
+    broken = true;
+    throw err;
   }
-  throw new Error("embedder returned no vector");
 }
