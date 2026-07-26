@@ -25,6 +25,13 @@ interface Meta {
   // dims is read from the loaded model's vectors, never hard-coded (spec §6).
   dims: number;
   entries: MetaEntry[];
+  // sha256 of embeddings.bin — binds the two files so a torn write that keeps
+  // the same vector count (new vectors, stale meta, or vice versa) is caught.
+  checksum: string;
+}
+
+function sha256(buf: Buffer): string {
+  return crypto.createHash("sha256").update(buf).digest("hex");
 }
 
 export interface ScoredId {
@@ -78,6 +85,9 @@ export class VectorStore {
       const buf = fs.readFileSync(path.join(this.dir, EMB_FILE));
       const expected = meta.entries.length * meta.dims * 4;
       if (buf.byteLength !== expected) return; // torn write → treat as empty
+      // Checksum binds the two files: catches a same-size torn write where the
+      // vectors and metadata come from different generations.
+      if (meta.checksum !== sha256(buf)) return;
       const flat = new Float32Array(
         buf.buffer,
         buf.byteOffset,
@@ -95,12 +105,6 @@ export class VectorStore {
 
   private persist(): void {
     fs.mkdirSync(this.dir, { recursive: true });
-    const meta: Meta = {
-      schemaVersion: SCHEMA_VERSION,
-      modelId: this.modelId,
-      dims: this.dims,
-      entries: this.entries,
-    };
     const buf = Buffer.alloc(this.rows.length * this.dims * 4);
     for (let i = 0; i < this.rows.length; i++) {
       const row = this.rows[i];
@@ -108,6 +112,15 @@ export class VectorStore {
         buf.writeFloatLE(row[j], (i * this.dims + j) * 4);
       }
     }
+    const meta: Meta = {
+      schemaVersion: SCHEMA_VERSION,
+      modelId: this.modelId,
+      dims: this.dims,
+      entries: this.entries,
+      checksum: sha256(buf),
+    };
+    // Write vectors first, then meta: a crash in between leaves meta's checksum
+    // pointing at the old vectors, so the mismatch is detected on load.
     atomicWrite(path.join(this.dir, EMB_FILE), buf);
     atomicWrite(path.join(this.dir, META_FILE), JSON.stringify(meta));
   }

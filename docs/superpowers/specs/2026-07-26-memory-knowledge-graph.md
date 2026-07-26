@@ -141,6 +141,17 @@ retrieval, inject. Simple, correct, adds ~embedding latency to turn 1 only
 *previous* turn's context; results from turn N are injected at turn N+1. The
 main loop never blocks on memory. This is the "make it fast" payoff.
 
+The prepared-memory cache is **per session**, not per project — the graph/vector
+index is shared per project, but two sessions in the same project must never
+clobber each other's surfaced set. It lives in the durable per-project
+`MemoryGraphService` keyed by `sessionId` (the `AgentLoop` is recreated each
+`session.send`, so it can't hold cross-turn state), LRU-bounded, and dropped on
+`session.delete`. A **cold turn** — a session's first message, or immediately
+after a topic change clears the set — waits a small budget (~60 ms) for the
+fresh retrieval before falling back to background, so one-shot prompts aren't
+starved of memory; warm turns return the prior set instantly and refresh behind
+the request.
+
 ### D6 — Graceful degradation (never break the loop)
 
 If `fastembed`/onnxruntime is unavailable (e.g. minimal install, arch mismatch),

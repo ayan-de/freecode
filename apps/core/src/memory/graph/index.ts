@@ -24,6 +24,20 @@ import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 const GRAPH_DIR = ".graph";
 const K_INITIAL = 10; // seed pool size before cascade
 const SEED_THRESHOLD = 0.4; // min cosine for a vector seed
+// On a cold turn (empty stash — a session's first message, or right after a
+// topic change), wait this long for the in-flight retrieval to land before
+// giving up and letting it finish in the background (spec D5 first-turn budget).
+const COLD_BUDGET_MS = 60;
+const MAX_SESSIONS = 64; // LRU cap on the per-session cache
+
+// Per-session prepared-memory cache (one-turn-behind state).
+interface SessionMemory {
+  stash: MemoryEntry[];
+  lastQuery: string;
+  inflight: Promise<void> | null;
+}
+
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 // Below this token-overlap the new context is treated as a topic change and the
 // stale surfaced set is dropped. A cheap, hot-path-safe proxy for jcode's
 // embedding-cosine < 0.3 heuristic (the real embed runs off the hot path).
@@ -81,12 +95,11 @@ export class MemoryGraphService {
   private lastVectorSig = "";
   // Single-flight queue so concurrent saves can't corrupt the sidecar (D2).
   private queue: Promise<void> = Promise.resolve();
-  // Async, one-turn-behind injection (spec D5): the loop reads `stash`
-  // synchronously and fires prefetch(); the actual retrieval runs in the
-  // background so the hot path never awaits an embed.
-  private stash: MemoryEntry[] = [];
-  private lastQuery = "";
-  private prefetching = false;
+  // Async, one-turn-behind injection (spec D5). The graph/vector index is shared
+  // per project, but the "prepared memories" cache is PER SESSION so two sessions
+  // in the same project never clobber each other's surfaced set. Bounded by an
+  // LRU cap; each entry is tiny (a few entry refs + a query string).
+  private sessions = new Map<string, SessionMemory>();
 
   constructor(store: MemoryStore) {
     this.store = store;
@@ -273,43 +286,77 @@ export class MemoryGraphService {
     }
   }
 
-  // Memories surfaced by the last completed background retrieval. Read
-  // synchronously by the loop at prompt-build time — no await, no embed.
-  stashed(): MemoryEntry[] {
-    return this.stash;
+  private sessionMemory(sessionId: string): SessionMemory {
+    let st = this.sessions.get(sessionId);
+    if (st) {
+      // LRU touch: move to most-recently-used.
+      this.sessions.delete(sessionId);
+      this.sessions.set(sessionId, st);
+      return st;
+    }
+    st = { stash: [], lastQuery: "", inflight: null };
+    this.sessions.set(sessionId, st);
+    while (this.sessions.size > MAX_SESSIONS) {
+      const oldest = this.sessions.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.sessions.delete(oldest);
+    }
+    return st;
   }
 
-  // Kick a background retrieval for `query` and update the stash when it lands
-  // (spec D5). Returns immediately. On a topic change (context similarity drops)
-  // the stale surfaced set is dropped now, so we inject nothing rather than
-  // off-topic memories while the new retrieval runs.
-  prefetch(query: string): void {
+  // Prepare the memories to inject for `sessionId`'s current context and return
+  // them (spec D5). Warm turns return the previously surfaced set instantly and
+  // refresh in the background (one-turn-behind). A cold turn (session's first
+  // message, or right after a topic change clears the set) waits a small budget
+  // for the fresh retrieval, then falls back to background. Per-session, so
+  // sessions in the same project never share a stash. Never throws.
+  async prepareMemories(
+    sessionId: string,
+    query: string,
+  ): Promise<MemoryEntry[]> {
+    const st = this.sessionMemory(sessionId);
     const q = query.trim();
-    if (q.length === 0) return;
-    if (this.lastQuery && lexicalSimilarity(q, this.lastQuery) < TOPIC_SIM_MIN) {
-      this.stash = [];
+    if (q.length === 0) return st.stash;
+
+    // Topic change → drop the stale set so we don't inject off-topic memories.
+    if (st.lastQuery && lexicalSimilarity(q, st.lastQuery) < TOPIC_SIM_MIN) {
+      st.stash = [];
     }
-    this.lastQuery = q;
-    if (this.prefetching) return; // coalesce; the drain re-checks lastQuery
-    this.prefetching = true;
-    void this.drainPrefetch();
+    const cold = st.stash.length === 0;
+    st.lastQuery = q;
+    this.kickPrefetch(st);
+
+    // Cold start: give the in-flight retrieval a brief chance to land.
+    if (cold && st.inflight) {
+      await Promise.race([st.inflight, delay(COLD_BUDGET_MS)]);
+    }
+    return st.stash;
   }
 
-  private async drainPrefetch(): Promise<void> {
-    try {
-      // Loop until the query stops changing mid-flight (topic switched again).
-      for (let q = this.lastQuery; ; q = this.lastQuery) {
-        const results = await this.retrieve(q);
-        if (q === this.lastQuery) {
-          this.stash = results;
-          return;
+  // Background retrieval that fills a session's stash. Coalesced (one in flight
+  // per session) and re-checks lastQuery so a mid-flight topic switch retries.
+  private kickPrefetch(st: SessionMemory): void {
+    if (st.inflight) return;
+    st.inflight = (async () => {
+      try {
+        for (let q = st.lastQuery; ; q = st.lastQuery) {
+          const results = await this.retrieve(q);
+          if (q === st.lastQuery) {
+            st.stash = results;
+            return;
+          }
         }
+      } catch {
+        // Keep the previous stash; nothing invalid gets injected.
+      } finally {
+        st.inflight = null;
       }
-    } catch {
-      // Keep the previous stash; nothing is injected that wasn't valid before.
-    } finally {
-      this.prefetching = false;
-    }
+    })();
+  }
+
+  // Drop a session's prepared-memory cache (e.g. on session end).
+  disposeSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
   }
 
   // Full rebuild from files (maintenance). Clears vectors + graph, re-syncs.
@@ -340,16 +387,24 @@ export class MemoryGraphService {
 }
 
 // =============================================================================
-// Factory — one service per project, mirroring getMemoryStore.
+// Factory — one durable service per project. Durable (not a swapping singleton)
+// so switching projects in a long-running daemon doesn't leak an onMemoryChange
+// listener per switch, and each project's cache/state survives across turns.
 // =============================================================================
 
-let globalService: MemoryGraphService | null = null;
-let globalProjectPath: string | null = null;
+const services = new Map<string, MemoryGraphService>();
 
 export function getMemoryGraphService(projectPath: string): MemoryGraphService {
-  if (!globalService || globalProjectPath !== projectPath) {
-    globalService = new MemoryGraphService(getMemoryStore(projectPath));
-    globalProjectPath = projectPath;
+  let service = services.get(projectPath);
+  if (!service) {
+    service = new MemoryGraphService(getMemoryStore(projectPath));
+    services.set(projectPath, service);
   }
-  return globalService;
+  return service;
+}
+
+// Drop a session's prepared-memory cache from whichever project holds it.
+// Call on session end so the per-session cache doesn't accumulate.
+export function disposeSessionMemory(sessionId: string): void {
+  for (const service of services.values()) service.disposeSession(sessionId);
 }

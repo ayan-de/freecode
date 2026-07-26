@@ -562,13 +562,18 @@ export class AgentLoop {
       );
 
       // Persistent-memory block: top-k memories relevant to the last user
-      // message, surfaced by the graph service. Async / one-turn-behind (D5):
-      // we inject the previously stashed set synchronously and kick a background
-      // refresh — the hot path never awaits an embed. prefetch() also drops the
-      // stash on a topic change, so we never inject off-topic memories.
+      // message, surfaced by the graph service (spec D5). Per-session and
+      // one-turn-behind: warm turns return the prior set instantly and refresh
+      // in the background; a cold turn (session's first message, or right after
+      // a topic change) waits a small budget for the fresh retrieval. Never
+      // throws, never injects off-topic memories.
       const memGraph = getMemoryGraphService(context.projectPath);
-      memGraph.prefetch(this.getLastUserText());
-      const memoryBlock = renderRetrievedMemories(memGraph.stashed());
+      const memoryBlock = renderRetrievedMemories(
+        await memGraph.prepareMemories(
+          this.state.sessionId,
+          this.getLastUserText(),
+        ),
+      );
       const blocks = memoryBlock
         ? [...systemBlocks, { text: memoryBlock, cache: false }]
         : systemBlocks;

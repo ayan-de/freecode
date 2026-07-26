@@ -4,25 +4,28 @@
 
 import type { MemoryEntry, MemoryType } from "./mem-types.js";
 import { MemoryStore } from "./mem-store.js";
-import { findRelevantMemories } from "./mem-query.js";
 
 export interface MemoryPromptOptions {
-  includeAll?: boolean;
   types?: MemoryType[];
   limit?: number;
 }
 
+// Build a full memory block (optionally type-filtered / capped). This is NOT
+// relevance-ranked — it lists memories in the store's natural order. For
+// relevance-based retrieval use the graph service (`memory.query` /
+// MemoryGraphService.retrieve); do not route relevance through here.
 export function buildMemoryPrompt(
   store: MemoryStore,
   options: MemoryPromptOptions = {},
 ): string {
-  const { includeAll = false, types, limit = 10 } = options;
+  const { types, limit } = options;
 
-  let entries: MemoryEntry[];
-  if (includeAll) {
-    entries = store.list();
-  } else {
-    entries = findRelevantMemories("", store, { types, limit });
+  let entries: MemoryEntry[] = store.list();
+  if (types && types.length > 0) {
+    entries = entries.filter((e) => types.includes(e.type));
+  }
+  if (limit != null) {
+    entries = entries.slice(0, limit);
   }
 
   if (entries.length === 0) {

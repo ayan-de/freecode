@@ -70,6 +70,27 @@ test("VectorStore drops sidecar on model mismatch (rebuildable)", () => {
   }
 });
 
+test("VectorStore rejects same-size corruption via checksum mismatch", () => {
+  const dir = mkdtempSync(join(tmpdir(), "vs-"));
+  try {
+    const a = new VectorStore(dir, MODEL);
+    a.put("a/one", "h1", vec(1, 0, 0));
+    a.put("a/two", "h2", vec(0, 1, 0));
+
+    // Flip a byte WITHOUT changing the file size — the length check passes, only
+    // the checksum catches it.
+    const bin = join(dir, "embeddings.bin");
+    const buf = readFileSync(bin);
+    buf[0] = buf[0] ^ 0xff;
+    writeFileSync(bin, buf);
+
+    const b = new VectorStore(dir, MODEL);
+    assert.equal(b.size(), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("VectorStore treats a torn embeddings.bin as empty", () => {
   const dir = mkdtempSync(join(tmpdir(), "vs-"));
   try {

@@ -36,6 +36,7 @@ import type {
 import {
   getMemoryStore,
   getMemoryGraphService,
+  disposeSessionMemory,
   type MemoryEntry,
   type MemoryType,
 } from "./memory/index.js";
@@ -521,17 +522,18 @@ const methodHandlers: Record<
     return service.stats();
   },
 
+  // Full (non-relevance) memory block. For relevance-ranked retrieval use
+  // memory.query, which routes through the graph service.
   "memory.buildPrompt": async (
     params: Record<string, unknown>,
   ): Promise<string> => {
-    const { projectPath, includeAll, types, limit } = params as {
+    const { projectPath, types, limit } = params as {
       projectPath?: string;
-      includeAll?: boolean;
       types?: MemoryType[];
       limit?: number;
     };
     const store = getMemoryStore(projectPath || process.cwd());
-    return buildMemoryPrompt(store, { includeAll, types, limit });
+    return buildMemoryPrompt(store, { types, limit });
   },
 
   // ========== Session Methods ==========
@@ -593,6 +595,7 @@ const methodHandlers: Record<
     const { sessionId } = params as { sessionId: string };
     const manager = await getSessionManager();
     await manager.delete(sessionId);
+    disposeSessionMemory(sessionId);
   },
 
   "session.getInterrupted": async (): Promise<{
