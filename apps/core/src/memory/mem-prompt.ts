@@ -8,9 +8,14 @@ import { MemoryStore } from "./mem-store.js";
 export interface MemoryPromptOptions {
   types?: MemoryType[];
   limit?: number;
+  all?: boolean; // opt in to the full, unbounded store
 }
 
-// Build a full memory block (optionally type-filtered / capped). This is NOT
+// Default cap so a caller that forgets `limit` can't dump the whole store into a
+// prompt. Pass `all: true` (or an explicit `limit`) to override.
+const DEFAULT_PROMPT_LIMIT = 25;
+
+// Build a memory block (optionally type-filtered / capped). This is NOT
 // relevance-ranked — it lists memories in the store's natural order. For
 // relevance-based retrieval use the graph service (`memory.query` /
 // MemoryGraphService.retrieve); do not route relevance through here.
@@ -18,14 +23,15 @@ export function buildMemoryPrompt(
   store: MemoryStore,
   options: MemoryPromptOptions = {},
 ): string {
-  const { types, limit } = options;
+  const { types, limit, all } = options;
 
   let entries: MemoryEntry[] = store.list();
   if (types && types.length > 0) {
     entries = entries.filter((e) => types.includes(e.type));
   }
-  if (limit != null) {
-    entries = entries.slice(0, limit);
+  const effectiveLimit = limit ?? (all ? undefined : DEFAULT_PROMPT_LIMIT);
+  if (effectiveLimit != null) {
+    entries = entries.slice(0, effectiveLimit);
   }
 
   if (entries.length === 0) {

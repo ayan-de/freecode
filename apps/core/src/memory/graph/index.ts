@@ -100,17 +100,27 @@ export class MemoryGraphService {
   // in the same project never clobber each other's surfaced set. Bounded by an
   // LRU cap; each entry is tiny (a few entry refs + a query string).
   private sessions = new Map<string, SessionMemory>();
+  // Unregisters this service's onMemoryChange listener; called by dispose() so
+  // an evicted/replaced service doesn't leak a listener into the change bus.
+  private unsubscribe: () => void;
 
   constructor(store: MemoryStore) {
     this.store = store;
     const dir = path.join(store.getMemoryDir(), GRAPH_DIR);
     this.vectors = new VectorStore(dir, MODEL_ID);
     this.graph = new GraphStore(dir);
-    onMemoryChange((change) => {
+    this.unsubscribe = onMemoryChange((change) => {
       if (change.store.getMemoryDir() === this.store.getMemoryDir()) {
         void this.onChange(change);
       }
     });
+  }
+
+  // Release this service: unregister its change listener and drop per-session
+  // caches. Safe to call once; the sidecar on disk is untouched (rebuildable).
+  dispose(): void {
+    this.unsubscribe();
+    this.sessions.clear();
   }
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
@@ -387,18 +397,31 @@ export class MemoryGraphService {
 }
 
 // =============================================================================
-// Factory — one durable service per project. Durable (not a swapping singleton)
-// so switching projects in a long-running daemon doesn't leak an onMemoryChange
-// listener per switch, and each project's cache/state survives across turns.
+// Factory — one service per project, held in a bounded LRU. Services persist
+// across turns (so per-session caches survive), but a long-running daemon that
+// visits many projects won't retain them forever: the least-recently-used
+// service is evicted and dispose()d (unregistering its change listener). The
+// sidecar is on disk, so an evicted project is rebuilt cheaply on next use.
 // =============================================================================
 
+const MAX_PROJECT_SERVICES = 16;
 const services = new Map<string, MemoryGraphService>();
 
 export function getMemoryGraphService(projectPath: string): MemoryGraphService {
-  let service = services.get(projectPath);
-  if (!service) {
-    service = new MemoryGraphService(getMemoryStore(projectPath));
-    services.set(projectPath, service);
+  const existing = services.get(projectPath);
+  if (existing) {
+    // LRU touch.
+    services.delete(projectPath);
+    services.set(projectPath, existing);
+    return existing;
+  }
+  const service = new MemoryGraphService(getMemoryStore(projectPath));
+  services.set(projectPath, service);
+  while (services.size > MAX_PROJECT_SERVICES) {
+    const oldest = services.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    services.get(oldest)?.dispose();
+    services.delete(oldest);
   }
   return service;
 }

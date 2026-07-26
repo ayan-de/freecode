@@ -527,13 +527,14 @@ const methodHandlers: Record<
   "memory.buildPrompt": async (
     params: Record<string, unknown>,
   ): Promise<string> => {
-    const { projectPath, types, limit } = params as {
+    const { projectPath, types, limit, all } = params as {
       projectPath?: string;
       types?: MemoryType[];
       limit?: number;
+      all?: boolean;
     };
     const store = getMemoryStore(projectPath || process.cwd());
-    return buildMemoryPrompt(store, { types, limit });
+    return buildMemoryPrompt(store, { types, limit, all });
   },
 
   // ========== Session Methods ==========
