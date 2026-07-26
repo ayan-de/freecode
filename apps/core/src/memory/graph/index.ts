@@ -17,7 +17,8 @@ import { VectorStore } from "./vector-store.js";
 import { GraphStore } from "./graph-store.js";
 import { deriveGraph, graphSignature, memoryId } from "./builder.js";
 import { cascadeRetrieve } from "./cascade.js";
-import type { RetrievalResult } from "./graph-types.js";
+import { computeClusters } from "./clusters.js";
+import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 
 const GRAPH_DIR = ".graph";
 const K_INITIAL = 10; // seed pool size before cascade
@@ -44,7 +45,15 @@ export class MemoryGraphService {
   private store: MemoryStore;
   private vectors: VectorStore;
   private graph: GraphStore;
+  // The graph is assembled from two layers: a deterministic, model-free base
+  // (Memory/Tag nodes + tag/link/supersede edges) and a cluster layer derived
+  // from embeddings. Each is rebuilt only when its own signature changes.
+  private baseNodes: GraphNode[] = [];
+  private baseEdges: GraphEdge[] = [];
+  private clusterNodes: GraphNode[] = [];
+  private clusterEdges: GraphEdge[] = [];
   private lastGraphSig = "";
+  private lastVectorSig = "";
   // Single-flight queue so concurrent saves can't corrupt the sidecar (D2).
   private queue: Promise<void> = Promise.resolve();
 
@@ -94,15 +103,37 @@ export class MemoryGraphService {
     }
   }
 
-  // Rebuild the graph from files when tags/links/supersedes changed (cheap,
-  // deterministic). Steady-state retrieves skip this via the signature check.
-  private syncGraph(entries: MemoryEntry[]): void {
+  // Rebuild the base layer from files when tags/links/supersedes changed
+  // (cheap, deterministic). Returns whether it changed.
+  private syncBase(entries: MemoryEntry[]): boolean {
     const sig = graphSignature(entries);
-    if (sig === this.lastGraphSig && this.graph.nodeCount() > 0) return;
+    if (sig === this.lastGraphSig && this.baseNodes.length > 0) return false;
     const { nodes, edges } = deriveGraph(entries);
-    this.graph.set(nodes, edges);
-    this.graph.persist();
+    this.baseNodes = nodes;
+    this.baseEdges = edges;
     this.lastGraphSig = sig;
+    return true;
+  }
+
+  // Recompute the cluster layer when the embedding set changed (periodic, not
+  // per-write — spec Phase 3). Deterministic, so rebuilds are stable.
+  private syncClusters(): boolean {
+    const sig = this.vectors.fingerprint();
+    if (sig === this.lastVectorSig) return false;
+    const { nodes, edges } = computeClusters(this.vectors.all());
+    this.clusterNodes = nodes;
+    this.clusterEdges = edges;
+    this.lastVectorSig = sig;
+    return true;
+  }
+
+  // Assemble base + cluster layers into the traversable graph and persist.
+  private applyGraph(): void {
+    this.graph.set(
+      [...this.baseNodes, ...this.clusterNodes],
+      [...this.baseEdges, ...this.clusterEdges],
+    );
+    this.graph.persist();
   }
 
   // Bring the vector index in line with the files: embed changed/missing
@@ -126,8 +157,12 @@ export class MemoryGraphService {
   }
 
   private async sync(entries: MemoryEntry[]): Promise<void> {
-    this.syncGraph(entries); // always (deterministic, no model)
+    const baseChanged = this.syncBase(entries); // deterministic, no model
     await this.syncVectors(entries); // embeddings, skipped if unavailable
+    const clustersChanged = this.syncClusters(); // over the fresh embeddings
+    if (baseChanged || clustersChanged || this.graph.nodeCount() === 0) {
+      this.applyGraph();
+    }
   }
 
   // Seed pool for the cascade: vector top-k when embeddings are available,
@@ -186,6 +221,7 @@ export class MemoryGraphService {
   async rebuild(): Promise<void> {
     await this.enqueue(async () => this.vectors.clear());
     this.lastGraphSig = "";
+    this.lastVectorSig = "";
     await this.sync(this.store.list());
   }
 
@@ -194,6 +230,7 @@ export class MemoryGraphService {
     dims: number;
     nodes: number;
     edges: number;
+    clusters: number;
     embedder: boolean;
   } {
     return {
@@ -201,6 +238,7 @@ export class MemoryGraphService {
       dims: this.vectors.getDims(),
       nodes: this.graph.nodeCount(),
       edges: this.graph.edgeCount(),
+      clusters: this.clusterNodes.length,
       embedder: embedder.available(),
     };
   }

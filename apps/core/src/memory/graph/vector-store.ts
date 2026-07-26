@@ -6,6 +6,7 @@
 // similarity is a plain dot product.
 // =============================================================================
 
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -127,6 +128,21 @@ export class VectorStore {
 
   getDims(): number {
     return this.dims;
+  }
+
+  // Normalized vectors with their ids — for clustering (Phase 3).
+  all(): Array<{ id: string; vec: Float32Array }> {
+    return this.entries.map((e, i) => ({ id: e.id, vec: this.rows[i] }));
+  }
+
+  // Stable digest of the current vector set (ids + content hashes). Lets the
+  // service skip re-clustering when the embeddings haven't changed.
+  fingerprint(): string {
+    const parts = this.entries
+      .map((e) => `${e.id}:${e.hash}`)
+      .sort()
+      .join("\n");
+    return crypto.createHash("sha256").update(parts).digest("hex");
   }
 
   put(id: string, hash: string, vec: Float32Array): void {
