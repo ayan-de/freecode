@@ -23,6 +23,30 @@ import type { GraphEdge, GraphNode, RetrievalResult } from "./graph-types.js";
 const GRAPH_DIR = ".graph";
 const K_INITIAL = 10; // seed pool size before cascade
 const SEED_THRESHOLD = 0.4; // min cosine for a vector seed
+// Below this token-overlap the new context is treated as a topic change and the
+// stale surfaced set is dropped. A cheap, hot-path-safe proxy for jcode's
+// embedding-cosine < 0.3 heuristic (the real embed runs off the hot path).
+const TOPIC_SIM_MIN = 0.12;
+
+function queryTokens(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length > 2),
+  );
+}
+
+// Jaccard token overlap in [0,1]. Used only for topic-change detection.
+export function lexicalSimilarity(a: string, b: string): number {
+  const A = queryTokens(a);
+  const B = queryTokens(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / (A.size + B.size - inter);
+}
 
 function splitId(id: string): { type: MemoryEntry["type"]; name: string } {
   const slash = id.indexOf("/");
@@ -56,6 +80,12 @@ export class MemoryGraphService {
   private lastVectorSig = "";
   // Single-flight queue so concurrent saves can't corrupt the sidecar (D2).
   private queue: Promise<void> = Promise.resolve();
+  // Async, one-turn-behind injection (spec D5): the loop reads `stash`
+  // synchronously and fires prefetch(); the actual retrieval runs in the
+  // background so the hot path never awaits an embed.
+  private stash: MemoryEntry[] = [];
+  private lastQuery = "";
+  private prefetching = false;
 
   constructor(store: MemoryStore) {
     this.store = store;
@@ -214,6 +244,45 @@ export class MemoryGraphService {
       return out.length > 0 ? out : fallback();
     } catch {
       return fallback();
+    }
+  }
+
+  // Memories surfaced by the last completed background retrieval. Read
+  // synchronously by the loop at prompt-build time — no await, no embed.
+  stashed(): MemoryEntry[] {
+    return this.stash;
+  }
+
+  // Kick a background retrieval for `query` and update the stash when it lands
+  // (spec D5). Returns immediately. On a topic change (context similarity drops)
+  // the stale surfaced set is dropped now, so we inject nothing rather than
+  // off-topic memories while the new retrieval runs.
+  prefetch(query: string): void {
+    const q = query.trim();
+    if (q.length === 0) return;
+    if (this.lastQuery && lexicalSimilarity(q, this.lastQuery) < TOPIC_SIM_MIN) {
+      this.stash = [];
+    }
+    this.lastQuery = q;
+    if (this.prefetching) return; // coalesce; the drain re-checks lastQuery
+    this.prefetching = true;
+    void this.drainPrefetch();
+  }
+
+  private async drainPrefetch(): Promise<void> {
+    try {
+      // Loop until the query stops changing mid-flight (topic switched again).
+      for (let q = this.lastQuery; ; q = this.lastQuery) {
+        const results = await this.retrieve(q);
+        if (q === this.lastQuery) {
+          this.stash = results;
+          return;
+        }
+      }
+    } catch {
+      // Keep the previous stash; nothing is injected that wasn't valid before.
+    } finally {
+      this.prefetching = false;
     }
   }
 
