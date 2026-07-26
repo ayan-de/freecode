@@ -43,6 +43,8 @@ import {
   invalidateProjectContext,
 } from "../context/tree-cache.js";
 import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
+import { getMemoryGraphService } from "../memory/graph/index.js";
+import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -509,6 +511,20 @@ export class AgentLoop {
   // One iteration: build prompt → send to provider → normalize → parse → execute
   // Single LLM call per turn (Claude Code/OpenCode style)
   // ===========================================================================
+  // Most recent user message text — the context we retrieve memories against.
+  private getLastUserText(): string {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const msg = this.history[i];
+      if (msg.role !== "user") continue;
+      return msg.parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as { content?: string }).content ?? "")
+        .join("\n")
+        .trim();
+    }
+    return "";
+  }
+
   private async executeTurn(
     provider: string,
     model: string | undefined,
@@ -545,13 +561,24 @@ export class AgentLoop {
         memoryContext || undefined,
       );
 
+      // Persistent-memory block: top-k memories relevant to the last user
+      // message, surfaced by the graph service (falls back to keyword search
+      // when embeddings are unavailable; never throws — spec D6).
+      const relevantMemories = await getMemoryGraphService(
+        context.projectPath,
+      ).retrieve(this.getLastUserText());
+      const memoryBlock = renderRetrievedMemories(relevantMemories);
+      const blocks = memoryBlock
+        ? [...systemBlocks, { text: memoryBlock, cache: false }]
+        : systemBlocks;
+
       // UserPromptSubmit Hook — can modify prompt before sending to model
-      const joinedSystem = systemBlocks.map((b) => b.text).join("\n\n");
+      const joinedSystem = blocks.map((b) => b.text).join("\n\n");
       const hookResult = await this.hooks.runUserPromptSubmit(joinedSystem, {
         sessionId: this.state.sessionId,
         turnCount: this.state.turnCount,
       });
-      let finalSystemBlocks = systemBlocks;
+      let finalSystemBlocks = blocks;
       if (
         hookResult.modifiedPrompt &&
         hookResult.modifiedPrompt !== joinedSystem

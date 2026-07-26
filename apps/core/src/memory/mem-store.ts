@@ -52,6 +52,36 @@ function getIndexPath(basePath: string): string {
 }
 
 // =============================================================================
+// Change notification — lets the derived graph/vector index stay incremental
+// without mem-store depending on it (DIP). Listeners must never throw into a
+// save/delete; the graph service registers here and does fire-and-forget work.
+// =============================================================================
+
+export interface MemoryChange {
+  store: MemoryStore;
+  entry?: MemoryEntry; // present on save
+  deleted?: { name: string; type: MemoryType }; // present on delete
+}
+
+type ChangeListener = (change: MemoryChange) => void;
+const changeListeners = new Set<ChangeListener>();
+
+export function onMemoryChange(fn: ChangeListener): () => void {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+
+function emitMemoryChange(change: MemoryChange): void {
+  for (const fn of changeListeners) {
+    try {
+      fn(change);
+    } catch {
+      // A listener failure must never break a memory write.
+    }
+  }
+}
+
+// =============================================================================
 // MemoryStore
 // =============================================================================
 
@@ -84,6 +114,7 @@ export class MemoryStore {
     const filePath = getMemoryFilePath(this.basePath, entry.type, entry.name);
     fs.writeFileSync(filePath, serializeMemoryEntry(entry), "utf-8");
     this.updateIndex();
+    emitMemoryChange({ store: this, entry });
   }
 
   // Load a memory entry by name and type
@@ -141,6 +172,7 @@ export class MemoryStore {
     }
     fs.unlinkSync(filePath);
     this.updateIndex();
+    emitMemoryChange({ store: this, deleted: { name, type } });
     return true;
   }
 

@@ -85,3 +85,43 @@ export function buildMemoryPrompt(
 
   return lines.join("\n");
 }
+
+// Lean per-turn block for memories the graph service surfaced as relevant to
+// the current context. Kept compact (no full usage preamble) since it is
+// injected every turn; the "how to use memory" guidance lives elsewhere.
+export function renderRetrievedMemories(entries: MemoryEntry[]): string {
+  if (entries.length === 0) return "";
+
+  const lines: string[] = [
+    "# Relevant memories",
+    "",
+    "Memories surfaced as relevant to the current request (verify before relying on them):",
+  ];
+
+  const byType = new Map<MemoryType, MemoryEntry[]>();
+  for (const entry of entries) {
+    const list = byType.get(entry.type) ?? [];
+    list.push(entry);
+    byType.set(entry.type, list);
+  }
+
+  for (const type of [
+    "user",
+    "feedback",
+    "project",
+    "reference",
+  ] as MemoryType[]) {
+    const typeEntries = byType.get(type) ?? [];
+    if (typeEntries.length === 0) continue;
+
+    lines.push("");
+    lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}`);
+    for (const entry of typeEntries) {
+      lines.push("");
+      lines.push(`### ${entry.name}`);
+      lines.push(entry.content);
+    }
+  }
+
+  return lines.join("\n");
+}
