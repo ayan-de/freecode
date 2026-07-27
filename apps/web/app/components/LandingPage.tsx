@@ -1,6 +1,7 @@
 import { Installation } from "./Installation";
 import { Mission } from "./Mission";
 import { Benchmark } from "./Benchmark";
+import { FreeCodeBench } from "./FreeCodeBench";
 import { TokenBenchmark } from "./TokenBenchmark";
 import { Footer } from "./Footer";
 import { Hero } from "./Hero";
@@ -39,6 +40,14 @@ export function LandingPage() {
 
         <div className="w-full">
           <Benchmark />
+        </div>
+
+        <div className="h-10 w-full flex items-end justify-start">
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#FreeCode bench</span>
+        </div>
+
+        <div className="w-full">
+          <FreeCodeBench />
         </div>
 
         <div className="h-10 w-full flex items-end justify-start">

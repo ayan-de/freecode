@@ -11,6 +11,7 @@ import { Divider } from "./Divider";
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Benchmark", href: "#benchmark" },
+  { label: "FreeCode bench", href: "#freecode-bench" },
   { label: "Docs", href: "#docs" },
 ];
 

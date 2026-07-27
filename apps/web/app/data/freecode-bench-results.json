@@ -1,0 +1,86 @@
+{
+  "_comment": "Auto-synced by scripts/score_freecode_bench.sh on a full 3-task run. Set `published: true` to render on the site. `_jcode_reference` rows are preserved.",
+  "published": false,
+  "generated_at": "2026-07-28",
+  "agent": "FreeCode",
+  "model": "MiniMax-M3",
+  "hardware": "<fill in: e.g. Apple M3 / Ryzen 9 / etc.>",
+  "tasks": {
+    "float-print": {
+      "bench": "float_print",
+      "score": 0.6711,
+      "speedup_x": 1.592
+    },
+    "json-unescape": {
+      "bench": "json_unescape",
+      "score": 0.2829,
+      "speedup_x": 1.217
+    },
+    "utf16-transcode": {
+      "bench": "utf16_transcode",
+      "score": -0.0477,
+      "speedup_x": 0.967
+    }
+  },
+  "scores": [
+    0.6711,
+    0.2829,
+    -0.0477
+  ],
+  "geomean": 0.0,
+  "typical_speedup_x": 1.0,
+  "_jcode_reference": {
+    "source": "https://jcode.sh/models",
+    "_note": "These rows are jcode's published frontier-model results, included in the FreeCode bench table for context. They are not produced by FreeCode.",
+    "rows": [
+      {
+        "model": "Claude Fable 5",
+        "json-unescape": 2.83,
+        "float-print": 12.01,
+        "utf16-transcode": 2.55,
+        "geomean": 4.43,
+        "typical_speedup_x": 21.5
+      },
+      {
+        "model": "GPT-5.6 Sol",
+        "json-unescape": 2.29,
+        "float-print": 7.81,
+        "utf16-transcode": 2.11,
+        "geomean": 3.35,
+        "typical_speedup_x": 10.2
+      },
+      {
+        "model": "Claude Opus 4.8",
+        "json-unescape": 2.0,
+        "float-print": 7.18,
+        "utf16-transcode": 2.11,
+        "geomean": 3.12,
+        "typical_speedup_x": 8.7
+      },
+      {
+        "model": "GPT-5.5",
+        "json-unescape": 1.98,
+        "float-print": 7.2,
+        "utf16-transcode": 1.34,
+        "geomean": 2.68,
+        "typical_speedup_x": 6.4
+      },
+      {
+        "model": "GPT-5.4",
+        "json-unescape": 1.57,
+        "float-print": 7.03,
+        "utf16-transcode": 1.03,
+        "geomean": 2.25,
+        "typical_speedup_x": 4.8
+      },
+      {
+        "model": "Claude Sonnet 5",
+        "json-unescape": 1.22,
+        "float-print": 6.82,
+        "utf16-transcode": 1.24,
+        "geomean": 2.17,
+        "typical_speedup_x": 4.5
+      }
+    ]
+  }
+}
