@@ -1,0 +1,39 @@
+[package]
+name = "jcode-bench"
+version = "0.1.0"
+edition = "2021"
+description = "jcode bench v1 clone — optimization-depth coding-agent benchmark"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "score"
+path = "src/bin/score.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "float_print"
+path = "benches/float_print.rs"
+harness = false
+
+[[bench]]
+name = "json_unescape"
+path = "benches/json_unescape.rs"
+harness = false
+
+[[bench]]
+name = "utf16_transcode"
+path = "benches/utf16_transcode.rs"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
