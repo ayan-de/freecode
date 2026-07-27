@@ -73,7 +73,7 @@ const readSchema: JsonSchema = {
 // Some providers (notably MiniMax via the Anthropic-compat endpoint) serialize
 // numeric tool args as strings ("260"). Accept a number or a numeric string;
 // return undefined for anything else so callers fall back to their default.
-function coerceNumber(value: unknown): number | undefined {
+export function coerceNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);

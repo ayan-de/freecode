@@ -18,6 +18,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   websearch: "WebSearch",
   agent: "Agent",
   skill: "Skill",
+  output: "Output",
 };
 
 function displayName(toolName: string): string {

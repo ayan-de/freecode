@@ -14,7 +14,7 @@ export type ToolKind = "readonly" | "mutating";
 
 const READONLY_TOOLS = new Set([
   "read", "ls", "glob", "grep", "skill", "question", "todowrite", "todo", "lsp",
-  "webfetch", "websearch",
+  "webfetch", "websearch", "output",
 ]);
 
 const NETWORK_TOOLS = new Set(["webfetch", "websearch"]);

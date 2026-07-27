@@ -12,6 +12,7 @@ import { WebSearchTool } from "./websearch.js";
 import { TodoWriteTool } from "./todo.js";
 import { LspTool } from "./lsp.js";
 import { LsTool } from "./ls.js";
+import { OutputTool } from "./output.js";
 import {
   createToolOrchestrator,
   type ToolOrchestrator,
@@ -85,6 +86,7 @@ export const tools = {
   todowrite: TodoWriteTool,
   lsp: LspTool,
   ls: LsTool,
+  output: OutputTool,
 } as const;
 
 export type ToolId = keyof typeof tools;

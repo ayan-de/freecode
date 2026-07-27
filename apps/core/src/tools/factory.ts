@@ -56,6 +56,7 @@ export const defaultToolUI: ToolUI = {
       websearch: "blue",
       todowrite: "green",
       lsp: "magenta",
+      output: "blue",
     };
     return {
       label: toolId,
