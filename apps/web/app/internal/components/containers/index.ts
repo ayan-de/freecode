@@ -5,3 +5,4 @@ export {
   FlowContainer,
 } from "./ArchitectureContent";
 export { LifecycleContainer } from "./LifecycleContainer";
+export { MemoryContainer } from "./MemoryContainer";

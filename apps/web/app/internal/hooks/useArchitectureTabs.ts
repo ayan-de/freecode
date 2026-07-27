@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 
-export type TabId = "overview" | "cli" | "ipc" | "lifecycle";
+export type TabId = "overview" | "cli" | "ipc" | "lifecycle" | "memory";
 
 interface Tab {
   id: TabId;
@@ -26,6 +26,11 @@ const TABS: Tab[] = [
     id: "lifecycle",
     label: "Lifecycle",
     description: "The 14 agent lifecycle hooks",
+  },
+  {
+    id: "memory",
+    label: "Memory Graph",
+    description: "Semantic memory & knowledge graph",
   },
 ];
 

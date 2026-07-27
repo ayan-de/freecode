@@ -7,6 +7,7 @@ import {
   CLIContainer,
   IPCContainer,
   LifecycleContainer,
+  MemoryContainer,
 } from "./components/containers";
 import { useArchitectureTabs, type TabId } from "./hooks";
 import styles from "./page.module.css";
@@ -24,6 +25,8 @@ export function InternalArchitecture() {
         return <IPCContainer />;
       case "lifecycle":
         return <LifecycleContainer />;
+      case "memory":
+        return <MemoryContainer />;
       default:
         return <OverviewContainer />;
     }
