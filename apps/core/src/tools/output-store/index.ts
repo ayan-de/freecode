@@ -6,15 +6,10 @@
 // =============================================================================
 
 import { OutputStore } from "./store.js";
+import { MAX_SESSIONS } from "./config.js";
 
 export { OutputStore } from "./store.js";
 export { adaptiveTruncate } from "./truncate.js";
-
-// Max concurrent per-session stores kept live (env override read once).
-const MAX_SESSIONS = (() => {
-  const raw = Number(process.env.FREECODE_OUTPUT_STORE_SESSIONS);
-  return Number.isInteger(raw) && raw > 0 ? raw : 50;
-})();
 
 const stores = new Map<string, OutputStore>();
 

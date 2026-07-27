@@ -9,13 +9,7 @@
 // ("re-run the tool", spec D4), it never throws.
 // =============================================================================
 
-// Default per-session budget. Env override read once at module load so a runaway
-// build log can't grow memory without bound. ponytail: env var, not a settings
-// file — no generic config accessor exists in this codebase.
-const MAX_STORE_BYTES = (() => {
-  const raw = Number(process.env.FREECODE_OUTPUT_STORE_BYTES);
-  return Number.isFinite(raw) && raw > 0 ? raw : 16 * 1024 * 1024; // 16 MB
-})();
+import { STORE_BYTES } from "./config.js";
 
 function byteLen(text: string): number {
   return Buffer.byteLength(text, "utf8");
@@ -33,7 +27,7 @@ export class OutputStore {
   private bytes = 0;
   private maxBytes: number;
 
-  constructor(maxBytes: number = MAX_STORE_BYTES) {
+  constructor(maxBytes: number = STORE_BYTES) {
     this.maxBytes = maxBytes;
   }
 
@@ -76,8 +70,9 @@ export class OutputStore {
   }
 
   // Lines matching `pattern` (regex if valid, else literal substring), each
-  // prefixed with its 1-based line number.
-  grep(id: string, pattern: string): SliceResult {
+  // prefixed with its 1-based line number. `context` includes ±N surrounding
+  // lines per match (grep -C); non-adjacent groups are separated by "--".
+  grep(id: string, pattern: string, context = 0): SliceResult {
     const full = this.get(id);
     if (full === undefined) return { found: false, text: "", totalLines: 0 };
     const lines = full.split("\n");
@@ -88,11 +83,24 @@ export class OutputStore {
     } catch {
       test = (line) => line.includes(pattern);
     }
-    const hits: string[] = [];
+    // Collect the set of line indices to emit (match ± context), then walk them
+    // in order, inserting a "--" gap marker between non-contiguous runs.
+    const keep = new Set<number>();
     for (let i = 0; i < lines.length; i++) {
-      if (test(lines[i])) hits.push(`${i + 1}: ${lines[i]}`);
+      if (!test(lines[i])) continue;
+      for (let j = Math.max(0, i - context); j <= Math.min(lines.length - 1, i + context); j++) {
+        keep.add(j);
+      }
     }
-    return { found: true, text: hits.join("\n"), totalLines: lines.length };
+    const idx = [...keep].sort((a, b) => a - b);
+    const out: string[] = [];
+    let prev = -2;
+    for (const i of idx) {
+      if (context > 0 && i !== prev + 1 && out.length > 0) out.push("--");
+      out.push(`${i + 1}: ${lines[i]}`);
+      prev = i;
+    }
+    return { found: true, text: out.join("\n"), totalLines: lines.length };
   }
 
   private evict(): void {

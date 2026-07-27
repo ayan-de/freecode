@@ -15,6 +15,7 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { coerceNumber } from "./read.js";
 import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
+import { DEFAULT_LINES } from "./output-store/config.js";
 import { outputToolUI } from "./output/ui.js";
 
 interface OutputParams {
@@ -22,9 +23,8 @@ interface OutputParams {
   offset?: number;
   limit?: number;
   pattern?: string;
+  context?: number;
 }
-
-const DEFAULT_LIMIT = 200;
 
 const outputSchema: JsonSchema = {
   type: "object",
@@ -40,12 +40,16 @@ const outputSchema: JsonSchema = {
     },
     limit: {
       type: "number",
-      description: `Max lines to return (default ${DEFAULT_LIMIT}). Ignored if pattern is set.`,
+      description: `Max lines to return (default ${DEFAULT_LINES}). Ignored if pattern is set.`,
     },
     pattern: {
       type: "string",
       description:
         "Optional regex (falls back to literal substring) — return only matching lines with their line numbers.",
+    },
+    context: {
+      type: "number",
+      description: "With pattern: include ±N surrounding lines per match (grep -C). Default 0.",
     },
   },
   required: ["id"],
@@ -66,6 +70,9 @@ function validateOutputInput(
   }
   if (p.limit !== undefined && coerceNumber(p.limit) === undefined) {
     return { valid: false, error: "limit must be a number" };
+  }
+  if (p.context !== undefined && coerceNumber(p.context) === undefined) {
+    return { valid: false, error: "context must be a number" };
   }
   return { valid: true };
 }
@@ -92,11 +99,11 @@ async function executeOutput(
 
   const pattern = typeof params.pattern === "string" ? params.pattern : undefined;
   const res = pattern
-    ? store.grep(id, pattern)
+    ? store.grep(id, pattern, coerceNumber(params.context) ?? 0)
     : store.slice(
         id,
         coerceNumber(params.offset) ?? 1,
-        coerceNumber(params.limit) ?? DEFAULT_LIMIT,
+        coerceNumber(params.limit) ?? DEFAULT_LINES,
       );
 
   // Cap our OWN result so paging a huge slice can't re-overflow the context.

@@ -40,6 +40,14 @@ test("grep matches by regex, falls back to literal, prefixes line numbers", () =
   assert.equal(s.grep("x", "[").text, ""); // invalid regex → literal "[", no match
 });
 
+test("grep with context includes ±N lines and a -- gap between runs", () => {
+  const s = new OutputStore();
+  s.put("x", "a\nHIT\nb\nc\nd\ne\nHIT\nf");
+  const r = s.grep("x", "HIT", 1);
+  // run 1: lines 1-3 (a, HIT, b); run 2: lines 6-8 (e, HIT, f); gap between.
+  assert.equal(r.text, "1: a\n2: HIT\n3: b\n--\n6: e\n7: HIT\n8: f");
+});
+
 test("adaptiveTruncate keeps head AND tail with a retrieval marker", () => {
   const big = "H".repeat(24_000) + "M".repeat(10_000) + "T".repeat(6_000);
   const { modelOutput, truncated } = adaptiveTruncate(big, "call-1");

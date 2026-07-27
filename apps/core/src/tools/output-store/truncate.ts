@@ -6,11 +6,9 @@
 // handle so the model can page the rest instead of re-running the tool.
 // =============================================================================
 
-// Total budget sent to the model; split into a head and a smaller tail.
+// Budget split into a head and a smaller tail (see config.ts for the knobs).
 // ponytail: char cap, not token-aware — matches the old 30 KB behaviour.
-const MAX_MODEL_OUTPUT_CHARS = 30_000;
-const TAIL_CHARS = 6_000;
-const HEAD_CHARS = MAX_MODEL_OUTPUT_CHARS - TAIL_CHARS; // 24 KB
+import { MAX_MODEL_OUTPUT_CHARS, HEAD_CHARS, TAIL_CHARS } from "./config.js";
 
 export function adaptiveTruncate(
   output: string,
