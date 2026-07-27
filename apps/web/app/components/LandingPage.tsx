@@ -1,6 +1,7 @@
 import { Installation } from "./Installation";
 import { Mission } from "./Mission";
 import { Benchmark } from "./Benchmark";
+import { TokenBenchmark } from "./TokenBenchmark";
 import { Footer } from "./Footer";
 import { Hero } from "./Hero";
 import { PageWrapper } from "./PageWrapper";
@@ -38,6 +39,14 @@ export function LandingPage() {
 
         <div className="w-full">
           <Benchmark />
+        </div>
+
+        <div className="h-10 w-full flex items-end justify-start">
+          <span className="text-muted-foreground/50 text-xl md:text-2xl font-mono font-medium tracking-tight ml-8">#Tokens</span>
+        </div>
+
+        <div className="w-full">
+          <TokenBenchmark />
         </div>
       </main>
 

@@ -1,0 +1,153 @@
+{
+  "generatedAt": "2026-07-27T11:36:15.676Z",
+  "kind": "modeled-from-source",
+  "assumption": "Model needs the tail once. Numbers are tokens the harness sends the model; each tool's caps are read from its source (see per-tool `source`). Not a live API measurement.",
+  "caveats": [
+    "Two axes drive the total: (1) first-turn cap size, (2) whether the tool has retrieval (avoids a re-run double-spend).",
+    "freecode's lead comes largely from a TIGHTER first-turn cap (30KB) vs opencode/pi (50KB) — a deliberate tradeoff: fewer tokens up front, but less shown before a follow-up. It is not strictly 'more capable', it is more frugal.",
+    "opencode & pi also have retrieval (file-based), so they too avoid the re-run penalty that freecode-old / claude-code pay; their higher total is the larger cap, not a missing feature.",
+    "claude-code is unverified (verified:false) — treat its row as illustrative, not a measured claim."
+  ],
+  "fixtures": [
+    "grep (6k hits)",
+    "build log (9k lines, error at end)",
+    "large file read (7k lines)"
+  ],
+  "tools": [
+    {
+      "label": "freecode (new)",
+      "verified": true,
+      "hasRetrieval": true,
+      "source": "tools/output-store/{truncate,store}.ts — 24k head + 6k tail, in-memory output store",
+      "totalTokens": 29313,
+      "perFixture": [
+        {
+          "fixture": "grep (6k hits)",
+          "firstTurn": 7505,
+          "recovery": 3338,
+          "total": 10843
+        },
+        {
+          "fixture": "build log (9k lines, error at end)",
+          "firstTurn": 7505,
+          "recovery": 1510,
+          "total": 9015
+        },
+        {
+          "fixture": "large file read (7k lines)",
+          "firstTurn": 7505,
+          "recovery": 1950,
+          "total": 9455
+        }
+      ]
+    },
+    {
+      "label": "freecode (old)",
+      "verified": true,
+      "hasRetrieval": false,
+      "source": "prior capModelOutput — 30k head-only, no retrieval (re-run to recover tail)",
+      "totalTokens": 45000,
+      "perFixture": [
+        {
+          "fixture": "grep (6k hits)",
+          "firstTurn": 7500,
+          "recovery": 7500,
+          "total": 15000
+        },
+        {
+          "fixture": "build log (9k lines, error at end)",
+          "firstTurn": 7500,
+          "recovery": 7500,
+          "total": 15000
+        },
+        {
+          "fixture": "large file read (7k lines)",
+          "firstTurn": 7500,
+          "recovery": 7500,
+          "total": 15000
+        }
+      ]
+    },
+    {
+      "label": "claude-code",
+      "verified": false,
+      "hasRetrieval": false,
+      "source": "assumed head-truncate + re-run; model-facing bash store not confirmable from the bundle (verified:false)",
+      "totalTokens": 45000,
+      "perFixture": [
+        {
+          "fixture": "grep (6k hits)",
+          "firstTurn": 7500,
+          "recovery": 7500,
+          "total": 15000
+        },
+        {
+          "fixture": "build log (9k lines, error at end)",
+          "firstTurn": 7500,
+          "recovery": 7500,
+          "total": 15000
+        },
+        {
+          "fixture": "large file read (7k lines)",
+          "firstTurn": 7500,
+          "recovery": 7500,
+          "total": 15000
+        }
+      ]
+    },
+    {
+      "label": "pi",
+      "verified": true,
+      "hasRetrieval": true,
+      "source": "pi packages/agent/src/harness/utils/truncate.ts (2000 lines / 50KB, full output → fullOutputPath)",
+      "totalTokens": 45198,
+      "perFixture": [
+        {
+          "fixture": "grep (6k hits)",
+          "firstTurn": 12800,
+          "recovery": 3338,
+          "total": 16138
+        },
+        {
+          "fixture": "build log (9k lines, error at end)",
+          "firstTurn": 12800,
+          "recovery": 1510,
+          "total": 14310
+        },
+        {
+          "fixture": "large file read (7k lines)",
+          "firstTurn": 12800,
+          "recovery": 1950,
+          "total": 14750
+        }
+      ]
+    },
+    {
+      "label": "opencode",
+      "verified": true,
+      "hasRetrieval": true,
+      "source": "opencode packages/opencode/src/tool/truncate.ts + core/tool-output-store.ts (MAX_LINES 2000 / MAX_BYTES 50KB, full output → file)",
+      "totalTokens": 45213,
+      "perFixture": [
+        {
+          "fixture": "grep (6k hits)",
+          "firstTurn": 12805,
+          "recovery": 3338,
+          "total": 16143
+        },
+        {
+          "fixture": "build log (9k lines, error at end)",
+          "firstTurn": 12805,
+          "recovery": 1510,
+          "total": 14315
+        },
+        {
+          "fixture": "large file read (7k lines)",
+          "firstTurn": 12805,
+          "recovery": 1950,
+          "total": 14755
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,8 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "bench:output": "tsx scripts/bench_output_tokens.ts",
+    "bench:compare": "tsx scripts/bench_tool_comparison.ts",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
@@ -17,6 +19,7 @@
     "@changesets/cli": "^2.31.0",
     "@types/yargs": "^17.0.35",
     "prettier": "^3.7.4",
+    "tsx": "^4.19.2",
     "turbo": "^2.9.9",
     "typescript": "5.9.2"
   },
