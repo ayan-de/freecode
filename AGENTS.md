@@ -10,6 +10,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | Agent loop          | `specs/2026-05-25-agent-loop.md`                        |
 | Multi-provider API  | `specs/2026-05-28-multi-provider-api-design.md`         |
 | Memory + sessions   | `specs/2026-06-02-memory-session-design.md`             |
+| Memory graph        | `specs/2026-07-26-memory-knowledge-graph.md`            |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
@@ -30,7 +31,8 @@ The v4 architecture systems are implemented and live in `apps/core/src/`:
 | **Sessions**               | `session/manager.ts`, `session/service.ts`, `session/store.ts`, `session/prompt.ts`, `session/normalize/`        |
 | **Compaction**             | `compaction/service.ts`, `compaction/selector.ts`, `compaction/summarizer.ts`, `compaction/tokens.ts`            |
 | **Memory**                 | `memory/mem-store.ts`, `memory/mem-query.ts`, `memory/mem-prompt.ts`, `memory/mem-types.ts`                       |
-| **Permission**             | `permission/profiles.ts` (plan/build/review/explore/danger)                                                      |
+| **Memory Graph**           | `memory/graph/` — derived KG over persistent memory (spec `2026-07-26-memory-knowledge-graph.md`). `embedder.ts` (local ONNX/fastembed, optional dep), `vector-store.ts` (packed f32 + content-hash cache), `builder.ts` (tag/wikilink/supersede edges), `clusters.ts` (deterministic k-means), `cascade.ts` (seed top-k → graph walk), `secret-filter.ts` (never embed secrets), `index.ts` (`MemoryGraphService`: async one-turn-behind injection, keyword fallback). Sidecar in `<memory>/.graph/`; CLI: `memory graph stats|rebuild`. Keyword retrieval stays as fallback when the embedder is unavailable. |
+| **Permission**             | `permission/` — per-rule allow/ask/deny layer (`rules.ts`, `evaluate.ts`, `mode-policy.ts`, `settings.ts`, `prompt.ts`; spec `2026-07-18-permission-rules.md`) + `profiles.ts` capability profiles (minimal/readonly/standard/elevated/admin, used for subagents). Agent modes (plan/build/review/explore/danger) live in `agent/types.ts`. |
 | **MCP Client**             | `mcp/client-registry.ts`, `mcp/service.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                            |
 | **Context Engine**         | `context/collector.ts`, `context/compiler.ts`, `context/tree-cache.ts`, `context/strategies/`                    |
 
@@ -131,7 +133,19 @@ freecode/
 ### Tools
 
 Built-in tools live in `apps/core/src/tools/` and are registered in `tools/index.ts`:
-`read`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`/`ui`; execution and batching go through `orchestrator.ts` + `batching.ts`, and rendering through `renderer.ts`.
+`read`, `ls`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`/`ui`; execution and batching go through `orchestrator.ts` + `batching.ts`, and rendering through `renderer.ts`.
+
+#### Adding a tool — registration checklist
+
+`buildTool` + `index.ts` alone is **not enough**. Several permission/UI tables key off the tool *name*; miss one and the tool fails closed (blocked in read-only modes, or prompts for permission every call). When adding a tool, update:
+
+1. **`tools/<name>.ts`** — the tool via `buildTool`. Declare a `type` on every schema property (providers like MiniMax send numbers/booleans as strings; a missing `type` yields "must be a number" reject-loops — coerce in `execute` too).
+2. **`tools/<name>/ui.ts`** — its `ToolUI` renderer.
+3. **`tools/index.ts`** — import + add to the `tools` map.
+4. **`permission/mode-policy.ts`** — add to `READONLY_TOOLS` **if** the tool only reads (unlisted ⇒ treated as mutating ⇒ blocked in plan/review/explore).
+5. **`permission/rules.ts`** — add to `PATH_TOOLS` (path arg) or `URL_TOOLS` (url arg) so path/url-scoped allow/deny rules match.
+6. **`permission/suggest.ts`** — add to `DISPLAY_NAMES` for the capitalized rule label in permission prompts.
+7. **Frontends (only for a custom icon; optional):** `apps/tui-rs/src/ui/tool.rs` `tool_icon()`. The TS TUI needs no change unless the tool wants Read/Bash-style content rendering (`apps/tui/src/components/tool-result-message.ts`). Both have catch-all fallbacks, so a tool works without touching them.
 
 ---
 
@@ -286,6 +300,14 @@ If a file exceeds ~150 lines, decompose (extract sub-components, move helpers to
 3. **Types are centralized** — Core domain types live in `packages/shared`. No duplicate definitions.
 4. **Providers are swappable** — Adapters in `providers/` implement `AIProvider` and self-register; the loop never hard-codes a provider.
 5. **Tools are uniform** — Every tool is built via `factory.ts` and executed through the orchestrator; MCP tools register through the same registry.
+
+---
+
+## Binary Builds & Distribution
+
+- **Release binary = `pnpm build:bun`** (`scripts/build-bun.mjs`). This is the only distributable binary: it bakes `FREECODE_BUNDLED=1` and bundles core, so it runs from anywhere. The release workflow (`.github/workflows/release.yml`) publishes these.
+- **`pnpm build:sea`** (`scripts/build-sea.mjs`) is a **TUI-shell-only, repo-root-only** dev artifact. It does *not* set `FREECODE_BUNDLED` and does *not* bundle core, so it spawns core from disk and only works inside the monorepo.
+- **Never `cp apps/tui/dist/freecode` (the SEA build) into `~/.freecode/builds/versions/`.** That directory is managed by the installer and expects the bun release binary; dropping a SEA build there breaks `freecode` everywhere except the repo root. For local end-to-end testing use `pnpm build:bun` (produces the self-contained `dist/freecode-bun`), or just run from the repo.
 
 ---
 
