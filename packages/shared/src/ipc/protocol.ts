@@ -95,6 +95,16 @@ export type StreamEvent =
   | { type: "thinking_delta"; delta: string } // incremental reasoning chunk (streaming path)
   | { type: "done"; content: string }
   | { type: "error"; content: string }
+  | {
+      // Prompt-cache awareness (jcode #9). "cold" is emitted before a send that
+      // will likely miss Anthropic's ~5-min cache; "warm" carries post-turn
+      // read/write token counts. Informational — frontends may render or ignore.
+      type: "cache_status";
+      state: "cold" | "warm";
+      message?: string; // human-readable, set on "cold"
+      cacheReadTokens?: number; // served from cache (cheap), set on "warm"
+      cacheWriteTokens?: number; // written to cache this turn, set on "warm"
+    }
   | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
   | {
       type: "compaction_complete";

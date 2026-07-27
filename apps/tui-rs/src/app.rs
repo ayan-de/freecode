@@ -1050,6 +1050,23 @@ impl App {
             }
             return;
         }
+        // Prompt-cache awareness — a system line, no assistant message involved.
+        if let StreamEvent::CacheStatus {
+            state,
+            message,
+            cache_read_tokens,
+            ..
+        } = &event
+        {
+            if state == "cold" {
+                if let Some(msg) = message {
+                    self.push_system(format!("⚠ {msg}"));
+                }
+            } else if state == "warm" && *cache_read_tokens > 0 {
+                self.push_system(format!("Prompt cache hit: {cache_read_tokens} tokens read"));
+            }
+            return;
+        }
         // Text/thinking events lazily open an assistant message. A tool call
         // closes the current one, so the next step's text lands *after* the
         // tool in the transcript rather than being folded back into the text

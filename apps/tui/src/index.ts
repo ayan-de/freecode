@@ -673,6 +673,20 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
+    // Prompt-cache awareness (jcode #9). Warn on a cold-cache send; on warm
+    // turns show read/write tokens only when there's cache activity worth noting.
+    case "cache_status": {
+      if (event.state === "cold" && event.message) {
+        showMessage(`⚠ *${event.message}*`);
+      } else if (event.state === "warm" && (event.cacheReadTokens ?? 0) > 0) {
+        showMessage(
+          `*Prompt cache hit: ${event.cacheReadTokens!.toLocaleString()} tokens read${
+            event.cacheWriteTokens ? `, ${event.cacheWriteTokens.toLocaleString()} written` : ""
+          }*`,
+        );
+      }
+      break;
+    }
   }
 }
 

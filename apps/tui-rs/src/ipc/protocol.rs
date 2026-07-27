@@ -92,6 +92,19 @@ pub enum StreamEvent {
         #[serde(default)]
         reason: Option<String>,
     },
+    /// Prompt-cache awareness (jcode #9). `state = "cold"` warns before a send
+    /// that will likely miss Anthropic's ~5-min cache; `state = "warm"` carries
+    /// post-turn cache read/write token counts. Informational.
+    CacheStatus {
+        #[serde(default)]
+        state: String,
+        #[serde(default)]
+        message: Option<String>,
+        #[serde(rename = "cacheReadTokens", default)]
+        cache_read_tokens: u64,
+        #[serde(rename = "cacheWriteTokens", default)]
+        cache_write_tokens: u64,
+    },
     /// Core is blocked waiting for the user to answer. Ignoring these hangs
     /// the turn — the agent loop only resumes on `question.answer`/`reject`.
     QuestionAsked {
