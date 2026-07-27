@@ -42,6 +42,7 @@ import {
 } from "./memory/index.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { disposeOutputStore } from "./tools/output-store/index.js";
+import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
 import {
@@ -599,6 +600,7 @@ const methodHandlers: Record<
     await manager.delete(sessionId);
     disposeSessionMemory(sessionId);
     disposeOutputStore(sessionId);
+    disposeCacheAwareness(sessionId);
   },
 
   "session.getInterrupted": async (): Promise<{

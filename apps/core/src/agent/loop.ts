@@ -42,6 +42,7 @@ import {
   getProjectContext,
   invalidateProjectContext,
 } from "../context/tree-cache.js";
+import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
@@ -53,6 +54,10 @@ import {
 } from "../session/compact-apply.js";
 import { getModelContextLimit } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
+import {
+  noteSendAndCheckCold,
+  summarizeCache,
+} from "../providers/cache-awareness.js";
 import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
 import { bus, BusEvents } from "../bus/index.js";
@@ -234,6 +239,10 @@ export class AgentLoop {
     };
     // Fresh cancellation scope per run
     this.abort = new AbortController();
+
+    // Watch for external file/git changes so the project-context cache doesn't
+    // go stale between turns (grok #4). Idempotent per project.
+    if (input.projectPath) ensureWatching(input.projectPath);
 
     try {
       this.state = { ...this.state, status: "running" };
@@ -787,6 +796,17 @@ export class AgentLoop {
     const aiProvider = getProvider(provider as any);
     const tools = getToolDefs();
 
+    // Prompt-cache awareness (jcode #9): warn before a send that will likely
+    // miss a cold cache. Informational only — never blocks the send.
+    const coldWarning = noteSendAndCheckCold(this.state.sessionId, provider);
+    if (coldWarning) {
+      BusEvents.stream(this.state.sessionId, {
+        type: "cache_status",
+        state: "cold",
+        message: coldWarning,
+      });
+    }
+
     // Prefer streaming when the provider supports it AND we have a listener.
     // If either is missing, fall back to the one-shot execute() path so callers
     // and downstream code paths are unchanged.
@@ -850,6 +870,7 @@ export class AgentLoop {
         }
       }
 
+      this.emitCacheWarm(usage);
       return {
         content,
         thinking: thinking ? thinking : undefined,
@@ -866,12 +887,30 @@ export class AgentLoop {
       model,
       abortSignal: this.abort.signal,
     });
+    this.emitCacheWarm(result.usage);
     return {
       content: result.content,
       thinking: result.thinking,
       toolCalls: result.toolCalls,
       usage: result.usage,
     };
+  }
+
+  // Surface post-turn cache hit/write token counts (jcode #9). Only emitted when
+  // the provider actually reported cache activity, so non-caching turns stay quiet.
+  private emitCacheWarm(usage?: {
+    inputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  }): void {
+    const { readTokens, writeTokens } = summarizeCache(usage);
+    if (readTokens === 0 && writeTokens === 0) return;
+    BusEvents.stream(this.state.sessionId, {
+      type: "cache_status",
+      state: "warm",
+      cacheReadTokens: readTokens,
+      cacheWriteTokens: writeTokens,
+    });
   }
 
   // ===========================================================================
