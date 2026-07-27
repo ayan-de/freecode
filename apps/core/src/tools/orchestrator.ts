@@ -17,24 +17,7 @@ import { getTool, type ToolContext } from "./index.js";
 import { isToolAllowed, type PermissionProfile } from "../permission/index.js";
 import type { Tool } from "./tool.types.js";
 import { isTransientError } from "../agent/recovery/manager.js";
-
-// Max output length sent to the model (truncation to bound context growth).
-// Matches claude-code's Bash cap (30KB); full output stays in displayOutput.
-// ponytail: char cap, not token-aware — good enough, tighten if a provider still overflows.
-const MAX_MODEL_OUTPUT_CHARS = 30_000;
-
-// Truncate keeping the head; the tail marker tells the model output was cut so
-// it can re-read narrower (offset/limit, grep) instead of assuming completeness.
-function capModelOutput(output: string): { modelOutput: string; truncated: boolean } {
-  if (output.length <= MAX_MODEL_OUTPUT_CHARS) {
-    return { modelOutput: output, truncated: false };
-  }
-  const kept = output.slice(0, MAX_MODEL_OUTPUT_CHARS);
-  return {
-    modelOutput: `${kept}\n\n... [truncated, ${output.length} chars total — re-read a narrower slice if you need the rest] ...`,
-    truncated: true,
-  };
-}
+import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
 
 // =============================================================================
 // Orchestrator Interface
@@ -92,37 +75,6 @@ function validateParams(
   }
 
   return null;
-}
-
-// =============================================================================
-// mapToolResult()
-// Bridge from tools/types.ts ToolResult → agent/types.ts ToolResult
-// =============================================================================
-
-function mapToolResult(
-  toolResult: {
-    title: string;
-    output: string;
-    metadata?: Record<string, unknown>;
-    error?: string;
-  },
-  call: ToolCall,
-): ToolResult {
-  const output = toolResult.output;
-  const { modelOutput, truncated } = capModelOutput(output);
-
-  return {
-    id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    toolCallId: call.id,
-    tool: call.tool,
-    title: toolResult.title,
-    displayOutput: output,
-    modelOutput,
-    stdout: toolResult.output, // Legacy
-    stderr: toolResult.error,
-    structuredData: toolResult.metadata ?? undefined,
-    truncated,
-  };
 }
 
 // =============================================================================
@@ -289,7 +241,11 @@ export function createToolOrchestrator(
           : typeof r === "string"
             ? r
             : JSON.stringify(r);
-        const { modelOutput, truncated } = capModelOutput(output);
+        // Stash the FULL output so the `output` tool can page it later, then cap
+        // what the model sees to head+tail. A store miss later degrades to
+        // "re-run the tool" (spec D4) — never fatal, so this put is best-effort.
+        if (ctx.sessionId) getOutputStore(ctx.sessionId).put(toolId, output);
+        const { modelOutput, truncated } = adaptiveTruncate(output, toolId);
         return {
           id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           toolCallId: toolId,
