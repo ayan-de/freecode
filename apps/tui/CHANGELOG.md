@@ -1,5 +1,21 @@
 # @thisisayande/freecode
 
+## 0.5.0
+
+### Minor Changes
+
+- 1ef2dd2: feat: add danger mode with permission bypass for agent operations
+
+  Introduces a new `danger` agent mode that skips permission hooks,
+  enabling fully automated execution for trusted workflows. Includes
+  mode-specific badge colors and enhanced mode display in TUI.
+
+### Patch Changes
+
+- Updated dependencies [1ef2dd2]
+  - @thisisayande/freecode-shared@0.3.0
+  - @thisisayande/freecode-core@0.5.0
+
 ## 0.4.0
 
 ### Features

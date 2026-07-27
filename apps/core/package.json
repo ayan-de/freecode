@@ -1,6 +1,6 @@
 {
   "name": "@thisisayande/freecode-core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "CLI backend for FreeCode AI coding assistant",
   "license": "MIT",
@@ -25,7 +25,7 @@
     "@ai-sdk/google": "^3.0.80",
     "@ai-sdk/openai": "^3.0.66",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@thisisayande/freecode-shared": "^0.2.0",
+    "@thisisayande/freecode-shared": "^0.3.0",
     "ai": "^6.0.191",
     "chokidar": "^3.6.0",
     "diff": "^8.0.4",
