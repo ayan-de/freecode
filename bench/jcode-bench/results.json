@@ -1,0 +1,23 @@
+{
+  "geomean": 0.0,
+  "scores": [
+    0.6711064215336554,
+    0.2829367230531222,
+    -0.04767311424841484
+  ],
+  "tasks": {
+    "float-print": {
+      "bench": "float_print",
+      "score": 0.6711064215336554
+    },
+    "json-unescape": {
+      "bench": "json_unescape",
+      "score": 0.2829367230531222
+    },
+    "utf16-transcode": {
+      "bench": "utf16_transcode",
+      "score": -0.04767311424841484
+    }
+  },
+  "typical_speedup_x": 1.0
+}

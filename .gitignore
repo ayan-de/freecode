@@ -43,3 +43,4 @@ yarn-error.log*
 # FreeCode runtime data
 .freecode/
 apps/*/.freecode/
+bench/jcode-bench/target
