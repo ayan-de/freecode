@@ -200,6 +200,10 @@ export const METHODS = {
     params: { requestId: "" },
     result: undefined as void,
   },
+  "usage.get": {
+    params: undefined,
+    result: [] as { date: string; tokencount: number }[],
+  },
 } as const;
 
 export type MethodName = keyof typeof METHODS;

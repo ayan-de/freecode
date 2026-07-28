@@ -63,6 +63,7 @@ import {
   type PermissionAnswer,
 } from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
+import { readDailyUsage } from "./usage/tracker.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 
@@ -403,6 +404,10 @@ const methodHandlers: Record<
   ): Promise<number> => {
     const { provider, model } = params as { provider: string; model: string };
     return getModelContextLimit(provider, model);
+  },
+
+  "usage.get": async (): Promise<unknown[]> => {
+    return readDailyUsage();
   },
 
   "commands.list": async (): Promise<unknown[]> => {

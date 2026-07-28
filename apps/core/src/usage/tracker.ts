@@ -24,7 +24,10 @@ function todayLocal(): string {
   return `${y}-${m}-${day}`;
 }
 
-function readUsage(): DailyUsageEntry[] {
+// Read the accumulated per-day totals. Missing/corrupt file reads as empty —
+// callers (the `usage.get` IPC handler, `recordDailyUsage`) treat "no data" and
+// "unreadable" the same way.
+export function readDailyUsage(): DailyUsageEntry[] {
   try {
     const parsed = JSON.parse(fs.readFileSync(USAGE_FILE, "utf-8"));
     if (!Array.isArray(parsed)) return [];
@@ -43,7 +46,7 @@ export function recordDailyUsage(tokens: number): void {
   if (!Number.isFinite(tokens) || tokens <= 0) return;
   try {
     fs.mkdirSync(path.dirname(USAGE_FILE), { recursive: true });
-    const entries = readUsage();
+    const entries = readDailyUsage();
     const today = todayLocal();
     const existing = entries.find((e) => e.date === today);
     if (existing) {
