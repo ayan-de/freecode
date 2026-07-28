@@ -15,7 +15,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::protocol::{
-    parse_line, CurrentModel, IncomingLine, JsonRpcRequest, ModelInfo, ProviderInfo,
+    parse_line, CurrentModel, DailyUsage, IncomingLine, JsonRpcRequest, ModelInfo, ProviderInfo,
     SerializedMessage, SessionConfig, SessionInfo, SessionMeta, SessionSendResult, StreamEvent,
     ToolListItem,
 };
@@ -253,6 +253,14 @@ impl IpcClient {
         )
         .await?;
         Ok(())
+    }
+
+    /// Per-day token totals, oldest first. Backs the `/usage` summary.
+    pub async fn usage_get(&self) -> Result<Vec<DailyUsage>> {
+        let value = self.call("usage.get", None).await?;
+        let mut days: Vec<DailyUsage> = serde_json::from_value(value)?;
+        days.sort_by(|a, b| a.date.cmp(&b.date));
+        Ok(days)
     }
 
     /// The context-window size for a model, resolved by core from models.dev

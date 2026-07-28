@@ -198,6 +198,16 @@ pub struct SessionConfig {
     pub agent_mode: Option<String>,
 }
 
+/// One day's token total from `usage.get`. Core owns the store; the TUI only
+/// renders what it returns.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DailyUsage {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub tokencount: u64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionInfo {
     #[serde(rename = "sessionId")]

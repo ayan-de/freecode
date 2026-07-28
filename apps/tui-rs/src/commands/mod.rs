@@ -10,6 +10,7 @@ mod mode;
 mod model;
 mod quit;
 mod session;
+mod usage;
 
 use crate::app::App;
 
@@ -29,6 +30,9 @@ pub enum CommandOutcome {
     CompactSession,
     /// Fetch the session list over IPC and open the `/session` resume modal.
     OpenSessionPicker,
+    /// Fetch daily token totals (`usage.get`) and print them. Handled by the
+    /// main loop because it needs an async IPC call.
+    ShowUsage,
 }
 
 /// Everything a command may touch. Grouping capabilities behind a context means
@@ -70,6 +74,7 @@ impl CommandRegistry {
         registry.register(Box::new(mode::ModeCommand));
         registry.register(Box::new(compact::CompactCommand));
         registry.register(Box::new(session::SessionCommand));
+        registry.register(Box::new(usage::UsageCommand));
         registry.register(Box::new(quit::Quit));
         registry
     }

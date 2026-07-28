@@ -166,6 +166,11 @@ async fn handle_terminal_event(
             handle_prompt_key(key.code, app, client).await;
             return Ok(false);
         }
+        // The `/usage` dashboard is read-only: any key dismisses it.
+        if app.usage_open() {
+            app.close_usage();
+            return Ok(false);
+        }
         // The `/session` modal likewise owns the keyboard while open.
         if app.session_picker_open() {
             handle_session_key(key.code, app, client).await;
@@ -276,6 +281,12 @@ async fn handle_terminal_event(
                             CommandOutcome::OpenSessionPicker => {
                                 open_session_picker(app, client).await;
                             }
+                            CommandOutcome::ShowUsage => match client.usage_get().await {
+                                Ok(days) => app.open_usage(days),
+                                Err(err) => {
+                                    app.push_system(format!("Error fetching usage: {err}"))
+                                }
+                            },
                             CommandOutcome::Done => {}
                         }
                     } else if ensure_session(app, client).await {

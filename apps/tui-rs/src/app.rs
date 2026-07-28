@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use crate::ipc::protocol::{QuestionSpec, SerializedMessage, SessionMeta, StreamEvent};
+use crate::ipc::protocol::{DailyUsage, QuestionSpec, SerializedMessage, SessionMeta, StreamEvent};
 
 /// Agent mode drives tool/permissive behavior on the core side and the badge
 /// shown in the status bar. Order matches `apps/tui/src/themes.ts` and
@@ -597,6 +597,8 @@ pub struct App {
     pub esc_armed: Option<Instant>,
     /// The `/session` resume modal, when open.
     pub session_picker: Option<SessionPicker>,
+    /// The `/usage` dashboard, when open: per-day token totals from core.
+    pub usage: Option<Vec<DailyUsage>>,
     /// Permission asks that arrived while another prompt was open. A batch of
     /// concurrency-safe tools raises several asks at once; core blocks on each,
     /// so every one must be answered. They surface one at a time as each active
@@ -633,6 +635,7 @@ impl App {
             cmd_cursor: 0,
             esc_armed: None,
             session_picker: None,
+            usage: None,
             permission_queue: VecDeque::new(),
         }
     }
@@ -764,6 +767,19 @@ impl App {
     /// Whether the `/session` modal is open (steals the keyboard while shown).
     pub fn session_picker_open(&self) -> bool {
         self.session_picker.is_some()
+    }
+
+    /// Whether the `/usage` dashboard is open (any key dismisses it).
+    pub fn usage_open(&self) -> bool {
+        self.usage.is_some()
+    }
+
+    pub fn open_usage(&mut self, days: Vec<DailyUsage>) {
+        self.usage = Some(days);
+    }
+
+    pub fn close_usage(&mut self) {
+        self.usage = None;
     }
 
     pub fn begin_assistant_turn(&mut self) {
