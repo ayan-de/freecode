@@ -180,6 +180,7 @@ Built-in tools live in `apps/core/src/tools/` and are registered in `tools/index
 | **Config**   | `config.get`                                                                                           |
 | **Memory**   | `memory.list`, `memory.get`, `memory.save`, `memory.delete`, `memory.query`                            |
 | **Question** | `question.answer`, `question.reject`                                                                   |
+| **Usage**    | `usage.get`                                                                   |
 
 ### Streaming
 
