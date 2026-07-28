@@ -389,6 +389,16 @@ export async function resolveCommand(
   return prompt;
 }
 
+/** Per-day token totals for the `/usage` heatmap. Core owns the storage. */
+export async function getUsage(): Promise<
+  { date: string; tokencount: number }[]
+> {
+  return (await sendRequest("usage.get")) as {
+    date: string;
+    tokencount: number;
+  }[];
+}
+
 export interface ConfigInfo {
   providers?: Record<string, { apiKey?: string }>;
   current?: { provider: string; model: string };

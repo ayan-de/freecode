@@ -1,6 +1,7 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
 import { restoreScreen } from "../terminal-screen.js";
+import { getUsage } from "../ipc/client.js";
 
 const helpCommand: Command = {
   name: "help",
@@ -67,26 +68,16 @@ const usageCommand: Command = {
   name: "usage",
   description: "Show daily token usage heatmap",
   execute: async (_args, ctx) => {
-    let data: any[] = [];
+    // Core owns the usage store; the TUI only renders what it hands back.
+    let data: { date: string; tokencount: number }[] = [];
     try {
-      const fs = await import("fs");
-      const path = await import("path");
-      const os = await import("os");
-      const usagePath = path.join(os.homedir(), ".freecode", "usage.json");
-
-      if (fs.existsSync(usagePath)) {
-        const content = fs.readFileSync(usagePath, "utf-8");
-        data = JSON.parse(content);
-      } else {
-        ctx.showMessage(
-          `*No usage.json found at .freecode/usage.json. Showing heatmap with {} data.*`,
-        );
-        // Show empty heatmap
-        data = [];
-      }
+      data = await getUsage();
     } catch (err) {
-      ctx.showMessage(`*Error reading usage.json: ${err}*`);
+      ctx.showMessage(`*Error fetching usage: ${err}*`);
       return;
+    }
+    if (data.length === 0) {
+      ctx.showMessage(`*No usage recorded yet. Showing an empty heatmap.*`);
     }
 
     const { startInteractiveHeatmap } = await import(
