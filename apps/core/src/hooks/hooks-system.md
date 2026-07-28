@@ -184,6 +184,25 @@ registerHook("PreToolUse", "llm-approval", {
 });
 ```
 
+## Built-in Hooks
+
+### rtk bash-rewrite (`builtin/rtk-rewrite.ts`)
+
+An optional internal `PreToolUse` callback (matcher `bash`) that rewrites shell
+commands to their compact [rtk](https://github.com/rtk-ai/rtk) equivalents
+(e.g. `ls` → `rtk ls`) so the model reads less command output. Registered at
+server startup via `registerRtkHook()`.
+
+- **Optional & fail-open.** No-op unless rtk resolves; any failure (missing
+  binary, timeout, unsupported platform) runs the original command unchanged.
+- **Resolution** (`builtin/rtk-installer.ts`): a managed install under
+  `~/.freecode/bin` → an `rtk` on `PATH` → a one-time consented download of a
+  pinned release (`RTK_VERSION`), verified against the release's `checksums.txt`.
+  The one-time offer is recorded in `~/.freecode/rtk-state.json`.
+- **Scope:** the `bash` tool only (`read`/`grep`/`glob` bypass it).
+- **Disable:** `FREECODE_RTK=0`. Not bundled into `build:bun` — pure runtime
+  enhancement. Re-offer after declining by deleting `~/.freecode/rtk-state.json`.
+
 ## Hook Matcher Patterns
 
 Hooks can use pattern matching to only trigger for specific tools:

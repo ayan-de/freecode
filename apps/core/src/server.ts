@@ -53,6 +53,7 @@ import {
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers } from "./mcp/index.js";
+import { registerRtkHook } from "./hooks/builtin/rtk-rewrite.js";
 import {
   bus,
   BusEvents,
@@ -692,6 +693,10 @@ export async function startServer() {
   serverStarted = true;
   await initProviders();
   await initMcpServers();
+
+  // Optional rtk integration: rewrites bash commands to compact `rtk`
+  // equivalents to save tokens. No-op unless rtk resolves; FREECODE_RTK=0 opts out.
+  registerRtkHook();
 
   // Speaker wire: forward internal bus events to both frontend transports.
   bus.subscribeAll((event) => {
