@@ -1,6 +1,6 @@
 # Long-Task Robustness (Agent Loop Hardening)
 
-> Status: Phase 1 + Phase 2 implemented. Phase 3 deferred.
+> Status: Phase 1 + Phase 2 (incl. deterministic verification gate) implemented. Phase 3 deferred.
 > Scope: `apps/core/src/agent/` (the agentic tool-use loop).
 
 ## Why this exists
@@ -86,17 +86,38 @@ TODO_NUDGE_GAP       = 5   // min turns between nudges
 TODO_GATE_MAX_FORCES = 3   // max forced continuations per run
 ```
 
+## Phase 2 — deterministic verification gate
+
+The prompt contract asks the model to verify; this is the **deterministic
+backstop** for when it doesn't. Config-driven, so it never guesses.
+
+| Item | File(s) | Behavior |
+|------|---------|----------|
+| **Verify gate** | `agent/verify.ts`, `agent/loop.ts` (loop exit, after the todo gate) | When a run **mutated files** and the model tries to stop, run the project's typecheck/build. On failure, inject the output as a `<system-reminder>` and force another turn; on pass (or no command), finish. |
+| **Command resolution** | `agent/verify.ts` (`resolveVerifyCommand`) | Reads `package.json` `scripts`, picks the first of `typecheck > type-check > check > build`, and detects the package manager from the lockfile (`pnpm`/`yarn`/`bun`/`npm`). Returns nothing (gate skips) when there's no match. `test` is intentionally excluded (slow/flaky) — that stays the model's job. |
+
+Details:
+
+- **Ordering at loop exit**: todo gate → verify gate → complete. Finish the
+  plan first, *then* confirm it compiles.
+- **Only after mutations**: `filesMutatedThisRun` is set when a destructive tool
+  succeeds, so read-only / Q&A turns never trigger a build.
+- **Bounded**: `MAX_VERIFY_ATTEMPTS` (2) forced fixes per run, a 120s per-run
+  timeout, output clipped to ~4k chars. Abort-aware (Ctrl+C kills the child).
+- **No new IPC events** yet — progress is `console.log` only; a `verify_*`
+  StreamEvent for the UI is a future nicety.
+
+Tunable constants (`agent/verify.ts`): `MAX_VERIFY_ATTEMPTS = 2`,
+`VERIFY_TIMEOUT_MS = 120_000`, and the `SCRIPT_PRIORITY` list.
+
+Tests: `agent/verify.test.ts`.
+
 ---
 
 ## Deferred (Phase 3 — not implemented)
 
 Do not build these unless explicitly requested:
 
-- **Deterministic verify gate** — harness auto-runs a config-driven command
-  (`package.json` `typecheck`/`test`) before finishing and injects failures as a
-  tool result. A backstop for when the model ignores the prompt contract. The
-  design decision left open: run typecheck-only (fast) vs typecheck+tests
-  (thorough but slower/flakier), and how to discover the command per project.
 - **Verification subagent** (claude-code style) — an independent adversarial
   verifier that assigns PASS/FAIL for non-trivial changes; the main agent cannot
   self-assign.

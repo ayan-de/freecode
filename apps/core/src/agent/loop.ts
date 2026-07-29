@@ -42,6 +42,12 @@ import {
   todoNudgeReminder,
   TODO_GATE_MAX_FORCES,
 } from "./reminders.js";
+import {
+  resolveVerifyCommand,
+  runVerify,
+  verifyFailureReminder,
+  MAX_VERIFY_ATTEMPTS,
+} from "./verify.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
@@ -140,6 +146,10 @@ export class AgentLoop {
   private todoGateForces = 0;
   private turnsSinceTodoWrite = 0;
   private turnsSinceLastNudge = 0;
+  // Verification gate state: whether this run mutated files (so verify is
+  // worth running) and how many times the gate has run.
+  private filesMutatedThisRun = false;
+  private verifyAttempts = 0;
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -258,6 +268,8 @@ export class AgentLoop {
     this.todoGateForces = 0;
     this.turnsSinceTodoWrite = 0;
     this.turnsSinceLastNudge = 0;
+    this.filesMutatedThisRun = false;
+    this.verifyAttempts = 0;
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
@@ -432,6 +444,40 @@ export class AgentLoop {
             };
             continue;
           }
+
+          // Verification gate: if this run changed files, run the project's
+          // typecheck/build before finishing. On failure, feed the output back
+          // and force another turn — capped so a red project still terminates.
+          if (
+            this.filesMutatedThisRun &&
+            this.verifyAttempts < MAX_VERIFY_ATTEMPTS
+          ) {
+            const verifyCmd = resolveVerifyCommand(this.state.projectPath);
+            if (verifyCmd) {
+              this.verifyAttempts += 1;
+              console.log(
+                `[AgentLoop] Verification gate ${this.verifyAttempts}/${MAX_VERIFY_ATTEMPTS}: running \`${verifyCmd.command}\``,
+              );
+              const verify = await runVerify(
+                verifyCmd.command,
+                this.state.projectPath,
+                this.abort.signal,
+              );
+              if (this.abort.signal.aborted) return this.complete("Interrupted");
+              if (!verify.ok) {
+                this.pendingReminders.push(
+                  verifyFailureReminder(verifyCmd.label, verify.output),
+                );
+                this.state = {
+                  ...this.state,
+                  iterationCount: this.state.iterationCount + 1,
+                  turnCount: this.state.turnCount + 1,
+                };
+                continue;
+              }
+            }
+          }
+
           return this.complete(
             "Done",
             turnResult.responseText,
@@ -761,6 +807,14 @@ export class AgentLoop {
           const result = batchResults[k];
           toolResults[start + k] = result;
           this.updateLoopHealth(tc, result);
+          // Track file mutations so the verification gate only runs when this
+          // run actually changed something.
+          if (
+            getTool(tc.tool)?.behavior?.isDestructive === true &&
+            !result.error
+          ) {
+            this.filesMutatedThisRun = true;
+          }
           const part = assistantMessage.parts.find(
             (p) => p.type === "tool" && p.tool.id === tc.id,
           );
