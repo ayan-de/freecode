@@ -8,12 +8,15 @@
 // =============================================================================
 
 // The alt buffer has no scrollback, so the terminal's native mouse-wheel
-// scroll has nothing to scroll — \x1b[?1000h reports mouse button/wheel
-// events instead, and \x1b[?1006h uses SGR encoding so events parse
-// unambiguously regardless of terminal size. index.ts decodes the wheel
-// events and drives VirtualMessageList's own scroll.
-const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1006h";
-const DISABLE_MOUSE = "\x1b[?1006l\x1b[?1000l";
+// scroll has nothing to scroll — \x1b[?1002h reports mouse button/wheel
+// and button-event motion (drag) instead, and \x1b[?1006h uses SGR encoding
+// so events parse unambiguously regardless of terminal size. index.ts
+// decodes the wheel events (drives VirtualMessageList's own scroll) and the
+// drag events (drives text selection) — enabling our own mouse tracking is
+// also why the terminal's native click-drag text selection no longer works,
+// so index.ts implements selection itself instead.
+const ENABLE_MOUSE = "\x1b[?1002h\x1b[?1006h";
+const DISABLE_MOUSE = "\x1b[?1006l\x1b[?1002l";
 
 // \x1b[?1049h saves the cursor and switches to the alt buffer; \x1b[2J\x1b[H
 // clears it and homes the cursor for terminals that don't guarantee a blank

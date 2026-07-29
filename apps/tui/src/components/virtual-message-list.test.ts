@@ -113,3 +113,41 @@ test("scrolling does nothing when content fits the viewport", () => {
   assert.equal(list.render(80).length, 4);
   list.destroy();
 });
+
+test("resolveLogicalPosition resolves a screen row to a stable logical line index", () => {
+  clearMessages();
+  addLines(5);
+  const list = new VirtualMessageList(100, () => 10);
+  list.render(80);
+  const pos = list.resolveLogicalPosition(5, 2);
+  assert.notEqual(pos, null);
+  assert.equal(typeof pos!.lineIndex, "number");
+  assert.equal(typeof pos!.column, "number");
+  list.destroy();
+});
+
+test("resolveLogicalPosition returns null for clicks below the last rendered line", () => {
+  clearMessages();
+  addLines(5);
+  const list = new VirtualMessageList(100, () => 10);
+  list.render(80);
+  const pos = list.resolveLogicalPosition(5, 999);
+  assert.equal(pos, null);
+  list.destroy();
+});
+
+test("getLineAt returns the same logical line before and after a scroll", () => {
+  clearMessages();
+  addLines(40);
+  const list = new VirtualMessageList(100, () => 5);
+  list.render(80);
+  const before = list.resolveLogicalPosition(0, 1);
+  const lineBefore = list.getLineAt(before!.lineIndex);
+  list.scrollPageUp();
+  list.render(80);
+  // The same logical line index still yields the same text after scrolling,
+  // even though it's no longer at screen row 1 — the scroll-invariance
+  // guarantee resolveLogicalPosition/getLineAt exist for.
+  assert.equal(list.getLineAt(before!.lineIndex), lineBefore);
+  list.destroy();
+});

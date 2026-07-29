@@ -3,6 +3,8 @@ import chalk from "chalk";
 import type { MessageInstance } from "./message-types.js";
 import { subscribeToMessages, getMessages } from "../state/message-store.js";
 import { ThinkingMessage } from "./message-row.js";
+import { normalize, type Selection } from "../state/selection-store.js";
+import { highlightRange } from "../utils/ansi-select.js";
 
 /**
  * VirtualMessageList — scrollable message history that implements pi-tui's Component interface.
@@ -36,15 +38,22 @@ export class VirtualMessageList implements Component {
   private lastTotalLines = 0;
   private getViewportRows: () => number;
   private header?: Component;
+  /** Full (unwindowed) rendered lines from the last render — a stable index
+   * space for selection, since scrolling only changes which window of this
+   * array is visible, not the array itself. */
+  private lastRenderedLines: string[] = [];
+  private getSelection: () => Selection | null;
 
   constructor(
     maxVisible = 100,
     getViewportRows: () => number = () => 24,
     header?: Component,
+    getSelection: () => Selection | null = () => null,
   ) {
     this.maxVisible = maxVisible;
     this.getViewportRows = getViewportRows;
     this.header = header;
+    this.getSelection = getSelection;
     // Subscribe to message store changes
     this.unsubscribe = subscribeToMessages((msgs) => {
       this.messages = msgs;
@@ -163,6 +172,32 @@ export class VirtualMessageList implements Component {
     }
   }
 
+  /** Returns the last-rendered ANSI string for a full (unwindowed) line index. */
+  getLineAt(lineIndex: number): string | null {
+    return this.lastRenderedLines[lineIndex] ?? null;
+  }
+
+  /**
+   * Resolves a screen coordinate to a logical position keyed off the full
+   * (unwindowed) line index — stable across scrolling, since scrolling only
+   * changes the `startIndex` window into the same underlying array. Returns
+   * null when the click misses rendered content (e.g. below the last line).
+   */
+  resolveLogicalPosition(cx: number, cy: number): { lineIndex: number; column: number } | null {
+    const content = this.contentRows();
+    let startIndex = 0;
+    if (this.lastTotalLines <= content) {
+      startIndex = 0;
+    } else if (this.scrollTop === null) {
+      startIndex = this.lastTotalLines - (content + 1);
+    } else {
+      startIndex = this.scrollTop;
+    }
+    const lineIndex = startIndex + (cy - 1);
+    if (lineIndex < 0 || lineIndex >= this.lastRenderedLines.length) return null;
+    return { lineIndex, column: Math.max(0, cx - 1) };
+  }
+
   /**
    * Render the message list.
    * In-progress message always stays at the bottom; all other messages render above it.
@@ -211,6 +246,17 @@ export class VirtualMessageList implements Component {
     }
 
     this.lastTotalLines = lines.length;
+    this.lastRenderedLines = lines;
+
+    const sel = this.getSelection();
+    if (sel) {
+      const { startLine, startCol, endLine, endCol } = normalize(sel);
+      for (let i = startLine; i <= endLine && i < lines.length; i++) {
+        const lineStart = i === startLine ? startCol : 0;
+        const lineEnd = i === endLine ? endCol : Number.MAX_SAFE_INTEGER;
+        lines[i] = highlightRange(lines[i], lineStart, lineEnd);
+      }
+    }
 
     // Content fits in the viewport outright — no windowing needed either way,
     // but pad with trailing blank lines up to the full budget so the editor
