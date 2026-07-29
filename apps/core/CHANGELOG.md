@@ -1,5 +1,12 @@
 # @thisisayande/freecode-core
 
+## 0.6.0
+
+### Features
+
+- Tree-sitter symbol index: the `lsp` tool gains two on-demand operations for locating code without reading whole files — `workspaceSymbol` (find a symbol by name across the repo, ranked exact → prefix → substring) and `documentSymbol` (list the symbols defined in a file). Backed by `web-tree-sitter` (WASM) with prebuilt grammars for TypeScript/TSX, JavaScript/JSX, and Python — no language server or native build required. Whole-repo symbol lists are cached per project by git HEAD with a short TTL; single-file lookups parse fresh.
+- Adopts a "pull" model (inspired by grok-build's codebase graph) over a "push" static repo map (aider-style): symbols are never injected into the prompt, so there is zero standing token cost — the agent pays only when it queries. This lets it locate code precisely instead of grepping blindly or reading full files.
+
 ## 0.5.0
 
 ### Minor Changes
