@@ -21,6 +21,9 @@ import {
 } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
 import { formatTokenCount } from "./utils/format-tokens.js";
+import { SelectionStore, normalize } from "./state/selection-store.js";
+import { plainText } from "./utils/ansi-select.js";
+import { copyToClipboard } from "./utils/clipboard.js";
 import {
   startCli,
   sessionStart,
@@ -143,6 +146,10 @@ tui.addChild(statusHeader);
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
+// Text selection: click-drag over the message history highlights and, on
+// release, copies the dragged text via OSC 52 (see the mouse handling below).
+const selectionStore = new SelectionStore();
+
 // Create message list and add to tui BEFORE editor. infoBox renders as the
 // list's first entry (see VirtualMessageList) so it scrolls away with the
 // rest of the history instead of sitting fixed above the viewport.
@@ -164,9 +171,20 @@ messageList = new VirtualMessageList(
     return Math.max(6, terminal.rows - otherHeight);
   },
   infoBox,
+  () => selectionStore.get(),
 );
 messageList.setTui(tui);
 tui.addChild(messageList);
+
+// A terminal resize invalidates the rendered-line indices a selection is
+// keyed against, so it's cheaper (and safer) to clear than to try to
+// re-resolve them against the new layout.
+process.stdout.on("resize", () => {
+  if (selectionStore.get()) {
+    selectionStore.clear();
+    tui.requestRender();
+  }
+});
 
 editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
@@ -1008,11 +1026,39 @@ const interruptController = new InterruptController({
 });
 
 // SGR mouse event: CSI < Cb ; Cx ; Cy M|m. Bit 0x40 marks a wheel event;
-// bit 0x01 then gives direction (0 = up, 1 = down). Non-wheel mouse events
+// bit 0x20 marks button-event motion (drag); release always ends in a
+// lowercase 'm' (vs uppercase 'M' for press/drag). Non-wheel mouse events
 // (clicks/drags) are matched too so they're swallowed here instead of
 // leaking into the editor as garbage text.
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)[Mm]$/;
 const WHEEL_STEP = 3;
+
+function showCopiedIndicator(charCount: number, truncated: boolean): void {
+  const label = truncated
+    ? `Copied first ${charCount} chars (selection truncated)`
+    : `Copied ${charCount} chars`;
+  const handle = tui.showOverlay(new Text(label), {
+    anchor: "bottom-right",
+    nonCapturing: true,
+  });
+  setTimeout(() => handle.hide(), 1500);
+}
+
+function extractSelectionText(): string {
+  const sel = selectionStore.get();
+  if (!sel) return "";
+  const { startLine, startCol, endLine, endCol } = normalize(sel);
+  const rows: string[] = [];
+  for (let i = startLine; i <= endLine; i++) {
+    const raw = messageList.getLineAt(i);
+    if (raw === null) continue;
+    const text = plainText(raw);
+    const from = i === startLine ? startCol : 0;
+    const to = i === endLine ? endCol : text.length;
+    rows.push(text.slice(from, to));
+  }
+  return rows.join("\n");
+}
 
 tui.addInputListener((data) => {
   const mouseEvent = SGR_MOUSE_RE.exec(data);
@@ -1020,11 +1066,64 @@ tui.addInputListener((data) => {
     const cb = Number(mouseEvent[1]);
     const cx = Number(mouseEvent[2]);
     const cy = Number(mouseEvent[3]);
+    const isRelease = data.endsWith("m");
+
     if ((cb & 0x40) !== 0) {
       messageList.scrollBy((cb & 0x01) === 1 ? WHEEL_STEP : -WHEEL_STEP);
-    } else if (cb === 0 && data.endsWith("M")) {
+      return { consume: true };
+    }
+
+    if (isRelease) {
+      if (selectionStore.get()) {
+        const text = extractSelectionText();
+        if (text.length > 0) {
+          const { truncated, copied } = copyToClipboard(text);
+          showCopiedIndicator(copied.length, truncated);
+        }
+      }
+      tui.requestRender();
+      return { consume: true };
+    }
+
+    const isDrag = (cb & 0x20) !== 0;
+    const button = cb & 0x03;
+    const pos = messageList.resolveLogicalPosition(cx, cy);
+
+    if (pos && button === 0 && !isDrag) {
+      // Fresh press: click-to-clear if inside the existing selection,
+      // otherwise start a new selection anchor.
+      const prior = selectionStore.get();
+      if (prior) {
+        const { startLine, startCol, endLine, endCol } = normalize(prior);
+        const insidePrior =
+          pos.lineIndex > startLine ||
+          (pos.lineIndex === startLine && pos.column >= startCol);
+        const beforeEnd =
+          pos.lineIndex < endLine ||
+          (pos.lineIndex === endLine && pos.column <= endCol);
+        if (insidePrior && beforeEnd) {
+          selectionStore.clear();
+          tui.requestRender();
+          return { consume: true };
+        }
+      }
+      selectionStore.begin(pos);
+      tui.requestRender();
+      return { consume: true };
+    }
+    if (pos && isDrag) {
+      selectionStore.update(pos);
+      tui.requestRender();
+      return { consume: true };
+    }
+    if (cb === 0 && data.endsWith("M")) {
       messageList.handleClick(cx, cy);
     }
+    return { consume: true };
+  }
+  if (matchesKey(data, "escape") && selectionStore.get()) {
+    selectionStore.clear();
+    tui.requestRender();
     return { consume: true };
   }
   if (matchesKey(data, Key.ctrl("c"))) {
