@@ -518,6 +518,33 @@ pub enum Chip {
     Tool(usize),
 }
 
+/// A logical position within the full (unwindowed) transcript line map —
+/// stable across scrolling, since `App.line_map` always holds every
+/// rendered line and scrolling only changes which window of it is on screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogicalPos {
+    pub line_index: usize,
+    pub column: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Selection {
+    pub anchor: LogicalPos,
+    pub cursor: LogicalPos,
+}
+
+/// Orders a selection's anchor/cursor into (start, end).
+pub fn normalize(sel: &Selection) -> (LogicalPos, LogicalPos) {
+    let anchor_first = sel.anchor.line_index < sel.cursor.line_index
+        || (sel.anchor.line_index == sel.cursor.line_index
+            && sel.anchor.column <= sel.cursor.column);
+    if anchor_first {
+        (sel.anchor, sel.cursor)
+    } else {
+        (sel.cursor, sel.anchor)
+    }
+}
+
 /// The `/session` modal: a session list on the left, a markdown transcript
 /// preview of the highlighted session on the right. Transcripts are fetched
 /// lazily (via `session.resume`) and cached as the cursor moves.
@@ -605,6 +632,20 @@ pub struct App {
     /// prompt is resolved — without this queue a later ask overwrote `prompt`
     /// and its tool hung forever.
     permission_queue: VecDeque<Prompt>,
+    /// Plain-text content of each rendered *logical* transcript line
+    /// (pre-wrap), rebuilt every `draw_messages` call — the Rust mirror of
+    /// apps/tui's `lastRenderedLines`.
+    pub line_map: Vec<String>,
+    /// Maps each wrapped screen row to the logical `line_map` index that
+    /// occupies it — since Paragraph wraps long lines across multiple screen
+    /// rows internally (and ratatui's wrap engine isn't public), selection
+    /// works at logical-line granularity: any wrapped row of a long line
+    /// resolves to that whole line, not a sub-range within it.
+    pub row_map: Vec<usize>,
+    /// The active click-drag text selection, if any.
+    pub selection: Option<Selection>,
+    /// A transient "Copied N chars" message and its expiry, shown bottom-right.
+    pub copy_indicator: Option<(String, Instant)>,
 }
 
 impl App {
@@ -637,6 +678,10 @@ impl App {
             session_picker: None,
             usage: None,
             permission_queue: VecDeque::new(),
+            line_map: Vec::new(),
+            row_map: Vec::new(),
+            selection: None,
+            copy_indicator: None,
         }
     }
 
@@ -834,6 +879,28 @@ impl App {
             .iter()
             .find(|(wrapped_row, _)| *wrapped_row == visual)
             .map(|(_, chip)| *chip)
+    }
+
+    /// Resolves a terminal (col, row) to a logical transcript position.
+    /// Scroll-invariant because `row_map`/`line_map` hold the full unwindowed
+    /// transcript and `self.scroll` + `transcript_top` locate which wrapped
+    /// row is on screen — same scheme `chip_at` already uses. The wrapped
+    /// screen row maps to a *logical* line index via `row_map` (selection
+    /// granularity is whole-logical-line; see `row_map`'s doc comment).
+    pub fn resolve_logical_position(&self, col: u16, row: u16) -> Option<LogicalPos> {
+        if row < self.transcript_top || row >= self.transcript_top + self.transcript_height {
+            return None;
+        }
+        let visible_row = row - self.transcript_top;
+        let wrapped_row = self.scroll as usize + visible_row as usize;
+        let line_index = *self.row_map.get(wrapped_row)?;
+        if line_index >= self.line_map.len() {
+            return None;
+        }
+        Some(LogicalPos {
+            line_index,
+            column: col,
+        })
     }
 
     /// The assistant message currently receiving text, opening a new one if a
@@ -1609,5 +1676,80 @@ mod tests {
     fn summary_falls_back_to_any_string_arg() {
         assert_eq!(arg_summary(&json!({ "weird": "x", "n": 1 })), "x");
         assert_eq!(arg_summary(&json!({ "n": 1 })), "");
+    }
+
+    #[test]
+    fn normalize_orders_a_reversed_selection() {
+        let sel = Selection {
+            anchor: LogicalPos {
+                line_index: 5,
+                column: 2,
+            },
+            cursor: LogicalPos {
+                line_index: 3,
+                column: 8,
+            },
+        };
+        let (start, end) = normalize(&sel);
+        assert_eq!(start.line_index, 3);
+        assert_eq!(start.column, 8);
+        assert_eq!(end.line_index, 5);
+        assert_eq!(end.column, 2);
+    }
+
+    #[test]
+    fn normalize_orders_same_line_by_column() {
+        let sel = Selection {
+            anchor: LogicalPos {
+                line_index: 2,
+                column: 9,
+            },
+            cursor: LogicalPos {
+                line_index: 2,
+                column: 1,
+            },
+        };
+        let (start, end) = normalize(&sel);
+        assert_eq!(start.column, 1);
+        assert_eq!(end.column, 9);
+    }
+
+    #[test]
+    fn resolve_logical_position_returns_none_outside_transcript() {
+        let mut app = App::new();
+        app.transcript_top = 2;
+        app.transcript_height = 10;
+        app.line_map = vec!["line one".into(), "line two".into()];
+        app.row_map = vec![0, 1];
+        assert!(app.resolve_logical_position(0, 0).is_none()); // above transcript
+        assert!(app.resolve_logical_position(0, 50).is_none()); // below transcript
+    }
+
+    #[test]
+    fn resolve_logical_position_maps_a_row_inside_the_transcript() {
+        let mut app = App::new();
+        app.transcript_top = 2;
+        app.transcript_height = 10;
+        app.line_map = vec!["line one".into(), "line two".into()];
+        app.row_map = vec![0, 1];
+        let pos = app.resolve_logical_position(3, 2).unwrap();
+        assert_eq!(pos.line_index, 0);
+        assert_eq!(pos.column, 3);
+    }
+
+    #[test]
+    fn resolve_logical_position_maps_a_wrapped_row_to_its_owning_logical_line() {
+        // A long logical line (index 0) spans two wrapped rows (0 and 1);
+        // logical line 1 occupies wrapped row 2. Selection granularity is
+        // whole-logical-line, so both wrapped rows 0 and 1 resolve to
+        // logical line 0.
+        let mut app = App::new();
+        app.transcript_top = 0;
+        app.transcript_height = 10;
+        app.line_map = vec!["a very long line that wraps".into(), "short".into()];
+        app.row_map = vec![0, 0, 1];
+        assert_eq!(app.resolve_logical_position(0, 0).unwrap().line_index, 0);
+        assert_eq!(app.resolve_logical_position(0, 1).unwrap().line_index, 0);
+        assert_eq!(app.resolve_logical_position(0, 2).unwrap().line_index, 1);
     }
 }
