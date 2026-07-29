@@ -36,6 +36,12 @@ import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { renderTodoPromptBlock } from "../tools/todo.js";
+import {
+  evaluateTodoGate,
+  shouldNudgeTodo,
+  todoNudgeReminder,
+  TODO_GATE_MAX_FORCES,
+} from "./reminders.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
@@ -128,6 +134,12 @@ export class AgentLoop {
   private recentReasoning: string[] = [];
   private lastFileStates: string[] = [];
   private fileStateHash: string = "";
+  // Reminder state (Phase 2): transient <system-reminder> blocks drained into
+  // the next turn's prompt, plus counters for the todo nudge/gate.
+  private pendingReminders: string[] = [];
+  private todoGateForces = 0;
+  private turnsSinceTodoWrite = 0;
+  private turnsSinceLastNudge = 0;
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -241,6 +253,12 @@ export class AgentLoop {
     // Fresh cancellation scope per run
     this.abort = new AbortController();
 
+    // Reset per-run reminder state (this instance is reused across turns).
+    this.pendingReminders = [];
+    this.todoGateForces = 0;
+    this.turnsSinceTodoWrite = 0;
+    this.turnsSinceLastNudge = 0;
+
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
     if (input.projectPath) ensureWatching(input.projectPath);
@@ -329,6 +347,13 @@ export class AgentLoop {
           console.warn(`[AgentLoop] Warning: ${healthAction.reason}`);
         }
 
+        // Todo nudge: after several turns with no todowrite call, remind the
+        // model to keep a plan. Queued as a transient reminder for this turn.
+        if (shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)) {
+          this.pendingReminders.push(todoNudgeReminder());
+          this.turnsSinceLastNudge = 0;
+        }
+
         // TurnStart Hook — per-turn setup, context injection
         await this.hooks.runTurnStart({
           sessionId: this.state.sessionId,
@@ -359,6 +384,12 @@ export class AgentLoop {
           return this.fail("Turn execution failed", turnResult.error);
         }
 
+        // Advance reminder counters based on what this turn did.
+        this.turnsSinceTodoWrite = turnResult.usedTodoWrite
+          ? 0
+          : this.turnsSinceTodoWrite + 1;
+        this.turnsSinceLastNudge += 1;
+
         // Accumulate usage across turns
         if (turnResult.usage) {
           // Cache writes are billed input — fold them into ↓ so turn 1 isn't "free"
@@ -382,8 +413,25 @@ export class AgentLoop {
           );
         }
 
-        // No tool calls means we're done
+        // No tool calls means the model wants to stop. Before completing, run
+        // the todo-completion gate (grok-build style): if the plan still has
+        // unfinished items, inject a reminder and force another turn — up to a
+        // per-run cap so a stubborn list can't loop forever.
         if (turnResult.toolResults.length === 0) {
+          const gate = evaluateTodoGate(this.state.sessionId);
+          if (gate.forceContinue && this.todoGateForces < TODO_GATE_MAX_FORCES) {
+            this.todoGateForces += 1;
+            if (gate.reminder) this.pendingReminders.push(gate.reminder);
+            console.log(
+              `[AgentLoop] Todo gate ${this.todoGateForces}/${TODO_GATE_MAX_FORCES}: unfinished todos — forcing another turn.`,
+            );
+            this.state = {
+              ...this.state,
+              iterationCount: this.state.iterationCount + 1,
+              turnCount: this.state.turnCount + 1,
+            };
+            continue;
+          }
           return this.complete(
             "Done",
             turnResult.responseText,
@@ -550,6 +598,8 @@ export class AgentLoop {
     responseText?: string;
     thinking?: string;
     error?: string;
+    /** Whether this turn called todowrite — drives the todo-nudge counter. */
+    usedTodoWrite?: boolean;
     usage?: {
       inputTokens: number;
       outputTokens: number;
@@ -588,10 +638,15 @@ export class AgentLoop {
       // from history), so the plan survives context compaction and the model
       // never loses track of remaining work on long tasks.
       const todoBlock = renderTodoPromptBlock(this.state.sessionId);
+      // Drain any queued <system-reminder> blocks (todo nudge / completion
+      // gate) into this turn's prompt. Transient — never persisted to history.
+      const reminderText = this.pendingReminders.join("\n\n");
+      this.pendingReminders = [];
       const blocks = [
         ...systemBlocks,
         ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
         ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
+        ...(reminderText ? [{ text: reminderText, cache: false }] : []),
       ];
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
@@ -650,6 +705,8 @@ export class AgentLoop {
           this.normalizeResponse(providerResult.content),
         );
       }
+
+      const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
 
       // Construct assistant message and push to history
       const assistantMessage: Message = {
@@ -729,6 +786,7 @@ export class AgentLoop {
         success: true,
         toolResults,
         responseText: providerResult.content,
+        usedTodoWrite,
         usage: providerResult.usage,
       };
     } catch (error) {
