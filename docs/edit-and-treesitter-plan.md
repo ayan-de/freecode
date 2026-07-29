@@ -1,6 +1,26 @@
 # Edit Tool + Tree-sitter Repo Map — Implementation Plan
 
-Status: planning only, not implemented. Written 2026-07-29.
+Status: Edit tool pre-existing (§1). Tree-sitter symbol index IMPLEMENTED
+2026-07-29 in `apps/core/src/repo-map/` (`parser.ts`, `index.ts` +
+`repo-map.test.ts`). Uses `web-tree-sitter` (WASM) with prebuilt grammars from
+the `tree-sitter-<lang>` packages — no native build. Symbols extracted via
+`.scm` tag queries for TS/TSX/JS/JSX/Python.
+
+DELIVERY PIVOTED to the grok "pull" model instead of aider's "push" (static map
+in the prompt): after comparing aider (repo map injected every message, ~1k
+standing tokens) vs grok-build (`xai-codebase-graph` backs an on-demand `lsp`
+tool, zero standing tokens). freecode already had a position-only `lsp` tool
+(diagnostics/hover/definition/references), so we added two tree-sitter-backed
+ops — `documentSymbol` (list a file's symbols) and `workspaceSymbol` (find
+symbols by name across the repo, ranked exact→prefix→substring). No standing
+token cost; the model pulls symbols when it needs to locate code. Whole-repo
+symbol list cached per-project by git HEAD + 5-min TTL; single-file lookups
+parse fresh. The earlier `context/compiler.ts` map-injection block was reverted;
+`renderer.ts` removed.
+
+Deferred (out of scope): cross-file reference graph / PageRank ranking, Go/Rust
+grammars, per-file mtime cache (aider-style), and a small cached orientation
+map (the "hybrid" option). Written 2026-07-29.
 
 ## 1. Edit tool — current state (no work needed)
 

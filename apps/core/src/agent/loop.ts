@@ -35,6 +35,25 @@ import { PermissionSettingsManager } from "../permission/settings.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
+import { renderTodoPromptBlock } from "../tools/todo.js";
+import {
+  evaluateTodoGate,
+  shouldNudgeTodo,
+  todoNudgeReminder,
+  TODO_GATE_MAX_FORCES,
+} from "./reminders.js";
+import {
+  resolveVerifyCommand,
+  runVerify,
+  verifyFailureReminder,
+  MAX_VERIFY_ATTEMPTS,
+} from "./verify.js";
+import {
+  verifyChanges,
+  verifierFailureReminder,
+  VERIFIER_MIN_FILES,
+  MAX_VERIFIER_ATTEMPTS,
+} from "./subagent.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
@@ -127,11 +146,25 @@ export class AgentLoop {
   private recentReasoning: string[] = [];
   private lastFileStates: string[] = [];
   private fileStateHash: string = "";
+  // Reminder state (Phase 2): transient <system-reminder> blocks drained into
+  // the next turn's prompt, plus counters for the todo nudge/gate.
+  private pendingReminders: string[] = [];
+  private todoGateForces = 0;
+  private turnsSinceTodoWrite = 0;
+  private turnsSinceLastNudge = 0;
+  // Verification gate state: whether this run mutated files (so verify is
+  // worth running) and how many times the gate has run.
+  private filesMutatedThisRun = false;
+  private verifyAttempts = 0;
+  // Distinct files edited/written this run + verifier-subagent attempt count,
+  // driving the adversarial verification gate for non-trivial changes.
+  private mutatedFiles = new Set<string>();
+  private verifierAttempts = 0;
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
     this.config = {
-      maxIterations: config?.maxIterations ?? 100,
+      maxIterations: config?.maxIterations ?? 250,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
     };
     this.memory = config?.memory ?? new MemoryService(sessionId);
@@ -240,6 +273,16 @@ export class AgentLoop {
     // Fresh cancellation scope per run
     this.abort = new AbortController();
 
+    // Reset per-run reminder state (this instance is reused across turns).
+    this.pendingReminders = [];
+    this.todoGateForces = 0;
+    this.turnsSinceTodoWrite = 0;
+    this.turnsSinceLastNudge = 0;
+    this.filesMutatedThisRun = false;
+    this.verifyAttempts = 0;
+    this.mutatedFiles = new Set<string>();
+    this.verifierAttempts = 0;
+
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
     if (input.projectPath) ensureWatching(input.projectPath);
@@ -328,6 +371,13 @@ export class AgentLoop {
           console.warn(`[AgentLoop] Warning: ${healthAction.reason}`);
         }
 
+        // Todo nudge: after several turns with no todowrite call, remind the
+        // model to keep a plan. Queued as a transient reminder for this turn.
+        if (shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)) {
+          this.pendingReminders.push(todoNudgeReminder());
+          this.turnsSinceLastNudge = 0;
+        }
+
         // TurnStart Hook — per-turn setup, context injection
         await this.hooks.runTurnStart({
           sessionId: this.state.sessionId,
@@ -358,6 +408,12 @@ export class AgentLoop {
           return this.fail("Turn execution failed", turnResult.error);
         }
 
+        // Advance reminder counters based on what this turn did.
+        this.turnsSinceTodoWrite = turnResult.usedTodoWrite
+          ? 0
+          : this.turnsSinceTodoWrite + 1;
+        this.turnsSinceLastNudge += 1;
+
         // Accumulate usage across turns
         if (turnResult.usage) {
           // Cache writes are billed input — fold them into ↓ so turn 1 isn't "free"
@@ -381,8 +437,93 @@ export class AgentLoop {
           );
         }
 
-        // No tool calls means we're done
+        // No tool calls means the model wants to stop. Before completing, run
+        // the todo-completion gate (grok-build style): if the plan still has
+        // unfinished items, inject a reminder and force another turn — up to a
+        // per-run cap so a stubborn list can't loop forever.
         if (turnResult.toolResults.length === 0) {
+          const gate = evaluateTodoGate(this.state.sessionId);
+          if (gate.forceContinue && this.todoGateForces < TODO_GATE_MAX_FORCES) {
+            this.todoGateForces += 1;
+            if (gate.reminder) this.pendingReminders.push(gate.reminder);
+            console.log(
+              `[AgentLoop] Todo gate ${this.todoGateForces}/${TODO_GATE_MAX_FORCES}: unfinished todos — forcing another turn.`,
+            );
+            this.state = {
+              ...this.state,
+              iterationCount: this.state.iterationCount + 1,
+              turnCount: this.state.turnCount + 1,
+            };
+            continue;
+          }
+
+          // Verification gate: if this run changed files, run the project's
+          // typecheck/build before finishing. On failure, feed the output back
+          // and force another turn — capped so a red project still terminates.
+          if (
+            this.filesMutatedThisRun &&
+            this.verifyAttempts < MAX_VERIFY_ATTEMPTS
+          ) {
+            const verifyCmd = resolveVerifyCommand(this.state.projectPath);
+            if (verifyCmd) {
+              this.verifyAttempts += 1;
+              console.log(
+                `[AgentLoop] Verification gate ${this.verifyAttempts}/${MAX_VERIFY_ATTEMPTS}: running \`${verifyCmd.command}\``,
+              );
+              const verify = await runVerify(
+                verifyCmd.command,
+                this.state.projectPath,
+                this.abort.signal,
+              );
+              if (this.abort.signal.aborted) return this.complete("Interrupted");
+              if (!verify.ok) {
+                this.pendingReminders.push(
+                  verifyFailureReminder(verifyCmd.label, verify.output),
+                );
+                this.state = {
+                  ...this.state,
+                  iterationCount: this.state.iterationCount + 1,
+                  turnCount: this.state.turnCount + 1,
+                };
+                continue;
+              }
+            }
+          }
+
+          // Adversarial verification gate (claude-code style): for non-trivial
+          // changes (>= VERIFIER_MIN_FILES files), spawn an independent
+          // read-only verifier that assigns a PASS/FAIL/PARTIAL verdict the main
+          // agent cannot self-assign. FAIL forces a fix; PASS/PARTIAL proceed
+          // (PARTIAL is surfaced honestly by the model per the prompt contract).
+          if (
+            this.mutatedFiles.size >= VERIFIER_MIN_FILES &&
+            this.verifierAttempts < MAX_VERIFIER_ATTEMPTS
+          ) {
+            this.verifierAttempts += 1;
+            console.log(
+              `[AgentLoop] Verifier ${this.verifierAttempts}/${MAX_VERIFIER_ATTEMPTS}: reviewing ${this.mutatedFiles.size} changed files.`,
+            );
+            const verification = await verifyChanges({
+              projectPath: this.state.projectPath,
+              provider: input.provider,
+              model: input.model,
+              originalRequest: input.prompt,
+              changedFiles: [...this.mutatedFiles],
+            });
+            if (this.abort.signal.aborted) return this.complete("Interrupted");
+            if (verification.verdict === "FAIL") {
+              this.pendingReminders.push(
+                verifierFailureReminder(verification.report),
+              );
+              this.state = {
+                ...this.state,
+                iterationCount: this.state.iterationCount + 1,
+                turnCount: this.state.turnCount + 1,
+              };
+              continue;
+            }
+          }
+
           return this.complete(
             "Done",
             turnResult.responseText,
@@ -549,6 +690,8 @@ export class AgentLoop {
     responseText?: string;
     thinking?: string;
     error?: string;
+    /** Whether this turn called todowrite — drives the todo-nudge counter. */
+    usedTodoWrite?: boolean;
     usage?: {
       inputTokens: number;
       outputTokens: number;
@@ -583,9 +726,20 @@ export class AgentLoop {
           this.getLastUserText(),
         ),
       );
-      const blocks = memoryBlock
-        ? [...systemBlocks, { text: memoryBlock, cache: false }]
-        : systemBlocks;
+      // Persistent task list: re-rendered from the todo store every turn (not
+      // from history), so the plan survives context compaction and the model
+      // never loses track of remaining work on long tasks.
+      const todoBlock = renderTodoPromptBlock(this.state.sessionId);
+      // Drain any queued <system-reminder> blocks (todo nudge / completion
+      // gate) into this turn's prompt. Transient — never persisted to history.
+      const reminderText = this.pendingReminders.join("\n\n");
+      this.pendingReminders = [];
+      const blocks = [
+        ...systemBlocks,
+        ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
+        ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
+        ...(reminderText ? [{ text: reminderText, cache: false }] : []),
+      ];
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
       const joinedSystem = blocks.map((b) => b.text).join("\n\n");
@@ -644,6 +798,8 @@ export class AgentLoop {
         );
       }
 
+      const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
+
       // Construct assistant message and push to history
       const assistantMessage: Message = {
         id: randomUUID(),
@@ -697,6 +853,17 @@ export class AgentLoop {
           const result = batchResults[k];
           toolResults[start + k] = result;
           this.updateLoopHealth(tc, result);
+          // Track file mutations so the verification gate only runs when this
+          // run actually changed something.
+          if (
+            getTool(tc.tool)?.behavior?.isDestructive === true &&
+            !result.error
+          ) {
+            this.filesMutatedThisRun = true;
+            const a = tc.args as Record<string, unknown> | undefined;
+            const fp = a && (a.filePath ?? a.path);
+            if (typeof fp === "string") this.mutatedFiles.add(fp);
+          }
           const part = assistantMessage.parts.find(
             (p) => p.type === "tool" && p.tool.id === tc.id,
           );
@@ -722,6 +889,7 @@ export class AgentLoop {
         success: true,
         toolResults,
         responseText: providerResult.content,
+        usedTodoWrite,
         usage: providerResult.usage,
       };
     } catch (error) {
@@ -1352,9 +1520,17 @@ export class AgentLoop {
     const health = this.state.loopHealth;
     const heuristics = this.config.heuristics;
 
+    // Two-tier braking: legitimate long tasks routinely re-read a file or edit
+    // one file several times, so the first breach only warns; a hard stop is
+    // reserved for 2× the threshold, where the pattern is almost certainly a
+    // genuine loop. This keeps a runaway safety net without killing real work.
+
     // A. Repeated identical tool call - likely infinite loop
-    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold * 2) {
       return { action: "stop", reason: "repeated_identical_tool" };
+    }
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+      return { action: "warn", reason: "repeated_identical_tool" };
     }
 
     // B. No state change for N turns - likely stuck
@@ -1363,8 +1539,11 @@ export class AgentLoop {
     }
 
     // C. Oscillation detected - edit/revert/edit pattern
-    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold * 2) {
       return { action: "stop", reason: "oscillation_detected" };
+    }
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+      return { action: "warn", reason: "oscillation_detected" };
     }
 
     // D. Hard cap on iterations
@@ -1373,19 +1552,6 @@ export class AgentLoop {
     }
 
     return { action: "continue" };
-  }
-
-  // ===========================================================================
-  // PRIVATE: buildContinuationPrompt()
-  // Format tool results into prompt for next iteration
-  // Uses modelOutput (truncated) to save tokens
-  // ===========================================================================
-  private buildContinuationPrompt(results: ToolResult[]): string {
-    const lines = results.map(
-      (r) =>
-        `Tool ${r.tool}: ${r.error || r.modelOutput || r.displayOutput || ""}`,
-    );
-    return `Previous tool results:\n${lines.join("\n")}\n\nContinue task:`;
   }
 
   // ===========================================================================

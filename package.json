@@ -9,6 +9,7 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
+    "typecheck": "turbo run check-types",
     "build:sea": "node scripts/build-sea.mjs",
     "build:bun": "node scripts/build-bun.mjs",
     "bench:memory": "python3 scripts/bench_memory.py --sessions 1 --json-out apps/web/app/data/results-1.json",

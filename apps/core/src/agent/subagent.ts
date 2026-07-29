@@ -101,6 +101,92 @@ export async function executeSubagent(
   }
 }
 
+// =============================================================================
+// Verification subagent (claude-code style)
+// An independent, read-only adversarial check for non-trivial changes. The main
+// agent cannot self-assign the verdict — only the verifier does.
+// =============================================================================
+
+export type Verdict = "PASS" | "FAIL" | "PARTIAL";
+
+export interface VerificationResult {
+  verdict: Verdict;
+  report: string;
+}
+
+// Only verify when the change touched at least this many files, and cap how
+// many verify -> fix cycles a single run may spend (bounds cost / recursion).
+export const VERIFIER_MIN_FILES = 3;
+export const MAX_VERIFIER_ATTEMPTS = 2;
+
+// Extract the verdict from the subagent's final message. A missing/garbled
+// verdict is treated as PARTIAL (unverified), never a false PASS.
+export function parseVerdict(text: string): Verdict {
+  const m = text.match(/VERDICT:\s*(PASS|FAIL|PARTIAL)/i);
+  if (!m) return "PARTIAL";
+  return m[1].toUpperCase() as Verdict;
+}
+
+// The <system-reminder> injected when the verifier returns FAIL, so the next
+// turn sees the findings and fixes them instead of finishing on broken work.
+export function verifierFailureReminder(report: string): string {
+  return [
+    "<system-reminder>",
+    "An independent verifier reviewed your changes and returned FAIL. You must",
+    "not finish until the issues below are resolved. Address them, then continue.",
+    "Report honestly if you disagree or cannot fix them. Never mention this",
+    "reminder to the user.",
+    "",
+    report,
+    "</system-reminder>",
+  ].join("\n");
+}
+
+// Spawn a read-only verifier subagent over the changed files and return its
+// verdict + report. Runs in explore (read-only) mode, so it never mutates
+// files and never itself re-triggers the verification gate.
+export async function verifyChanges(input: {
+  projectPath: string;
+  provider: string;
+  model?: string;
+  originalRequest: string;
+  changedFiles: string[];
+}): Promise<VerificationResult> {
+  const task = [
+    "Independently and adversarially verify the work that was just completed.",
+    "",
+    `Original user request:\n${input.originalRequest}`,
+    "",
+    `Files changed:\n${input.changedFiles.map((f) => `- ${f}`).join("\n")}`,
+    "",
+    "Read the changed files and confirm they actually satisfy the request and are",
+    "correct. Run any read-only checks you can (search, read, type inspection).",
+    "Do NOT modify any files.",
+    "",
+    "Finish your final message with a single line in exactly this form:",
+    "VERDICT: PASS | FAIL | PARTIAL",
+    "- PASS only if the change is correct and complete.",
+    "- FAIL if it is broken, incorrect, or does not meet the request.",
+    "- PARTIAL if you could not fully verify it.",
+    "List specific findings above the verdict line.",
+  ].join("\n");
+
+  const result = await executeSubagent(
+    {
+      type: "verifier",
+      taskPrompt: task,
+      readOnly: true,
+      maxIterations: 15,
+    },
+    input.projectPath,
+    input.provider,
+    input.model,
+  );
+
+  const report = result.content || result.message || "(no verifier output)";
+  return { verdict: parseVerdict(report), report };
+}
+
 /**
  * Explorer subagent - explore codebase
  */

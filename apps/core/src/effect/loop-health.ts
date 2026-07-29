@@ -22,16 +22,24 @@ export const createLoopHealthEvaluator = (): LoopHealthEvaluator => ({
   evaluate(state: SessionState, heuristics: LoopHeuristics): LoopAction {
     const health = state.loopHealth;
 
-    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+    // Two-tier braking: first breach warns, a hard stop is reserved for 2× the
+    // threshold (kept in sync with AgentLoop.evaluateLoopHealth).
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold * 2) {
       return { action: "stop", reason: "repeated_identical_tool" };
+    }
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+      return { action: "warn", reason: "repeated_identical_tool" };
     }
 
     if (health.stagnantTurns >= heuristics.stagnantTurnsThreshold) {
       return { action: "warn", reason: "no_progress" };
     }
 
-    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold * 2) {
       return { action: "stop", reason: "oscillation_detected" };
+    }
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+      return { action: "warn", reason: "oscillation_detected" };
     }
 
     if (state.iterationCount >= heuristics.totalIterationLimit) {

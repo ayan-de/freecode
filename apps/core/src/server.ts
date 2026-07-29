@@ -250,7 +250,7 @@ const methodHandlers: Record<
     // Construct the loop through the Effect runtime — memory, hooks, recorder,
     // orchestrator and session store are all DI-provided (v3 spec).
     const loop = await getAppRuntime().runPromise(
-      createAgentLoopEffect(sessionId, { maxIterations: 100 }),
+      createAgentLoopEffect(sessionId, { maxIterations: 250 }),
     );
     activeLoops.set(sessionId, loop);
     let result;
