@@ -33,6 +33,29 @@ export function clearTodos(sessionId: string): void {
   store.delete(sessionId);
 }
 
+// Render the session's active todo list as a system-prompt block. Re-built from
+// the store every turn (not from history), so the plan survives context
+// compaction. Returns "" when there is no list so the loop can skip the block.
+export function renderTodoPromptBlock(sessionId: string): string {
+  const todos = getTodos(sessionId);
+  if (todos.length === 0) return "";
+  const marks: Record<TodoStatus, string> = {
+    completed: "[x]",
+    in_progress: "[~]",
+    pending: "[ ]",
+  };
+  const lines = todos.map((t) => `${marks[t.status]} ${t.content}`);
+  return [
+    "## Current Task List",
+    "",
+    "Your active plan (from the todowrite tool). This list persists across " +
+      "context compaction — treat it as the source of truth for remaining work, " +
+      "and keep it updated with todowrite as tasks change status.",
+    "",
+    ...lines,
+  ].join("\n");
+}
+
 const todoSchema: JsonSchema = {
   type: "object",
   properties: {

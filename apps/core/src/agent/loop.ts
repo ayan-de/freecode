@@ -35,6 +35,7 @@ import { PermissionSettingsManager } from "../permission/settings.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
+import { renderTodoPromptBlock } from "../tools/todo.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
@@ -131,7 +132,7 @@ export class AgentLoop {
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
     this.config = {
-      maxIterations: config?.maxIterations ?? 100,
+      maxIterations: config?.maxIterations ?? 250,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
     };
     this.memory = config?.memory ?? new MemoryService(sessionId);
@@ -583,9 +584,15 @@ export class AgentLoop {
           this.getLastUserText(),
         ),
       );
-      const blocks = memoryBlock
-        ? [...systemBlocks, { text: memoryBlock, cache: false }]
-        : systemBlocks;
+      // Persistent task list: re-rendered from the todo store every turn (not
+      // from history), so the plan survives context compaction and the model
+      // never loses track of remaining work on long tasks.
+      const todoBlock = renderTodoPromptBlock(this.state.sessionId);
+      const blocks = [
+        ...systemBlocks,
+        ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
+        ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
+      ];
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
       const joinedSystem = blocks.map((b) => b.text).join("\n\n");
@@ -1352,9 +1359,17 @@ export class AgentLoop {
     const health = this.state.loopHealth;
     const heuristics = this.config.heuristics;
 
+    // Two-tier braking: legitimate long tasks routinely re-read a file or edit
+    // one file several times, so the first breach only warns; a hard stop is
+    // reserved for 2× the threshold, where the pattern is almost certainly a
+    // genuine loop. This keeps a runaway safety net without killing real work.
+
     // A. Repeated identical tool call - likely infinite loop
-    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold * 2) {
       return { action: "stop", reason: "repeated_identical_tool" };
+    }
+    if (health.repeatedTools >= heuristics.repeatedIdenticalThreshold) {
+      return { action: "warn", reason: "repeated_identical_tool" };
     }
 
     // B. No state change for N turns - likely stuck
@@ -1363,8 +1378,11 @@ export class AgentLoop {
     }
 
     // C. Oscillation detected - edit/revert/edit pattern
-    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold * 2) {
       return { action: "stop", reason: "oscillation_detected" };
+    }
+    if (health.oscillationScore >= heuristics.oscillationScoreThreshold) {
+      return { action: "warn", reason: "oscillation_detected" };
     }
 
     // D. Hard cap on iterations
@@ -1373,19 +1391,6 @@ export class AgentLoop {
     }
 
     return { action: "continue" };
-  }
-
-  // ===========================================================================
-  // PRIVATE: buildContinuationPrompt()
-  // Format tool results into prompt for next iteration
-  // Uses modelOutput (truncated) to save tokens
-  // ===========================================================================
-  private buildContinuationPrompt(results: ToolResult[]): string {
-    const lines = results.map(
-      (r) =>
-        `Tool ${r.tool}: ${r.error || r.modelOutput || r.displayOutput || ""}`,
-    );
-    return `Previous tool results:\n${lines.join("\n")}\n\nContinue task:`;
   }
 
   // ===========================================================================

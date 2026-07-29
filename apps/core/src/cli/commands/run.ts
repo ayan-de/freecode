@@ -132,7 +132,7 @@ export const runCommand: CommandModule<object, RunArgs> = {
     const agentMode = argv.agent as AgentMode;
     try {
       const loop = await getAppRuntime().runPromise(
-        createAgentLoopEffect(sessionId, { maxIterations: 100 }),
+        createAgentLoopEffect(sessionId, { maxIterations: 250 }),
       );
       const result = await getAppRuntime().runPromise(
         loop.runEffect({

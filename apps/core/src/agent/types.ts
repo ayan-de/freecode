@@ -201,7 +201,7 @@ export const DEFAULT_LOOP_HEURISTICS: LoopHeuristics = {
   oscillationScoreThreshold: 4,
   reasoningSimilarityThreshold: 0.9,
   reasoningSimilarityTurns: 3,
-  totalIterationLimit: 100,
+  totalIterationLimit: 250,
 };
 
 export interface LoopAction {
