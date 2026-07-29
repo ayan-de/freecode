@@ -730,6 +730,10 @@ async function submitPrompt(
   streamedChars = 0;
   resetLiveOutputTokens();
 
+  // A fresh prompt starts a fresh view: clear the pinned todo panel so a prior
+  // task's plan doesn't linger. It reappears if the agent calls todowrite again.
+  hideTodoPanel();
+
   // A new prompt always returns the view to the live bottom of the history.
   messageList.scrollToBottom();
 
