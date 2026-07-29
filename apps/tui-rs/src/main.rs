@@ -1,4 +1,4 @@
-use freecode_tui::{app, commands, ipc, ui};
+use freecode_tui::{app, clipboard, commands, ipc, ui};
 
 use std::io::stdout;
 use std::time::Duration;
@@ -146,14 +146,94 @@ async fn handle_terminal_event(
         match mouse.kind {
             MouseEventKind::ScrollUp => app.scroll_up(3),
             MouseEventKind::ScrollDown => app.scroll_down(3),
-            // Click a "Thought" chip to open/close just that one.
+            // Click a "Thought" chip to open/close just that one; otherwise
+            // start (or clear) a text selection.
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some(chip) = app.chip_at(mouse.row) {
                     app.toggle_chip(chip);
+                } else if let Some(pos) = app.resolve_logical_position(mouse.column, mouse.row) {
+                    let cleared_existing = app.selection.is_some_and(|sel| {
+                        let (start, end) = app::normalize(&sel);
+                        let after_start = pos.line_index > start.line_index
+                            || (pos.line_index == start.line_index && pos.column >= start.column);
+                        let before_end = pos.line_index < end.line_index
+                            || (pos.line_index == end.line_index && pos.column <= end.column);
+                        after_start && before_end
+                    });
+                    if cleared_existing {
+                        app.selection = None;
+                    } else {
+                        app.selection = Some(app::Selection {
+                            anchor: pos,
+                            cursor: pos,
+                        });
+                    }
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let (Some(sel), Some(pos)) = (
+                    app.selection,
+                    app.resolve_logical_position(mouse.column, mouse.row),
+                ) {
+                    app.selection = Some(app::Selection {
+                        anchor: sel.anchor,
+                        cursor: pos,
+                    });
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if let Some(sel) = app.selection {
+                    let (start, end) = app::normalize(&sel);
+                    let mut rows = Vec::new();
+                    for i in
+                        start.line_index..=end.line_index.min(app.line_map.len().saturating_sub(1))
+                    {
+                        let line = app.line_map.get(i).cloned().unwrap_or_default();
+                        let chars: Vec<char> = line.chars().collect();
+                        let from = if i == start.line_index {
+                            (start.column as usize).min(chars.len())
+                        } else {
+                            0
+                        };
+                        let to = if i == end.line_index {
+                            (end.column as usize).min(chars.len())
+                        } else {
+                            chars.len()
+                        };
+                        if from < to {
+                            rows.push(chars[from..to].iter().collect::<String>());
+                        }
+                    }
+                    let text = rows.join("\n");
+                    if !text.is_empty() {
+                        let tmux = std::env::var("TMUX").is_ok();
+                        let mut out = std::io::stdout();
+                        if let Ok(result) = clipboard::copy_to_clipboard(&text, &mut out, tmux) {
+                            let label = if result.truncated {
+                                format!(
+                                    "Copied first {} chars (selection truncated)",
+                                    result.copied.chars().count()
+                                )
+                            } else {
+                                format!("Copied {} chars", result.copied.chars().count())
+                            };
+                            app.copy_indicator = Some((
+                                label,
+                                std::time::Instant::now() + Duration::from_millis(1500),
+                            ));
+                        }
+                    }
                 }
             }
             _ => {}
         }
+        return Ok(false);
+    }
+    if let Event::Resize(_, _) = &event {
+        // A resize invalidates the rendered-row indices a selection is keyed
+        // against; ratatui's terminal auto-resizes on the next draw, so this
+        // only needs to clear selection state.
+        app.selection = None;
         return Ok(false);
     }
     if let Event::Key(key) = &event {
