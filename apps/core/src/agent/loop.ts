@@ -48,6 +48,12 @@ import {
   verifyFailureReminder,
   MAX_VERIFY_ATTEMPTS,
 } from "./verify.js";
+import {
+  verifyChanges,
+  verifierFailureReminder,
+  VERIFIER_MIN_FILES,
+  MAX_VERIFIER_ATTEMPTS,
+} from "./subagent.js";
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
@@ -150,6 +156,10 @@ export class AgentLoop {
   // worth running) and how many times the gate has run.
   private filesMutatedThisRun = false;
   private verifyAttempts = 0;
+  // Distinct files edited/written this run + verifier-subagent attempt count,
+  // driving the adversarial verification gate for non-trivial changes.
+  private mutatedFiles = new Set<string>();
+  private verifierAttempts = 0;
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -270,6 +280,8 @@ export class AgentLoop {
     this.turnsSinceLastNudge = 0;
     this.filesMutatedThisRun = false;
     this.verifyAttempts = 0;
+    this.mutatedFiles = new Set<string>();
+    this.verifierAttempts = 0;
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
@@ -475,6 +487,40 @@ export class AgentLoop {
                 };
                 continue;
               }
+            }
+          }
+
+          // Adversarial verification gate (claude-code style): for non-trivial
+          // changes (>= VERIFIER_MIN_FILES files), spawn an independent
+          // read-only verifier that assigns a PASS/FAIL/PARTIAL verdict the main
+          // agent cannot self-assign. FAIL forces a fix; PASS/PARTIAL proceed
+          // (PARTIAL is surfaced honestly by the model per the prompt contract).
+          if (
+            this.mutatedFiles.size >= VERIFIER_MIN_FILES &&
+            this.verifierAttempts < MAX_VERIFIER_ATTEMPTS
+          ) {
+            this.verifierAttempts += 1;
+            console.log(
+              `[AgentLoop] Verifier ${this.verifierAttempts}/${MAX_VERIFIER_ATTEMPTS}: reviewing ${this.mutatedFiles.size} changed files.`,
+            );
+            const verification = await verifyChanges({
+              projectPath: this.state.projectPath,
+              provider: input.provider,
+              model: input.model,
+              originalRequest: input.prompt,
+              changedFiles: [...this.mutatedFiles],
+            });
+            if (this.abort.signal.aborted) return this.complete("Interrupted");
+            if (verification.verdict === "FAIL") {
+              this.pendingReminders.push(
+                verifierFailureReminder(verification.report),
+              );
+              this.state = {
+                ...this.state,
+                iterationCount: this.state.iterationCount + 1,
+                turnCount: this.state.turnCount + 1,
+              };
+              continue;
             }
           }
 
@@ -814,6 +860,9 @@ export class AgentLoop {
             !result.error
           ) {
             this.filesMutatedThisRun = true;
+            const a = tc.args as Record<string, unknown> | undefined;
+            const fp = a && (a.filePath ?? a.path);
+            if (typeof fp === "string") this.mutatedFiles.add(fp);
           }
           const part = assistantMessage.parts.find(
             (p) => p.type === "tool" && p.tool.id === tc.id,

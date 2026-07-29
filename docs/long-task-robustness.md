@@ -1,6 +1,7 @@
 # Long-Task Robustness (Agent Loop Hardening)
 
-> Status: Phase 1 + Phase 2 (incl. deterministic verification gate) implemented. Phase 3 deferred.
+> Status: Phase 1, Phase 2, and the Phase 3 verification subagent implemented.
+> Remaining Phase 3 (auto-decomposition) deferred; server-side loop detection is N/A.
 > Scope: `apps/core/src/agent/` (the agentic tool-use loop).
 
 ## Why this exists
@@ -114,15 +115,43 @@ Tests: `agent/verify.test.ts`.
 
 ---
 
-## Deferred (Phase 3 — not implemented)
+## Phase 3 — adversarial verification subagent
+
+Where the deterministic gate proves the code *compiles*, this proves it *does
+what was asked*. Modeled on claude-code: for non-trivial changes, an independent
+read-only subagent renders a verdict the main agent cannot self-assign.
+
+| Item | File(s) | Behavior |
+|------|---------|----------|
+| **Verifier subagent** | `agent/subagent.ts` (`verifyChanges`, `parseVerdict`, `verifierFailureReminder`, new `verifier` type in `agent/types.ts`), `agent/loop.ts` (loop exit) | For a run that edited **≥ `VERIFIER_MIN_FILES` (3)** distinct files, spawn a read-only (`explore`-mode) subagent with the original request + changed-file list. It reads the code and ends with `VERDICT: PASS \| FAIL \| PARTIAL`. **FAIL** injects the findings as a `<system-reminder>` and forces a fix; **PASS/PARTIAL** proceed (PARTIAL is surfaced honestly by the model). |
+
+Details:
+
+- **Ordering at loop exit**: todo gate → deterministic verify gate → verifier
+  subagent → complete.
+- **Trigger**: `mutatedFiles` (distinct `edit`/`write` paths) size ≥ 3. Pure
+  bash-only mutations don't trigger it (no file path to count), but still hit
+  the deterministic gate.
+- **No recursion**: the verifier runs read-only, so it never mutates files and
+  never re-triggers either verification gate inside itself.
+- **Bounded**: `MAX_VERIFIER_ATTEMPTS` (2) verify→fix cycles per run; abort-aware.
+- **Verdict safety**: a missing/garbled verdict parses as PARTIAL, never a false
+  PASS.
+
+Tunable constants (`agent/subagent.ts`): `VERIFIER_MIN_FILES = 3`,
+`MAX_VERIFIER_ATTEMPTS = 2`.
+
+Tests: `agent/verifier.test.ts`.
+
+---
+
+## Deferred (remaining Phase 3)
 
 Do not build these unless explicitly requested:
 
-- **Verification subagent** (claude-code style) — an independent adversarial
-  verifier that assigns PASS/FAIL for non-trivial changes; the main agent cannot
-  self-assign.
 - **Auto-decomposition** — automatically split large tasks into subagents with
   fresh contexts. Largest design surface (when to spawn, how to split, how
-  results merge back).
-- **Server-side loop detection** (grok `doom_loop`) — we approximate this with
-  the client-side two-tier heuristic since we have no server signal.
+  results merge back); high YAGNI risk.
+- **Server-side loop detection** (grok `doom_loop`) — **N/A for us**: it relies
+  on the model *server* emitting loop signals over SSE, which our API providers
+  don't send. We approximate it with the client-side two-tier heuristic (Phase 1).

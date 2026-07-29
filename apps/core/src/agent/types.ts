@@ -35,7 +35,12 @@ export const AGENT_MODE_LABELS: Record<AgentMode, string> = {
 // =============================================================================
 // Subagent Types - Specialized agent roles for delegation
 // =============================================================================
-export type SubagentType = "explorer" | "reviewer" | "tester" | "summarizer";
+export type SubagentType =
+  | "explorer"
+  | "reviewer"
+  | "tester"
+  | "summarizer"
+  | "verifier";
 
 export interface SubagentConfig {
   type: SubagentType;
@@ -70,6 +75,11 @@ export const SUBAGENT_DEFINITIONS: Record<
   },
   summarizer: {
     description: "Summarize long conversations, documents, or code",
+    defaultReadOnly: true,
+  },
+  verifier: {
+    description:
+      "Independently and adversarially verify that completed changes satisfy the request and are correct; assigns a PASS/FAIL/PARTIAL verdict",
     defaultReadOnly: true,
   },
 };
