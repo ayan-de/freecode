@@ -8,7 +8,9 @@ import {
   SelectList,
   type SelectItem,
   type SelectListTheme,
+  type OverlayHandle,
 } from "@earendil-works/pi-tui";
+import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
@@ -505,6 +507,7 @@ async function showResumePicker(): Promise<void> {
           try {
             const result = await sessionResume(sessionId);
             currentSession = { sessionId: result.sessionId };
+            hideTodoPanel(); // clear any prior session's pinned todos
             // Load messages from the resumed session into the UI
             if (result.messages && result.messages.length > 0) {
               loadSessionMessages(result.messages);
@@ -616,6 +619,11 @@ function handleToolEvent(event: StreamEvent) {
         event.success,
         event.duration_ms,
       );
+      // Mirror the todo list into the pinned right-middle panel (in addition
+      // to the inline chat rendering above).
+      if (event.toolName === "todowrite") {
+        updateTodoPanel(parseTodoResult(event.result));
+      }
       break;
     }
     case "thinking": {
@@ -1033,6 +1041,40 @@ const interruptController = new InterruptController({
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)[Mm]$/;
 const WHEEL_STEP = 3;
 
+// Pinned todo panel (right-middle overlay). Mirrors the agent's live todo list
+// in addition to the inline chat rendering. Non-capturing so it never steals
+// focus from the editor; hidden on narrow terminals so it can't crowd the chat.
+let todoPanel: TodoPanel | null = null;
+let todoOverlay: OverlayHandle | null = null;
+
+function updateTodoPanel(items: ReturnType<typeof parseTodoResult>): void {
+  if (items.length === 0) {
+    hideTodoPanel();
+    return;
+  }
+  if (!todoPanel) todoPanel = new TodoPanel();
+  todoPanel.setItems(items);
+  if (!todoOverlay) {
+    todoOverlay = tui.showOverlay(todoPanel, {
+      anchor: "right-center",
+      width: 38,
+      maxHeight: "70%",
+      margin: 1,
+      nonCapturing: true,
+      visible: (termWidth) => termWidth >= 100,
+    });
+  } else {
+    todoOverlay.setHidden(false);
+  }
+  tui.requestRender();
+}
+
+function hideTodoPanel(): void {
+  todoOverlay?.setHidden(true);
+  todoPanel?.setItems([]);
+  tui.requestRender();
+}
+
 function showCopiedIndicator(charCount: number, truncated: boolean): void {
   const label = truncated
     ? `Copied first ${charCount} chars (selection truncated)`
@@ -1208,6 +1250,7 @@ async function resumeFromArgs(id: string): Promise<void> {
   try {
     const result = await sessionResume(id);
     currentSession = { sessionId: result.sessionId };
+    hideTodoPanel(); // clear any prior session's pinned todos
     if (result.messages && result.messages.length > 0) {
       loadSessionMessages(result.messages);
     }
