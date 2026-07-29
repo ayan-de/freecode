@@ -1,5 +1,14 @@
 # @thisisayande/freecode-core
 
+## 0.7.0
+
+### Features
+
+- Long-task robustness for the agent loop (see `docs/long-task-robustness.md`). The loop no longer loses its plan on long tasks or declares success on broken code:
+  - **Persistent plan** — the `todowrite` list is re-rendered into the prompt every turn from its store (not from history), so it survives context compaction. Iteration cap raised 100 → 250, and loop-health stops are now two-tier (warn at the threshold, hard-stop only at 2×) so legitimate long work isn't killed.
+  - **Completion discipline** — a todo-completion gate forces another turn when the model tries to stop with unfinished todos, a nudge reminds it to keep a plan, and the system prompt gains a verify-before-done / report-honestly contract.
+  - **Verification gates** — before finishing a run that changed files, a config-driven gate runs the project's typecheck/build (resolved from `package.json` scripts) and feeds failures back; for non-trivial changes (≥3 files) an independent read-only verifier subagent assigns a PASS/FAIL/PARTIAL verdict the main agent cannot self-assign.
+
 ## 0.6.0
 
 ### Features

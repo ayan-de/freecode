@@ -18,6 +18,7 @@
     "dev": "tsx src/server.ts",
     "build": "tsc",
     "lint": "tsc --noEmit",
+    "check-types": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {

@@ -21,7 +21,13 @@ const MAX_OUTPUT_CHARS = 4_000;
 // the "declared done on uncompiled code" failure mode; build is a heavier
 // fallback that still catches compile errors. Test is intentionally excluded
 // by default (slow/flaky) — that stays the model's job via the prompt contract.
-const SCRIPT_PRIORITY = ["typecheck", "type-check", "check", "build"];
+const SCRIPT_PRIORITY = [
+  "typecheck",
+  "type-check",
+  "check-types",
+  "check",
+  "build",
+];
 
 export interface VerifyCommand {
   /** Full shell command, e.g. "pnpm run typecheck". */
