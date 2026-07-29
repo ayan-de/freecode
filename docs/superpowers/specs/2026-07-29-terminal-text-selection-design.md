@@ -33,6 +33,10 @@ hand mouse control back to the terminal.
   out of scope for v1 — selection applies to the scrollable message
   history only).
 - Multi-region / rectangular selection. Single contiguous drag range only.
+- Autoscroll-on-drag-to-edge. Dragging the cursor to the top/bottom edge of
+  the viewport does not trigger scrolling in v1 — the user scrolls first,
+  then drags within the visible viewport. Real added complexity on top of
+  an already-nontrivial selection UX; revisit if it's requested.
 
 ## Design
 
@@ -52,21 +56,37 @@ map (`VirtualMessageList.lastLineMap` in TS; the equivalent index built in
 `draw_messages` for Rust) at the moment of press — not re-derived from
 screen row on every motion event. Drag and release events resolve the same
 way. This makes the selection range immune to the buffer scrolling between
-mouse-down and mouse-up (autoscroll-at-edge or manual scroll mid-drag).
+mouse-down and mouse-up (manual scroll mid-drag; there is no autoscroll —
+see Non-goals).
+
+`column` is a **display-column** index (terminal cell position), not a byte
+or char-count index. Freecode's rendering includes box-drawing chrome and
+Unicode content (CJK, emoji, status icons) where glyphs can be double-width,
+so char-count columns would drift between a narrow-glyph row and a
+wide-glyph row and land the reverse-video span off by one or more cells.
+Both `lastLineMap` (TS) and the Rust row index must resolve column
+positions using a display-width table (e.g. the wcwidth-style logic already
+needed for correct line-wrapping in both renderers), not `string.length` /
+`chars().count()`.
 
 Selection is stored as `{ anchor: LogicalPos, cursor: LogicalPos }`;
 normalized (start before end) when read for rendering/copy.
 
 ### 3. Highlight rendering
 
-When converting a message's lines to render output, cells falling inside
-the normalized selection range get reverse-video applied:
-- TS: `chalk.inverse(...)` applied to the substring after ANSI-aware slicing.
-- Rust: `Style::default().add_modifier(Modifier::REVERSED)` applied to the
-  relevant `Span` range within the `Line`.
+Both renderers already build styled output from a plain-text source before
+compositing ANSI/styling (see §5). Highlighting reuses that same
+plain-text-first path rather than operating on already-styled output:
+- TS: `chalk.inverse(...)` is applied to the plain-text substring (sliced by
+  display-column, per §2) *before* it's composited into the final styled
+  line — never by slicing an already-ANSI-styled string, which risks
+  cutting mid-escape-sequence.
+- Rust: `Style::default().add_modifier(Modifier::REVERSED)` is applied by
+  slicing `Span` boundaries at the plain-text display-column index, then
+  building the styled `Span`, not by slicing an already-composed `Line`.
 
-No new rendering pipeline — this is a style pass over existing line
-construction, keyed off the same logical coordinates used for selection.
+No new rendering pipeline — this is a style pass over the same plain-text
+source and logical coordinates used elsewhere in this design.
 
 ### 4. Clearing selection
 
@@ -76,6 +96,10 @@ Selection clears on:
   selection — matches normal text-select UX (a stray click shouldn't look
   like a no-op).
 - `Escape` key.
+- Terminal resize while a drag/selection is active. `lastLineMap` and the
+  Rust row index are keyed to current viewport dimensions, so a resize
+  invalidates any in-flight logical coordinates; clearing is cheaper and
+  safer than trying to re-resolve them against the new layout.
 
 ### 5. Extracting plain text
 
@@ -99,8 +123,11 @@ osc52_copy(text: string) -> writes to stdout:
 
 - **Size ceiling**: cap at 100 KB of base64 output (~75 KB raw text) — the
   historical safe ceiling across common terminal OSC 52 implementations.
-  Over the cap, truncate to the limit and copy that instead of dropping the
-  payload or sending something a terminal will reject.
+  Over the cap, **head-truncate**: keep the first N chars of the selection
+  and drop the tail, then copy that instead of dropping the payload or
+  sending something a terminal will reject. This matches the indicator text
+  in §7 ("Copied first {n} chars") — if truncation direction ever changes,
+  update both sections together.
 - **No ack**: OSC 52 has no response. Silent no-op on terminals that don't
   support it — no crash, no error surfaced, since there's nothing to detect.
 
