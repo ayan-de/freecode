@@ -18,27 +18,54 @@ import {
   lspRequest,
   type Diagnostic,
 } from "./lsp/client.js";
+import {
+  getFileSymbols,
+  queryWorkspaceSymbols,
+  type CodeSymbol,
+} from "../repo-map/index.js";
 
-type Operation = "diagnostics" | "hover" | "definition" | "references";
+type Operation =
+  | "diagnostics"
+  | "hover"
+  | "definition"
+  | "references"
+  | "documentSymbol"
+  | "workspaceSymbol";
 
 interface LspParams {
   operation: Operation;
-  filePath: string;
+  filePath?: string;
   line?: number; // 1-based
   character?: number; // 1-based
+  query?: string; // for workspaceSymbol
 }
 
-const OPERATIONS: Operation[] = ["diagnostics", "hover", "definition", "references"];
+const OPERATIONS: Operation[] = [
+  "diagnostics",
+  "hover",
+  "definition",
+  "references",
+  "documentSymbol",
+  "workspaceSymbol",
+];
+
+// Symbol ops are backed by tree-sitter (no language server needed), so they
+// work for TS/TSX/JS/JSX/Python everywhere without host LSP setup.
+const POSITION_OPS: Operation[] = ["hover", "definition", "references"];
 
 const lspSchema: JsonSchema = {
   type: "object",
   properties: {
     operation: {
       description:
-        "LSP operation: 'diagnostics' (errors/warnings for a file), 'hover', 'definition', or 'references'. Positional ops need line & character.",
+        "Operation: 'documentSymbol' (list symbols defined in a file, needs filePath), 'workspaceSymbol' (find symbols by name across the repo, needs query), 'diagnostics' (a file's errors/warnings), or 'hover'/'definition'/'references' at a position (need line & character). documentSymbol/workspaceSymbol use tree-sitter and need no language server; the others require the host language server.",
       enum: OPERATIONS,
     },
-    filePath: { description: "Absolute or cwd-relative path to the file" },
+    filePath: {
+      description:
+        "Absolute or cwd-relative path to the file (required for all ops except workspaceSymbol)",
+      type: "string",
+    },
     line: {
       description: "1-based line number (required for hover/definition/references)",
       type: "number",
@@ -48,8 +75,12 @@ const lspSchema: JsonSchema = {
         "1-based character offset (required for hover/definition/references)",
       type: "number",
     },
+    query: {
+      description: "Symbol name (or substring) to search for (required for workspaceSymbol)",
+      type: "string",
+    },
   },
-  required: ["operation", "filePath"],
+  required: ["operation"],
 };
 
 function validateLspInput(
@@ -59,13 +90,24 @@ function validateLspInput(
     return { valid: false, error: "Expected object parameters" };
   }
   const p = params as Record<string, unknown>;
-  if (typeof p.operation !== "string" || !OPERATIONS.includes(p.operation as Operation)) {
+  const op = p.operation;
+  if (typeof op !== "string" || !OPERATIONS.includes(op as Operation)) {
     return { valid: false, error: `operation must be one of ${OPERATIONS.join(", ")}` };
   }
+
+  if (op === "workspaceSymbol") {
+    if (typeof p.query !== "string" || p.query.trim().length === 0) {
+      return { valid: false, error: "workspaceSymbol requires a non-empty 'query'" };
+    }
+    return { valid: true };
+  }
+
+  // Every other op is scoped to a file.
   if (typeof p.filePath !== "string" || p.filePath.length === 0) {
     return { valid: false, error: "filePath is required and must be a string" };
   }
-  if (p.operation !== "diagnostics") {
+
+  if (POSITION_OPS.includes(op as Operation)) {
     // Accept numeric strings too — some providers quote numbers.
     const isNum = (v: unknown) =>
       typeof v === "number" ||
@@ -73,7 +115,7 @@ function validateLspInput(
     if (!isNum(p.line) || !isNum(p.character)) {
       return {
         valid: false,
-        error: `operation '${p.operation}' requires line and character`,
+        error: `operation '${op}' requires line and character`,
       };
     }
   }
@@ -120,6 +162,18 @@ function formatLocations(result: unknown): string {
     .join("\n");
 }
 
+// Render tree-sitter symbols as `line: name [kind]`, grouped for readability.
+function formatSymbols(symbols: CodeSymbol[], withPath: boolean): string {
+  if (symbols.length === 0) return "No symbols found";
+  return symbols
+    .map((s) =>
+      withPath
+        ? `${s.filePath}:${s.line}: ${s.name} [${s.kind}]`
+        : `${s.line}: ${s.name} [${s.kind}]`,
+    )
+    .join("\n");
+}
+
 function formatHover(result: unknown): string {
   if (!result || typeof result !== "object") return "No hover information";
   const contents = (result as { contents?: unknown }).contents;
@@ -146,13 +200,41 @@ async function executeLsp(
   }>
 > {
   const root = ctx.projectPath ?? ctx.cwd;
-  const file = path.isAbsolute(params.filePath)
-    ? params.filePath
-    : path.resolve(root, params.filePath);
+
+  // Tree-sitter-backed symbol ops — no language server required.
+  if (params.operation === "workspaceSymbol") {
+    const query = params.query ?? "";
+    const symbols = await queryWorkspaceSymbols(root, query);
+    return {
+      success: true,
+      result: {
+        title: `workspaceSymbol "${query}"`,
+        output: formatSymbols(symbols, true),
+        metadata: { count: symbols.length },
+      },
+    };
+  }
+
+  const file = path.isAbsolute(params.filePath!)
+    ? params.filePath!
+    : path.resolve(root, params.filePath!);
 
   if (!fs.existsSync(file)) {
     return { success: false, error: `File not found: ${file}` };
   }
+
+  if (params.operation === "documentSymbol") {
+    const symbols = await getFileSymbols(root, file);
+    return {
+      success: true,
+      result: {
+        title: `documentSymbol ${path.relative(root, file)}`,
+        output: formatSymbols(symbols, false),
+        metadata: { count: symbols.length },
+      },
+    };
+  }
+
   if (!hasServerFor(file)) {
     return {
       success: false,
@@ -198,7 +280,7 @@ async function executeLsp(
 export const LspTool: Tool<LspParams> = buildTool({
   id: "lsp",
   description:
-    "Query a language server about code: 'diagnostics' for a file's errors/warnings, or 'hover'/'definition'/'references' at a position. Requires the relevant language server installed on the host.",
+    "Code intelligence. Prefer over read/grep for locating code: 'workspaceSymbol' finds a symbol by name across the repo, 'documentSymbol' lists a file's symbols — both tree-sitter-backed (TS/JS/Python), no language server needed. 'diagnostics'/'hover'/'definition'/'references' use the host language server.",
   schemas: { parameters: lspSchema },
   permissions: { operations: ["file.read", "subprocess"] },
   behavior: {
@@ -209,6 +291,6 @@ export const LspTool: Tool<LspParams> = buildTool({
   ui: { ...defaultToolUI, ...lspToolUI },
   execute: executeLsp,
   validateInput: validateLspInput,
-  getPath: (params) => params.filePath,
+  getPath: (params) => params.filePath ?? "",
   isSearchOrReadCommand: () => ({ isSearch: false, isRead: true }),
 });
