@@ -8,6 +8,7 @@ import type { AgentMode } from "../agent/types.js";
 import type { SystemBlock } from "../providers/types.js";
 import { compileInstructionsSection } from "./instructions.js";
 import { loadSystemPrompt } from "../session/prompt.js";
+import { renderAvailableSkillsSection } from "../skills/prompt.js";
 
 // ===========================================================================
 // System Prompts per Agent Mode
@@ -145,12 +146,17 @@ ${tree}`;
         ? `You are powered by the ${provider} provider.`
         : "";
 
+    // Advertise available skills (name + description only) so the model knows
+    // which skills exist and can load one on demand via the `skill` tool.
+    const skillsSection = await renderAvailableSkillsSection(this.projectPath);
+
     // Tools are sent as native schemas by the providers; no text list needed.
     const staticText = [
       (await loadSystemPrompt()).trim(),
       modelIdentity,
       this.compileSystemPrompt(),
       compileInstructionsSection(this.projectPath),
+      skillsSection,
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");

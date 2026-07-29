@@ -1,10 +1,12 @@
 // =============================================================================
-// Skills Loader - Discovers and parses .skill.md files from filesystem
-// PRIMARY: Find skills on disk, extract frontmatter, return Skill objects
-// SEARCH PATHS:
-//   - system: {installDir}/.system/skills/**/*.skill.md
-//   - user: ~/.freecode/skills/**/*.skill.md
-//   - repo: {projectPath}/.freecode/skills/**/*.skill.md
+// Skills Loader - Discovers and parses directory-based SKILL.md files
+// PRIMARY: Find <name>/SKILL.md on disk, extract frontmatter, return Skill objects
+// FORMAT: Claude Code / Anthropic compatible — <skills-dir>/<name>/SKILL.md
+// SEARCH PATHS (highest precedence last within a scope):
+//   system: {installDir}/.system/skills/*/SKILL.md
+//   plugin: ~/.claude/plugins/**/skills/*/SKILL.md (installed Claude Code plugins)
+//   user:   ~/.claude/skills, ~/.agents/skills, ~/.freecode/skills  (global)
+//   repo:   {projectPath}/{.claude,.agents,.freecode}/skills          (project)
 // =============================================================================
 
 import * as fs from "fs";
@@ -26,8 +28,12 @@ const __dirname = path.dirname(__filename);
 // Constants
 // ============================================================================
 
-const SKILL_FILENAME = "*.skill.md";
+const SKILL_FILENAME = "SKILL.md";
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/;
+// Bound how deep we walk under a plugin root when hunting for skills/ dirs.
+// Plugin layouts vary (cache/<mkt>/<plugin>/<ver>/skills, repos/<owner>/<repo>/skills,
+// nested .claude/skills), so scan defensively but with a limit.
+const PLUGIN_SCAN_DEPTH = 6;
 
 // ============================================================================
 // YAML Frontmatter Parser (simple, no external dependency)
@@ -42,21 +48,16 @@ function parseFrontmatter(
   const frontmatterStr = match[1];
   const body = match[2].trim();
 
-  // Simple YAML parsing for flat key-value pairs
   const metadata: Record<string, string> = {};
-  const lines = frontmatterStr.split("\n");
-
-  for (const line of lines) {
+  for (const line of frontmatterStr.split("\n")) {
     const colonIndex = line.indexOf(":");
     if (colonIndex === -1) continue;
-
     const key = line.slice(0, colonIndex).trim();
-    const value = line.slice(colonIndex + 1).trim();
-
-    // Remove quotes if present
-    const cleanValue = value.replace(/^["']|["']$/g, "");
-
-    metadata[key] = cleanValue;
+    const value = line
+      .slice(colonIndex + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    metadata[key] = value;
   }
 
   return { metadata, body };
@@ -66,34 +67,127 @@ function parseFrontmatter(
 // Path Builders
 // ============================================================================
 
-function getSearchPaths(
-  opts: LoaderOptions,
-): Array<{ pattern: string; scope: SkillScope }> {
-  const homedir = os.homedir();
+/** Glob pattern for the standard one-level layout: <base>/<name>/SKILL.md */
+function skillGlob(base: string): string {
+  return path.join(base, "*", SKILL_FILENAME);
+}
+
+interface SearchGroup {
+  patterns: string[];
+  scope: SkillScope;
+  /** Max `**` depth (plugins only); undefined for the flat one-level layouts */
+  deep?: number;
+  /** Extra ignore globs (e.g. exclude localized doc mirrors under plugins) */
+  ignore?: string[];
+}
+
+function getSearchGroups(opts: LoaderOptions): SearchGroup[] {
+  const home = opts.homeDir || os.homedir();
   const installDir = opts.installDir || path.join(__dirname, "..", "..", "..");
+  const plugin = getPluginSkillPatterns(home);
 
   return [
-    // System skills: installed with the application
     {
-      pattern: path.join(installDir, ".system", "skills", SKILL_FILENAME),
-      scope: "system" as SkillScope,
+      scope: "system",
+      patterns: [skillGlob(path.join(installDir, ".system", "skills"))],
     },
-    // User skills: ~/.freecode/skills/
     {
-      pattern: path.join(homedir, ".freecode", "skills", SKILL_FILENAME),
-      scope: "user" as SkillScope,
+      scope: "plugin",
+      patterns: plugin.patterns,
+      deep: plugin.deep,
+      ignore: plugin.ignore,
     },
-    // Repo skills: {projectPath}/.freecode/skills/
     {
-      pattern: path.join(
-        opts.projectPath,
-        ".freecode",
-        "skills",
-        SKILL_FILENAME,
-      ),
-      scope: "repo" as SkillScope,
+      // Load external tools first, FreeCode's own dir last so it wins on ties.
+      scope: "user",
+      patterns: [
+        skillGlob(path.join(home, ".claude", "skills")),
+        skillGlob(path.join(home, ".agents", "skills")),
+        skillGlob(path.join(home, ".freecode", "skills")),
+      ],
+    },
+    {
+      scope: "repo",
+      patterns: [
+        skillGlob(path.join(opts.projectPath, ".claude", "skills")),
+        skillGlob(path.join(opts.projectPath, ".agents", "skills")),
+        skillGlob(path.join(opts.projectPath, ".freecode", "skills")),
+      ],
     },
   ];
+}
+
+/**
+ * Discover skill globs provided by installed Claude Code plugins under
+ * ~/.claude/plugins. When installed_plugins.json is present it is the source
+ * of truth: each plugin exposes skills at <installPath>/skills (and the nested
+ * .claude/.agents variants), scanned one level deep — this avoids sweeping up
+ * localized documentation mirrors (docs/<locale>/skills). Only when the
+ * manifest is missing do we fall back to a bounded deep scan of cache/ and
+ * repos/, excluding docs mirrors.
+ */
+function getPluginSkillPatterns(home: string): {
+  patterns: string[];
+  deep?: number;
+  ignore?: string[];
+} {
+  const pluginsRoot = path.join(home, ".claude", "plugins");
+  if (!fs.existsSync(pluginsRoot)) return { patterns: [] };
+
+  const installPaths = readInstalledPluginPaths(
+    path.join(pluginsRoot, "installed_plugins.json"),
+  );
+
+  if (installPaths.length > 0) {
+    const patterns = installPaths.flatMap((p) => [
+      skillGlob(path.join(p, "skills")),
+      skillGlob(path.join(p, ".claude", "skills")),
+      skillGlob(path.join(p, ".agents", "skills")),
+    ]);
+    return { patterns };
+  }
+
+  const roots = [
+    path.join(pluginsRoot, "cache"),
+    path.join(pluginsRoot, "repos"),
+  ].filter((p) => fs.existsSync(p));
+
+  return {
+    patterns: roots.map((root) =>
+      path.join(root, "**", "skills", "*", SKILL_FILENAME),
+    ),
+    deep: PLUGIN_SCAN_DEPTH,
+    ignore: ["**/docs/**"],
+  };
+}
+
+/** Parse install paths from a Claude Code installed_plugins.json manifest. */
+function readInstalledPluginPaths(manifest: string): string[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(manifest, "utf-8");
+  } catch {
+    return [];
+  }
+  try {
+    const value = JSON.parse(raw) as {
+      plugins?: Record<string, unknown>;
+    };
+    const plugins = value.plugins;
+    if (!plugins || typeof plugins !== "object") return [];
+
+    const paths: string[] = [];
+    for (const installs of Object.values(plugins)) {
+      const list = Array.isArray(installs) ? installs : [installs];
+      for (const install of list) {
+        const p = (install as { installPath?: unknown })?.installPath;
+        if (typeof p === "string" && fs.existsSync(p)) paths.push(p);
+      }
+    }
+    return paths;
+  } catch {
+    return [];
+  }
 }
 
 // ============================================================================
@@ -101,99 +195,108 @@ function getSearchPaths(
 // ============================================================================
 
 function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
+  let content: string;
   try {
-    const content = fs.readFileSync(filePath, "utf-8");
-    const parsed = parseFrontmatter(content);
-
-    if (!parsed) {
-      // No frontmatter - use filename-derived name
-      const basename = path.basename(path.dirname(filePath));
-      return {
-        name: basename,
-        description: undefined,
-        scope,
-        content: content.trim(),
-        location: filePath,
-        id: `${scope}/${basename}`,
-        loadedAt: Date.now(),
-      };
-    }
-
-    const { metadata, body } = parsed;
-    const name = metadata.name;
-
-    if (!name) {
-      console.warn(`[SkillsLoader] Skipping skill without name: ${filePath}`);
-      return null;
-    }
-
-    // Parse trigger as regex if present
-    let trigger: string | undefined = metadata.trigger;
-    if (trigger) {
-      // Validate it's a valid regex
-      try {
-        new RegExp(trigger);
-      } catch {
-        console.warn(
-          `[SkillsLoader] Invalid trigger regex in ${filePath}: ${trigger}`,
-        );
-        trigger = undefined;
-      }
-    }
-
-    return {
-      name,
-      description: metadata.description,
-      scope,
-      trigger,
-      version: metadata.version,
-      content: body,
-      location: filePath,
-      id: `${scope}/${name}`,
-      loadedAt: Date.now(),
-    };
+    content = fs.readFileSync(filePath, "utf-8");
   } catch (error) {
-    console.warn(
-      `[SkillsLoader] Failed to read skill file ${filePath}: ${error}`,
-    );
+    console.warn(`[SkillsLoader] Failed to read ${filePath}: ${error}`);
     return null;
   }
+
+  const dirName = path.basename(path.dirname(filePath));
+  const parsed = parseFrontmatter(content);
+
+  // No frontmatter — fall back to the containing directory name.
+  if (!parsed) {
+    return {
+      name: dirName,
+      scope,
+      content: content.trim(),
+      location: filePath,
+      id: `${scope}/${dirName}`,
+      loadedAt: Date.now(),
+    };
+  }
+
+  const { metadata, body } = parsed;
+  const name = metadata.name || dirName;
+
+  let trigger: string | undefined = metadata.trigger;
+  if (trigger) {
+    try {
+      new RegExp(trigger);
+    } catch {
+      console.warn(`[SkillsLoader] Invalid trigger regex in ${filePath}`);
+      trigger = undefined;
+    }
+  }
+
+  const allowedToolsRaw = metadata["allowed-tools"];
+  const allowedTools = allowedToolsRaw
+    ? allowedToolsRaw
+        .split(",")
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0)
+    : undefined;
+
+  return {
+    name,
+    description: metadata.description,
+    scope,
+    allowedTools,
+    trigger,
+    version: metadata.version,
+    content: body,
+    location: filePath,
+    id: `${scope}/${name}`,
+    loadedAt: Date.now(),
+  };
 }
 
 // ============================================================================
 // Main Loader Functions
 // ============================================================================
 
+async function globSkillFiles(
+  patterns: string[],
+  deep?: number,
+  ignore: string[] = [],
+): Promise<string[]> {
+  if (patterns.length === 0) return [];
+  return fg.glob(patterns, {
+    absolute: true,
+    onlyFiles: true,
+    deep,
+    ignore: ["**/node_modules/**", "**/.git/**", ...ignore],
+    suppressErrors: true,
+  });
+}
+
 /**
  * Load all skills from all search paths.
- * Non-fatal - returns errors but still returns successfully parsed skills.
+ * Non-fatal — returns errors but still returns successfully parsed skills.
  */
 export async function loadAllSkills(
   opts: LoaderOptions,
 ): Promise<SkillLoadResult> {
-  const searchPaths = getSearchPaths(opts);
+  const groups = getSearchGroups(opts);
   const skills: Skill[] = [];
   const errors: Array<{ path: string; error: string }> = [];
 
-  for (const { pattern, scope } of searchPaths) {
+  for (const { patterns, scope, deep, ignore } of groups) {
+    let matches: string[] = [];
     try {
-      // Glob returns array of matching paths
-      const matches = await fg.glob([pattern], {
-        absolute: true,
-        onlyFiles: true,
-      });
-
-      for (const filePath of matches) {
-        const skill = parseSkillFile(filePath, scope);
-        if (skill) {
-          skills.push(skill);
-        } else {
-          errors.push({ path: filePath, error: "Failed to parse skill" });
-        }
-      }
+      matches = await globSkillFiles(patterns, deep, ignore);
     } catch (error) {
-      // Directory might not exist - that's okay
-      console.debug(`[SkillsLoader] No skills found at ${pattern}: ${error}`);
+      console.debug(`[SkillsLoader] Glob failed for ${scope}: ${error}`);
+      continue;
+    }
+
+    // Sorted so that, within a scope, the last pattern's dir wins on name ties.
+    for (const filePath of matches.sort()) {
+      const skill = parseSkillFile(filePath, scope);
+      if (skill) skills.push(skill);
+      else errors.push({ path: filePath, error: "Failed to parse skill" });
     }
   }
 
@@ -201,84 +304,27 @@ export async function loadAllSkills(
 }
 
 /**
- * Load a specific skill by name and scope.
- * Searches only the path for that specific scope.
+ * Load a specific skill by name and scope. Scans the scope's skill dirs and
+ * matches on frontmatter name (or directory name for skills without it).
  */
 export async function loadSkill(
   name: string,
   scope: SkillScope,
   projectPath: string,
 ): Promise<Skill | null> {
-  const homedir = os.homedir();
-  const installDir = path.join(__dirname, "..", "..", "..");
+  const group = getSearchGroups({ projectPath }).find((g) => g.scope === scope);
+  if (!group) return null;
 
-  let pattern: string;
-  switch (scope) {
-    case "system":
-      pattern = path.join(
-        installDir,
-        ".system",
-        "skills",
-        "**",
-        `${name}.skill.md`,
-      );
-      break;
-    case "user":
-      pattern = path.join(
-        homedir,
-        ".freecode",
-        "skills",
-        "**",
-        `${name}.skill.md`,
-      );
-      break;
-    case "repo":
-      pattern = path.join(
-        projectPath,
-        ".freecode",
-        "skills",
-        "**",
-        `${name}.skill.md`,
-      );
-      break;
-    case "admin":
-      // Admin skills are system skills with restricted access
-      pattern = path.join(
-        installDir,
-        ".system",
-        "skills",
-        "**",
-        `${name}.skill.md`,
-      );
-      break;
-    default:
-      return null;
+  const matches = await globSkillFiles(group.patterns, group.deep, group.ignore);
+  for (const filePath of matches.sort()) {
+    const skill = parseSkillFile(filePath, scope);
+    if (skill && skill.name === name) return skill;
   }
-
-  try {
-    const matches = await fg.glob([pattern], {
-      absolute: true,
-      onlyFiles: true,
-    });
-
-    if (matches.length === 0) return null;
-    if (matches.length > 1) {
-      console.warn(
-        `[SkillsLoader] Multiple skills found for ${scope}/${name}, using first`,
-      );
-    }
-
-    return parseSkillFile(matches[0], scope);
-  } catch (error) {
-    console.warn(
-      `[SkillsLoader] Failed to load skill ${scope}/${name}: ${error}`,
-    );
-    return null;
-  }
+  return null;
 }
 
 /**
- * Check if a skill file exists without loading its content.
+ * Check if a skill file exists without keeping its content.
  */
 export async function skillExists(
   name: string,

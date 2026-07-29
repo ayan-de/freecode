@@ -8,7 +8,12 @@
 // Scope - Where skills are stored and who can access them
 // ============================================================================
 
-export type SkillScope = "user" | "repo" | "system" | "admin";
+// - repo:   project-local skill dirs (.freecode/.claude/.agents in the project)
+// - user:   global user skill dirs (~/.freecode, ~/.claude, ~/.agents)
+// - plugin: skills provided by installed Claude Code plugins (~/.claude/plugins)
+// - system: skills shipped with the FreeCode install
+// - admin:  system skills with restricted access
+export type SkillScope = "user" | "repo" | "system" | "admin" | "plugin";
 
 // ============================================================================
 // Skill Metadata - Frontmatter parsed from .skill.md files
@@ -21,6 +26,8 @@ export interface SkillMetadata {
   description?: string;
   /** Scope determines where the skill is stored and who can access it */
   scope: SkillScope;
+  /** Tools the skill is allowed to use, parsed from `allowed-tools` frontmatter */
+  allowedTools?: string[];
   /** Regex pattern for future implicit detection (optional) */
   trigger?: string;
   /** Semantic version for future compatibility */
@@ -66,6 +73,8 @@ export interface LoaderOptions {
   projectPath: string;
   /** Installation directory for system skills (defaults to app directory) */
   installDir?: string;
+  /** Home directory for user/plugin skills (defaults to os.homedir()); injectable for tests */
+  homeDir?: string;
   /** Force reload even if cached */
   forceReload?: boolean;
 }

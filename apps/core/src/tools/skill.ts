@@ -10,21 +10,18 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { skillToolUI } from "./skill/ui.js";
 import type { SkillsManager } from "../skills/manager.js";
+import { getSkillsManagerForProject } from "../skills/manager.js";
 import { renderSkillForPrompt } from "../skills/index.js";
 
 interface SkillParams {
   name: string;
 }
 
-// Module-level skills manager (initialized lazily)
-let skillsManager: SkillsManager | null = null;
-
+// Resolve skills against the session's cwd so two sessions in different repos
+// never see each other's project-local skills. The manager cache is shared
+// (see getSkillsManagerForProject), not duplicated per call site.
 function getSkillsManager(ctx: ToolContext): SkillsManager {
-  if (!skillsManager) {
-    const { SkillsManager } = require("../skills/manager");
-    skillsManager = new SkillsManager(ctx.cwd);
-  }
-  return skillsManager as SkillsManager;
+  return getSkillsManagerForProject(ctx.cwd);
 }
 
 // =============================================================================

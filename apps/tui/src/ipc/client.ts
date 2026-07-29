@@ -399,6 +399,19 @@ export async function getUsage(): Promise<
   }[];
 }
 
+export interface SkillInfo {
+  name: string;
+  description?: string;
+  scope: string;
+}
+
+/** Available skills (name/description/scope) for the current project. Core owns discovery. */
+export async function listSkills(): Promise<SkillInfo[]> {
+  return (await sendRequest("skills.list", {
+    projectPath: process.cwd(),
+  })) as SkillInfo[];
+}
+
 export interface ConfigInfo {
   providers?: Record<string, { apiKey?: string }>;
   current?: { provider: string; model: string };

@@ -65,6 +65,7 @@ import {
 } from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
 import { readDailyUsage } from "./usage/tracker.js";
+import { getSkillsManagerForProject } from "./skills/manager.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 
@@ -409,6 +410,19 @@ const methodHandlers: Record<
 
   "usage.get": async (): Promise<unknown[]> => {
     return readDailyUsage();
+  },
+
+  "skills.list": async (
+    params: Record<string, unknown>,
+  ): Promise<{ name: string; description?: string; scope: string }[]> => {
+    const { projectPath } = params as { projectPath?: string };
+    const manager = getSkillsManagerForProject(projectPath || process.cwd());
+    const skills = await manager.listSkills();
+    return skills.map((s) => ({
+      name: s.name,
+      description: s.description,
+      scope: s.scope,
+    }));
   },
 
   "commands.list": async (): Promise<unknown[]> => {

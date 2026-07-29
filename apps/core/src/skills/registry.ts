@@ -17,6 +17,7 @@ export class SkillRegistry {
     ["user", new Set()],
     ["repo", new Set()],
     ["admin", new Set()],
+    ["plugin", new Set()],
   ]);
   private readonly allowDuplicates: boolean;
 
@@ -99,8 +100,15 @@ export class SkillRegistry {
    * Returns the first match found (order: repo, user, system).
    */
   findByName(name: string): Skill | undefined {
-    // Try in priority order: repo, user, system, admin
-    const scopeOrder: SkillScope[] = ["repo", "user", "system", "admin"];
+    // Priority: project-local wins over explicit global, which wins over
+    // plugin-provided, then shipped system/admin skills.
+    const scopeOrder: SkillScope[] = [
+      "repo",
+      "user",
+      "plugin",
+      "system",
+      "admin",
+    ];
 
     for (const scope of scopeOrder) {
       const skill = this.getByNameAndScope(name, scope);

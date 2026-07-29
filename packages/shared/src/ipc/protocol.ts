@@ -204,6 +204,14 @@ export const METHODS = {
     params: undefined,
     result: [] as { date: string; tokencount: number }[],
   },
+  "skills.list": {
+    params: { projectPath: undefined as string | undefined },
+    result: [] as {
+      name: string;
+      description?: string;
+      scope: string;
+    }[],
+  },
 } as const;
 
 export type MethodName = keyof typeof METHODS;

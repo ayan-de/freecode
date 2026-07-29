@@ -96,7 +96,7 @@ export class SkillsManager {
       const summary = this.getSummary();
       console.log(
         `[SkillsManager] Loaded ${result.skills.length} skills ` +
-          `(${summary.repo} repo, ${summary.user} user, ${summary.system} system)`,
+          `(${summary.repo} repo, ${summary.user} user, ${summary.plugin} plugin, ${summary.system} system)`,
       );
 
       return {
@@ -160,7 +160,13 @@ export class SkillsManager {
     if (cached) return cached;
 
     // Try to load from disk (cache miss for dynamically added skills)
-    const scopeOrder: SkillScope[] = ["repo", "user", "system", "admin"];
+    const scopeOrder: SkillScope[] = [
+      "repo",
+      "user",
+      "plugin",
+      "system",
+      "admin",
+    ];
 
     for (const scope of scopeOrder) {
       const skill = await loadSkill(name, scope, this.projectPath);
@@ -281,6 +287,7 @@ export class SkillsManager {
   getSummary(): {
     repo: number;
     user: number;
+    plugin: number;
     system: number;
     admin: number;
     total: number;
@@ -288,6 +295,7 @@ export class SkillsManager {
     return {
       repo: this.registry.countByScope("repo"),
       user: this.registry.countByScope("user"),
+      plugin: this.registry.countByScope("plugin"),
       system: this.registry.countByScope("system"),
       admin: this.registry.countByScope("admin"),
       total: this.registry.size(),
@@ -321,6 +329,34 @@ export function createSkillsManager(
 // ============================================================================
 
 let globalManager: SkillsManager | null = null;
+
+// ============================================================================
+// Per-project manager cache
+// ============================================================================
+//
+// Skills resolve differently per project (the project-local .freecode/.claude/
+// .agents overlay), so we keep one manager per project path. Callers that need
+// a project's skills — the system-prompt advertiser and the `skill` tool —
+// share this single cache instead of each maintaining their own, and each
+// manager keeps its own TTL cache of disk reads.
+
+const projectManagers = new Map<string, SkillsManager>();
+
+/**
+ * Get (or lazily create) the shared SkillsManager for a project path.
+ * Reused across turns so skills aren't re-scanned from disk on every access.
+ */
+export function getSkillsManagerForProject(
+  projectPath: string,
+  installDir?: string,
+): SkillsManager {
+  let manager = projectManagers.get(projectPath);
+  if (!manager) {
+    manager = new SkillsManager(projectPath, installDir);
+    projectManagers.set(projectPath, manager);
+  }
+  return manager;
+}
 
 export function getGlobalSkillsManager(): SkillsManager | null {
   return globalManager;
