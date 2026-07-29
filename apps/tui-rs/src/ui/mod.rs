@@ -56,6 +56,71 @@ pub fn draw(frame: &mut Frame, app: &mut App, input: &TextArea, registry: &Comma
             command::draw(frame, &matches, selected, chunks[1]);
         }
     }
+
+    // Transient "Copied N chars" indicator, bottom-right, drawn last so it
+    // overlays everything else in the frame.
+    if let Some((label, expires_at)) = &app.copy_indicator {
+        if std::time::Instant::now() < *expires_at {
+            let width = label.chars().count() as u16 + 2;
+            let indicator_area = Rect {
+                x: area.width.saturating_sub(width + 1),
+                y: area.height.saturating_sub(2),
+                width: width.min(area.width),
+                height: 1,
+            };
+            let widget = Paragraph::new(Line::from(Span::styled(
+                format!(" {label} "),
+                Style::default().bg(Color::Rgb(60, 60, 60)).fg(Color::White),
+            )));
+            frame.render_widget(widget, indicator_area);
+        } else {
+            app.copy_indicator = None;
+        }
+    }
+}
+
+/// Plain-text content of a `Line`, joining every span's text.
+fn plain_text_of(line: &Line) -> String {
+    line.spans.iter().map(|s| s.content.as_ref()).collect()
+}
+
+/// Rebuilds a `Line`, splitting spans at the plain-text char boundaries
+/// `from`/`to` and adding `Modifier::REVERSED` to whatever falls inside
+/// them. Each span's own style is preserved outside the range and reversed
+/// (not replaced) inside it, so foreground/background colors still show
+/// through inverted, matching normal terminal selection behavior.
+fn highlight_line(line: &Line, from: usize, to: usize) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut pos = 0usize;
+    for span in &line.spans {
+        let text: String = span.content.to_string();
+        let len = text.chars().count();
+        let span_start = pos;
+        let span_end = pos + len;
+        pos = span_end;
+
+        if span_end <= from || span_start >= to {
+            spans.push(Span::styled(text, span.style));
+            continue;
+        }
+        let seg_from = from.max(span_start) - span_start;
+        let seg_to = to.min(span_end) - span_start;
+        let chars: Vec<char> = text.chars().collect();
+        let before: String = chars[..seg_from].iter().collect();
+        let mid: String = chars[seg_from..seg_to].iter().collect();
+        let after: String = chars[seg_to..].iter().collect();
+        if !before.is_empty() {
+            spans.push(Span::styled(before, span.style));
+        }
+        spans.push(Span::styled(
+            mid,
+            span.style.add_modifier(Modifier::REVERSED),
+        ));
+        if !after.is_empty() {
+            spans.push(Span::styled(after, span.style));
+        }
+    }
+    Line::from(spans)
 }
 
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
@@ -330,12 +395,13 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 
     // Record where each "Thought" chip lands (in wrapped rows) so a click can
-    // target that specific chip. Lines wrap independently, so a chip's start row
-    // is the sum of the wrapped heights of the lines before it. Only computed
-    // when chips exist, so a chip-free transcript pays nothing.
+    // target that specific chip, and build `row_map` (every wrapped row ->
+    // owning logical line index) for text selection. Both need the same
+    // per-line wrapped-height accounting, so they're computed in one pass.
     let mut hits: Vec<(u16, Chip)> = Vec::new();
-    if !chip_headers.is_empty() {
-        chip_headers.sort_by_key(|(li, _)| *li);
+    chip_headers.sort_by_key(|(li, _)| *li);
+    let mut row_map: Vec<usize> = Vec::new();
+    {
         let mut cum: u16 = 0;
         let mut headers = chip_headers.iter().peekable();
         for (i, line) in lines.iter().enumerate() {
@@ -346,12 +412,47 @@ fn draw_messages(frame: &mut Frame, app: &mut App, area: Rect) {
                 .wrap(Wrap { trim: false })
                 .line_count(area.width)
                 .max(1) as u16;
+            for _ in 0..h {
+                row_map.push(i);
+            }
             cum = cum.saturating_add(h);
         }
     }
     app.chip_hits = hits;
+    app.row_map = row_map;
+    app.line_map = lines.iter().map(plain_text_of).collect();
     app.transcript_top = area.y;
     app.transcript_height = area.height;
+
+    // Apply reverse-video highlight over the selected logical-line range.
+    // Selection granularity is whole-logical-line (see `App::row_map`'s doc
+    // comment): the first/last line in range are highlighted from/to their
+    // resolved column, and any line strictly between them is highlighted in
+    // full.
+    if let Some(sel) = app.selection {
+        let (start, end) = crate::app::normalize(&sel);
+        for i in start.line_index..=end.line_index.min(lines.len().saturating_sub(1)) {
+            let line_len = app
+                .line_map
+                .get(i)
+                .map(|s| s.chars().count())
+                .unwrap_or(0);
+            let from = if i == start.line_index {
+                (start.column as usize).min(line_len)
+            } else {
+                0
+            };
+            let to = if i == end.line_index {
+                (end.column as usize).min(line_len)
+            } else {
+                line_len
+            };
+            if from >= to {
+                continue;
+            }
+            lines[i] = highlight_line(&lines[i], from, to);
+        }
+    }
 
     let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
 
