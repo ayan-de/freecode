@@ -1,5 +1,32 @@
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage } from "ai";
 import type { Message } from "../agent/types.js";
+import type { SystemBlock } from "./types.js";
+
+/**
+ * Builds the AI SDK `system` param for Anthropic-shaped providers (anthropic,
+ * minimax, zai). The SDK validates a system array against
+ * `{ role: "system", content: string }` — a `{ type: "text", text }`
+ * content-part shape fails `standardizePrompt`'s check with
+ * "system must be a string, SystemModelMessage, or array of SystemModelMessage".
+ */
+export function buildAnthropicSystemParam(
+  system: string | SystemBlock[],
+): string | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
+  if (typeof system === "string") return system;
+  return system.map((block) => {
+    const part: {
+      role: "system";
+      content: string;
+      providerOptions?: unknown;
+    } = { role: "system", content: block.text };
+    if (block.cache) {
+      part.providerOptions = {
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      };
+    }
+    return part;
+  });
+}
 
 /**
  * Transforms FreeCode internal Message structures to Vercel AI SDK ModelMessage formats.

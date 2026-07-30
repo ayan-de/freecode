@@ -1,5 +1,11 @@
 # @thisisayande/freecode-core
 
+## 0.6.2
+
+### Fixes
+
+- Fixed `AI_InvalidPromptError: system must be a string, SystemModelMessage, or array of SystemModelMessage` — the multi-block system prompt (with cache-control) was built as `{ type: "text", text }` content parts, but the AI SDK's `system` array param requires `{ role: "system", content: string }` message objects. Affected `anthropic`, `minimax`, and `zai` (the three providers sharing this Anthropic-Messages-shaped code path) whenever a cached/multi-block system prompt was sent. Deduplicated the fix into one tested helper (`buildAnthropicSystemParam` in `providers/utils.ts`) used by all three, instead of three copies of the same logic.
+
 ## 0.6.1
 
 ### Features
