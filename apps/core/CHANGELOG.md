@@ -1,5 +1,16 @@
 # @thisisayande/freecode-core
 
+## 0.6.1
+
+### Features
+
+- Skills: available skills are now advertised in the system prompt (`renderAvailableSkillsSection`), a `skills.list` IPC method exposes name/description/scope, and `SkillsManager`/`SkillRegistry` learned a `plugin` scope so skills from installed plugins are discovered and prioritized alongside repo/user/system skills.
+- Adversarial verifier hardening: the verification subagent's prompt now carries the prior round's findings and an anti-ratchet instruction (don't raise fresh nitpicks once earlier gaps are fixed), a scope-discipline rule (don't fail correct, in-scope work for missing edge cases or extra tests), and a fabrication check (a claimed file change absent from the diff is an automatic fail).
+- Recovery: retry backoff now honors a provider's `retry-after` / `retry-after-ms` response header when present (e.g. an exact 429 wait), falling back to the existing exponential/linear/fixed backoff only when the header is absent.
+- MiniMax provider rewritten on top of `@ai-sdk/anthropic` with a custom `baseURL` instead of a hand-rolled Anthropic Messages client (~450 → ~155 lines); same approach applied to two new providers:
+  - **DeepSeek** (`@ai-sdk/deepseek`)
+  - **Z.ai / GLM** (`@ai-sdk/anthropic` pointed at z.ai's Anthropic-compatible endpoint)
+
 ## 0.6.0
 
 ### Features
