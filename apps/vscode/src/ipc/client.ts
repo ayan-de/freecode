@@ -215,3 +215,25 @@ export async function sessionStop(sessionId: string): Promise<void> {
 export async function listProviders(): Promise<ProviderInfo[]> {
   return (await sendRequest("providers.list")) as ProviderInfo[];
 }
+
+// =============================================================================
+// MCP Methods
+// =============================================================================
+
+export interface McpServerStatus {
+  name: string;
+  type: string;
+  enabled: boolean;
+  status: "connected" | "disconnected";
+  toolCount: number;
+  tools: string[];
+}
+
+export async function mcpStatus(
+  name?: string,
+): Promise<McpServerStatus[]> {
+  return (await sendRequest(
+    "mcp.status",
+    name ? { name } : {},
+  )) as McpServerStatus[];
+}

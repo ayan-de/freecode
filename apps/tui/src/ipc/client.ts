@@ -500,3 +500,29 @@ export interface SerializedMessage {
   timestamp: number;
   interrupted?: boolean;
 }
+
+// =============================================================================
+// MCP Methods
+// =============================================================================
+
+export interface McpServerStatus {
+  name: string;
+  type: string;
+  enabled: boolean;
+  status: "connected" | "disconnected";
+  toolCount: number;
+  tools: string[];
+}
+
+/**
+ * Get MCP server status from the running daemon.
+ * Returns live status only when daemon is running (TUI/VSCode active).
+ */
+export async function mcpStatus(
+  name?: string,
+): Promise<McpServerStatus[]> {
+  return (await sendRequest(
+    "mcp.status",
+    name ? { name } : {},
+  )) as McpServerStatus[];
+}

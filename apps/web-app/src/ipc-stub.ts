@@ -263,3 +263,25 @@ export async function resumeSession(
 export async function deleteSession(sessionId: string): Promise<void> {
   return sendRequest<void>("session.delete", { sessionId });
 }
+
+// =============================================================================
+// MCP Methods
+// =============================================================================
+
+export interface McpServerStatus {
+  name: string;
+  type: string;
+  enabled: boolean;
+  status: "connected" | "disconnected";
+  toolCount: number;
+  tools: string[];
+}
+
+export async function mcpStatus(
+  name?: string,
+): Promise<McpServerStatus[]> {
+  return sendRequest<McpServerStatus[]>(
+    "mcp.status",
+    name ? { name } : {},
+  );
+}
