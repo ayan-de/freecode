@@ -1,8 +1,9 @@
 # Grok Build → FreeCode: Feature Gap Analysis
 
-> **Date:** 2026-07-18
+> **Date:** 2026-07-18 (status updated 2026-07-30)
 > **Source:** `~/Projects/githubProjects/grok-build` — xAI's Grok CLI (Rust agent runtime, ~60 crates)
-> **Status:** Analysis / roadmap candidates — nothing here is committed work.
+> **Status:** Analysis / roadmap candidates — nothing here is committed work
+> unless marked Done below.
 
 Grok Build is xAI's terminal-based AI coding agent. FreeCode already matches it
 on the fundamentals — hooks, skills, memory, MCP client, sessions with
@@ -15,33 +16,33 @@ value-to-effort.
 
 ## Quick Reference
 
-| # | Feature | Grok crate / doc | Effort | Value |
-|---|---------|------------------|--------|-------|
-| 1 | Headless mode | `user-guide/14-headless-mode.md` | Low | High |
-| 2 | Background tasks | `user-guide/20-background-tasks.md` | Medium | High |
-| 3 | Prompt queue | `xai-prompt-queue` | Low | Medium |
-| 4 | File-watch cache invalidation | `xai-fsnotify`, `xai-gix-status` | Low | High |
-| 5 | Full plan mode workflow | `user-guide/19-plan-mode.md` | Low–Medium | Medium |
-| 6 | OS-level sandboxing | `xai-grok-sandbox` | High | High |
-| 7 | ACP editor protocol | `xai-acp-lib`, `user-guide/15-agent-mode.md` | Medium | High |
-| 8 | Agent dashboard | `user-guide/23-dashboard.md` | Medium | Medium |
-| 9 | Codebase graph (tree-sitter) | `xai-codebase-graph` | Medium–High | Medium |
-| 10 | Hunk tracker / checkpoints | `xai-hunk-tracker` | Medium | Medium |
-| 11 | Fast CoW worktrees | `xai-fast-worktree` | Medium | Medium |
-| 12 | PTY-backed shell | `ptyctl` | Medium | Medium |
-| 13 | Plugins system | `user-guide/09-plugins.md`, `xai-grok-plugin-marketplace` | Medium | Medium |
-| 14 | Privacy-first OTEL export | `user-guide/24-monitoring-usage.md` | Medium | Low–Medium |
-| 15 | Operational hardening | `xai-grok-update`, `xai-crash-handler`, `xai-sqlite-journal` | Low each | Low–Medium |
+| # | Feature | Grok crate / doc | Effort | Value | Status |
+|---|---------|------------------|--------|-------|--------|
+| 1 | Headless mode | `user-guide/14-headless-mode.md` | Low | High | **Partial** — `freecode run` exists (`cli/commands/run.ts`); missing `--output-format json`, `--max-turns`, `--allow`/`--deny`, `--fork-session` |
+| 2 | Background tasks | `user-guide/20-background-tasks.md` | Medium | High | Open |
+| 3 | Prompt queue | `xai-prompt-queue` | Low | Medium | Open |
+| 4 | File-watch cache invalidation | `xai-fsnotify`, `xai-gix-status` | Low | High | **Done** — `context/tree-watcher.ts`, wired in `agent/loop.ts:290` |
+| 5 | Full plan mode workflow | `user-guide/19-plan-mode.md` | Low–Medium | Medium | Open |
+| 6 | OS-level sandboxing | `xai-grok-sandbox` | High | High | Open |
+| 7 | ACP editor protocol | `xai-acp-lib`, `user-guide/15-agent-mode.md` | Medium | High | Open |
+| 8 | Agent dashboard | `user-guide/23-dashboard.md` | Medium | Medium | Open |
+| 9 | Codebase graph (tree-sitter) | `xai-codebase-graph` | Medium–High | Medium | **Done** — `context/tree-cache.ts` repo-map / `lsp` documentSymbol+workspaceSymbol (see commit `1cd54b3`) |
+| 10 | Hunk tracker / checkpoints | `xai-hunk-tracker` | Medium | Medium | Open |
+| 11 | Fast CoW worktrees | `xai-fast-worktree` | Medium | Medium | Open |
+| 12 | PTY-backed shell | `ptyctl` | Medium | Medium | Open |
+| 13 | Plugins system | `user-guide/09-plugins.md`, `xai-grok-plugin-marketplace` | Medium | Medium | Open |
+| 14 | Privacy-first OTEL export | `user-guide/24-monitoring-usage.md` | Medium | Low–Medium | Open |
+| 15 | Operational hardening | `xai-grok-update`, `xai-crash-handler`, `xai-sqlite-journal` | Low each | Low–Medium | Open |
 
-**Recommended first three:** headless mode (#1), background tasks (#2),
-file-watch cache invalidation (#4). Strategic bets after that: sandboxing (#6)
+**Remaining recommended next:** background tasks (#2), prompt queue (#3),
+headless mode gaps (#1 remainder). Strategic bets after that: sandboxing (#6)
 and ACP (#7).
 
 ---
 
 ## Tier 1 — High value, very feasible
 
-### 1. Headless mode
+### 1. Headless mode — partially done
 
 Grok runs one prompt non-interactively and exits:
 
@@ -51,23 +52,23 @@ grok -p "Your prompt here" --output-format json
 
 Key flags:
 
-| Flag | Purpose |
-|------|---------|
-| `-p, --single <PROMPT>` | One-shot prompt (also `--prompt-json`, `--prompt-file`) |
-| `--output-format` | `plain`, `json`, `streaming-json` |
-| `-r <ID>` / `-c` / `--fork-session` | Resume / continue latest / fork into new session |
-| `--max-turns <N>` | Cap agentic turns |
-| `--tools` / `--disallowed-tools` | Allow/deny lists for built-in tools |
-| `--yolo` / `--permission-mode` | Auto-approve or set permission mode |
-| `--allow` / `--deny` | Glob-based permission rules (repeatable) |
-| `--rules <TEXT>` | Extra system-prompt rules |
+| Flag | Purpose | FreeCode (`freecode run`) |
+|------|---------|---------|
+| `-p, --single <PROMPT>` | One-shot prompt (also `--prompt-json`, `--prompt-file`) | ✅ positional `message` + stdin |
+| `--output-format` | `plain`, `json`, `streaming-json` | ❌ plain only |
+| `-r <ID>` / `-c` / `--fork-session` | Resume / continue latest / fork into new session | ✅ `-s`/`-c`, ❌ fork |
+| `--max-turns <N>` | Cap agentic turns | ❌ hardcoded `maxIterations: 250` |
+| `--tools` / `--disallowed-tools` | Allow/deny lists for built-in tools | ❌ |
+| `--yolo` / `--permission-mode` | Auto-approve or set permission mode | ✅ via `--agent danger` (coarser) |
+| `--allow` / `--deny` | Glob-based permission rules (repeatable) | ❌ |
+| `--rules <TEXT>` | Extra system-prompt rules | ❌ |
 
 **Why FreeCode wants it:** unlocks CI, scripting, and third-party integrations.
 
-**Fit:** `apps/core` is already a long-running JSON-RPC server. A one-shot CLI
-mode (`freecode -p ...`) is a thin wrapper over `session.start` +
-`session.send` that streams `StreamEvent`s to stdout and exits on `done`.
-Lives in `apps/core/src/cli/`. Probably the single highest-leverage gap.
+**Remaining fit:** `--output-format json` is the highest-value remaining piece
+— wrap the existing bus subscription in `run.ts` to emit a single JSON object
+(or NDJSON per `StreamEvent`) instead of raw text when the flag is set.
+`--max-turns` is a one-line plumb-through to `maxIterations`.
 
 ### 2. Background tasks
 
@@ -100,18 +101,16 @@ between shell and TUI).
 **Fit:** small state addition in the TUI + a queue drained on `done`. Big UX
 win for cheap.
 
-### 4. File-watching for context invalidation
+### 4. File-watching for context invalidation — done
 
 Grok pairs `xai-fsnotify` (filesystem events) with `xai-gix-status`
 (fast git status) to detect **external** edits.
 
-**Gap in FreeCode:** `context/tree-cache.ts` only invalidates after our own
-mutating tools. Edits made outside the agent — user in their editor, another
-process, git checkout — leave the cache stale.
-
-**Fit:** a chokidar watcher in core that invalidates the tree cache (and
-optionally flags files the agent has read that changed since). Small change,
-fixes a real correctness hole.
+**Implemented:** `context/tree-watcher.ts` — a chokidar watcher (depth 0 on
+the project root + `.git/HEAD`) that debounces and calls
+`invalidateProjectContext`. Started via `ensureWatching(projectPath)` in
+`agent/loop.ts:290` at the top of every run; degrades silently to the
+existing TTL safety net if chokidar is unavailable.
 
 ### 5. Full plan mode workflow
 
@@ -187,15 +186,15 @@ A centralized TUI view of every top-level session in flight:
 Mostly TUI work in `apps/tui`, plus a session-state summary endpoint.
 Transforms multi-session workflows.
 
-### 9. Codebase graph
+### 9. Codebase graph — done
 
 `xai-codebase-graph`: "high-performance code graph generation using
 tree-sitter queries" — structural, symbol-level context instead of a flat
 file tree.
 
-**Fit:** tree-sitter has good JS/WASM bindings. Slots in as a new strategy
-under `context/strategies/`, complementing the tree cache. Improves the
-model's first-shot navigation on large codebases.
+**Implemented:** tree-sitter symbol index (`web-tree-sitter`/WASM, commit
+`1cd54b3`) plus `lsp` tool `documentSymbol`/`workspaceSymbol` operations
+(commit `af94a17`). Covers the structural-navigation gap this item targeted.
 
 ---
 
@@ -210,7 +209,7 @@ attribution**. Foundation for:
 - "The user edited this file since I last read it" awareness.
 - Cleaner conflict handling when user and agent edit concurrently.
 
-Pairs naturally with #4 (file watching).
+Pairs naturally with #4 (file watching, now done).
 
 ### 11. Fast CoW worktrees
 
