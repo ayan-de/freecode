@@ -51,6 +51,8 @@ const ENV_KEYS: Record<string, string> = {
   openai: "OPENAI_API_KEY",
   gemini: "GEMINI_API_KEY",
   minimax: "MINIMAX_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  zai: "ZAI_API_KEY",
 };
 
 export function getApiKey(providerId: string): string {

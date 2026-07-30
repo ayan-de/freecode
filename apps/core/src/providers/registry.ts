@@ -37,5 +37,7 @@ export async function initProviders(): Promise<void> {
     import("./openai.js"),
     import("./gemini.js"),
     import("./minimax.js"),
+    import("./deepseek.js"),
+    import("./zai.js"),
   ]);
 }
