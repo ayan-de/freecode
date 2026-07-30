@@ -19,9 +19,11 @@ const DISPLAY_NAMES: Record<string, string> = {
   agent: "Agent",
   skill: "Skill",
   output: "Output",
+  mcp: "MCP",
 };
 
 function displayName(toolName: string): string {
+  if (toolName.toLowerCase().startsWith("mcp__")) return DISPLAY_NAMES.mcp;
   return DISPLAY_NAMES[toolName.toLowerCase()] ?? toolName;
 }
 

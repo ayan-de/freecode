@@ -21,6 +21,8 @@ const NETWORK_TOOLS = new Set(["webfetch", "websearch"]);
 
 /** Unknown tools (including MCP) are mutating — fail closed */
 export function toolKind(toolName: string): ToolKind {
+  // MCP tools are readonly by default (they only query external services)
+  if (toolName.toLowerCase().startsWith("mcp__")) return "readonly";
   return READONLY_TOOLS.has(toolName.toLowerCase()) ? "readonly" : "mutating";
 }
 
