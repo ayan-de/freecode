@@ -151,6 +151,7 @@ export async function verifyChanges(input: {
   model?: string;
   originalRequest: string;
   changedFiles: string[];
+  priorReport?: string;
 }): Promise<VerificationResult> {
   const task = [
     "Independently and adversarially verify the work that was just completed.",
@@ -162,6 +163,26 @@ export async function verifyChanges(input: {
     "Read the changed files and confirm they actually satisfy the request and are",
     "correct. Run any read-only checks you can (search, read, type inspection).",
     "Do NOT modify any files.",
+    "",
+    "Scope discipline: only fail the request as stated. Missing edge-case",
+    "handling, extra validation, or additional tests that were never asked for",
+    "are NOT grounds for FAIL — that is the most common false failure.",
+    "Missing tests alone are not grounds for FAIL either, unless the request was",
+    "itself to add tests.",
+    "",
+    "Honesty check: if the response claims changes to a file that is not in the",
+    "Files changed list above, that is fabrication — FAIL.",
+    input.priorReport
+      ? [
+          "",
+          `Prior verification round found:\n${input.priorReport}`,
+          "",
+          "This is a re-check. Focus on whether each prior finding is actually",
+          "fixed. Do not raise a new objection this round unless it is a genuine",
+          "defect or unmet part of the original request — the bar does not rise",
+          "between rounds, and endless fresh nitpicks make the request unfinishable.",
+        ].join("\n")
+      : "",
     "",
     "Finish your final message with a single line in exactly this form:",
     "VERDICT: PASS | FAIL | PARTIAL",

@@ -160,6 +160,7 @@ export class AgentLoop {
   // driving the adversarial verification gate for non-trivial changes.
   private mutatedFiles = new Set<string>();
   private verifierAttempts = 0;
+  private lastVerifierReport: string | undefined;
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -282,6 +283,7 @@ export class AgentLoop {
     this.verifyAttempts = 0;
     this.mutatedFiles = new Set<string>();
     this.verifierAttempts = 0;
+    this.lastVerifierReport = undefined;
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
@@ -509,8 +511,10 @@ export class AgentLoop {
               model: input.model,
               originalRequest: input.prompt,
               changedFiles: [...this.mutatedFiles],
+              priorReport: this.lastVerifierReport,
             });
             if (this.abort.signal.aborted) return this.complete("Interrupted");
+            this.lastVerifierReport = verification.report;
             if (verification.verdict === "FAIL") {
               this.pendingReminders.push(
                 verifierFailureReminder(verification.report),
