@@ -1105,6 +1105,12 @@ function inputChromeHeight(): number {
     .reduce((sum, child) => sum + child.render(terminal.columns).length, 0);
 }
 
+// Hug the text so a notice stays a single line, capped by what the terminal
+// can actually show.
+function noticeWidth(modal: NoticeModal): number {
+  return Math.min(modal.width(), Math.max(20, terminal.columns - 4));
+}
+
 function showCopiedIndicator(charCount: number, truncated: boolean): void {
   const label = truncated
     ? `Copied first ${charCount} chars (selection truncated)`
@@ -1115,12 +1121,11 @@ function showCopiedIndicator(charCount: number, truncated: boolean): void {
 
   const modal = new NoticeModal(label);
   noticeOverlay = tui.showOverlay(modal, {
-    // Pinned directly above the input instead of floating over the chat.
+    // Pinned directly above the input instead of floating over the chat. The
+    // jump-to-bottom pill hugs the right edge, so the two don't collide.
     anchor: "bottom-center",
     offsetY: -inputChromeHeight(),
-    // Hug the text so the notice stays a single line, capped only by what the
-    // terminal can actually show.
-    width: Math.min(modal.width(), Math.max(20, terminal.columns - 4)),
+    width: noticeWidth(modal),
     nonCapturing: true,
   });
 
@@ -1131,6 +1136,39 @@ function showCopiedIndicator(charCount: number, truncated: boolean): void {
     tui.requestRender();
   }, 1500);
   noticeTimer.unref?.();
+}
+
+// Jump-to-bottom pill: same notice styling, but persistent and padded on all
+// sides — it shows for as long as the history is scrolled away from the
+// bottom, and clicking it returns to follow mode.
+const jumpModal = new NoticeModal("↓", 1);
+const jumpOptions = {
+  // Flush against the right edge, bottom row level with the top of the input.
+  anchor: "bottom-right" as const,
+  offsetY: 0,
+  width: noticeWidth(jumpModal),
+  nonCapturing: true,
+  // pi-tui evaluates `visible` immediately before laying the overlay out on
+  // every render, so it doubles as the hook that keeps the pill pinned to the
+  // input as the prompt grows or the terminal resizes.
+  visible: (): boolean => {
+    jumpOptions.offsetY = -inputChromeHeight();
+    jumpOptions.width = noticeWidth(jumpModal);
+    return messageList.isScrolled;
+  },
+};
+tui.showOverlay(jumpModal, jumpOptions);
+
+/** Whether a click at (cx, cy) — 1-based — landed on the jump-to-bottom pill. */
+function jumpButtonHit(cx: number, cy: number): boolean {
+  if (!messageList.isScrolled) return false;
+  const width = noticeWidth(jumpModal);
+  const height = jumpModal.render(width).length;
+  const bottom = terminal.rows - inputChromeHeight();
+  const left = terminal.columns - width + 1; // 1-based, flush right
+  return (
+    cy <= bottom && cy > bottom - height && cx >= left && cx < left + width
+  );
 }
 
 function extractSelectionText(): string {
@@ -1176,6 +1214,15 @@ tui.addInputListener((data) => {
 
     const isDrag = (cb & 0x20) !== 0;
     const button = cb & 0x03;
+
+    // Checked before the selection handling below, since the pill sits on top
+    // of the history and a press there must not start a drag-select.
+    if (button === 0 && !isDrag && jumpButtonHit(cx, cy)) {
+      messageList.scrollToBottom();
+      tui.requestRender();
+      return { consume: true };
+    }
+
     const pos = messageList.resolveLogicalPosition(cx, cy);
 
     if (pos && button === 0 && !isDrag) {
