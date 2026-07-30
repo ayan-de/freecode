@@ -127,7 +127,39 @@ function selectPolicy(
   return undefined; // fatal — no retry, straight to fallback chain
 }
 
-function computeDelay(policy: RecoveryPolicy, attempt: number): number {
+// Providers (AI SDK APICallError) return the exact wait on a 429 via
+// standard rate-limit headers; honor it over our own backoff guess when present.
+function retryAfterMs(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const headers = (error as { responseHeaders?: Record<string, string> })
+    .responseHeaders;
+  if (!headers) return undefined;
+
+  const ms = headers["retry-after-ms"];
+  if (ms) {
+    const parsed = Number.parseFloat(ms);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  const seconds = headers["retry-after"];
+  if (seconds) {
+    const parsedSeconds = Number.parseFloat(seconds);
+    if (!Number.isNaN(parsedSeconds)) return parsedSeconds * 1000;
+    const parsedDate = Date.parse(seconds) - Date.now();
+    if (!Number.isNaN(parsedDate) && parsedDate > 0) return parsedDate;
+  }
+
+  return undefined;
+}
+
+function computeDelay(
+  policy: RecoveryPolicy,
+  attempt: number,
+  error?: unknown,
+): number {
+  const fromHeader = retryAfterMs(error);
+  if (fromHeader !== undefined) return Math.min(fromHeader, MAX_DELAY_MS);
+
   const initial = policy.initialDelay ?? 1000;
   const delay =
     policy.backoff === "fixed"
@@ -234,7 +266,7 @@ export function createRecoveryManager(
           return yield* Effect.fail(error);
         }
 
-        const delayMs = computeDelay(policy, attempt);
+        const delayMs = computeDelay(policy, attempt, error);
         options.onRetry?.({ provider, attempt, delayMs, error });
         console.warn(
           `[Recovery] ${provider} attempt ${attempt}/${policy.maxAttempts} failed (${String(
