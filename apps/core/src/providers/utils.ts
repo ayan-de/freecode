@@ -1,6 +1,35 @@
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage } from "ai";
+import { jsonSchema } from "ai";
 import type { Message } from "../agent/types.js";
-import type { SystemBlock } from "./types.js";
+import type { SystemBlock, ToolDef } from "./types.js";
+
+/**
+ * Converts FreeCode's ToolDef[] into the AI SDK's tools map, wrapping each
+ * inputSchema with the SDK's own `jsonSchema()` helper instead of passing a
+ * raw object. asSchema() (called internally by the SDK when building the
+ * request and when validating a returned tool call's arguments) treats an
+ * unwrapped plain object as ambiguous: it checks for a `"~standard"` marker
+ * to detect Zod schemas, and falls back to calling the object AS A FUNCTION
+ * otherwise — `schema()` — which throws "H is not a function" for a plain
+ * JSON Schema object, or can misroute into Zod's own toJSONSchema internals
+ * if the object's shape coincidentally satisfies that check. jsonSchema()
+ * tags the object unambiguously, skipping all of that.
+ */
+export function buildToolsParam(
+  tools: ToolDef[] | undefined,
+): Record<string, { description: string; inputSchema: unknown }> | undefined {
+  if (!tools || tools.length === 0) return undefined;
+  return tools.reduce(
+    (acc, t) => {
+      acc[t.name] = {
+        description: t.description,
+        inputSchema: jsonSchema(t.parameters as Record<string, unknown>),
+      };
+      return acc;
+    },
+    {} as Record<string, { description: string; inputSchema: unknown }>,
+  );
+}
 
 /**
  * Builds the AI SDK `system` param for Anthropic-shaped providers (anthropic,

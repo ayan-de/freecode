@@ -8,7 +8,7 @@ import {
 } from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
-import { convertToCoreMessages } from "./utils.js";
+import { convertToCoreMessages, buildToolsParam } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
 const PROVIDER_INFO = {
@@ -24,19 +24,7 @@ function createDeepSeekProvider(_apiKey: string): AIProvider {
 
   function buildOptions(opts: ExecuteOptions) {
     const model = opts.model || PROVIDER_INFO.defaultModel;
-    const tools = opts.tools?.reduce(
-      (acc, t) => {
-        acc[t.name] = {
-          description: t.description,
-          inputSchema: t.parameters as Record<string, unknown>,
-        };
-        return acc;
-      },
-      {} as Record<
-        string,
-        { description: string; inputSchema: Record<string, unknown> }
-      >,
-    );
+    const tools = buildToolsParam(opts.tools);
     const systemPrompt =
       typeof opts.system === "string"
         ? opts.system

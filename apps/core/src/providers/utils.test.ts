@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAnthropicSystemParam } from "./utils.js";
+import { buildAnthropicSystemParam, buildToolsParam } from "./utils.js";
 
 test("buildAnthropicSystemParam passes a string through unchanged", () => {
   assert.equal(buildAnthropicSystemParam("be helpful"), "be helpful");
@@ -28,4 +28,30 @@ test("buildAnthropicSystemParam only sets cacheControl providerOptions when bloc
   ]) as Array<{ providerOptions?: unknown }>;
   assert.ok(cached.providerOptions);
   assert.equal(uncached.providerOptions, undefined);
+});
+
+test("buildToolsParam returns undefined for no tools", () => {
+  assert.equal(buildToolsParam(undefined), undefined);
+  assert.equal(buildToolsParam([]), undefined);
+});
+
+// Regression: raw JSON Schema objects passed unwrapped as inputSchema hit the
+// AI SDK's asSchema() ambiguous-shape detection — it checks for a "~standard"
+// marker and otherwise calls the object as a function (schema()), throwing
+// "H is not a function" or misrouting into Zod's own toJSONSchema internals.
+// jsonSchema() tags the object so asSchema() short-circuits via isSchema().
+test("buildToolsParam wraps inputSchema so it is not a bare plain object", () => {
+  const tools = buildToolsParam([
+    {
+      name: "read",
+      description: "read a file",
+      parameters: { type: "object", properties: { path: { type: "string" } } },
+    },
+  ]);
+  assert.ok(tools);
+  const inputSchema = tools!.read.inputSchema as Record<string, unknown>;
+  // A raw JSON Schema object would just be { type: "object", properties: {...} }
+  // with no marker; the wrapped Schema instance exposes jsonSchema/validate.
+  assert.notEqual(typeof inputSchema, "function");
+  assert.ok("jsonSchema" in inputSchema || "validate" in inputSchema);
 });

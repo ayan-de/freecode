@@ -8,7 +8,7 @@ import {
 } from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
-import { convertToCoreMessages, buildAnthropicSystemParam } from "./utils.js";
+import { convertToCoreMessages, buildAnthropicSystemParam, buildToolsParam } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
 // z.ai (GLM) exposes an Anthropic Messages-compatible endpoint, so we reuse
@@ -33,19 +33,7 @@ function createZaiProvider(_apiKey: string): AIProvider {
   function buildOptions(opts: ExecuteOptions) {
     const model = opts.model || PROVIDER_INFO.defaultModel;
 
-    const tools = opts.tools?.reduce(
-      (acc, t) => {
-        acc[t.name] = {
-          description: t.description,
-          inputSchema: t.parameters as Record<string, unknown>,
-        };
-        return acc;
-      },
-      {} as Record<
-        string,
-        { description: string; inputSchema: Record<string, unknown> }
-      >,
-    );
+    const tools = buildToolsParam(opts.tools);
 
     const generateOptions: any = {
       model: zai(model),

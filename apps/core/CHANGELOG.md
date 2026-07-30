@@ -1,5 +1,11 @@
 # @thisisayande/freecode-core
 
+## 0.6.4
+
+### Fixes
+
+- Fixed `TypeError: H is not a function` (and, depending on the tool schema shape, a crash inside Zod's own `toJSONSchema` internals) on tool calls for `anthropic`, `openai`, `gemini`, `minimax`, `deepseek`, and `zai`. Tool `inputSchema` was passed as a raw JSON Schema object; the AI SDK's `asSchema()` treats an unmarked plain object as ambiguous — it checks for Zod's `"~standard"` marker and otherwise calls the object *as a function* (`schema()`), which throws for a plain object or can misroute into Zod's converter if the shape coincidentally matches. Fixed by wrapping every tool's `inputSchema` with the AI SDK's own `jsonSchema()` helper (new shared `buildToolsParam` in `providers/utils.ts`, replacing six copies of the same unwrapped construction), which tags the object unambiguously and skips the shape-sniffing entirely. Confirmed fixed against a live MiniMax tool-call failure.
+
 ## 0.6.3
 
 ### Fixes
