@@ -1,5 +1,11 @@
 # @thisisayande/freecode-core
 
+## 0.6.3
+
+### Fixes
+
+- Fixed token usage (and the derived context-window `[used/limit]` display) always reading 0 on completion for every AI-SDK-backed provider (anthropic, openai, gemini, minimax, deepseek, zai). `normalizeAiSdkStream` read `chunk.usage` on the stream's `"finish"` event, but the AI SDK types that event as carrying `totalUsage` — `usage` only exists on the separate per-step `"finish-step"` event. `chunk.usage` was therefore always `undefined`, no usage chunk was ever emitted, and every turn's token/context accounting downstream (`agent/loop.ts` turn totals, the TUI's `↓/↑` and `[used/limit]` display) stayed at 0 regardless of what actually streamed. This was a real regression for MiniMax specifically: its pre-0.6.1 hand-rolled SSE parser read Anthropic's raw usage fields directly and was unaffected; the 0.6.1 rewrite onto the shared AI SDK streaming path exposed the pre-existing bug for it too.
+
 ## 0.6.2
 
 ### Fixes

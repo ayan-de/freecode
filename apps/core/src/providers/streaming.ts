@@ -57,7 +57,11 @@ export async function* normalizeAiSdkStream(
       }
       case "finish": {
         stopReason = finishReasonToStop(chunk.finishReason);
-        const u = chunk.usage as
+        // The AI SDK's "finish" fullStream part carries `totalUsage`, not
+        // `usage` (that field only exists on the per-step "finish-step"
+        // part) — reading chunk.usage here was always undefined, so no
+        // usage chunk was ever emitted and callers saw 0 tokens on completion.
+        const u = chunk.totalUsage as
           | {
               inputTokens?: number;
               outputTokens?: number;
