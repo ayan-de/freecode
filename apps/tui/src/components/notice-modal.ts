@@ -1,0 +1,38 @@
+import {
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
+} from "@earendil-works/pi-tui";
+import chalk from "chalk";
+import { STATUS_BAR_BG } from "../themes.js";
+
+/** Blank columns between the text and the modal's left/right edges. */
+const PAD_X = 2;
+
+/**
+ * NoticeModal — a transient borderless notice shown centered on screen.
+ *
+ * Used for ephemeral feedback (e.g. "Copied N chars"). The dark background
+ * hugs the message as a single line; it only spills onto further rows if the
+ * terminal is too narrow to fit it. Shown through a non-capturing overlay so it
+ * never steals focus from the editor, and hidden again on a timer by the caller.
+ */
+export class NoticeModal implements Component {
+  constructor(private message: string) {}
+
+  /** Overlay width that fits the message on one line, padding included. */
+  width(): number {
+    return visibleWidth(this.message) + PAD_X * 2;
+  }
+
+  render(width: number): string[] {
+    const inner = Math.max(1, width - PAD_X * 2);
+    const pad = " ".repeat(PAD_X);
+    return wrapTextWithAnsi(this.message, inner).map((line) => {
+      const fill = " ".repeat(Math.max(0, inner - visibleWidth(line)));
+      return STATUS_BAR_BG(chalk.whiteBright(`${pad}${line}${fill}${pad}`));
+    });
+  }
+
+  invalidate(): void {}
+}

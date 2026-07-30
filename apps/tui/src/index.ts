@@ -11,6 +11,7 @@ import {
   type OverlayHandle,
 } from "@earendil-works/pi-tui";
 import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
+import { NoticeModal } from "./components/notice-modal.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
@@ -628,7 +629,10 @@ function handleToolEvent(event: StreamEvent) {
     }
     case "thinking": {
       // Create or update thinking message - dimmed cyan stream
-      const thinkingComponent = createThinkingMessage(event.content, globalThinkingStartTime || Date.now());
+      const thinkingComponent = createThinkingMessage(
+        event.content,
+        globalThinkingStartTime || Date.now(),
+      );
       tui.requestRender();
       break;
     }
@@ -707,7 +711,9 @@ function handleToolEvent(event: StreamEvent) {
       } else if (event.state === "warm" && (event.cacheReadTokens ?? 0) > 0) {
         showMessage(
           `*Prompt cache hit: ${event.cacheReadTokens!.toLocaleString()} tokens read${
-            event.cacheWriteTokens ? `, ${event.cacheWriteTokens.toLocaleString()} written` : ""
+            event.cacheWriteTokens
+              ? `, ${event.cacheWriteTokens.toLocaleString()} written`
+              : ""
           }*`,
         );
       }
@@ -1083,15 +1089,48 @@ function hideTodoPanel(): void {
   tui.requestRender();
 }
 
+// Transient notice (e.g. "Copied N chars"). Non-capturing so it never steals
+// focus from the editor; re-copying replaces the current one instead of
+// stacking boxes.
+let noticeOverlay: OverlayHandle | null = null;
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Rows occupied by the input and everything under it (spacer, mode line).
+// Used to lift the bottom-anchored notice so it sits right on top of the input.
+function inputChromeHeight(): number {
+  const start = tui.children.indexOf(editor);
+  if (start < 0) return 0;
+  return tui.children
+    .slice(start)
+    .reduce((sum, child) => sum + child.render(terminal.columns).length, 0);
+}
+
 function showCopiedIndicator(charCount: number, truncated: boolean): void {
   const label = truncated
     ? `Copied first ${charCount} chars (selection truncated)`
     : `Copied ${charCount} chars`;
-  const handle = tui.showOverlay(new Text(label), {
-    anchor: "bottom-right",
+
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeOverlay?.hide();
+
+  const modal = new NoticeModal(label);
+  noticeOverlay = tui.showOverlay(modal, {
+    // Pinned directly above the input instead of floating over the chat.
+    anchor: "bottom-center",
+    offsetY: -inputChromeHeight(),
+    // Hug the text so the notice stays a single line, capped only by what the
+    // terminal can actually show.
+    width: Math.min(modal.width(), Math.max(20, terminal.columns - 4)),
     nonCapturing: true,
   });
-  setTimeout(() => handle.hide(), 1500);
+
+  noticeTimer = setTimeout(() => {
+    noticeTimer = null;
+    noticeOverlay?.hide();
+    noticeOverlay = null;
+    tui.requestRender();
+  }, 1500);
+  noticeTimer.unref?.();
 }
 
 function extractSelectionText(): string {
@@ -1249,7 +1288,10 @@ function parseResumeArg(argv: string[]): { present: boolean; id?: string } {
   const i = argv.findIndex((a) => a === "--resume" || a === "-r");
   if (i === -1) return { present: false };
   const next = argv[i + 1];
-  return { present: true, id: next && !next.startsWith("-") ? next : undefined };
+  return {
+    present: true,
+    id: next && !next.startsWith("-") ? next : undefined,
+  };
 }
 
 async function resumeFromArgs(id: string): Promise<void> {
