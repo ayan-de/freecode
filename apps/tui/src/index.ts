@@ -877,6 +877,10 @@ editor.onSubmit = async (value: string) => {
         mod.registerFreecodeCommand();
         stopSoundFn = mod.stopSound;
       }
+      if (commandName === "mcp" && !commandRegistry.get("mcp")) {
+        const mod = await import("./commands/freecode/mcp.js");
+        mod.registerMcpCommand();
+      }
       const command = commandRegistry.get(commandName);
       if (command) {
         editor.setText("");
