@@ -24,6 +24,7 @@ import {
 } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
 import { formatTokenCount } from "./utils/format-tokens.js";
+import { resolveFdPath } from "./utils/fd-path.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
 import { plainText } from "./utils/ansi-select.js";
 import { copyToClipboard } from "./utils/clipboard.js";
@@ -192,10 +193,13 @@ process.stdout.on("resize", () => {
 editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
 
+// `@` file mentions need an fd binary; without one pi-tui returns no
+// suggestions for `@` and slash-command completion still works as before.
+const fdPath = resolveFdPath();
 const autocompleteProvider = new CombinedAutocompleteProvider(
   commandRegistry.getSlashCommands(),
   process.cwd(),
-  null,
+  fdPath,
 );
 editor.setAutocompleteProvider(autocompleteProvider);
 
@@ -1030,7 +1034,7 @@ void (async () => {
       new CombinedAutocompleteProvider(
         commandRegistry.getSlashCommands(),
         process.cwd(),
-        null,
+        fdPath,
       ),
     );
     tui.requestRender();

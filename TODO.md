@@ -56,8 +56,19 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
       there's no user-facing way to undo a turn's file changes. Mostly a command + a
       file-state diff on top of machinery we already paid for.
 
-- [ ] **9. TUI `@`-file mentions** — no mention autocomplete for pulling a file into the
-      prompt. TUI-only change.
+- [x] **9. TUI `@`-file mentions** — done. The audit was wrong: `CombinedAutocompleteProvider`
+      was already wired in `apps/tui/src/index.ts`, but with `fdPath = null`, and pi-tui's
+      `getFuzzyFileSuggestions` bails immediately without an fd binary — so `@` produced
+      nothing while slash-command completion kept working. Fixed by resolving fd from PATH
+      (`apps/tui/src/utils/fd-path.ts`) and passing it to both provider constructions.
+      Matches pi's `interactive-mode.ts:651`. Still open follow-ups:
+  - `@` is inert on machines without fd installed. pi downloads a copy
+        (`coding-agent/src/utils/tools-manager.ts`); we could instead fall back to the
+        readdir-based path completion pi-tui already has for non-`@` prefixes.
+  - Nothing tells the model what `@path` means — like pi, we insert the path as plain
+        text and rely on it calling `read`. A line in the system prompt would make that
+        explicit. (Content expansion at send time, Claude Code style, is the other option;
+        pi only does that for CLI `@file` args, in `cli/file-processor.ts`.)
 
 **Suggested order:** 1 → 2 → 3 (2 and 3 share one markdown loader), then 4. Items 5 and 8
 are larger, self-contained projects.
