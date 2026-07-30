@@ -758,6 +758,9 @@ async function submitPrompt(
     estimatedInput,
     0,
     turnContextLimit,
+    1,
+    // Same estimate drives the context meter: what this turn's request carries.
+    estimatedInput,
   );
 
   startCli();
@@ -815,6 +818,10 @@ async function submitPrompt(
       inProgressMsg.timestamp,
       result.turnCount || 1,
       result.usage?.cacheReadInputTokens ?? 0,
+      // ↓/↑ are run totals; the meter needs the last turn's context instead.
+      result.usage?.contextTokens ??
+        (result.usage?.inputTokens ?? 0) +
+          (result.usage?.cacheReadInputTokens ?? 0),
     );
 
     // Brief pause so user can see final token state before it disappears
@@ -943,6 +950,7 @@ editor.onSubmit = async (value: string) => {
             startTime: number,
             turns: number,
             cachedTokens?: number,
+            contextTokens?: number,
           ) =>
             updateInProgressMessage(
               id,
@@ -953,6 +961,7 @@ editor.onSubmit = async (value: string) => {
               startTime,
               turns,
               cachedTokens,
+              contextTokens,
             ),
           insertBeforeEditor: () => {
             /* no-op - messages go through store now */

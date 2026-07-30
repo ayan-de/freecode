@@ -62,6 +62,7 @@ export function createInProgressMessage(
   outputTokens = 0,
   contextLimit = 0,
   turns = 1,
+  contextTokens?: number,
 ): MessageInstance {
   const startTime = Date.now();
   const component = createMessageComponent(
@@ -72,6 +73,8 @@ export function createInProgressMessage(
     outputTokens,
     contextLimit,
     turns,
+    0,
+    contextTokens,
   );
   return addMessage("in_progress", phrase, component);
 }
@@ -95,6 +98,7 @@ export function updateInProgressMessage(
   startTime: number,
   turns: number,
   cachedTokens = 0,
+  contextTokens?: number,
 ): MessageInstance | undefined {
   const component = createMessageComponent(
     "in_progress",
@@ -105,6 +109,7 @@ export function updateInProgressMessage(
     contextLimit,
     turns,
     cachedTokens,
+    contextTokens,
   );
   return updateMessage(id, phrase, component);
 }

@@ -126,6 +126,10 @@ ${formatProviderList()}`);
         startTime,
         result.turnCount || 1,
         result.usage?.cacheReadInputTokens ?? 0,
+        // ↓/↑ are run totals; the meter needs the last turn's context instead.
+        result.usage?.contextTokens ??
+          (result.usage?.inputTokens ?? 0) +
+            (result.usage?.cacheReadInputTokens ?? 0),
       );
 
       // Brief pause so user can see final token state before it disappears

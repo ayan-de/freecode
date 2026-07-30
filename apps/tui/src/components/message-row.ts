@@ -31,6 +31,11 @@ export function resetLiveOutputTokens(): void {
  * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
  * Output tokens track the live streamed-text estimate until the final usage
  * arrives; input tokens show the real value once known (0 while streaming).
+ *
+ * ↓/↑ are run totals (billed tokens summed over every turn), while the meter
+ * shows context *occupancy* — what the provider saw on the latest request.
+ * They are different quantities, so the meter takes `contextTokens` rather
+ * than deriving itself from the run totals.
  */
 class InProgressMessage implements Component {
   private phrase: string;
@@ -40,6 +45,7 @@ class InProgressMessage implements Component {
   private contextLimit: number;
   private turns: number;
   private cachedTokens: number;
+  private contextTokens?: number;
 
   constructor(
     phrase: string,
@@ -49,6 +55,7 @@ class InProgressMessage implements Component {
     contextLimit: number,
     turns: number,
     cachedTokens = 0,
+    contextTokens?: number,
   ) {
     this.phrase = phrase;
     this.startTime = startTime;
@@ -57,6 +64,7 @@ class InProgressMessage implements Component {
     this.contextLimit = contextLimit;
     this.turns = turns;
     this.cachedTokens = cachedTokens;
+    this.contextTokens = contextTokens;
   }
 
   render(width: number): string[] {
@@ -74,8 +82,11 @@ class InProgressMessage implements Component {
     display += ` ${chalk.dim(`(x${this.turns})`)}`;
 
     if (this.contextLimit > 0) {
+      // Generated output is not part of the request that was just sent, so it
+      // never counts toward occupancy; without an explicit value fall back to
+      // the same estimate the final summary line uses (input + cache reads).
       const contextTokens =
-        this.baseInputTokens + outputTokens + this.cachedTokens;
+        this.contextTokens ?? this.baseInputTokens + this.cachedTokens;
       const pct = Math.min(contextTokens / this.contextLimit, 1);
       const barWidth = Math.min(10, Math.max(3, Math.floor(width / 12)));
       const filled = Math.round(pct * barWidth);
@@ -287,6 +298,7 @@ export function createInProgressMessageComponent(
   contextLimit: number,
   turns: number,
   cachedTokens = 0,
+  contextTokens?: number,
 ): Component {
   return new InProgressMessage(
     phrase,
@@ -296,6 +308,7 @@ export function createInProgressMessageComponent(
     contextLimit,
     turns,
     cachedTokens,
+    contextTokens,
   );
 }
 
@@ -311,6 +324,7 @@ export function createMessageComponent(
   contextLimit?: number,
   turns?: number,
   cachedTokens?: number,
+  contextTokens?: number,
 ): Component {
   switch (type) {
     case "user":
@@ -330,6 +344,7 @@ export function createMessageComponent(
         contextLimit ?? 0,
         turns ?? 1,
         cachedTokens ?? 0,
+        contextTokens,
       );
     default:
       return createSystemMessageComponent(content);

@@ -21,6 +21,8 @@ export interface MessageCreators {
     startTime: number,
     turns: number,
     cachedTokens?: number,
+    /** Context occupancy for the meter — distinct from the ↓/↑ run totals. */
+    contextTokens?: number,
   ): void;
   insertBeforeEditor(component: Component): void;
   removeMessageById(id: number): void;
