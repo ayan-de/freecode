@@ -2,7 +2,8 @@ import { Context, Effect, Layer } from "effect";
 import * as os from "os";
 import * as path from "path";
 import { loadMcpConfig } from "./config.js";
-import { createStdioTransport } from "./transport.js";
+import { createStdioTransport, createHttpTransport } from "./transport.js";
+import { registerClient } from "./client-registry.js";
 import type { McpServer, McpClient } from "./types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
@@ -47,16 +48,30 @@ export const MCPLive = Layer.effect(
           return;
         }
 
-        if (server.type !== "local") {
-          yield* Effect.fail(new Error("Remote MCP servers not yet supported"));
+        let transport;
+        if (server.type === "local") {
+          const cmdArgs = server.command?.slice(1) || [];
+          const extraArgs = server.args || [];
+          transport = createStdioTransport({
+            command: server.command?.[0] || "",
+            args: [...cmdArgs, ...extraArgs],
+            env: server.env as Record<string, string> | undefined,
+          });
+        } else if (server.type === "remote") {
+          if (!server.url) {
+            yield* Effect.fail(new Error("URL is required for remote MCP servers"));
+            return;
+          }
+          transport = createHttpTransport({
+            url: server.url,
+            headers: server.headers as Record<string, string> | undefined,
+          });
+        } else {
+          yield* Effect.fail(new Error(`Unknown MCP server type: ${server.type}`));
           return;
         }
 
-        const transport = createStdioTransport({
-          command: server.command?.[0] || "",
-          args: server.command?.slice(1) || [],
-          env: server.env as Record<string, string> | undefined,
-        });
+        const timeout = server.timeout ?? 30000;
 
         const mcpClient = new Client(
           {
@@ -79,6 +94,9 @@ export const MCPLive = Layer.effect(
             await mcpClient.close();
           },
         };
+
+        // Register the client so tools can use it
+        registerClient(name, mcpClient, timeout);
 
         clients.set(name, client);
       });

@@ -2,7 +2,7 @@ import * as os from "os";
 import * as path from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { loadMcpConfig } from "./config.js";
-import { createStdioTransport } from "./transport.js";
+import { createStdioTransport, createHttpTransport } from "./transport.js";
 import {
   registerClient,
   removeClient,
@@ -22,11 +22,28 @@ async function connectServer(
   server: McpServer,
 ): Promise<{ name: string; toolCount: number } | null> {
   try {
-    const transport = createStdioTransport({
-      command: server.command?.[0] || "",
-      args: server.command?.slice(1) || [],
-      env: server.env as Record<string, string> | undefined,
-    });
+    let transport;
+    const timeout = server.timeout ?? 30000;
+    if (server.type === "local") {
+      // Combine command args (command[0] + args) with server.args
+      const cmdArgs = server.command?.slice(1) || [];
+      const extraArgs = server.args || [];
+      transport = createStdioTransport({
+        command: server.command?.[0] || "",
+        args: [...cmdArgs, ...extraArgs],
+        env: server.env as Record<string, string> | undefined,
+      });
+    } else if (server.type === "remote") {
+      if (!server.url) {
+        throw new Error("URL is required for remote MCP servers");
+      }
+      transport = createHttpTransport({
+        url: server.url,
+        headers: server.headers as Record<string, string> | undefined,
+      });
+    } else {
+      throw new Error(`Unknown MCP server type: ${server.type}`);
+    }
 
     const mcpClient = new Client(
       {
@@ -41,7 +58,7 @@ async function connectServer(
     await mcpClient.connect(transport);
 
     // Register the client so tools can use it
-    registerClient(server.name, mcpClient);
+    registerClient(server.name, mcpClient, timeout);
 
     // List tools and register them
     const toolsResponse = await mcpClient.listTools();
@@ -98,7 +115,7 @@ export async function stopMcpServers(): Promise<void> {
 
   // Unregister all MCP tools
   for (const name of names) {
-    unregisterMcpTools(`${name}_`);
+    unregisterMcpTools(`mcp__${name}__`);
   }
 }
 
@@ -112,10 +129,6 @@ export async function connectMcpServer(
   const server = config.servers.find((s) => s.name === name);
   if (!server) {
     throw new Error(`MCP server "${name}" not found in config`);
-  }
-
-  if (server.type !== "local") {
-    throw new Error("Remote MCP servers not yet supported");
   }
 
   // Check if already connected
@@ -139,6 +152,6 @@ export async function disconnectMcpServer(name: string): Promise<void> {
 
   await client.close();
   removeClient(name);
-  unregisterMcpTools(`${name}_`);
+  unregisterMcpTools(`mcp__${name}__`);
   BusEvents.mcpServerStopped(name, "manual");
 }

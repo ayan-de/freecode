@@ -1,6 +1,6 @@
 import type { Tool } from "../tools/tool.types.js";
 import type { JsonSchema, JsonSchemaProperty } from "../tools/tool.types.js";
-import { getClient } from "./client-registry.js";
+import { getClient, getClientTimeout } from "./client-registry.js";
 
 interface McpToolDef {
   name: string;
@@ -14,7 +14,8 @@ interface CallToolResult {
 }
 
 export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
-  const prefixedName = `${serverName}_${mcpTool.name}`;
+  // Use mcp__server__tool format for permission rule matching
+  const prefixedName = `mcp__${serverName}__${mcpTool.name}`;
 
   return {
     id: prefixedName,
@@ -74,10 +75,12 @@ export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
 
       try {
         const args = params as Record<string, unknown>;
-        const result = (await client.callTool({
-          name: mcpTool.name,
-          arguments: args,
-        })) as CallToolResult;
+        const timeout = getClientTimeout(serverName);
+        const result = (await client.callTool(
+          { name: mcpTool.name, arguments: args },
+          undefined,
+          { timeout },
+        )) as CallToolResult;
         // MCP returns { content: [{ type: 'text', text: '...' }] }
         const output = result.content
           .map((c) => (c.type === "text" ? c.text : JSON.stringify(c)))
