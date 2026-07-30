@@ -212,6 +212,17 @@ export const METHODS = {
       scope: string;
     }[],
   },
+  "mcp.status": {
+    params: { name: undefined as string | undefined },
+    result: [] as {
+      name: string;
+      type: string;
+      enabled: boolean;
+      status: "connected" | "disconnected";
+      toolCount: number;
+      tools: string[];
+    }[],
+  },
 } as const;
 
 export type MethodName = keyof typeof METHODS;

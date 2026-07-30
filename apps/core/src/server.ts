@@ -52,7 +52,8 @@ import {
 } from "./store/index.js";
 import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
-import { initMcpServers } from "./mcp/index.js";
+import { initMcpServers, listClients, getMcpTools } from "./mcp/index.js";
+import { getConfigDir } from "./cli/utils/config.js";
 import { registerRtkHook } from "./hooks/builtin/rtk-rewrite.js";
 import {
   bus,
@@ -423,6 +424,38 @@ const methodHandlers: Record<
       description: s.description,
       scope: s.scope,
     }));
+  },
+
+  "mcp.status": async (
+    params: Record<string, unknown>,
+  ): Promise<
+    { name: string; type: string; enabled: boolean; status: "connected" | "disconnected"; toolCount: number; tools: string[] }[]
+  > => {
+    const { name } = params as { name?: string };
+    const config = await import("./mcp/config.js").then((m) =>
+      m.loadMcpConfig(getConfigDir()),
+    );
+    const connectedServers = listClients();
+    const mcpTools = getMcpTools();
+
+    const servers = name
+      ? config.servers.filter((s) => s.name === name)
+      : config.servers;
+
+    return servers.map((server) => {
+      const isConnected = connectedServers.includes(server.name);
+      const serverTools = Object.values(mcpTools).filter(
+        (t: any) => t.id && t.id.startsWith(`mcp__${server.name}__`),
+      );
+      return {
+        name: server.name,
+        type: server.type,
+        enabled: server.enabled,
+        status: isConnected ? "connected" : "disconnected",
+        toolCount: serverTools.length,
+        tools: serverTools.map((t: any) => t.id),
+      };
+    });
   },
 
   "commands.list": async (): Promise<unknown[]> => {
