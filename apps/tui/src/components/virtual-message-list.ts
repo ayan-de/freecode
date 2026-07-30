@@ -280,15 +280,19 @@ export class VirtualMessageList implements Component {
     }
 
     // Scrolled mode: return a stable window of lines plus an indicator row.
+    // The row stays (blank) even with the text commented out — dropping it
+    // would shrink the rendered height to `content` and shift the editor down
+    // by a row the moment scrolling starts.
     this.scrollTop = Math.min(this.scrollTop, lines.length - content);
     const start = this.scrollTop;
     const window = lines.slice(start, start + content);
-    const below = lines.length - (start + content);
-    window.push(
-      chalk.dim(
-        `── ↑ ${start} line${start === 1 ? "" : "s"} above · ↓ ${below} below · PgUp/PgDn to scroll ──`,
-      ),
-    );
+    // const below = lines.length - (start + content);
+    // window.push(
+    //   chalk.dim(
+    //     `── ↑ ${start} line${start === 1 ? "" : "s"} above · ↓ ${below} below · PgUp/PgDn to scroll ──`,
+    //   ),
+    // );
+    window.push("");
     return window;
   }
 

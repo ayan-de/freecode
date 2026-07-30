@@ -22,7 +22,7 @@ test("follow mode renders all lines when content fits the viewport", () => {
   list.destroy();
 });
 
-test("scrollPageUp windows tall content and adds an indicator", () => {
+test("scrollPageUp windows tall content and reserves the indicator row", () => {
   clearMessages();
   addLines(50);
   const list = new VirtualMessageList(100, () => 10);
@@ -32,10 +32,10 @@ test("scrollPageUp windows tall content and adds an indicator", () => {
   assert.equal(list.isScrolled, true);
 
   const out = list.render(80);
-  // 9 content rows + 1 indicator row = viewport of 10
+  // 9 content rows + 1 indicator row = viewport of 10. The indicator text is
+  // commented out, but the row is still reserved to keep the height stable.
   assert.equal(out.length, 10);
-  assert.match(out[9], /above/);
-  assert.match(out[9], /below/);
+  assert.equal(out[9], "");
   // One page (8 lines) above the bottom window: window starts at 50-9-8=33
   assert.match(out[0], /line-33/);
   list.destroy();
@@ -50,7 +50,7 @@ test("scrollPageUp clamps at the top", () => {
   for (let i = 0; i < 10; i++) list.scrollPageUp();
   const out = list.render(80);
   assert.match(out[0], /line-0/);
-  assert.match(out[9], /↑ 0 lines above/);
+  assert.equal(out[9], "");
   list.destroy();
 });
 
@@ -97,8 +97,8 @@ test("scrolled window stays anchored while new messages stream in", () => {
   const after = list.render(80);
   // Same first visible line — reading position is stable.
   assert.equal(after[0], before[0]);
-  // Indicator reflects the extra content below.
-  assert.match(after[9], /↓ 18 below/);
+  // Height is unchanged by the extra content below.
+  assert.equal(after.length, before.length);
   list.destroy();
 });
 
