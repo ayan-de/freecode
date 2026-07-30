@@ -13,6 +13,68 @@
 
 ## Pending
 
+### Extensibility gaps (audit 2026-07-31)
+
+What a user can extend without editing FreeCode's source. Covered today: MCP servers,
+skills (incl. `~/.claude/plugins` scope), permission rules via `.freecode/settings.json`,
+and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
+
+- [ ] **1. Hooks from `settings.json`** — the highest-leverage gap. All 14 events are
+      implemented and `hooks/executors/command.ts` can already shell out, but
+      `registerHook` (`apps/core/src/hooks/registry.ts:130`) is only ever called from TS —
+      `hooks/builtin/rtk-rewrite.ts` is the sole caller. Nothing reads a `hooks` key from
+      `.freecode/settings.json`, so a user cannot add a hook without editing our source.
+      Copy the loader pattern from `permission/settings.ts` (project → user merge, fail
+      closed on parse error, watch for changes). Runtime is done; this is config plumbing.
+
+- [ ] **2. User-defined slash commands** — `apps/core/src/commands/registry.ts` is a
+      hardcoded map with exactly one entry (`/init`). See the detailed section below;
+      reuse the frontmatter-markdown discovery already in `skills/loader.ts`.
+
+- [ ] **3. User-defined subagents** — `SubagentType` (`apps/core/src/agent/types.ts:38-43`)
+      is a closed union of five, with descriptions in `SUBAGENT_DEFINITIONS`. No
+      `.freecode/agents/*.md` loader. Bind loaded agents to the existing capability
+      profiles in `permission/profiles.ts`. Shares its markdown loader with item 2.
+
+- [ ] **4. Rules hierarchy** — `context/instructions.ts` reads `CLAUDE.md`/`AGENTS.md` from
+      exactly two dirs (global `~/.freecode/`, project root), first match wins, 40k char cap.
+      Missing: walk-up for monorepos, `@imports` (both deferred in the comment at line 6),
+      and glob-scoped rules (the Cursor `.mdc` model — "apply only for `**/*.tsx`").
+      Nested-directory rules would also give scoped skills somewhere to live.
+
+- [ ] **5. Multimodal input** — `MessagePart` (`packages/shared/src/types.ts:12-19`) is
+      text/code/tool only, and `read` cannot return an image. Blocks screenshots, design
+      mocks, and diagram debugging. Touches the shared protocol + every provider adapter.
+
+- [ ] **6. Background bash** — no `run_in_background` in `tools/bash.ts`, so a dev server
+      or long build blocks the turn.
+
+- [ ] **7. MCP server (expose)** — serve FreeCode's tools *as* an MCP server. The client
+      side is done. Already listed as deferred in `CLAUDE.md`.
+
+- [ ] **8. Checkpoints / rewind** — `rollout/` has full event sourcing and `replay.ts`, but
+      there's no user-facing way to undo a turn's file changes. Mostly a command + a
+      file-state diff on top of machinery we already paid for.
+
+- [ ] **9. TUI `@`-file mentions** — no mention autocomplete for pulling a file into the
+      prompt. TUI-only change.
+
+**Suggested order:** 1 → 2 → 3 (2 and 3 share one markdown loader), then 4. Items 5 and 8
+are larger, self-contained projects.
+
+
+
+
+  - Stale entries in ## Completed — it says "10 Hook Types (8 fully wired, 2 stubbed)" (there are 14 now), and ### 
+  Effect/Layer DI sits under Pending marked "Skipped", though apps/core/src/effect/ is implemented and documented as
+  live in CLAUDE.md. Reads as contradictory next to a fresh audit.
+  - Lines ~37–176 are a pasted terminal transcript (MCP subagent run output, "Input suggestion", progress spinners)
+  sitting mid-file between the two Pending entries. Looks accidental. The only real content buried in it is the remote
+  MCP server support note at the end (mcp/service.ts rejects non-local servers; config schema already has a url
+  field) — that's a genuine TODO worth keeping.
+
+  Want me to fix the stale statuses and strip the transcript, promoting the remote-MCP note to a proper entry?
+
 ### User-defined prompt commands loader
 
 **Status:** Not started
