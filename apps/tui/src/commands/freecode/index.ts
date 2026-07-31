@@ -22,6 +22,7 @@ import {
 } from "../../utils/elapsed-phrases.js";
 import { getModelContextLimit } from "../../utils/model-limits.js";
 import { formatTokenCount } from "../../utils/format-tokens.js";
+import { formatDuration } from "../../utils/format-duration.js";
 export { stopSound } from "./sound.js";
 
 // State
@@ -139,10 +140,7 @@ ${formatProviderList()}`);
       ctx.removeMessageById(inProgressId);
 
       const elapsed = Date.now() - startTime;
-      const seconds = Math.floor(elapsed / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-      const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+      const timeStr = formatDuration(elapsed);
 
       if (result.success) {
         const response = result.content || result.message;
