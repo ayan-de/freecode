@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.2
+
+### Fixed
+- Bash tool could hang indefinitely on commands that blocked reading stdin (interactive prompts, `read`, `git push` over HTTPS, `sudo`, `apt`) — the child got a pipe that no one wrote to, so the configured timeout was the only escape. The child now starts with stdin attached to `/dev/null` and the prompt-blocking env vars (`GIT_TERMINAL_PROMPT=0`, `DEBIAN_FRONTEND=noninteractive`) are set, so such commands exit cleanly instead. The SIGKILL escalation timer is now also cleared on `close`/`error`, and a timeout is reported as `success: false, code: "TIMEOUT_<ms>"` so the loop doesn't conclude the command ran successfully.
+
 ## v0.8.1
 
 ### Fixed
