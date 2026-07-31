@@ -7,7 +7,7 @@ import stringWidth from "string-width";
 //   "+ 12 content" / "- 12 content" / "  12 content" / "     …"
 const DIFF_LINE = /^([+\- ])(\s*\d*)\s(.*)$/;
 
-const diffTheme = {
+export const diffTheme = {
   keyword: chalk.hex("#ff79c6"),      // Dracula pink/magenta
   built_in: chalk.hex("#8be9fd"),     // Dracula cyan
   type: chalk.hex("#8be9fd"),         // Dracula cyan
@@ -25,7 +25,7 @@ const diffTheme = {
   default: chalk.hex("#f8f8f2")       // Dracula white
 };
 
-function getLanguageFromFilename(filename?: string): string | undefined {
+export function getLanguageFromFilename(filename?: string): string | undefined {
   if (!filename) return undefined;
   const ext = filename.split('.').pop()?.toLowerCase();
   if (!ext) return undefined;

@@ -44,16 +44,20 @@ export class VirtualMessageList implements Component {
   private lastRenderedLines: string[] = [];
   private getSelection: () => Selection | null;
 
+  private getVerticalOffset: () => number;
+
   constructor(
     maxVisible = 100,
     getViewportRows: () => number = () => 24,
     header?: Component,
     getSelection: () => Selection | null = () => null,
+    getVerticalOffset: () => number = () => 0,
   ) {
     this.maxVisible = maxVisible;
     this.getViewportRows = getViewportRows;
     this.header = header;
     this.getSelection = getSelection;
+    this.getVerticalOffset = getVerticalOffset;
     // Subscribe to message store changes
     this.unsubscribe = subscribeToMessages((msgs) => {
       this.messages = msgs;
@@ -152,7 +156,7 @@ export class VirtualMessageList implements Component {
   /** Maps each rendered line index to its owning message (null for header rows). */
   private lastLineMap: { msg: MessageInstance | null }[] = [];
 
-  handleClick(_cx: number, cy: number): void {
+  handleClick(_cx: number, cy: number): boolean {
     const content = this.contentRows();
     let startIndex = 0;
 
@@ -164,12 +168,16 @@ export class VirtualMessageList implements Component {
       startIndex = this.scrollTop;
     }
 
-    const clickedIndex = startIndex + (cy - 1);
+    const offset = this.getVerticalOffset();
+    const relativeY = cy - offset;
+    const clickedIndex = startIndex + (relativeY - 1);
     const entry = this.lastLineMap[clickedIndex];
-    if (entry?.msg?.component instanceof ThinkingMessage) {
-      entry.msg.component.toggle();
+    if (entry?.msg?.component && "toggle" in entry.msg.component && typeof (entry.msg.component as any).toggle === "function") {
+      (entry.msg.component as any).toggle();
       this.invalidate();
+      return true;
     }
+    return false;
   }
 
   /** Returns the last-rendered ANSI string for a full (unwindowed) line index. */
@@ -193,7 +201,9 @@ export class VirtualMessageList implements Component {
     } else {
       startIndex = this.scrollTop;
     }
-    const lineIndex = startIndex + (cy - 1);
+    const offset = this.getVerticalOffset();
+    const relativeY = cy - offset;
+    const lineIndex = startIndex + (relativeY - 1);
     if (lineIndex < 0 || lineIndex >= this.lastRenderedLines.length) return null;
     return { lineIndex, column: Math.max(0, cx - 1) };
   }

@@ -24,6 +24,7 @@ import {
 } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
 import { formatTokenCount } from "./utils/format-tokens.js";
+import { formatDuration } from "./utils/format-duration.js";
 import { resolveFdPath } from "./utils/fd-path.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
 import { plainText } from "./utils/ansi-select.js";
@@ -161,6 +162,15 @@ const selectionStore = new SelectionStore();
 // mode: terminal height minus the chrome below it (editor, spacers, mode line)
 // and the fixed status header, so the scrolled window and the input stay on
 // screen together.
+const getMessageListOffset = () => {
+  const idx = tui.children.indexOf(messageList);
+  if (idx <= 0) return 0;
+  return tui.children.slice(0, idx).reduce((sum, child) => {
+    if (child === statusHeader) return sum + statusHeader.height();
+    return sum + child.render(terminal.columns).length;
+  }, 0);
+};
+
 messageList = new VirtualMessageList(
   200,
   () => {
@@ -176,6 +186,7 @@ messageList = new VirtualMessageList(
   },
   infoBox,
   () => selectionStore.get(),
+  getMessageListOffset,
 );
 messageList.setTui(tui);
 tui.addChild(messageList);
@@ -835,10 +846,7 @@ async function submitPrompt(
     removeMessageById(inProgressMsg.id);
 
     const elapsed = Date.now() - inProgressMsg.timestamp;
-    const seconds = Math.floor(elapsed / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const timeStr = minutes > 0 ? `${minutes}m ${secs}s` : `${secs}s`;
+    const timeStr = formatDuration(elapsed);
 
     if (result.success) {
       const response = result.content || result.message;
@@ -1233,6 +1241,11 @@ tui.addInputListener((data) => {
     if (button === 0 && !isDrag && jumpButtonHit(cx, cy)) {
       messageList.scrollToBottom();
       tui.requestRender();
+      return { consume: true };
+    }
+
+    // Check if the click toggles an expandable message (e.g. thoughts or tool results)
+    if (button === 0 && !isDrag && messageList.handleClick(cx, cy)) {
       return { consume: true };
     }
 

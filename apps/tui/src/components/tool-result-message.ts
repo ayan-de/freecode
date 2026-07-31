@@ -1,6 +1,8 @@
 import { Component, Text, Box, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { renderDiff, looksLikeDiff, getDiffStats } from "./diff-view.js";
+import { renderDiff, looksLikeDiff, getDiffStats, diffTheme, getLanguageFromFilename } from "./diff-view.js";
+import { highlight, supportsLanguage } from "cli-highlight";
+import { formatDuration } from "../utils/format-duration.js";
 
 export interface ToolResultMessageOptions {
   toolCallId: string;
@@ -13,15 +15,17 @@ export interface ToolResultMessageOptions {
 
 // Color mapping for different tools
 const TOOL_COLORS: Record<string, (text: string) => string> = {
-  Read: (t) => chalk.blue(t),
-  Write: (t) => chalk.green(t),
-  Edit: (t) => chalk.yellow(t),
-  Bash: (t) => chalk.red(t),
-  Glob: (t) => chalk.cyan(t),
-  Grep: (t) => chalk.magenta(t),
-  Skill: (t) => chalk.white(t),
-  Agent: (t) => chalk.white(t),
+  Read: (t) => chalk.blueBright(t),
+  Write: (t) => chalk.greenBright(t),
+  Edit: (t) => chalk.yellowBright(t),
+  Bash: (t) => chalk.redBright(t),
+  Glob: (t) => chalk.cyanBright(t),
+  Grep: (t) => chalk.magentaBright(t),
+  Skill: (t) => chalk.whiteBright(t),
+  Agent: (t) => chalk.whiteBright(t),
 };
+
+
 
 export class ToolResultMessage implements Component {
   /** Max result lines shown before collapsing to a "… +N lines" tail. */
@@ -50,10 +54,10 @@ export class ToolResultMessage implements Component {
   }
 
   render(width: number): string[] {
-    const colorFn = TOOL_COLORS[this.toolName] || ((t: string) => t);
+    const colorFn = TOOL_COLORS[this.toolName] || TOOL_COLORS[this.toolName.toLowerCase()] || TOOL_COLORS[this.toolName.charAt(0).toUpperCase() + this.toolName.slice(1).toLowerCase()] || ((t: string) => t);
     const statusIcon = this.success ? chalk.green("●") : chalk.red("✖");
     const argsStr = this.formatArgs();
-    const duration = this.duration_ms ? `(${this.duration_ms}ms)` : "";
+    const duration = this.duration_ms !== undefined ? `(${formatDuration(this.duration_ms)})` : "";
 
     const lines: string[] = [];
     lines.push(""); // Empty line above
@@ -63,19 +67,21 @@ export class ToolResultMessage implements Component {
     let headerAction = this.toolName;
     let headerTarget = `(${argsStr})`;
     
-    // Custom formatting for common tools like Claude Code
-    const isFileUpdate = ["Write", "Edit", "replace_file_content", "multi_replace_file_content"].includes(this.toolName);
-    const isFileRead = ["Read", "view_file"].includes(this.toolName);
-    const isRun = ["Bash", "run_command"].includes(this.toolName);
+    const toolNameLower = this.toolName.toLowerCase();
+    const isFileUpdate = ["write", "edit", "replace_file_content", "multi_replace_file_content"].includes(toolNameLower);
+    const isFileRead = ["read", "view_file", "skill", "webfetch", "bash"].includes(toolNameLower);
+    const isRun = ["bash", "run_command"].includes(toolNameLower);
 
-    if ((isFileUpdate || isFileRead) && this.args) {
-      const fileArg = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath || this.args.filePath) as string;
-      if (fileArg) {
-        headerAction = isFileUpdate ? "Update" : "Read";
-        const cwd = process.cwd();
-        const displayFile = fileArg.startsWith(cwd) ? fileArg.slice(cwd.length + 1) : fileArg;
-        headerTarget = `(${displayFile})`;
-      }
+    let filename: string | undefined = undefined;
+    if (this.args) {
+      filename = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath || this.args.filePath) as string;
+    }
+
+    if ((isFileUpdate || isFileRead) && filename) {
+      headerAction = isFileUpdate ? "Update" : "Read";
+      const cwd = process.cwd();
+      const displayFile = filename.startsWith(cwd) ? filename.slice(cwd.length + 1) : filename;
+      headerTarget = `(${displayFile})`;
     } else if (isRun && this.args) {
       const cmdArg = (this.args.CommandLine || this.args.command || "") as string;
       if (cmdArg) {
@@ -84,7 +90,7 @@ export class ToolResultMessage implements Component {
       }
     }
 
-    let header = `${statusIcon} ${chalk.bold(colorFn(headerAction))}${chalk.dim(headerTarget)}`;
+    let header = `${statusIcon} ${chalk.bold(colorFn(headerAction))}${headerTarget}`;
     if (duration) {
        header += ` ${chalk.dim(duration)}`;
     }
@@ -104,10 +110,6 @@ export class ToolResultMessage implements Component {
 
       lines.push(`${chalk.dim("└─")} ${statText}`);
 
-      let filename: string | undefined = undefined;
-      if (this.args) {
-        filename = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath || this.args.filePath) as string;
-      }
       const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth, filename);
       const preview = colored.slice(0, ToolResultMessage.MAX_DIFF_LINES);
       preview.forEach((raw) => {
@@ -117,9 +119,21 @@ export class ToolResultMessage implements Component {
       if (hidden > 0) {
         lines.push(`   ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`);
       }
-    } else if (displayResult) {
+    } else if (displayResult && !isFileRead) {
       const resultLines = displayResult.replace(/\r/g, "").split("\n");
-      const preview = resultLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
+      
+      let highlightedLines = resultLines;
+      const lang = getLanguageFromFilename(filename);
+      if (lang && supportsLanguage(lang)) {
+        try {
+          const highlightedText = highlight(displayResult, { language: lang, theme: diffTheme });
+          highlightedLines = highlightedText.split("\n");
+        } catch (err) {
+          // fallback
+        }
+      }
+
+      const preview = highlightedLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
       
       if (isRun) {
         lines.push(`${chalk.dim("└─")} Output`);
@@ -127,13 +141,13 @@ export class ToolResultMessage implements Component {
       
       preview.forEach((raw, i) => {
         const prefix = (i === 0 && !isRun) ? chalk.dim("└─") : "  ";
-        lines.push(` ${prefix} ${chalk.dim(truncateToWidth(raw, resultWidth))}`);
+        lines.push(` ${prefix} ${truncateToWidth(raw, resultWidth)}`);
       });
       const hidden = resultLines.length - preview.length;
       if (hidden > 0) {
         lines.push(`    ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`);
       }
-    } else if (this.success) {
+    } else if (this.success && !isFileRead) {
       lines.push(` ${chalk.dim("└─")} ${chalk.dim("(no output)")}`);
     }
 
