@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.1
+
+### Fixed
+- Tool calls truncated by the output-token cap (notably MiniMax's previous 4096 default) were stored in session history as a raw JSON string, which providers then rejected as `tool_use.input: Input should be a valid dictionary` — bricking the session on every subsequent request. The streaming normalizer now rejects malformed tool-call inputs with an actionable error instead of letting them into history, and the request-layer conversion sends `{}` for any pre-existing poison in loaded history.
+- MiniMax provider default `maxOutputTokens` raised from 4096 to 65536 (the endpoint's own ceiling is 524288 on M3 / 196608 on M2). Larger `write` and `edit` calls no longer cut off mid-JSON.
+
 ## v0.8.0
 
 ### Added
