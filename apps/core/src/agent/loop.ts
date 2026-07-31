@@ -33,6 +33,7 @@ import { evaluatePermission } from "../permission/evaluate.js";
 import { promptForPermission } from "../permission/prompt.js";
 import { PermissionSettingsManager } from "../permission/settings.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
+import { logger } from "../utils/logger.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { renderTodoPromptBlock } from "../tools/todo.js";
@@ -370,7 +371,7 @@ export class AgentLoop {
           return this.complete(`Loop stopped: ${healthAction.reason}`);
         }
         if (healthAction.action === "warn") {
-          console.warn(`[AgentLoop] Warning: ${healthAction.reason}`);
+          logger.debug(`[AgentLoop] Warning: ${healthAction.reason}`);
         }
 
         // Todo nudge: after several turns with no todowrite call, remind the

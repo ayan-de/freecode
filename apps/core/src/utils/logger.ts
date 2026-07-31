@@ -28,6 +28,7 @@ export class ConsoleLogger implements Logger {
   }
 
   debug(message: string, meta?: Record<string, unknown>): void {
+    if (!process.env.FREECODE_DEBUG) return;
     this.log("debug", message, meta);
   }
 
