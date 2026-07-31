@@ -1,9 +1,58 @@
 import chalk from "chalk";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { highlight, supportsLanguage } from "cli-highlight";
+import stringWidth from "string-width";
 
 // Matches a line-numbered diff row produced by core's generateDiffString:
 //   "+ 12 content" / "- 12 content" / "  12 content" / "     …"
 const DIFF_LINE = /^([+\- ])(\s*\d*)\s(.*)$/;
+
+function getLanguageFromFilename(filename?: string): string | undefined {
+  if (!filename) return undefined;
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (!ext) return undefined;
+  switch (ext) {
+    case 'js':
+    case 'jsx':
+      return 'javascript';
+    case 'ts':
+    case 'tsx':
+      return 'typescript';
+    case 'json':
+      return 'json';
+    case 'md':
+      return 'markdown';
+    case 'html':
+    case 'htm':
+      return 'html';
+    case 'css':
+      return 'css';
+    case 'sh':
+    case 'bash':
+      return 'bash';
+    case 'yml':
+    case 'yaml':
+      return 'yaml';
+    case 'py':
+      return 'python';
+    case 'go':
+      return 'go';
+    case 'rs':
+      return 'rust';
+    case 'rb':
+      return 'ruby';
+    case 'c':
+    case 'h':
+    case 'cpp':
+    case 'hpp':
+    case 'cc':
+      return 'cpp';
+    case 'java':
+      return 'java';
+    default:
+      return undefined;
+  }
+}
 
 /**
  * True when `text` looks like a core-generated line-numbered diff — i.e. it
@@ -35,22 +84,61 @@ export function getDiffStats(diffText: string): { added: number; removed: number
  * Context lines are dim, removals red background, additions green background.
  * Each row is truncated to `width`.
  */
-export function renderDiff(diffText: string, width: number): string[] {
+export function renderDiff(diffText: string, width: number, filename?: string): string[] {
+  const lang = getLanguageFromFilename(filename);
+  const useHighlight = lang && supportsLanguage(lang);
+
   return diffText.split("\n").map((line) => {
     const m = line.match(DIFF_LINE);
-    const row = truncateToWidth(line, width);
-    if (!m) return chalk.dim(row);
+    if (!m) {
+      const row = truncateToWidth(line, width);
+      return chalk.dim(row);
+    }
     
-    // Pad to fill the background color across the terminal width
-    const paddedRow = row.padEnd(width, " ");
+    const indicator = m[1];
+    const lineNum = m[2];
+    const codeContent = m[3];
 
-    switch (m[1]) {
+    let highlightedCode = codeContent;
+    if (useHighlight && codeContent.trim().length > 0) {
+      try {
+        highlightedCode = highlight(codeContent, { language: lang });
+      } catch (err) {
+        // Fallback to unhighlighted code
+      }
+    }
+
+    const lead = `${indicator}${lineNum} `;
+    let formattedLead = lead;
+
+    switch (indicator) {
       case "+":
-        return chalk.bgHex("#143c1a").greenBright(paddedRow);
+        formattedLead = chalk.greenBright(lead);
+        break;
       case "-":
-        return chalk.bgHex("#4d1419").redBright(paddedRow);
+        formattedLead = chalk.redBright(lead);
+        break;
       default:
-        return chalk.dim(row);
+        formattedLead = chalk.dim(lead);
+        break;
+    }
+
+    const row = formattedLead + highlightedCode;
+    const truncatedRow = truncateToWidth(row, width);
+
+    // Compute visible length using stringWidth to pad with background color correctly
+    const visibleWidth = stringWidth(truncatedRow);
+    const padding = " ".repeat(Math.max(0, width - visibleWidth));
+    const paddedRow = truncatedRow + padding;
+
+    switch (indicator) {
+      case "+":
+        return chalk.bgHex("#143c1a")(paddedRow);
+      case "-":
+        return chalk.bgHex("#4d1419")(paddedRow);
+      default:
+        return chalk.dim(truncatedRow);
     }
   });
 }
+

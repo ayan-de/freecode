@@ -34,20 +34,35 @@ class ServerConnection {
   private diagnostics = new Map<string, Diagnostic[]>();
   private openDocs = new Set<string>();
   private initialized: Promise<void>;
+  private initError: Error | null = null;
 
   constructor(spec: ServerSpec, private root: string) {
     this.proc = spawn(spec.command, spec.args, {
       cwd: root,
       stdio: ["pipe", "pipe", "pipe"],
     }) as ChildProcessWithoutNullStreams;
+
+    this.proc.on("error", (err) => {
+      this.initError = err;
+      for (const p of this.pending.values()) {
+        p.reject(err);
+      }
+      this.pending.clear();
+    });
+
     this.proc.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
     this.proc.stderr.on("data", () => {
       /* swallow server logs */
     });
-    this.initialized = this.initialize();
+    this.initialized = this.initialize().catch((err) => {
+      this.initError = err;
+    });
   }
 
   private async initialize(): Promise<void> {
+    if (this.initError) {
+      throw this.initError;
+    }
     await this.request("initialize", {
       processId: process.pid,
       rootUri: pathToFileURL(this.root).href,
@@ -135,6 +150,9 @@ class ServerConnection {
 
   async openDocument(file: string): Promise<void> {
     await this.initialized;
+    if (this.initError) {
+      throw this.initError;
+    }
     const uri = pathToFileURL(file).href;
     if (this.openDocs.has(uri)) return;
     const text = fs.readFileSync(file, "utf-8");

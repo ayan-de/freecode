@@ -104,7 +104,11 @@ export class ToolResultMessage implements Component {
 
       lines.push(`${chalk.dim("└─")} ${statText}`);
 
-      const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth);
+      let filename: string | undefined = undefined;
+      if (this.args) {
+        filename = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath) as string;
+      }
+      const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth, filename);
       const preview = colored.slice(0, ToolResultMessage.MAX_DIFF_LINES);
       preview.forEach((raw) => {
         lines.push(`   ${raw}`);
