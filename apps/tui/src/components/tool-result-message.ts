@@ -90,7 +90,7 @@ export class ToolResultMessage implements Component {
       }
     }
 
-    let header = `${statusIcon} ${chalk.bold(colorFn(headerAction))}${chalk.dim(headerTarget)}`;
+    let header = `${statusIcon} ${chalk.bold(colorFn(headerAction))}${headerTarget}`;
     if (duration) {
        header += ` ${chalk.dim(duration)}`;
     }
