@@ -19,13 +19,12 @@ What a user can extend without editing FreeCode's source. Covered today: MCP ser
 skills (incl. `~/.claude/plugins` scope), permission rules via `.freecode/settings.json`,
 and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
 
-- [ ] **1. Hooks from `settings.json`** — the highest-leverage gap. All 14 events are
-      implemented and `hooks/executors/command.ts` can already shell out, but
-      `registerHook` (`apps/core/src/hooks/registry.ts:130`) is only ever called from TS —
-      `hooks/builtin/rtk-rewrite.ts` is the sole caller. Nothing reads a `hooks` key from
-      `.freecode/settings.json`, so a user cannot add a hook without editing our source.
-      Copy the loader pattern from `permission/settings.ts` (project → user merge, fail
-      closed on parse error, watch for changes). Runtime is done; this is config plumbing.
+- [x] **1. Hooks from `settings.json`** — ✅ DONE. All 14 events are implemented and
+      `hooks/executors/command.ts` can already shell out. Added `hooks/settings.ts` loader
+      that reads `.freecode/settings.json` (project) and `~/.freecode/settings.json` (user),
+      with project → user merge, fail-closed validation, file watching (300ms debounce),
+      and automatic injection of `type: "command"`. Wired into `server.ts`. Spec:
+      `docs/superpowers/specs/2026-07-31-hooks-settings-design.md`.
 
 - [ ] **2. User-defined slash commands** — `apps/core/src/commands/registry.ts` is a
       hardcoded map with exactly one entry (`/init`). See the detailed section below;
