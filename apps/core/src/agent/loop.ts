@@ -647,7 +647,7 @@ export class AgentLoop {
         outcome.tokensAfter,
       );
     } else {
-      console.warn(`[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`);
+      logger.warn(`[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`);
     }
 
     BusEvents.stream(this.state.sessionId, {
@@ -1190,7 +1190,7 @@ export class AgentLoop {
     // PreToolUse Hook — can block or modify tool call
     const preResult = await this.hooks.runPreToolUse(toolCall, hookContext);
     if (!preResult.allowed) {
-      console.warn(
+      logger.warn(
         `[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.blockReason ?? "no reason"}`,
       );
       const blockedResult = {
@@ -1260,7 +1260,7 @@ export class AgentLoop {
           : permResult.decision;
 
       if (decision === "deny") {
-        console.warn(
+        logger.warn(
           `[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`,
         );
         return {

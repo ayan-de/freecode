@@ -20,6 +20,7 @@ import type {
   LoaderOptions,
   SkillLoadResult,
 } from "./types.js";
+import { logger } from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,7 +200,7 @@ function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
   try {
     content = fs.readFileSync(filePath, "utf-8");
   } catch (error) {
-    console.warn(`[SkillsLoader] Failed to read ${filePath}: ${error}`);
+    logger.warn(`[SkillsLoader] Failed to read ${filePath}: ${error}`);
     return null;
   }
 
@@ -226,7 +227,7 @@ function parseSkillFile(filePath: string, scope: SkillScope): Skill | null {
     try {
       new RegExp(trigger);
     } catch {
-      console.warn(`[SkillsLoader] Invalid trigger regex in ${filePath}`);
+      logger.warn(`[SkillsLoader] Invalid trigger regex in ${filePath}`);
       trigger = undefined;
     }
   }

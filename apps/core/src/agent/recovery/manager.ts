@@ -12,6 +12,7 @@
 import { Effect } from "effect";
 import { BusEvents } from "../../bus/index.js";
 import { readConfig } from "../../providers/config.js";
+import { logger } from "../../utils/logger.js";
 
 // =============================================================================
 // RecoveryPolicy — per spec (2026-05-25-agent-loop.md:475-487)
@@ -268,7 +269,7 @@ export function createRecoveryManager(
 
         const delayMs = computeDelay(policy, attempt, error);
         options.onRetry?.({ provider, attempt, delayMs, error });
-        console.warn(
+        logger.warn(
           `[Recovery] ${provider} attempt ${attempt}/${policy.maxAttempts} failed (${String(
             (error as Error)?.message ?? error,
           )}); retrying in ${delayMs}ms`,
@@ -303,7 +304,7 @@ export function createRecoveryManager(
           if (isAbortError(error) || ctx.signal?.aborted) throw error;
           const next = chain[chain.indexOf(provider) + 1];
           if (next) {
-            console.warn(
+            logger.warn(
               `[Recovery] provider "${provider}" exhausted (${String(
                 (error as Error)?.message ?? error,
               )}); falling back to "${next}"`,

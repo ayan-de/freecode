@@ -11,6 +11,7 @@ import * as os from "os";
 import type { HookEventName, CommandHook } from "./types.js";
 import { HOOK_EVENT_NAMES } from "./types.js";
 import { registerHook, unregisterAllHooks } from "./registry.js";
+import { logger } from "../utils/logger.js";
 
 // =============================================================================
 // Configuration Types
@@ -81,7 +82,7 @@ function readHooksFromFile(
 
     for (const [event, entries] of Object.entries(rawHooks)) {
       if (!isValidEventName(event)) {
-        console.warn(
+        logger.warn(
           `[Hooks] Unknown hook event "${event}" - valid events are: ${HOOK_EVENT_NAMES.join(", ")}`,
         );
         continue;
@@ -104,7 +105,7 @@ function readHooksFromFile(
     return normalized;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(
+      logger.warn(
         `[Hooks] Ignoring unreadable settings at ${filePath}: ${error}`,
       );
     }
@@ -167,14 +168,14 @@ function validateHookDefinition(
   event: HookEventName,
 ): HookDefinition | null {
   if (!def.name) {
-    console.warn(
+    logger.warn(
       `[Hooks] Skipping hook in ${event}: missing "name" field`,
     );
     return null;
   }
 
   if (!def.command) {
-    console.warn(
+    logger.warn(
       `[Hooks] Skipping hook "${def.name}" in ${event}: missing "command" field`,
     );
     return null;
@@ -291,7 +292,7 @@ export class HookSettingsManager {
         this.watchers.push(watcher);
       } catch {
         // Watching is best-effort; manual reload still works
-        console.warn(`[Hooks] Failed to watch ${dir}`);
+        logger.warn(`[Hooks] Failed to watch ${dir}`);
       }
     }
   }

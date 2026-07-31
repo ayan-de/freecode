@@ -18,6 +18,7 @@ import { isToolAllowed, type PermissionProfile } from "../permission/index.js";
 import type { Tool } from "./tool.types.js";
 import { isTransientError } from "../agent/recovery/manager.js";
 import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
+import { logger } from "../utils/logger.js";
 
 // =============================================================================
 // Orchestrator Interface
@@ -211,7 +212,7 @@ export function createToolOrchestrator(
             ) {
               throw err;
             }
-            console.warn(
+            logger.warn(
               `[Orchestrator] Tool ${tool} transient failure (attempt ${attempt}/${maxAttempts}); retrying`,
             );
             await new Promise((r) => setTimeout(r, 200 * attempt));

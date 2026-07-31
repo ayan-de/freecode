@@ -16,6 +16,7 @@ import type {
 } from "./rule-types.js";
 import { emptyRuleSet } from "./rule-types.js";
 import { parseRule, parseRuleSet } from "./rules.js";
+import { logger } from "../utils/logger.js";
 
 export type RuleScope = "project" | "user";
 
@@ -32,7 +33,7 @@ function readSettingsFile(filePath: string): PermissionSettings {
     return parsed.permissions ?? {};
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.warn(`[Permission] Ignoring unreadable settings at ${filePath}: ${error}`);
+      logger.warn(`[Permission] Ignoring unreadable settings at ${filePath}: ${error}`);
     }
     return {};
   }

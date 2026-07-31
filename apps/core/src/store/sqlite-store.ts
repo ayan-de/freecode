@@ -12,6 +12,7 @@ import type {
   ThreadFilter,
   StoredTurnItemsView,
 } from "./types.js";
+import { logger } from "../utils/logger.js";
 
 // ============================================================================
 // SQLite Store Implementation
@@ -80,7 +81,7 @@ export class SqliteThreadStoreImpl implements ThreadStore {
 
       return store;
     } catch (error) {
-      console.warn(`[SqliteStore] Failed to initialize: ${error}`);
+      logger.warn(`[SqliteStore] Failed to initialize: ${error}`);
       return new SqliteThreadStoreImpl(null, false);
     }
   }

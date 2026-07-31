@@ -13,6 +13,7 @@ import type {
   StoredTurnItemsView,
 } from "./types.js";
 import { JsonThreadStoreImpl, createJsonThreadStore } from "./json-store.js";
+import { logger } from "../utils/logger.js";
 
 // ============================================================================
 // Store Factory - Try SQLite first, fall back to JSON
@@ -37,7 +38,7 @@ export async function getThreadStore(): Promise<ThreadStore> {
       return globalStore;
     }
   } catch (error) {
-    console.warn(`[ThreadStore] SQLite not available: ${error}`);
+    logger.warn(`[ThreadStore] SQLite not available: ${error}`);
   }
 
   // Fall back to JSON store
@@ -56,7 +57,7 @@ export async function createThreadStore(): Promise<ThreadStore> {
       return sqliteStore;
     }
   } catch (error) {
-    console.warn(`[ThreadStore] SQLite not available: ${error}`);
+    logger.warn(`[ThreadStore] SQLite not available: ${error}`);
   }
   return createJsonThreadStore();
 }

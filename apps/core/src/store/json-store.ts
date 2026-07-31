@@ -16,6 +16,7 @@ import type {
   StoredTurnItemsView,
   JsonThreadStore,
 } from "./types.js";
+import { logger } from "../utils/logger.js";
 
 // ============================================================================
 // Constants
@@ -53,7 +54,7 @@ function readMetadata(): JsonThreadStore {
       return JSON.parse(content);
     }
   } catch (error) {
-    console.warn(`[JsonThreadStore] Failed to read metadata: ${error}`);
+    logger.warn(`[JsonThreadStore] Failed to read metadata: ${error}`);
   }
   return {
     threads: {},

@@ -14,6 +14,7 @@ import { selectForCompaction } from "./selector.js";
 import { makeSummary, summarizeMessages } from "./summarizer.js";
 import type { LlmSummarize } from "./llm-summarizer.js";
 import { FileMemoryStorage, type MemoryStorage } from "./storage.js";
+import { logger } from "../utils/logger.js";
 
 export interface CompactOptions {
   // When provided, used to generate the summary; on failure the heuristic
@@ -144,7 +145,7 @@ export class MemoryService {
         summary = makeSummary(summarizeInput, content);
       } catch (err) {
         // Fall back to the heuristic summary already computed above.
-        console.warn(
+        logger.warn(
           `[MemoryService] LLM summarization failed, using heuristic: ${err instanceof Error ? err.message : String(err)}`,
         );
       }

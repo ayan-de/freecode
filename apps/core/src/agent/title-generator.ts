@@ -6,6 +6,7 @@
 
 import { getProvider } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
+import { logger } from "../utils/logger.js";
 
 const TITLE_PROMPT_TEMPLATE = `Generate a concise title (3-5 words) that captures the main topic or goal of this coding session.
 
@@ -69,7 +70,7 @@ export async function generateSessionTitle(
 
     return generateTitleFromPrompt(opts.prompt);
   } catch (error) {
-    console.warn("[TitleGenerator] Failed to generate title:", error);
+    logger.warn("[TitleGenerator] Failed to generate title:", { error });
     return generateTitleFromPrompt(opts.prompt);
   }
 }

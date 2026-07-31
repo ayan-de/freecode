@@ -13,6 +13,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { askQuestion } from "../../bus/index.js";
+import { logger } from "../../utils/logger.js";
 
 // Pinned stable release. Bump this ONE line to upgrade — per-asset hashes are
 // fetched from the release's checksums.txt at install time, never hardcoded.
@@ -165,14 +166,14 @@ async function downloadAndInstall(): Promise<string | null> {
       fetchBuffer(`${RELEASE_BASE}/checksums.txt`).then((b) => b.toString("utf-8")),
     ]);
   } catch (e) {
-    console.warn(`[rtk] download failed: ${(e as Error).message}`);
+    logger.warn(`[rtk] download failed: ${(e as Error).message}`);
     return null;
   }
 
   const expect = expectedHash(checksums, asset);
   const actual = createHash("sha256").update(archiveBytes).digest("hex");
   if (!expect || expect !== actual) {
-    console.warn(`[rtk] checksum verification failed for ${asset} — aborting install`);
+    logger.warn(`[rtk] checksum verification failed for ${asset} — aborting install`);
     return null;
   }
 
@@ -186,18 +187,18 @@ async function downloadAndInstall(): Promise<string | null> {
     });
     fs.rmSync(archivePath, { force: true });
     if (ex.code !== 0) {
-      console.warn(`[rtk] extraction failed: ${ex.stderr.trim()}`);
+      logger.warn(`[rtk] extraction failed: ${ex.stderr.trim()}`);
       return null;
     }
     const bin = managedBinary();
     if (!fs.existsSync(bin)) {
-      console.warn("[rtk] archive did not contain the expected rtk binary");
+      logger.warn("[rtk] archive did not contain the expected rtk binary");
       return null;
     }
     if (process.platform !== "win32") fs.chmodSync(bin, 0o755);
     return bin;
   } catch (e) {
-    console.warn(`[rtk] install failed: ${(e as Error).message}`);
+    logger.warn(`[rtk] install failed: ${(e as Error).message}`);
     return null;
   }
 }
