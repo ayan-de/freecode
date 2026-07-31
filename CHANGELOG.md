@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.1
+
+### Added
+- Hooks configuration loader (`hooks/settings.ts`): define hooks in `.freecode/settings.json` without touching source, with Claude Code nested-shape compatibility
+- `FREECODE_DEBUG` env var gates debug-level logger output
+- Syntax highlighting in TUI diff rendering; mention highlighting in prompt editor
+
+### Changed
+- Replaced ad-hoc `console.warn` calls across core with the shared logger for consistent log handling
+
 ## v0.7.0
 
 ### Added
