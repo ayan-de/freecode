@@ -9,6 +9,7 @@ import chalk from "chalk";
 import { defaultMarkdownTheme } from "../themes.js";
 import type { MessageType } from "./message-types.js";
 import { formatTokenCount } from "../utils/format-tokens.js";
+import { formatDuration, formatDurationSeconds } from "../utils/format-duration.js";
 
 // Live output-token estimate for the streaming turn, fed from the streamed
 // text length in index.ts (see setLiveOutputTokens). Used by the in-progress
@@ -69,13 +70,14 @@ class InProgressMessage implements Component {
 
   render(width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+    const duration = formatDurationSeconds(elapsed);
     // Output tracks the live streamed-text estimate until the final usage
     // lands (this.outputTokens > 0), at which point the real count wins.
     const outputTokens =
       this.outputTokens > 0 ? this.outputTokens : liveOutputTokens;
     const inStr = formatTokenCount(this.baseInputTokens);
     const outStr = formatTokenCount(outputTokens);
-    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${elapsed}s)`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
+    let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
     if (this.cachedTokens > 0) {
       display += ` ${chalk.dim(`cached: ${formatTokenCount(this.cachedTokens)}`)}`;
     }
@@ -192,7 +194,7 @@ export function createAssistantMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
   const box = new Box(1, 1);
-  const markdown = new Markdown(displayContent, 1, 1, defaultMarkdownTheme);
+  const markdown = new Markdown(displayContent, 1, 0, defaultMarkdownTheme);
   box.addChild(markdown);
 
   return new WidthBounded(box);
@@ -200,7 +202,7 @@ export function createAssistantMessageComponent(content: string): Component {
 
 export class ThinkingMessage implements Component {
   private content: string;
-  private isCollapsed = false;
+  private isCollapsed = true;
   private isDone = false;
   private startTime: number;
   private endTime?: number;
@@ -235,10 +237,13 @@ export class ThinkingMessage implements Component {
 
     let header = "";
     if (!this.isDone) {
-      header = chalk.yellow(this.isCollapsed ? "▶ Thinking..." : "▼ Thinking...");
+      const elapsedMs = Date.now() - this.startTime;
+      const duration = formatDuration(elapsedMs);
+      header = chalk.yellow(this.isCollapsed ? `▶ Thinking (${duration})...` : `▼ Thinking (${duration})...`);
     } else {
-      const duration = this.endTime ? ((this.endTime - this.startTime) / 1000).toFixed(1) : "0.0";
-      header = chalk.dim(this.isCollapsed ? `▶ Thought (${duration}s)` : `▼ Thought (${duration}s)`);
+      const elapsedMs = this.endTime ? this.endTime - this.startTime : 0;
+      const duration = formatDuration(elapsedMs);
+      header = chalk.dim(this.isCollapsed ? `▶ Thought (${duration})` : `▼ Thought (${duration})`);
     }
 
     lines.push(header);
@@ -280,8 +285,8 @@ export function createThinkingMessageComponent(
 export function createSystemMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
-  const box = new Box(1, 1);
-  const text = new Text(chalk.dim(displayContent), 1, 1);
+  const box = new Box(1, 0);
+  const text = new Text(chalk.dim(displayContent), 1, 0);
   box.addChild(text);
 
   return new WidthBounded(box);
