@@ -57,6 +57,13 @@ export function buildAnthropicSystemParam(
   });
 }
 
+/** True only for a JSON object — the shape providers accept as tool_use.input. */
+export function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * Transforms FreeCode internal Message structures to Vercel AI SDK ModelMessage formats.
  * Correctly splits assistant tool-calls and their results into consecutive assistant and tool messages.
@@ -103,7 +110,12 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
             type: "tool-call",
             toolCallId: part.tool.id,
             toolName: part.tool.tool,
-            input: part.tool.args,
+            // Last line of defence before the wire: providers reject a
+            // `tool_use.input` that isn't a dictionary, and one bad entry
+            // anywhere in history fails every later request in the session.
+            // Sessions recorded before the streaming-layer guard can still
+            // hold a raw JSON string here — send `{}` rather than brick them.
+            input: isPlainObject(part.tool.args) ? part.tool.args : {},
           });
           if (part.result !== undefined) {
             toolResults.push({

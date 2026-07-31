@@ -16,6 +16,13 @@ import { normalizeAiSdkStream } from "./streaming.js";
 // (matches anthropic.ts; see docs/superpowers/plans/opencode-provider-sdk-strategy.md).
 const BASE_URL = "https://api.minimax.io/anthropic/v1";
 
+// The old 4096 default truncated large tool calls (e.g. a `write` with a long
+// body) mid-JSON, which the AI SDK then surfaced as an unparseable tool call.
+// The endpoint's own ceilings are far higher — 524288 for MiniMax-M3, 196608
+// for MiniMax-M2 — so 64K is comfortably valid on both while leaving room for
+// a full file write in one call.
+const MAX_OUTPUT_TOKENS = 65536;
+
 const PROVIDER_INFO = {
   id: "minimax" as const,
   name: "MiniMax",
@@ -39,7 +46,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     const generateOptions: any = {
       model: minimax(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || MAX_OUTPUT_TOKENS,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };

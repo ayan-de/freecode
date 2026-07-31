@@ -48,10 +48,26 @@ export async function* normalizeAiSdkStream(
       case "tool-call": {
         const id = (chunk.toolCallId ?? chunk.id) as string | undefined;
         const name = (chunk.toolName ?? chunk.name) as string | undefined;
-        const args = (chunk.input ?? chunk.args ?? {}) as Record<
-          string,
-          unknown
-        >;
+        const raw = chunk.input ?? chunk.args ?? {};
+        // When the model's tool-call JSON can't be parsed — most often because
+        // it was cut off mid-argument by the output-token cap — the AI SDK does
+        // not throw: `parseToolCall`'s catch-all emits a tool-call part whose
+        // `input` is the RAW JSON STRING, flagged `invalid: true`. Blindly
+        // casting that to a Record poisons the session permanently: the string
+        // is stored in history, reloaded on resume, and re-sent every turn as
+        // `tool_use.input`, which providers reject ("Input should be a valid
+        // dictionary") — every subsequent request fails before reaching the
+        // model. Fail the turn here instead, while the damage is recoverable.
+        if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+          yield {
+            type: "error",
+            error:
+              `Tool call "${name ?? "unknown"}" had malformed arguments (likely truncated by the ` +
+              `output token limit). Retry with a smaller change, or raise maxTokens.`,
+          };
+          break;
+        }
+        const args = raw as Record<string, unknown>;
         if (id && name) yield { type: "tool_call", id, name, args };
         break;
       }

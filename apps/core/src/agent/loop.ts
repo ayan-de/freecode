@@ -74,6 +74,7 @@ import {
 } from "../session/compact-apply.js";
 import { getModelContextLimit } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
+import { isPlainObject } from "../providers/utils.js";
 import {
   noteSendAndCheckCold,
   summarizeCache,
@@ -208,7 +209,9 @@ export class AgentLoop {
               const toolCall: ToolCall = {
                 id: `tool-${msg.id}`,
                 tool: part.tool?.name || "",
-                args: part.tool?.args || {},
+                // A string here is truthy, so `|| {}` let malformed args from
+                // an older session survive the round-trip back to the provider.
+                args: isPlainObject(part.tool?.args) ? part.tool.args : {},
                 execution: "sequential",
               };
               return {
