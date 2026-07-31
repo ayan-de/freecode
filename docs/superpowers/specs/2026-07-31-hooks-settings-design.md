@@ -196,7 +196,8 @@ This is a different shape from §3.1 (flat, one hook per entry, `name` required)
 1. **Entry has `hooks: []`** → Claude Code shape. Unwrap: emit one flat `HookDefinition` per inner hook, each inheriting the outer `matcher`. Assign a generated `name` (e.g. `` `${event}-${index}` ``) since Claude Code entries don't have one.
 2. **Entry has no `hooks[]` but has `command` directly** → already flat (§3.1 shape). Use as-is.
 3. **`name` missing after normalization** (shouldn't happen post-unwrap, but guards hand-edited configs) → warn and skip that entry rather than throwing.
-4. **`type: "command"` already present in the input** → validator accepts and asserts it's `"command"` (skip-and-warn if it's `"prompt"`/`"callback"`, since those aren't settings-loadable per §3.2); the injection step in §3.2 becomes a no-op default (`type: def.type ?? "command"`) rather than an unconditional overwrite.
+
+> **Note**: The FreeCode loader always injects `type: "command"` — prompt/callback hooks cannot be defined from JSON (no way to supply a JS function or LLM prompt), so there's no handling needed for foreign types.
 
 Shape detection is structural (`Array.isArray(entry.hooks)`), not a version flag — no config-format field is introduced.
 

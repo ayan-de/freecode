@@ -55,6 +55,7 @@ import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers, listClients, getMcpTools } from "./mcp/index.js";
 import { getConfigDir } from "./cli/utils/config.js";
 import { registerRtkHook } from "./hooks/builtin/rtk-rewrite.js";
+import { HookSettingsManager } from "./hooks/settings.js";
 import {
   bus,
   BusEvents,
@@ -744,6 +745,14 @@ export async function startServer() {
   // Optional rtk integration: rewrites bash commands to compact `rtk`
   // equivalents to save tokens. No-op unless rtk resolves; FREECODE_RTK=0 opts out.
   registerRtkHook();
+
+  // Load hooks from settings.json (project + user scopes)
+  const hookSettings = new HookSettingsManager(process.cwd());
+  hookSettings.load();
+  hookSettings.watch();
+
+  // Clean up on shutdown
+  process.on("exit", () => hookSettings.dispose());
 
   // Speaker wire: forward internal bus events to both frontend transports.
   bus.subscribeAll((event) => {
