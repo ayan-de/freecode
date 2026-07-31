@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.8.0
+
+### Added
+- Syntax highlighting in `ToolResultMessage` rendering, with extended file-read detection
+
+### Changed
+- Consistent duration formatting (`formatDuration`) across `freecode` command, main entry, and message components
+
 ## v0.7.1
 
 ### Added
