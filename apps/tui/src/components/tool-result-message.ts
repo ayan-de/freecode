@@ -69,7 +69,7 @@ export class ToolResultMessage implements Component {
     const isRun = ["Bash", "run_command"].includes(this.toolName);
 
     if ((isFileUpdate || isFileRead) && this.args) {
-      const fileArg = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath) as string;
+      const fileArg = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath || this.args.filePath) as string;
       if (fileArg) {
         headerAction = isFileUpdate ? "Update" : "Read";
         const cwd = process.cwd();
@@ -106,7 +106,7 @@ export class ToolResultMessage implements Component {
 
       let filename: string | undefined = undefined;
       if (this.args) {
-        filename = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath) as string;
+        filename = (this.args.TargetFile || this.args.file_path || this.args.file || this.args.AbsolutePath || this.args.filePath) as string;
       }
       const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth, filename);
       const preview = colored.slice(0, ToolResultMessage.MAX_DIFF_LINES);

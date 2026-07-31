@@ -7,6 +7,24 @@ import stringWidth from "string-width";
 //   "+ 12 content" / "- 12 content" / "  12 content" / "     …"
 const DIFF_LINE = /^([+\- ])(\s*\d*)\s(.*)$/;
 
+const diffTheme = {
+  keyword: chalk.hex("#ff79c6"),      // Dracula pink/magenta
+  built_in: chalk.hex("#8be9fd"),     // Dracula cyan
+  type: chalk.hex("#8be9fd"),         // Dracula cyan
+  literal: chalk.hex("#bd93f9"),      // Dracula purple
+  number: chalk.hex("#bd93f9"),       // Dracula purple
+  regexp: chalk.hex("#f1fa8c"),       // Dracula yellow
+  string: chalk.hex("#f1fa8c"),       // Dracula yellow
+  comment: chalk.hex("#6272a4"),      // Dracula gray/blue comment
+  function: chalk.hex("#50fa7b"),     // Dracula green
+  class: chalk.hex("#8be9fd"),        // Dracula cyan
+  attr: chalk.hex("#ffb86c"),         // Dracula orange
+  tag: chalk.hex("#ff79c6"),          // Dracula pink
+  name: chalk.hex("#ff79c6"),         // Dracula pink
+  meta: chalk.hex("#ffb86c"),         // Dracula orange
+  default: chalk.hex("#f8f8f2")       // Dracula white
+};
+
 function getLanguageFromFilename(filename?: string): string | undefined {
   if (!filename) return undefined;
   const ext = filename.split('.').pop()?.toLowerCase();
@@ -92,7 +110,7 @@ export function renderDiff(diffText: string, width: number, filename?: string): 
     const m = line.match(DIFF_LINE);
     if (!m) {
       const row = truncateToWidth(line, width);
-      return chalk.dim(row);
+      return row;
     }
     
     const indicator = m[1];
@@ -102,7 +120,7 @@ export function renderDiff(diffText: string, width: number, filename?: string): 
     let highlightedCode = codeContent;
     if (useHighlight && codeContent.trim().length > 0) {
       try {
-        highlightedCode = highlight(codeContent, { language: lang });
+        highlightedCode = highlight(codeContent, { language: lang, theme: diffTheme });
       } catch (err) {
         // Fallback to unhighlighted code
       }
@@ -137,8 +155,7 @@ export function renderDiff(diffText: string, width: number, filename?: string): 
       case "-":
         return chalk.bgHex("#4d1419")(paddedRow);
       default:
-        return chalk.dim(truncatedRow);
+        return truncatedRow;
     }
   });
 }
-
