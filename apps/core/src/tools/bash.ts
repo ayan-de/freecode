@@ -107,6 +107,22 @@ async function executeBash(
     metadata?: Record<string, unknown>;
   }>
 > {
+  // Executed via the BashTool definition below; exported separately only for
+  // regression tests in `bash.test.ts` so they can call it without building a
+  // full ToolContext for the harness.
+  return _executeBash(params, ctx);
+}
+
+export async function _executeBash(
+  params: BashParams,
+  ctx: ToolContext,
+): Promise<
+  ToolExecutionResult<{
+    title: string;
+    output: string;
+    metadata?: Record<string, unknown>;
+  }>
+> {
   return new Promise((resolve) => {
     const cwd = params.workdir
       ? path.isAbsolute(params.workdir)
@@ -122,25 +138,38 @@ async function executeBash(
       ? ["/c", params.command]
       : ["-c", params.command];
 
+    // Disable prompts (GIT_TERMINAL_PROMPT, apt/dpkg). stdio[0] is "ignore" so
+    // the child gets EOF on stdin immediately — anything that would block on
+    // a password prompt (git push over HTTPS, sudo, apt, etc.) will exit with
+    // an error instead of hanging past the timeout.
     const child = spawn(shell, shellArgs, {
       cwd,
-      env: { ...process.env },
-      stdio: "pipe",
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        DEBIAN_FRONTEND: "noninteractive",
+        APT_LISTCHANGES_FRONTEND: "none",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
     let stdout = "";
     let stderr = "";
     let killed = false;
 
+    const killTimer = setTimeout(() => {
+      if (!child.killed) child.kill("SIGKILL");
+    }, timeout + 3000);
+
     const timer = setTimeout(() => {
       killed = true;
       child.kill("SIGTERM");
-      setTimeout(() => {
-        if (!child.killed) {
-          child.kill("SIGKILL");
-        }
-      }, 3000);
     }, timeout);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+    };
 
     child.stdout?.on("data", (data) => {
       stdout += data.toString();
@@ -150,8 +179,8 @@ async function executeBash(
       stderr += data.toString();
     });
 
-    child.on("close", (code) => {
-      clearTimeout(timer);
+    child.on("close", (code, signal) => {
+      cleanup();
 
       let output = "";
       if (stdout) output += stdout;
@@ -176,14 +205,24 @@ async function executeBash(
       };
 
       if (killed) {
-        result.output += `\n\n<bash_metadata>\nCommand timed out after ${timeout}ms\n</bash_metadata>`;
+        result.output += `\n\n<bash_metadata>\nCommand timed out after ${timeout}ms (signal sent)\n</bash_metadata>`;
+        // Surface the timeout as a failure so the loop sees it as such and
+        // doesn't conclude "the command ran successfully, just slowly." The
+        // partial output (stdout/stderr captured before the kill) goes into
+        // the error message so the UI can still render it.
+        resolve({
+          success: false,
+          error: `Command timed out after ${timeout}ms`,
+          code: `TIMEOUT_${timeout}`,
+        });
+        return;
       }
 
       resolve({ success: true, result });
     });
 
     child.on("error", (err) => {
-      clearTimeout(timer);
+      cleanup();
       resolve({
         success: false,
         error: `Error executing command: ${err.message}`,
