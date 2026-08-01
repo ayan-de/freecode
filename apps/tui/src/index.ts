@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
 import { NoticeModal } from "./components/notice-modal.js";
+import { CompactionModal } from "./components/compaction-modal.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
@@ -712,17 +713,18 @@ function handleToolEvent(event: StreamEvent) {
       if (!activePermissionPicker) showNextPermission();
       break;
     }
-    // Auto-compaction only — manual /compact renders from its own RPC result
-    // (the stream listener isn't guaranteed active between turns).
+    // Auto-compaction only — manual /compact drives the same modal from its own
+    // RPC result (the stream listener isn't guaranteed active between turns).
     case "compaction_start": {
-      if (event.trigger === "auto") showMessage("*Compacting conversation…*");
+      if (event.trigger === "auto") showCompactionModal();
       break;
     }
     case "compaction_complete": {
-      if (event.trigger === "auto" && event.compacted) {
-        showMessage(
-          `*Compacted context: ~${event.tokensBefore.toLocaleString()} → ~${event.tokensAfter.toLocaleString()} tokens*`,
-        );
+      if (event.trigger !== "auto") break;
+      if (event.compacted) {
+        finishCompactionModal(event.tokensBefore, event.tokensAfter);
+      } else {
+        dismissCompactionModal("Nothing older than the last 2 turns.");
       }
       break;
     }
@@ -946,21 +948,21 @@ editor.onSubmit = async (value: string) => {
               showMessage("*No active session to compact.*");
               return;
             }
-            showMessage("*Compacting conversation…*");
+            showCompactionModal();
             try {
               const r = await sessionCompact(currentSession.sessionId);
               if (r.compacted) {
-                showMessage(
-                  `*Compacted context: ~${r.tokensBefore.toLocaleString()} → ~${r.tokensAfter.toLocaleString()} tokens*`,
-                );
+                finishCompactionModal(r.tokensBefore, r.tokensAfter);
               } else {
-                showMessage(
-                  `*Nothing to compact${r.reason ? ` (${r.reason})` : ""}.*`,
+                // The server's reason ("nothing to compact") duplicates the
+                // heading, so say what would actually change the outcome.
+                dismissCompactionModal(
+                  "Nothing older than the last 2 turns yet.",
                 );
               }
             } catch (err) {
-              showMessage(
-                `**Error:** Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+              dismissCompactionModal(
+                err instanceof Error ? err.message : String(err),
               );
             }
           },
@@ -1143,6 +1145,100 @@ function hideTodoPanel(): void {
 // stacking boxes.
 let noticeOverlay: OverlayHandle | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ---------------------------------------------------------------------------
+// Compaction modal
+// Centered while a conversation is summarized, then held briefly on the result
+// so the token reduction is readable before it disappears. Auto-compaction
+// drives it from stream events; /compact drives it from its RPC result.
+// ---------------------------------------------------------------------------
+let compactionOverlay: OverlayHandle | null = null;
+let compactionModal: CompactionModal | null = null;
+let compactionAnimation: ReturnType<typeof setInterval> | null = null;
+let compactionDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Frame interval for the indeterminate sweep. */
+const COMPACTION_FRAME_MS = 80;
+/** How long the finished state stays up before auto-dismissing. */
+const COMPACTION_LINGER_MS = 1600;
+
+function clearCompactionTimers(): void {
+  if (compactionAnimation) clearInterval(compactionAnimation);
+  if (compactionDismissTimer) clearTimeout(compactionDismissTimer);
+  compactionAnimation = null;
+  compactionDismissTimer = null;
+}
+
+function showCompactionModal(): void {
+  // Re-entrant by design: a manual /compact during an auto pass would
+  // otherwise leave the first overlay orphaned on screen forever.
+  hideCompactionModal();
+
+  compactionModal = new CompactionModal();
+  compactionOverlay = tui.showOverlay(compactionModal, {
+    anchor: "center",
+    width: Math.min(
+      compactionModal.width(),
+      Math.max(24, terminal.columns - 4),
+    ),
+    // Non-capturing: compaction is not something the user answers, and stealing
+    // focus mid-turn would swallow a Ctrl+C they meant for the running turn.
+    nonCapturing: true,
+  });
+
+  compactionAnimation = setInterval(() => {
+    compactionModal?.tick();
+    tui.requestRender();
+  }, COMPACTION_FRAME_MS);
+
+  tui.requestRender();
+}
+
+function hideCompactionModal(): void {
+  clearCompactionTimers();
+  compactionOverlay?.hide();
+  compactionOverlay = null;
+  compactionModal = null;
+}
+
+/** Stop the sweep, show the reduction, then dismiss. */
+function finishCompactionModal(
+  tokensBefore: number,
+  tokensAfter: number,
+): void {
+  if (!compactionModal) return;
+  if (compactionAnimation) clearInterval(compactionAnimation);
+  compactionAnimation = null;
+
+  compactionModal.complete(tokensBefore, tokensAfter);
+  tui.requestRender();
+
+  // Also land it in the transcript: the modal is transient, but the reduction
+  // is worth being able to scroll back to.
+  showMessage(
+    `*Compacted context: ~${tokensBefore.toLocaleString()} → ~${tokensAfter.toLocaleString()} tokens*`,
+  );
+
+  compactionDismissTimer = setTimeout(() => {
+    hideCompactionModal();
+    tui.requestRender();
+  }, COMPACTION_LINGER_MS);
+}
+
+/** Terminal state for "ran, but there was nothing to do" (or an error). */
+function dismissCompactionModal(reason: string): void {
+  if (!compactionModal) return;
+  if (compactionAnimation) clearInterval(compactionAnimation);
+  compactionAnimation = null;
+
+  compactionModal.fail(reason);
+  tui.requestRender();
+
+  compactionDismissTimer = setTimeout(() => {
+    hideCompactionModal();
+    tui.requestRender();
+  }, COMPACTION_LINGER_MS);
+}
 
 // Rows occupied by the input and everything under it (spacer, mode line).
 // Used to lift the bottom-anchored notice so it sits right on top of the input.
