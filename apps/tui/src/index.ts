@@ -28,7 +28,7 @@ import { formatDuration } from "./utils/format-duration.js";
 import { resolveFdPath } from "./utils/fd-path.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
 import { plainText } from "./utils/ansi-select.js";
-import { copyToClipboard } from "./utils/clipboard.js";
+import { copyToClipboard, readImageFromClipboard } from "./utils/clipboard.js";
 import {
   startCli,
   sessionStart,
@@ -103,6 +103,14 @@ let currentProvider = "";
 let currentModel = "";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
+// Images pasted with Ctrl+V, attached to the next prompt and then cleared.
+let pendingImages: Array<{
+  data: string;
+  mediaType: string;
+  altText?: string;
+}> = [];
+// Guards against overlapping clipboard reads from a Ctrl+V key burst.
+let isReadingClipboard = false;
 // Fixed top status header: hidden until the first prompt is sent, then shows
 // mode/model on the left and live context-window usage on the right.
 let hasFirstMessage = false;
@@ -718,6 +726,12 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
+    case "notice": {
+      showMessage(
+        event.level === "warn" ? `⚠ *${event.content}*` : `*${event.content}*`,
+      );
+      break;
+    }
     // Prompt-cache awareness (jcode #9). Warn on a cold-cache send; on warm
     // turns show read/write tokens only when there's cache activity worth noting.
     case "cache_status": {
@@ -810,11 +824,16 @@ async function submitPrompt(
 
   try {
     activeTurnSessionId = currentSession.sessionId;
+    // Hand off and clear: an image is attached to exactly one turn, and
+    // leaving it queued would silently re-send it on the next prompt.
+    const images = pendingImages.length > 0 ? pendingImages : undefined;
+    pendingImages = [];
     const result = await sessionSendStreaming(
       currentSession.sessionId,
       promptText,
       undefined,
       currentAgentMode,
+      images,
       (event: StreamEvent) => {
         handleToolEvent(event);
       },
@@ -1308,6 +1327,43 @@ tui.addInputListener((data) => {
   if (matchesKey(data, Key.shift("tab"))) {
     cycleAgentMode();
     return undefined;
+  }
+  if (matchesKey(data, Key.ctrl("v"))) {
+    // Terminals can deliver a Ctrl+V burst (key repeat, or the emulator
+    // echoing the chord) and the clipboard read is slow enough to overlap.
+    // Without this guard the same paste attaches twice — doubling the upload
+    // and the token cost.
+    if (isReadingClipboard) return { consume: true };
+    isReadingClipboard = true;
+    // Fire-and-forget: the key handler is sync, and shelling out to the
+    // clipboard tool takes long enough to stall input if awaited.
+    void (async () => {
+      try {
+        const image = await readImageFromClipboard();
+        if (!image) {
+          createSystemMessage(
+            "No image on the clipboard. (Needs `wl-paste`, `xclip`, or `pngpaste` installed.)",
+          );
+        } else if (pendingImages.some((p) => p.data === image.data)) {
+          // Clipboard unchanged since the last paste — re-attaching the same
+          // bytes is never what the user wants.
+          createSystemMessage("That image is already attached.");
+        } else {
+          pendingImages.push({
+            ...image,
+            altText: `pasted image (${image.mediaType})`,
+          });
+          const kb = ((image.data.length * 3) / 4 / 1024).toFixed(0);
+          createSystemMessage(
+            `Attached pasted image (${image.mediaType}, ~${kb}KB). It will be sent with your next message.`,
+          );
+        }
+      } finally {
+        isReadingClipboard = false;
+        tui.requestRender();
+      }
+    })();
+    return { consume: true };
   }
   if (matchesKey(data, Key.ctrl("t"))) {
     const messages = getMessages();

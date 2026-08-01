@@ -110,6 +110,7 @@ ${formatProviderList()}`);
         userPrompt,
         undefined,
         "build",
+        undefined,
         (event: import("@thisisayande/freecode-shared").StreamEvent) =>
           ctx.handleToolEvent?.(event),
       );
