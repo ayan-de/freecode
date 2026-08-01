@@ -272,3 +272,5 @@ handles local stdio.
 Need a feature like this 
  ~128k uncached · /clear to start fresh
                                                                               new task? /clear to save 128.2k tokens
+
+3) Unknown command: /apps/tui. Type /help for available commands
