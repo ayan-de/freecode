@@ -161,12 +161,22 @@ class WidthBounded implements Component {
 export function createUserMessageComponent(content: string): Component {
   const displayContent = stripPrefix(content);
 
+  // Box invokes this formatter once per rendered line, so it can't tell which
+  // line is the first — testing `lines[0]` matched every call and stamped the
+  // ❯ onto every wrapped line of a multi-line message. Track the first content
+  // line across the whole render pass instead; render() resets it.
+  let prefixPending = true;
+
   const box = new Box(0, 0, (text: string) => {
-    const lines = text.split("\n");
-    if (lines.length > 0 && lines[0].startsWith("  ")) {
-      lines[0] = chalk.dim("❯") + lines[0].slice(1);
-    }
-    return lines
+    return text
+      .split("\n")
+      .map((line) => {
+        if (prefixPending && line.startsWith("  ")) {
+          prefixPending = false;
+          return chalk.dim("❯") + line.slice(1);
+        }
+        return line;
+      })
       .map((line) => chalk.bgRgb(50, 50, 50)(line))
       .join("\n");
   });
@@ -177,6 +187,7 @@ export function createUserMessageComponent(content: string): Component {
   
   return {
     render(width: number): string[] {
+      prefixPending = true;
       return [...boundedBox.render(width), ""];
     },
     invalidate() {
