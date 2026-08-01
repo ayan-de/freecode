@@ -105,6 +105,9 @@ export type StreamEvent =
       cacheReadTokens?: number; // served from cache (cheap), set on "warm"
       cacheWriteTokens?: number; // written to cache this turn, set on "warm"
     }
+  // Turn-level advisory the user needs to see (e.g. an attachment dropped
+  // because the model can't accept it). Does not fail the turn.
+  | { type: "notice"; level: "info" | "warn"; content: string }
   | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
   | {
       type: "compaction_complete";
@@ -152,7 +155,13 @@ export const METHODS = {
     result: { sessionId: "" },
   },
   "session.send": {
-    params: { sessionId: "", message: "" },
+    // METHODS entries are values, not types — the exported MethodParams<M>
+    // reads their inferred shape, so an optional field needs a cast.
+    params: {} as {
+      sessionId: string;
+      message: string;
+      images?: Array<{ data: string; mediaType: string; altText?: string }>;
+    },
     result: {} as StreamResponse,
   },
   "session.stop": {

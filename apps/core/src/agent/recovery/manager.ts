@@ -57,6 +57,41 @@ export function isAbortError(error: unknown): boolean {
   return name === "AbortError" || msg.includes("abort");
 }
 
+// Every provider words "your request is longer than the window" differently,
+// and all of them return a plain 400 that is indistinguishable by status from
+// a malformed request. Matching the message is the only portable signal.
+//   MiniMax:   invalid params, context window exceeds limit (2013)
+//   Anthropic: prompt is too long: N tokens > M maximum
+//   OpenAI:    context_length_exceeded / maximum context length is N tokens
+//   Gemini:    input token count exceeds the maximum
+const CONTEXT_OVERFLOW_PATTERNS = [
+  "context window exceeds",
+  "context length",
+  "context_length_exceeded",
+  "prompt is too long",
+  "prompt_too_long",
+  "input token count",
+  "too many total tokens",
+];
+
+/**
+ * Whether a provider rejected the request because the conversation no longer
+ * fits. Distinct from a rate limit or a transient fault: retrying unchanged
+ * will always fail, so the only recovery is to make the request smaller.
+ *
+ * Deliberately narrow — a false positive costs a needless compaction, and
+ * compaction discards message detail, so an unrelated 400 must not trigger it.
+ */
+export function isContextOverflowError(error: unknown): boolean {
+  if (!error) return false;
+  const status = getErrorStatus(error);
+  // 413 is rare here but unambiguous; otherwise these arrive as 400. Anything
+  // 5xx is a server fault, not an oversized prompt.
+  if (status !== undefined && status !== 400 && status !== 413) return false;
+  const msg = String((error as Error)?.message ?? error).toLowerCase();
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => msg.includes(pattern));
+}
+
 const NETWORK_ERROR_CODES = new Set([
   "ECONNRESET",
   "ECONNREFUSED",

@@ -8,7 +8,11 @@ import { listCommandInfos, resolveCommand } from "./commands/registry.js";
 import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
 import { getAppRuntime } from "./effect/runtime.js";
 import { SessionStoreTag } from "./effect/context.js";
-import { initProviders, listProviders, getProvider } from "./providers/index.js";
+import {
+  initProviders,
+  listProviders,
+  getProvider,
+} from "./providers/index.js";
 import { MemoryService } from "./compaction/service.js";
 import { createLlmSummarizer } from "./compaction/llm-summarizer.js";
 import { applyCompaction } from "./session/compact-apply.js";
@@ -108,10 +112,27 @@ export const sessionEventCallbacks = new Map<string, (event: any) => void>();
 
 function createSession(config: SessionConfig): SessionInfo {
   const id = randomUUID();
+  // Seed the model from config.json so it is pinned (and persisted to
+  // meta.json) from the first turn. Left unset, session.model stays undefined
+  // and every consumer downstream falls through to the provider's
+  // defaultModel — which silently served MiniMax-M2 to sessions configured
+  // for M3, overflowing M2's 196K window at ~20% of the displayed 1M meter.
+  const current = readConfig().current;
+  // No hardcoded provider fallback: an unconfigured provider is a setup error,
+  // not something to guess at. Defaulting here sent requests to a provider the
+  // user never chose, using that provider's default model.
+  const provider = config.provider || current?.provider;
+  if (!provider) {
+    throw new Error(
+      "No provider configured. Set current.provider in ~/.freecode/config.json, " +
+        "or pass `provider` to session.start.",
+    );
+  }
   const session: SessionInfo = {
     id,
     projectPath: config.projectPath,
-    provider: config.provider || "anthropic",
+    provider,
+    model: config.model || current?.model,
   };
   sessions.set(id, session);
   return session;
@@ -202,11 +223,13 @@ const methodHandlers: Record<
       message,
       model,
       agentMode: paramAgentMode,
+      images,
     } = params as {
       sessionId: string;
       message: string;
       model?: string;
       agentMode?: string;
+      images?: Array<{ data: string; mediaType: string; altText?: string }>;
     };
     const session = getSession(sessionId);
 
@@ -214,14 +237,26 @@ const methodHandlers: Record<
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    // Get current provider from config, fallback to session.provider
+    // Provider and model resolve through the same precedence: an explicit
+    // per-call override first, then config.json, then whatever the session was
+    // pinned to at start. These used to disagree — provider preferred config
+    // while model preferred the session — so editing config.json mid-session
+    // could switch the provider while leaving the model behind, producing
+    // mismatched pairs like provider "openai" with model "MiniMax-M3".
     const config = readConfig();
     const currentProvider = config.current?.provider || session.provider;
+    if (!currentProvider) {
+      throw new Error(
+        "No provider configured. Set current.provider in ~/.freecode/config.json.",
+      );
+    }
 
-    // Update session with model if provided
+    // Keep the session's pin in step with an explicit override so meta.json
+    // and telemetry record the model actually used.
     if (model) {
       session.model = model;
     }
+    const currentModel = model || config.current?.model || session.model;
 
     // Update session with agentMode if provided
     if (paramAgentMode) {
@@ -242,7 +277,7 @@ const methodHandlers: Record<
     logger.info("Session send", {
       sessionId,
       messageLength: message.length,
-      model: session.model,
+      model: currentModel,
       provider: currentProvider,
       agentMode,
     });
@@ -263,9 +298,10 @@ const methodHandlers: Record<
           prompt: message,
           sessionId,
           provider: currentProvider,
-          model: session.model,
+          model: currentModel,
           projectPath: session.projectPath,
           agentMode,
+          images,
         }),
       );
     } finally {
@@ -328,7 +364,10 @@ const methodHandlers: Record<
       // No provider configured — fall back to the heuristic summary.
     }
 
-    BusEvents.stream(sessionId, { type: "compaction_start", trigger: "manual" });
+    BusEvents.stream(sessionId, {
+      type: "compaction_start",
+      trigger: "manual",
+    });
     const outcome = await applyCompaction({
       memory,
       store,
@@ -430,7 +469,14 @@ const methodHandlers: Record<
   "mcp.status": async (
     params: Record<string, unknown>,
   ): Promise<
-    { name: string; type: string; enabled: boolean; status: "connected" | "disconnected"; toolCount: number; tools: string[] }[]
+    {
+      name: string;
+      type: string;
+      enabled: boolean;
+      status: "connected" | "disconnected";
+      toolCount: number;
+      tools: string[];
+    }[]
   > => {
     const { name } = params as { name?: string };
     const config = await import("./mcp/config.js").then((m) =>
@@ -621,11 +667,22 @@ const methodHandlers: Record<
     const manager = await getSessionManager();
     const context = await manager.resume(sessionId);
 
-    // Store in-memory session mapping so that subsequent session.send requests can find it
+    // Store in-memory session mapping so that subsequent session.send requests can find it.
+    // Seeded from config the same way createSession is, so a resumed session
+    // isn't left model-less and reliant on the provider's default.
+    const resumeCurrent = readConfig().current;
+    const resumeProvider = context.provider || resumeCurrent?.provider;
+    if (!resumeProvider) {
+      throw new Error(
+        `Session ${context.id} has no provider and none is configured. ` +
+          "Set current.provider in ~/.freecode/config.json.",
+      );
+    }
     const session: SessionInfo = {
       id: context.id,
       projectPath: context.projectPath,
-      provider: context.provider,
+      provider: resumeProvider,
+      model: context.model || resumeCurrent?.model,
     };
     // Initialize default agent mode
     (session as unknown as Record<string, unknown>).agentMode = "build";

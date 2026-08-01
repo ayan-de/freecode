@@ -63,7 +63,10 @@ import {
   invalidateProjectContext,
 } from "../context/tree-cache.js";
 import { ensureWatching } from "../context/tree-watcher.js";
-import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
+import {
+  MemoryService,
+  renderPromptMemoryContext,
+} from "../compaction/index.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
@@ -72,7 +75,11 @@ import {
   applyCompaction,
   type ApplyCompactionResult,
 } from "../session/compact-apply.js";
-import { getModelContextLimit } from "../models-dev.js";
+import {
+  getModelContextLimit,
+  modelSupportsImages,
+  resolveMaxOutputTokens,
+} from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import {
@@ -97,6 +104,7 @@ import {
 } from "../effect/context.js";
 import {
   createRecoveryManagerFromConfig,
+  isContextOverflowError,
   type RecoveryManager,
 } from "./recovery/manager.js";
 
@@ -107,6 +115,12 @@ import {
 // working for tests and legacy call sites.
 // =============================================================================
 
+// How many times a single run may compact in response to the provider
+// rejecting the request as too long. Each attempt is a full round trip, so an
+// unbounded retry loop is expensive and, when compaction cannot free enough,
+// never converges.
+const MAX_OVERFLOW_COMPACTIONS = 3;
+
 export interface AgentLoopConfig {
   maxIterations?: number;
   heuristics?: Partial<LoopHeuristics>;
@@ -116,6 +130,26 @@ export interface AgentLoopConfig {
   memory?: MemoryService;
   orchestrator?: ToolOrchestrator;
   recovery?: RecoveryManager;
+}
+
+// =============================================================================
+// extractToolImage
+// A tool signals "I produced an image" by putting { data, mediaType } under
+// metadata.image, which the orchestrator forwards as structuredData.
+// =============================================================================
+
+function extractToolImage(
+  result: ToolResult,
+): { data: string; mediaType: string } | undefined {
+  if (result.error) return undefined;
+  const data = result.structuredData;
+  if (!isPlainObject(data)) return undefined;
+  const image = (data as Record<string, unknown>).image;
+  if (!isPlainObject(image)) return undefined;
+  const { data: b64, mediaType } = image as Record<string, unknown>;
+  if (typeof b64 !== "string" || b64.length === 0) return undefined;
+  if (typeof mediaType !== "string" || mediaType.length === 0) return undefined;
+  return { data: b64, mediaType };
 }
 
 // =============================================================================
@@ -154,6 +188,16 @@ export class AgentLoop {
   private todoGateForces = 0;
   private turnsSinceTodoWrite = 0;
   private turnsSinceLastNudge = 0;
+  // The provider's own count of the last request's input (prompt + cache
+  // reads + cache writes) — i.e. how full the model's window actually is.
+  // Drives auto-compaction, which previously read MemoryService's estimate
+  // and so missed everything tool calls contributed. 0 until the first
+  // response carries usage.
+  private lastMeasuredContextTokens = 0;
+  // Compactions triggered by a provider rejecting the request as too long.
+  // Reset on any successful send; capped so a conversation that cannot be
+  // shrunk enough fails once instead of retrying forever.
+  private overflowCompactions = 0;
   // Verification gate state: whether this run mutated files (so verify is
   // worth running) and how many times the gate has run.
   private filesMutatedThisRun = false;
@@ -204,6 +248,13 @@ export class AgentLoop {
                 type: "code",
                 language: part.language || "",
                 content: part.content || "",
+              };
+            } else if (part.type === "image") {
+              return {
+                type: "image",
+                data: part.data || "",
+                mediaType: part.mediaType || "image/png",
+                altText: part.altText,
               };
             } else {
               const toolCall: ToolCall = {
@@ -339,15 +390,42 @@ export class AgentLoop {
       // Prune/compact history using idle-time gap detection
       this.history = this.maybeTimeBasedMicrocompact(this.history);
 
-      // Construct and push the new user message to history and store
+      // Construct and push the new user message to history and store.
+      // Attached images ride along as image parts, but only where the model can
+      // actually see them — a text-only model rejects image content outright.
+      const canSeeImages =
+        !!input.images?.length &&
+        (await modelSupportsImages(input.provider, input.model));
+      const imageParts: MessagePart[] = canSeeImages
+        ? input.images!.map((img) => ({
+            type: "image",
+            data: img.data,
+            mediaType: img.mediaType,
+            altText: img.altText,
+          }))
+        : [];
+      if (input.images?.length && !canSeeImages) {
+        // Loudly, not just to the log: the user attached something and would
+        // otherwise watch the model claim it received no image.
+        const note =
+          `${input.model ?? input.provider} cannot accept image input, so ` +
+          `${input.images.length} attached image(s) were not sent. ` +
+          `Switch to a vision model (e.g. an Anthropic, OpenAI, or Gemini model) to use images.`;
+        logger.warn(`[AgentLoop] ${note}`);
+        BusEvents.stream(this.state.sessionId, {
+          type: "notice",
+          level: "warn",
+          content: note,
+        });
+      }
       const initialUserMessage: Message = {
         id: randomUUID(),
         role: "user",
-        parts: [{ type: "text", content: input.prompt }],
+        parts: [{ type: "text", content: input.prompt }, ...imageParts],
         timestamp: Date.now(),
       };
       this.history.push(initialUserMessage);
-      await this.appendUserMessage(input.prompt);
+      await this.appendUserMessage(input.prompt, imageParts);
       this.memory.addMessage("user", input.prompt);
 
       let totalInputTokens = 0;
@@ -379,7 +457,9 @@ export class AgentLoop {
 
         // Todo nudge: after several turns with no todowrite call, remind the
         // model to keep a plan. Queued as a transient reminder for this turn.
-        if (shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)) {
+        if (
+          shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)
+        ) {
           this.pendingReminders.push(todoNudgeReminder());
           this.turnsSinceLastNudge = 0;
         }
@@ -449,7 +529,10 @@ export class AgentLoop {
         // per-run cap so a stubborn list can't loop forever.
         if (turnResult.toolResults.length === 0) {
           const gate = evaluateTodoGate(this.state.sessionId);
-          if (gate.forceContinue && this.todoGateForces < TODO_GATE_MAX_FORCES) {
+          if (
+            gate.forceContinue &&
+            this.todoGateForces < TODO_GATE_MAX_FORCES
+          ) {
             this.todoGateForces += 1;
             if (gate.reminder) this.pendingReminders.push(gate.reminder);
             console.log(
@@ -481,7 +564,8 @@ export class AgentLoop {
                 this.state.projectPath,
                 this.abort.signal,
               );
-              if (this.abort.signal.aborted) return this.complete("Interrupted");
+              if (this.abort.signal.aborted)
+                return this.complete("Interrupted");
               if (!verify.ok) {
                 this.pendingReminders.push(
                   verifyFailureReminder(verifyCmd.label, verify.output),
@@ -570,10 +654,61 @@ export class AgentLoop {
     if (!model) return undefined;
     try {
       const limit = await getModelContextLimit(provider, model);
-      return limit > 0 ? limit : undefined;
+      if (limit <= 0) return undefined;
+      // The reply reservation is charged against this same window, so subtract
+      // it to get what the conversation may actually occupy. Must come from
+      // resolveMaxOutputTokens — the identical call the request is built from
+      // (see callProviderOnce) — or we would budget against one number and
+      // send another.
+      const usable = limit - (await resolveMaxOutputTokens(provider, model));
+      return usable > 0 ? usable : limit;
     } catch {
       return undefined;
     }
+  }
+
+  // Recover from a context-overflow rejection by compacting and sending once
+  // more. Rethrows anything else untouched, so ordinary failures still surface.
+  //
+  // The retry is deliberately not wrapped in this handler again: a second
+  // overflow within the same turn means compaction did not free enough, and
+  // looping on that burns quota without converging. claude-code records 1,279
+  // sessions hitting 50+ consecutive compaction failures (up to 3,272) for
+  // ~250K wasted calls a day before they added the same cap.
+  private async compactAndRetry(
+    error: unknown,
+    system: SystemBlock[],
+    provider: string,
+    model: string | undefined,
+  ): Promise<Awaited<ReturnType<typeof this.sendToProvider>>> {
+    if (!isContextOverflowError(error)) throw error;
+
+    if (this.overflowCompactions >= MAX_OVERFLOW_COMPACTIONS) {
+      logger.error(
+        `[AgentLoop] Context overflow persisted after ${this.overflowCompactions} compactions; giving up.`,
+      );
+      throw error;
+    }
+    this.overflowCompactions += 1;
+
+    logger.warn(
+      `[AgentLoop] Provider rejected the request as too long; compacting and retrying ` +
+        `(attempt ${this.overflowCompactions}/${MAX_OVERFLOW_COMPACTIONS}).`,
+    );
+    BusEvents.stream(this.state.sessionId, {
+      type: "notice",
+      level: "warn",
+      content:
+        "The conversation outgrew the model's context window. Compacting and retrying.",
+    });
+
+    const outcome = await this.runCompaction(provider, model, "auto");
+    // Nothing was freed (already minimal, or a PreCompact hook blocked it), so
+    // the same request would be rebuilt at the same size.
+    if (!outcome.compacted) throw error;
+
+    // this.history was reloaded from the trimmed store inside runCompaction.
+    return await this.sendToProvider(this.history, system, provider, model);
   }
 
   // Build compaction options that summarize via the active provider/model.
@@ -600,7 +735,14 @@ export class AgentLoop {
     model: string | undefined,
   ): Promise<void> {
     const contextLimit = await this.resolveContextLimit(provider, model);
-    if (!this.memory.shouldCompact(model ?? provider, contextLimit)) return;
+    if (
+      !this.memory.shouldCompact(
+        model ?? provider,
+        contextLimit,
+        this.lastMeasuredContextTokens,
+      )
+    )
+      return;
     await this.runCompaction(provider, model, "auto");
   }
 
@@ -613,7 +755,10 @@ export class AgentLoop {
     model: string | undefined,
     trigger: "auto" | "manual",
   ): Promise<ApplyCompactionResult> {
-    BusEvents.stream(this.state.sessionId, { type: "compaction_start", trigger });
+    BusEvents.stream(this.state.sessionId, {
+      type: "compaction_start",
+      trigger,
+    });
     const compactOptions = this.compactOptions(provider, model);
 
     let outcome: ApplyCompactionResult;
@@ -626,7 +771,13 @@ export class AgentLoop {
         compactOptions,
       });
       // Reload so this.history matches the trimmed store.
-      if (outcome.compacted) await this.loadHistory();
+      if (outcome.compacted) {
+        await this.loadHistory();
+        // The measurement describes the pre-trim request and would re-trigger
+        // compaction on the next check. Clear it so the estimate is used until
+        // the provider reports a fresh number.
+        this.lastMeasuredContextTokens = 0;
+      }
     } else {
       // No store (e.g. tests): memory-only compaction, slice native history.
       const result = await this.memory.compact(compactOptions);
@@ -650,7 +801,9 @@ export class AgentLoop {
         outcome.tokensAfter,
       );
     } else {
-      logger.warn(`[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`);
+      logger.warn(
+        `[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`,
+      );
     }
 
     BusEvents.stream(this.state.sessionId, {
@@ -763,12 +916,39 @@ export class AgentLoop {
         finalSystemBlocks = [{ text: hookResult.modifiedPrompt, cache: true }];
       }
 
-      const providerResult = await this.sendToProvider(
-        this.history,
-        finalSystemBlocks,
-        provider,
-        model,
-      );
+      // The threshold check is a prediction, and predictions miss: one turn can
+      // add more than the buffer covers, or the session may have been resumed
+      // onto a model with a smaller window. Rather than surface the rejection,
+      // compact and send again — the only recovery that can work, since
+      // retrying an oversized request unchanged always fails the same way.
+      let providerResult: Awaited<ReturnType<typeof this.sendToProvider>>;
+      try {
+        providerResult = await this.sendToProvider(
+          this.history,
+          finalSystemBlocks,
+          provider,
+          model,
+        );
+        this.overflowCompactions = 0;
+      } catch (error) {
+        providerResult = await this.compactAndRetry(
+          error,
+          finalSystemBlocks,
+          provider,
+          model,
+        );
+      }
+
+      // Record how full the window actually got. Each call resends the whole
+      // conversation, so the last call's input *is* the occupancy — no summing.
+      // Captured here (not in run()) because maybeCompact fires before this
+      // turn's result reaches the caller.
+      if (providerResult.usage) {
+        this.lastMeasuredContextTokens =
+          (providerResult.usage.inputTokens ?? 0) +
+          (providerResult.usage.cacheReadInputTokens ?? 0) +
+          (providerResult.usage.cacheCreationInputTokens ?? 0);
+      }
 
       // Emit thinking content if present (for UI to display as streaming reasoning)
       if (providerResult.thinking) {
@@ -849,6 +1029,10 @@ export class AgentLoop {
       // else runs solo. Post-work (loop-health, assistantMessage patch,
       // session-store append) is always in original order for determinism.
       const toolResults: ToolResult[] = new Array(toolCalls.length);
+      // Images a tool produced this turn. A tool result is a text string on the
+      // wire, so base64 can't ride inside it — the images are re-emitted as a
+      // user message after the results instead (see below).
+      const toolImages: MessagePart[] = [];
       const batches = planToolBatches(toolCalls);
       for (const { start, end, parallel } of batches) {
         const batch = toolCalls.slice(start, end);
@@ -882,7 +1066,46 @@ export class AgentLoop {
             part.result = result.modelOutput || result.error || "";
           }
           await this.appendToolMessage(tc, result);
+
+          const image = extractToolImage(result);
+          if (image) {
+            if (await modelSupportsImages(provider, model)) {
+              toolImages.push({
+                type: "image",
+                data: image.data,
+                mediaType: image.mediaType,
+                altText: result.title,
+              });
+            } else {
+              const note =
+                `${model ?? provider} cannot accept image input, so the image ` +
+                `read by ${tc.tool} was not sent. Switch to a vision model to use images.`;
+              logger.warn(`[AgentLoop] ${note}`);
+              BusEvents.stream(this.state.sessionId, {
+                type: "notice",
+                level: "warn",
+                content: note,
+              });
+            }
+          }
         }
+      }
+
+      // Hand the model any images the tools produced. They go in as a user
+      // message after the tool results so the tool-call/tool-result pairing
+      // stays intact — providers reject a tool result that isn't plain text.
+      if (toolImages.length > 0) {
+        const caption =
+          toolImages.length === 1
+            ? "Image from the tool call above:"
+            : `${toolImages.length} images from the tool calls above:`;
+        this.history.push({
+          id: randomUUID(),
+          role: "user",
+          parts: [{ type: "text", content: caption }, ...toolImages],
+          timestamp: Date.now(),
+        });
+        await this.appendUserMessage(caption, toolImages);
       }
 
       // Add assistant response to MemoryService for token tracking
@@ -983,6 +1206,11 @@ export class AgentLoop {
       });
     }
 
+    // Sized from the model's own ceiling rather than a per-provider constant,
+    // and shared with resolveContextLimit so the reservation the request makes
+    // is exactly the one compaction budgeted for.
+    const maxTokens = await resolveMaxOutputTokens(provider, model);
+
     // Prefer streaming when the provider supports it AND we have a listener.
     // If either is missing, fall back to the one-shot execute() path so callers
     // and downstream code paths are unchanged.
@@ -1006,6 +1234,7 @@ export class AgentLoop {
         system,
         tools,
         model,
+        maxTokens,
         abortSignal: this.abort.signal,
       })) {
         if (this.abort.signal.aborted) break;
@@ -1235,9 +1464,11 @@ export class AgentLoop {
         toolName: toolCall.tool,
         args,
         mode: this.state.agentMode,
-        rules:
-          this.permissionSettings?.getRuleSet() ??
-          { allow: [], ask: [], deny: [] },
+        rules: this.permissionSettings?.getRuleSet() ?? {
+          allow: [],
+          ask: [],
+          deny: [],
+        },
         projectRoot: this.state.projectPath,
       });
 
@@ -1288,7 +1519,9 @@ export class AgentLoop {
               projectRoot: this.state.projectPath,
               settings: this.permissionSettings,
               sessionId: this.state.sessionId,
-              reason: evaluation.matchedRule ?? `${evaluation.source} (${this.state.agentMode} mode)`,
+              reason:
+                evaluation.matchedRule ??
+                `${evaluation.source} (${this.state.agentMode} mode)`,
             })
           : { allowed: false, reason: "Permission system unavailable" };
         if (!outcome.allowed) {
@@ -1431,9 +1664,7 @@ export class AgentLoop {
   // the per-project cache (context/tree-cache.ts); the loop invalidates it
   // after any mutating tool completes.
   // ===========================================================================
-  private async collectContext(
-    projectPath: string,
-  ): Promise<{
+  private async collectContext(projectPath: string): Promise<{
     success: boolean;
     value?: {
       name: string;
@@ -1648,13 +1879,30 @@ export class AgentLoop {
     }
   }
 
-  private async appendUserMessage(content: string): Promise<void> {
+  private async appendUserMessage(
+    content: string,
+    imageParts: MessagePart[] = [],
+  ): Promise<void> {
     if (!this.sessionStore) return;
     await this.ensureProjectPath();
     const message: SerializedMessage = {
       id: randomUUID(),
       role: "user",
-      parts: [{ type: "text", content }],
+      parts: [
+        { type: "text", content },
+        ...imageParts.flatMap((p) =>
+          p.type === "image"
+            ? [
+                {
+                  type: "image" as const,
+                  data: p.data,
+                  mediaType: p.mediaType,
+                  altText: p.altText,
+                },
+              ]
+            : [],
+        ),
+      ],
       timestamp: Date.now(),
     };
     await this.sessionStore.appendMessage(

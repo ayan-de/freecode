@@ -6,6 +6,11 @@ export interface ProviderInfo {
   defaultModel: string;
   supportsStreaming: boolean;
   supportsTools: boolean;
+  // Tokens this provider reserves for the reply when the caller doesn't set
+  // maxTokens. Providers count it against the context window, so the usable
+  // input budget is (context limit - this), not the full limit — compaction
+  // subtracts it before deciding whether to fire.
+  maxOutputTokens: number;
 }
 
 export interface ToolDef {
@@ -18,6 +23,17 @@ export interface SystemBlock {
   text: string;
   cache?: boolean;
 }
+
+/** Content part that can be sent to vision-capable providers. */
+export type MultimodalContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      /** Base64-encoded image data. AI SDK handles provider-specific conversion. */
+      image: string;
+      /** Media type (e.g., image/png, image/jpeg). */
+      mediaType?: string;
+    };
 
 export interface ExecuteOptions {
   prompt?: string;

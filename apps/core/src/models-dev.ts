@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import https from "https";
+import { OUTPUT_TOKEN_CAP } from "./providers/utils.js";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -24,6 +25,8 @@ export interface ProviderModel {
   description?: string;
   /** Present when models.dev reports limits for this model. */
   limit?: ModelLimit;
+  /** Input modalities, e.g. ["text", "image", "pdf"]. Absent if unreported. */
+  inputModalities?: string[];
 }
 
 export interface Provider {
@@ -94,6 +97,9 @@ async function fetchFromNetwork(): Promise<Provider[]> {
                           output: modelData.limit.output ?? 0,
                         }
                       : undefined,
+                  inputModalities: Array.isArray(modelData.modalities?.input)
+                    ? (modelData.modalities.input as string[])
+                    : undefined,
                 });
               }
 
@@ -162,10 +168,74 @@ export async function getModelContextLimit(
   providerId: string,
   modelId: string,
 ): Promise<number> {
+  return (await findModelLimit(providerId, modelId))?.context ?? 0;
+}
+
+/**
+ * The model's maximum reply length, as reported by models.dev. Returns `0`
+ * when unknown so callers can fall back rather than reserve nothing.
+ */
+export async function getModelOutputLimit(
+  providerId: string,
+  modelId: string,
+): Promise<number> {
+  return (await findModelLimit(providerId, modelId))?.output ?? 0;
+}
+
+/**
+ * How many tokens to reserve for the reply on a request to `providerId/modelId`.
+ *
+ * Providers charge `max_tokens` against the same context window as the input,
+ * so this number is subtracted twice over: once from what the conversation may
+ * occupy, and again by the API when it validates the request. It must
+ * therefore be the *same* value at both sites — sending one number while
+ * budgeting against another is how a session ends up rejected at a threshold
+ * it believed it was under.
+ *
+ * The model's own ceiling wins when it is lower than the cap; an unknown model
+ * (limit 0) falls back to the cap rather than reserving nothing.
+ */
+export async function resolveMaxOutputTokens(
+  providerId: string,
+  modelId: string | undefined,
+): Promise<number> {
+  if (!modelId) return OUTPUT_TOKEN_CAP;
+  const limit = await getModelOutputLimit(providerId, modelId).catch(() => 0);
+  return Math.min(limit || OUTPUT_TOKEN_CAP, OUTPUT_TOKEN_CAP);
+}
+
+// Exact match first, then case-insensitive: provider/model ids from config
+// vary in casing.
+async function findModelLimit(
+  providerId: string,
+  modelId: string,
+): Promise<ModelLimit | undefined> {
   const models = await getProviderModels(providerId);
   const exact = models.find((m) => m.id === modelId);
-  if (exact) return exact.limit?.context ?? 0;
+  if (exact) return exact.limit;
   const lower = modelId.toLowerCase();
-  const ci = models.find((m) => m.id.toLowerCase() === lower);
-  return ci?.limit?.context ?? 0;
+  return models.find((m) => m.id.toLowerCase() === lower)?.limit;
+}
+
+/**
+ * Whether a model accepts image input. Vision is a *model* capability, not a
+ * provider one — anthropic ships text-only models and some text-first
+ * providers ship vision models — so this reads models.dev per model rather
+ * than keeping a hardcoded provider allowlist.
+ *
+ * Unknown models return false: sending an image part to a text-only model is
+ * a hard 400 from the provider, so failing closed with a message the user can
+ * act on beats a request that dies on the wire.
+ */
+export async function modelSupportsImages(
+  providerId: string,
+  modelId: string | undefined,
+): Promise<boolean> {
+  if (!modelId) return false;
+  const models = await getProviderModels(providerId).catch(() => []);
+  const lower = modelId.toLowerCase();
+  const match =
+    models.find((m) => m.id === modelId) ??
+    models.find((m) => m.id.toLowerCase() === lower);
+  return match?.inputModalities?.includes("image") ?? false;
 }

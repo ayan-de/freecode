@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
 import { NoticeModal } from "./components/notice-modal.js";
+import { CompactionModal } from "./components/compaction-modal.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
@@ -28,7 +29,7 @@ import { formatDuration } from "./utils/format-duration.js";
 import { resolveFdPath } from "./utils/fd-path.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
 import { plainText } from "./utils/ansi-select.js";
-import { copyToClipboard } from "./utils/clipboard.js";
+import { copyToClipboard, readImageFromClipboard } from "./utils/clipboard.js";
 import {
   startCli,
   sessionStart,
@@ -103,6 +104,14 @@ let currentProvider = "";
 let currentModel = "";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
+// Images pasted with Ctrl+V, attached to the next prompt and then cleared.
+let pendingImages: Array<{
+  data: string;
+  mediaType: string;
+  altText?: string;
+}> = [];
+// Guards against overlapping clipboard reads from a Ctrl+V key burst.
+let isReadingClipboard = false;
 // Fixed top status header: hidden until the first prompt is sent, then shows
 // mode/model on the left and live context-window usage on the right.
 let hasFirstMessage = false;
@@ -704,18 +713,25 @@ function handleToolEvent(event: StreamEvent) {
       if (!activePermissionPicker) showNextPermission();
       break;
     }
-    // Auto-compaction only — manual /compact renders from its own RPC result
-    // (the stream listener isn't guaranteed active between turns).
+    // Auto-compaction only — manual /compact drives the same modal from its own
+    // RPC result (the stream listener isn't guaranteed active between turns).
     case "compaction_start": {
-      if (event.trigger === "auto") showMessage("*Compacting conversation…*");
+      if (event.trigger === "auto") showCompactionModal();
       break;
     }
     case "compaction_complete": {
-      if (event.trigger === "auto" && event.compacted) {
-        showMessage(
-          `*Compacted context: ~${event.tokensBefore.toLocaleString()} → ~${event.tokensAfter.toLocaleString()} tokens*`,
-        );
+      if (event.trigger !== "auto") break;
+      if (event.compacted) {
+        finishCompactionModal(event.tokensBefore, event.tokensAfter);
+      } else {
+        dismissCompactionModal("Nothing older than the last 2 turns.");
       }
+      break;
+    }
+    case "notice": {
+      showMessage(
+        event.level === "warn" ? `⚠ *${event.content}*` : `*${event.content}*`,
+      );
       break;
     }
     // Prompt-cache awareness (jcode #9). Warn on a cold-cache send; on warm
@@ -794,9 +810,13 @@ async function submitPrompt(
         }
       }
 
+      // No hardcoded provider: send only what config.json actually resolved to
+      // and let core reject an unconfigured setup, rather than quietly starting
+      // the session on a provider the user never picked.
       currentSession = (await sessionStart({
         projectPath: process.cwd(),
-        provider: currentProvider || "minimax",
+        provider: currentProvider || undefined,
+        model: currentModel || undefined,
         agentMode: currentAgentMode,
       })) as SessionInfo;
     } catch (error) {
@@ -810,11 +830,21 @@ async function submitPrompt(
 
   try {
     activeTurnSessionId = currentSession.sessionId;
+    // Hand off and clear: an image is attached to exactly one turn, and
+    // leaving it queued would silently re-send it on the next prompt.
+    const images = pendingImages.length > 0 ? pendingImages : undefined;
+    pendingImages = [];
+    // Clear the editor's pending images display
+    editor.pendingImages = [];
     const result = await sessionSendStreaming(
       currentSession.sessionId,
       promptText,
-      undefined,
+      // Send the model the status bar is displaying. Passing undefined let the
+      // request resolve to a different model than the one shown — the context
+      // meter read config.json while the wire carried the provider default.
+      currentModel || undefined,
       currentAgentMode,
+      images,
       (event: StreamEvent) => {
         handleToolEvent(event);
       },
@@ -918,21 +948,21 @@ editor.onSubmit = async (value: string) => {
               showMessage("*No active session to compact.*");
               return;
             }
-            showMessage("*Compacting conversation…*");
+            showCompactionModal();
             try {
               const r = await sessionCompact(currentSession.sessionId);
               if (r.compacted) {
-                showMessage(
-                  `*Compacted context: ~${r.tokensBefore.toLocaleString()} → ~${r.tokensAfter.toLocaleString()} tokens*`,
-                );
+                finishCompactionModal(r.tokensBefore, r.tokensAfter);
               } else {
-                showMessage(
-                  `*Nothing to compact${r.reason ? ` (${r.reason})` : ""}.*`,
+                // The server's reason ("nothing to compact") duplicates the
+                // heading, so say what would actually change the outcome.
+                dismissCompactionModal(
+                  "Nothing older than the last 2 turns yet.",
                 );
               }
             } catch (err) {
-              showMessage(
-                `**Error:** Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+              dismissCompactionModal(
+                err instanceof Error ? err.message : String(err),
               );
             }
           },
@@ -1115,6 +1145,100 @@ function hideTodoPanel(): void {
 // stacking boxes.
 let noticeOverlay: OverlayHandle | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ---------------------------------------------------------------------------
+// Compaction modal
+// Centered while a conversation is summarized, then held briefly on the result
+// so the token reduction is readable before it disappears. Auto-compaction
+// drives it from stream events; /compact drives it from its RPC result.
+// ---------------------------------------------------------------------------
+let compactionOverlay: OverlayHandle | null = null;
+let compactionModal: CompactionModal | null = null;
+let compactionAnimation: ReturnType<typeof setInterval> | null = null;
+let compactionDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Frame interval for the indeterminate sweep. */
+const COMPACTION_FRAME_MS = 80;
+/** How long the finished state stays up before auto-dismissing. */
+const COMPACTION_LINGER_MS = 1600;
+
+function clearCompactionTimers(): void {
+  if (compactionAnimation) clearInterval(compactionAnimation);
+  if (compactionDismissTimer) clearTimeout(compactionDismissTimer);
+  compactionAnimation = null;
+  compactionDismissTimer = null;
+}
+
+function showCompactionModal(): void {
+  // Re-entrant by design: a manual /compact during an auto pass would
+  // otherwise leave the first overlay orphaned on screen forever.
+  hideCompactionModal();
+
+  compactionModal = new CompactionModal();
+  compactionOverlay = tui.showOverlay(compactionModal, {
+    anchor: "center",
+    width: Math.min(
+      compactionModal.width(),
+      Math.max(24, terminal.columns - 4),
+    ),
+    // Non-capturing: compaction is not something the user answers, and stealing
+    // focus mid-turn would swallow a Ctrl+C they meant for the running turn.
+    nonCapturing: true,
+  });
+
+  compactionAnimation = setInterval(() => {
+    compactionModal?.tick();
+    tui.requestRender();
+  }, COMPACTION_FRAME_MS);
+
+  tui.requestRender();
+}
+
+function hideCompactionModal(): void {
+  clearCompactionTimers();
+  compactionOverlay?.hide();
+  compactionOverlay = null;
+  compactionModal = null;
+}
+
+/** Stop the sweep, show the reduction, then dismiss. */
+function finishCompactionModal(
+  tokensBefore: number,
+  tokensAfter: number,
+): void {
+  if (!compactionModal) return;
+  if (compactionAnimation) clearInterval(compactionAnimation);
+  compactionAnimation = null;
+
+  compactionModal.complete(tokensBefore, tokensAfter);
+  tui.requestRender();
+
+  // Also land it in the transcript: the modal is transient, but the reduction
+  // is worth being able to scroll back to.
+  showMessage(
+    `*Compacted context: ~${tokensBefore.toLocaleString()} → ~${tokensAfter.toLocaleString()} tokens*`,
+  );
+
+  compactionDismissTimer = setTimeout(() => {
+    hideCompactionModal();
+    tui.requestRender();
+  }, COMPACTION_LINGER_MS);
+}
+
+/** Terminal state for "ran, but there was nothing to do" (or an error). */
+function dismissCompactionModal(reason: string): void {
+  if (!compactionModal) return;
+  if (compactionAnimation) clearInterval(compactionAnimation);
+  compactionAnimation = null;
+
+  compactionModal.fail(reason);
+  tui.requestRender();
+
+  compactionDismissTimer = setTimeout(() => {
+    hideCompactionModal();
+    tui.requestRender();
+  }, COMPACTION_LINGER_MS);
+}
 
 // Rows occupied by the input and everything under it (spacer, mode line).
 // Used to lift the bottom-anchored notice so it sits right on top of the input.
@@ -1308,6 +1432,45 @@ tui.addInputListener((data) => {
   if (matchesKey(data, Key.shift("tab"))) {
     cycleAgentMode();
     return undefined;
+  }
+  if (matchesKey(data, Key.ctrl("v"))) {
+    // Terminals can deliver a Ctrl+V burst (key repeat, or the emulator
+    // echoing the chord) and the clipboard read is slow enough to overlap.
+    // Without this guard the same paste attaches twice — doubling the upload
+    // and the token cost.
+    if (isReadingClipboard) return { consume: true };
+    isReadingClipboard = true;
+    // Fire-and-forget: the key handler is sync, and shelling out to the
+    // clipboard tool takes long enough to stall input if awaited.
+    void (async () => {
+      try {
+        const image = await readImageFromClipboard();
+        if (!image) {
+          createSystemMessage(
+            "No image on the clipboard. (Needs `wl-paste`, `xclip`, or `pngpaste` installed.)",
+          );
+        } else if (pendingImages.some((p) => p.data === image.data)) {
+          // Clipboard unchanged since the last paste — re-attaching the same
+          // bytes is never what the user wants.
+          createSystemMessage("That image is already attached.");
+        } else {
+          pendingImages.push({
+            ...image,
+            altText: `pasted image (${image.mediaType})`,
+          });
+          // Update the editor to show the image container
+          editor.pendingImages = pendingImages;
+          const kb = ((image.data.length * 3) / 4 / 1024).toFixed(0);
+          createSystemMessage(
+            `Attached pasted image (${image.mediaType}, ~${kb}KB). It will be sent with your next message.`,
+          );
+        }
+      } finally {
+        isReadingClipboard = false;
+        tui.requestRender();
+      }
+    })();
+    return { consume: true };
   }
   if (matchesKey(data, Key.ctrl("t"))) {
     const messages = getMessages();

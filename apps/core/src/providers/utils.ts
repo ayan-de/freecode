@@ -1,7 +1,8 @@
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage } from "ai";
 import { jsonSchema } from "ai";
 import type { Message } from "../agent/types.js";
-import type { SystemBlock, ToolDef } from "./types.js";
+import type { MultimodalContentPart, SystemBlock, ToolDef } from "./types.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Converts FreeCode's ToolDef[] into the AI SDK's tools map, wrapping each
@@ -40,7 +41,9 @@ export function buildToolsParam(
  */
 export function buildAnthropicSystemParam(
   system: string | SystemBlock[],
-): string | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
+):
+  | string
+  | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
   if (typeof system === "string") return system;
   return system.map((block) => {
     const part: {
@@ -73,18 +76,49 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
 
   for (const msg of messages) {
     if (msg.role === "user") {
-      const textParts: string[] = [];
-      for (const part of msg.parts) {
-        if (part.type === "text") {
-          textParts.push(part.content);
-        } else if (part.type === "code") {
-          textParts.push(`\`\`\`${part.language}\n${part.content}\n\`\`\``);
+      // Check if any part is an image - if so, use array content format for vision
+      const hasImage = msg.parts.some((p) => p.type === "image");
+
+      if (hasImage) {
+        // Vision mode: use array content format with image parts
+        const contentParts: MultimodalContentPart[] = [];
+        for (const part of msg.parts) {
+          if (part.type === "text") {
+            contentParts.push({ type: "text", text: part.content });
+          } else if (part.type === "code") {
+            contentParts.push({
+              type: "text",
+              text: `\`\`\`${part.language}\n${part.content}\n\`\`\``,
+            });
+          } else if (part.type === "image") {
+            // AI SDK expects { type: "image", image: base64 string or URL, mediaType?: string }
+            // The SDK handles provider-specific conversion (Anthropic, OpenAI, Gemini, etc.)
+            contentParts.push({
+              type: "image",
+              image: part.data,
+              mediaType: part.mediaType,
+            });
+          }
         }
+        coreMessages.push({
+          role: "user",
+          content: contentParts,
+        });
+      } else {
+        // Text-only mode: simple string content
+        const textParts: string[] = [];
+        for (const part of msg.parts) {
+          if (part.type === "text") {
+            textParts.push(part.content);
+          } else if (part.type === "code") {
+            textParts.push(`\`\`\`${part.language}\n${part.content}\n\`\`\``);
+          }
+        }
+        coreMessages.push({
+          role: "user",
+          content: textParts.join("\n\n"),
+        });
       }
-      coreMessages.push({
-        role: "user",
-        content: textParts.join("\n\n"),
-      });
     } else if (msg.role === "assistant") {
       const textParts: string[] = [];
       const toolCalls: Array<{
@@ -165,4 +199,53 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
   }
 
   return coreMessages;
+}
+
+/**
+ * Ceiling on the tokens any provider reserves for a reply.
+ *
+ * Providers count `max_tokens` against the same context window as the input —
+ * MiniMax rejects the request outright when the two exceed it — so every token
+ * reserved here is one the conversation cannot use. A fixed reservation is
+ * also regressive: 64K is 6% of a 1M window but a third of a 196K one, which
+ * dragged auto-compaction on MiniMax-M2 down to firing at 60% occupancy.
+ *
+ * 32K matches opencode's OUTPUT_TOKEN_MAX and is still ~128KB of output — far
+ * more than a single file write needs, so it keeps the headroom the old 64K
+ * was raised to provide. See also claude-code, which caps the equivalent
+ * reservation at 20K (`MAX_OUTPUT_TOKENS_FOR_SUMMARY`).
+ */
+export const OUTPUT_TOKEN_CAP = 32_000;
+
+/**
+ * Resolves the model for a request, falling back to the provider's default.
+ *
+ * The fallback exists for API callers that omit a model, but it used to be a
+ * bare `opts.model || DEFAULT` — so when the model failed to thread through
+ * from config.json, requests silently went out on a different model than the
+ * one the UI displayed (MiniMax-M3's 1M meter over M2's 196K window, which
+ * 400s at ~20% shown). Reaching the default now always says so.
+ */
+export function resolveModel(
+  requested: string | undefined,
+  providerId: string,
+  defaultModel: string,
+): string {
+  if (requested) return requested;
+  logger.warn(
+    `[${providerId}] no model specified; falling back to "${defaultModel}". ` +
+      `Set one in ~/.freecode/config.json under current.model — the default ` +
+      `may have a smaller context window than the model you expect.`,
+  );
+  return defaultModel;
+}
+
+/** Returns true if any message contains image parts. */
+export function messagesContainImages(messages: Message[]): boolean {
+  for (const msg of messages) {
+    for (const part of msg.parts) {
+      if (part.type === "image") return true;
+    }
+  }
+  return false;
 }

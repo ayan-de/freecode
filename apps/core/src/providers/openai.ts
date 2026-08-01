@@ -8,7 +8,11 @@ import {
 } from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
-import { convertToCoreMessages, buildToolsParam } from "./utils.js";
+import {
+  convertToCoreMessages,
+  buildToolsParam,
+  resolveModel,
+} from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
 const PROVIDER_INFO = {
@@ -17,13 +21,18 @@ const PROVIDER_INFO = {
   defaultModel: "gpt-4o",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: 4096,
 };
 
 function createOpenAIProvider(_apiKey: string): AIProvider {
   const openai = createOpenAI({ apiKey: getApiKey("openai") });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
 
     const tools = buildToolsParam(opts.tools);
 
@@ -38,7 +47,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       model: openai(model),
       system: systemPrompt,
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -85,7 +94,11 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
   }
 
   function buildOptions(opts: ExecuteOptions) {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
     const tools = buildToolsParam(opts.tools);
     const systemPrompt =
       typeof opts.system === "string"
@@ -95,7 +108,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       model: openai(model),
       system: systemPrompt,
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -107,9 +120,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
     return generateOptions;
   }
 
-  async function* stream(
-    opts: ExecuteOptions,
-  ): AsyncGenerator<ProviderChunk> {
+  async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
     const result = streamText(buildOptions(opts));
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<

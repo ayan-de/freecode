@@ -271,7 +271,16 @@ export interface Message {
 export type MessagePart =
   | { type: "text"; content: string }
   | { type: "code"; language: string; content: string }
-  | { type: "tool"; tool: ToolCall; result?: string };
+  | { type: "tool"; tool: ToolCall; result?: string }
+  | {
+      type: "image";
+      /** Base64-encoded image data (without the data:image/xxx;base64, prefix) */
+      data: string;
+      /** Media type: image/png, image/jpeg, image/gif, image/webp */
+      mediaType: string;
+      /** Optional plain-text description for providers without vision support */
+      altText?: string;
+    };
 
 // =============================================================================
 // User Input / Loop Result - Main entry/exit types
@@ -279,6 +288,8 @@ export type MessagePart =
 
 export interface UserInput {
   prompt: string;
+  /** Images attached to the prompt, shown to vision-capable providers. */
+  images?: Array<{ data: string; mediaType: string; altText?: string }>;
   sessionId: string;
   provider: string;
   model?: string;

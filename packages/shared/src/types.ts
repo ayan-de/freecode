@@ -16,6 +16,15 @@ export type MessagePart =
       type: "tool";
       tool: { name: string; args: Record<string, unknown> };
       result?: string;
+    }
+  | {
+      type: "image";
+      /** Base64-encoded image data (without the data:image/xxx;base64, prefix) */
+      data: string;
+      /** Media type: image/png, image/jpeg, image/gif, image/webp */
+      mediaType: string;
+      /** Optional plain-text description for providers without vision support */
+      altText?: string;
     };
 
 // =============================================================================
@@ -86,6 +95,9 @@ export interface ProviderDefinition {
 export interface SessionConfig {
   projectPath: string;
   provider?: string;
+  // Pins the session to a model at start. Omitted, the session inherits
+  // config.json's current model rather than the provider's hardcoded default.
+  model?: string;
   agentMode?: "plan" | "build" | "review" | "explore" | "danger";
 }
 

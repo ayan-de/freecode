@@ -8,7 +8,13 @@ import {
 } from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
-import { convertToCoreMessages, buildAnthropicSystemParam, buildToolsParam } from "./utils.js";
+import {
+  convertToCoreMessages,
+  buildAnthropicSystemParam,
+  buildToolsParam,
+  resolveModel,
+  OUTPUT_TOKEN_CAP,
+} from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
 // MiniMax exposes an Anthropic Messages-compatible endpoint, so we reuse
@@ -19,9 +25,12 @@ const BASE_URL = "https://api.minimax.io/anthropic/v1";
 // The old 4096 default truncated large tool calls (e.g. a `write` with a long
 // body) mid-JSON, which the AI SDK then surfaced as an unparseable tool call.
 // The endpoint's own ceilings are far higher — 524288 for MiniMax-M3, 196608
-// for MiniMax-M2 — so 64K is comfortably valid on both while leaving room for
-// a full file write in one call.
-const MAX_OUTPUT_TOKENS = 65536;
+// for MiniMax-M2 — so this only needs to be large enough for a full file write
+// in one call. It was 65536, but MiniMax charges max_tokens against the same
+// context window, so that reserved a third of M2's 196608 and forced
+// auto-compaction to fire at 60% occupancy. OUTPUT_TOKEN_CAP keeps the write
+// headroom while giving the rest of the window back to the conversation.
+const MAX_OUTPUT_TOKENS = OUTPUT_TOKEN_CAP;
 
 const PROVIDER_INFO = {
   id: "minimax" as const,
@@ -29,6 +38,7 @@ const PROVIDER_INFO = {
   defaultModel: "MiniMax-M2",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: MAX_OUTPUT_TOKENS,
 };
 
 function createMiniMaxProvider(_apiKey: string): AIProvider {
@@ -39,14 +49,18 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
 
   // Build the same options shape for execute() and stream() (mirrors anthropic.ts).
   function buildOptions(opts: ExecuteOptions) {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
 
     const tools = buildToolsParam(opts.tools);
 
     const generateOptions: any = {
       model: minimax(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || MAX_OUTPUT_TOKENS,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -89,7 +103,11 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
   }
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
     const result = await generateText(buildOptions(opts));
 
     const toolCalls = result.toolCalls?.map(
@@ -127,9 +145,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     };
   }
 
-  async function* stream(
-    opts: ExecuteOptions,
-  ): AsyncGenerator<ProviderChunk> {
+  async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
     const result = streamText(buildOptions(opts));
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<

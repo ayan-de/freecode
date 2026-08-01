@@ -41,6 +41,9 @@ export class MemoryService {
   // Token count at the moment a PreCompact hook last blocked compaction;
   // used to avoid re-attempting (and re-failing) on every message.
   private blockedAtTokenCount?: number;
+  // Last count shouldCompact() actually judged against — measured when the
+  // provider reported one, estimated otherwise.
+  private lastEffectiveTokenCount = 0;
 
   constructor(sessionId: string, options: MemoryServiceOptions = {}) {
     this.config = { ...DEFAULT_COMPACTION_CONFIG, ...options.config };
@@ -79,16 +82,34 @@ export class MemoryService {
 
   // `contextLimit` comes from models.dev (getModelContextLimit) when available;
   // omit it to fall back to the local model table in tokens.ts.
-  shouldCompact(model: string, contextLimit?: number): boolean {
+  //
+  // `measuredTokens` is the provider's own count of the last request's input
+  // and is strongly preferred. state.tokenCount only tracks prompts and
+  // assistant text: a turn that calls tools is recorded as the 4-token stub
+  // "[Executed N tools]", so tool arguments and results — the bulk of a coding
+  // session — are invisible to it. It under-reported a real 196K context as
+  // 14.5K, and auto-compaction never fired before the window overflowed.
+  shouldCompact(
+    model: string,
+    contextLimit?: number,
+    measuredTokens?: number,
+  ): boolean {
+    const effectiveTokens =
+      measuredTokens && measuredTokens > 0
+        ? measuredTokens
+        : this.state.tokenCount;
+    // Remembered so a PreCompact block records the same scale it was judged
+    // on — mixing a measured count with an estimated one would make the
+    // retry guard compare 196K against 14.5K and never hold.
+    this.lastEffectiveTokenCount = effectiveTokens;
     if (
       this.blockedAtTokenCount !== undefined &&
-      this.state.tokenCount <
-        this.blockedAtTokenCount + BLOCKED_RETRY_GROWTH_TOKENS
+      effectiveTokens < this.blockedAtTokenCount + BLOCKED_RETRY_GROWTH_TOKENS
     ) {
       return false;
     }
     return shouldCompact(
-      this.state.tokenCount,
+      effectiveTokens,
       model,
       this.config.autoCompactBufferTokens,
       contextLimit,
@@ -120,7 +141,8 @@ export class MemoryService {
       turnCount: this.state.totalCompactions,
     });
     if (!pre.allowed) {
-      this.blockedAtTokenCount = this.state.tokenCount;
+      this.blockedAtTokenCount =
+        this.lastEffectiveTokenCount || this.state.tokenCount;
       return {
         success: false,
         blocked: true,

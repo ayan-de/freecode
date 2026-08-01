@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAnthropicSystemParam, buildToolsParam } from "./utils.js";
+import {
+  buildAnthropicSystemParam,
+  buildToolsParam,
+  resolveModel,
+} from "./utils.js";
 
 test("buildAnthropicSystemParam passes a string through unchanged", () => {
   assert.equal(buildAnthropicSystemParam("be helpful"), "be helpful");
@@ -54,4 +58,14 @@ test("buildToolsParam wraps inputSchema so it is not a bare plain object", () =>
   // with no marker; the wrapped Schema instance exposes jsonSchema/validate.
   assert.notEqual(typeof inputSchema, "function");
   assert.ok("jsonSchema" in inputSchema || "validate" in inputSchema);
+});
+
+test("resolveModel returns the requested model unchanged", () => {
+  assert.equal(resolveModel("MiniMax-M3", "minimax", "MiniMax-M2"), "MiniMax-M3");
+});
+
+test("resolveModel falls back to the provider default when none is requested", () => {
+  assert.equal(resolveModel(undefined, "minimax", "MiniMax-M2"), "MiniMax-M2");
+  // Empty string is "no model" too — it must not reach the provider as-is.
+  assert.equal(resolveModel("", "minimax", "MiniMax-M2"), "MiniMax-M2");
 });

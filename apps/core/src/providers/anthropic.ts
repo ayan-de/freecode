@@ -8,7 +8,12 @@ import {
 } from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
-import { convertToCoreMessages, buildAnthropicSystemParam, buildToolsParam } from "./utils.js";
+import {
+  convertToCoreMessages,
+  buildAnthropicSystemParam,
+  buildToolsParam,
+  resolveModel,
+} from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
 const PROVIDER_INFO = {
@@ -17,13 +22,18 @@ const PROVIDER_INFO = {
   defaultModel: "claude-sonnet-4-5",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: 4096,
 };
 
 function createAnthropicProvider(_apiKey: string): AIProvider {
   const anthropic = createAnthropic({ apiKey: getApiKey("anthropic") });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
 
     const tools = buildToolsParam(opts.tools);
 
@@ -32,7 +42,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     const generateOptions: any = {
       model: anthropic(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -116,14 +126,18 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
 
   // Build the same options shape as execute() so both paths share the setup.
   function buildOptions(opts: ExecuteOptions) {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
 
     const tools = buildToolsParam(opts.tools);
 
     const generateOptions: any = {
       model: anthropic(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -165,9 +179,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     return generateOptions;
   }
 
-  async function* stream(
-    opts: ExecuteOptions,
-  ): AsyncGenerator<ProviderChunk> {
+  async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
     const streamOptions = buildOptions(opts);
     const result = streamText(streamOptions);
     yield* normalizeAiSdkStream(
