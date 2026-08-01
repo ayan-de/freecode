@@ -21,3 +21,18 @@ export interface PromptCommand {
   /** Build the prompt string sent to the agent. */
   template(ctx: CommandResolveContext): string;
 }
+
+/** Scope where a command is defined. */
+export type CommandScope = "builtin" | "user" | "project";
+
+/** A user-defined command loaded from filesystem. */
+export interface UserCommand {
+  name: string;
+  description: string;
+  argHint?: string;
+  /** The prompt template body. */
+  content: string;
+  scope: CommandScope;
+  /** File path where this command is defined. */
+  location: string;
+}
