@@ -34,11 +34,16 @@ export interface SerializedMessage {
   id: string;
   role: "user" | "assistant";
   parts: Array<{
-    type: "text" | "code" | "tool";
+    type: "text" | "code" | "tool" | "image";
     content?: string;
     language?: string;
     tool?: { name: string; args: Record<string, unknown> };
     result?: string;
+    /** Base64 image data (image parts only). */
+    data?: string;
+    /** Media type, e.g. image/png (image parts only). */
+    mediaType?: string;
+    altText?: string;
   }>;
   timestamp: number;
   interrupted?: boolean;
