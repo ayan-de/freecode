@@ -8,7 +8,11 @@ import { listCommandInfos, resolveCommand } from "./commands/registry.js";
 import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
 import { getAppRuntime } from "./effect/runtime.js";
 import { SessionStoreTag } from "./effect/context.js";
-import { initProviders, listProviders, getProvider } from "./providers/index.js";
+import {
+  initProviders,
+  listProviders,
+  getProvider,
+} from "./providers/index.js";
 import { MemoryService } from "./compaction/service.js";
 import { createLlmSummarizer } from "./compaction/llm-summarizer.js";
 import { applyCompaction } from "./session/compact-apply.js";
@@ -202,11 +206,13 @@ const methodHandlers: Record<
       message,
       model,
       agentMode: paramAgentMode,
+      images,
     } = params as {
       sessionId: string;
       message: string;
       model?: string;
       agentMode?: string;
+      images?: Array<{ data: string; mediaType: string; altText?: string }>;
     };
     const session = getSession(sessionId);
 
@@ -222,6 +228,11 @@ const methodHandlers: Record<
     if (model) {
       session.model = model;
     }
+    // Resolve the model the same way as the provider above. session.model is
+    // unset until the user picks one explicitly (session.start sends no
+    // model), and capability lookups keyed on it — e.g. whether the model
+    // accepts image input — treat "unknown" as "no".
+    const currentModel = session.model || config.current?.model;
 
     // Update session with agentMode if provided
     if (paramAgentMode) {
@@ -242,7 +253,7 @@ const methodHandlers: Record<
     logger.info("Session send", {
       sessionId,
       messageLength: message.length,
-      model: session.model,
+      model: currentModel,
       provider: currentProvider,
       agentMode,
     });
@@ -263,9 +274,10 @@ const methodHandlers: Record<
           prompt: message,
           sessionId,
           provider: currentProvider,
-          model: session.model,
+          model: currentModel,
           projectPath: session.projectPath,
           agentMode,
+          images,
         }),
       );
     } finally {
@@ -328,7 +340,10 @@ const methodHandlers: Record<
       // No provider configured — fall back to the heuristic summary.
     }
 
-    BusEvents.stream(sessionId, { type: "compaction_start", trigger: "manual" });
+    BusEvents.stream(sessionId, {
+      type: "compaction_start",
+      trigger: "manual",
+    });
     const outcome = await applyCompaction({
       memory,
       store,
@@ -430,7 +445,14 @@ const methodHandlers: Record<
   "mcp.status": async (
     params: Record<string, unknown>,
   ): Promise<
-    { name: string; type: string; enabled: boolean; status: "connected" | "disconnected"; toolCount: number; tools: string[] }[]
+    {
+      name: string;
+      type: string;
+      enabled: boolean;
+      status: "connected" | "disconnected";
+      toolCount: number;
+      tools: string[];
+    }[]
   > => {
     const { name } = params as { name?: string };
     const config = await import("./mcp/config.js").then((m) =>
