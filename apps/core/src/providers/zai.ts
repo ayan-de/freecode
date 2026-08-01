@@ -8,7 +8,12 @@ import {
 } from "./types.js";
 import { getApiKey } from "./config.js";
 import { registerProvider } from "./registry.js";
-import { convertToCoreMessages, buildAnthropicSystemParam, buildToolsParam } from "./utils.js";
+import {
+  convertToCoreMessages,
+  buildAnthropicSystemParam,
+  buildToolsParam,
+  resolveModel,
+} from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
 // z.ai (GLM) exposes an Anthropic Messages-compatible endpoint, so we reuse
@@ -31,7 +36,11 @@ function createZaiProvider(_apiKey: string): AIProvider {
   });
 
   function buildOptions(opts: ExecuteOptions) {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
 
     const tools = buildToolsParam(opts.tools);
 
@@ -81,7 +90,11 @@ function createZaiProvider(_apiKey: string): AIProvider {
   }
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-    const model = opts.model || PROVIDER_INFO.defaultModel;
+    const model = resolveModel(
+      opts.model,
+      PROVIDER_INFO.id,
+      PROVIDER_INFO.defaultModel,
+    );
     const result = await generateText(buildOptions(opts));
 
     const toolCalls = result.toolCalls?.map(
@@ -119,9 +132,7 @@ function createZaiProvider(_apiKey: string): AIProvider {
     };
   }
 
-  async function* stream(
-    opts: ExecuteOptions,
-  ): AsyncGenerator<ProviderChunk> {
+  async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
     const result = streamText(buildOptions(opts));
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<

@@ -2,6 +2,7 @@ import type { ModelMessage, AssistantModelMessage, ToolModelMessage } from "ai";
 import { jsonSchema } from "ai";
 import type { Message } from "../agent/types.js";
 import type { MultimodalContentPart, SystemBlock, ToolDef } from "./types.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Converts FreeCode's ToolDef[] into the AI SDK's tools map, wrapping each
@@ -198,6 +199,29 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
   }
 
   return coreMessages;
+}
+
+/**
+ * Resolves the model for a request, falling back to the provider's default.
+ *
+ * The fallback exists for API callers that omit a model, but it used to be a
+ * bare `opts.model || DEFAULT` — so when the model failed to thread through
+ * from config.json, requests silently went out on a different model than the
+ * one the UI displayed (MiniMax-M3's 1M meter over M2's 196K window, which
+ * 400s at ~20% shown). Reaching the default now always says so.
+ */
+export function resolveModel(
+  requested: string | undefined,
+  providerId: string,
+  defaultModel: string,
+): string {
+  if (requested) return requested;
+  logger.warn(
+    `[${providerId}] no model specified; falling back to "${defaultModel}". ` +
+      `Set one in ~/.freecode/config.json under current.model — the default ` +
+      `may have a smaller context window than the model you expect.`,
+  );
+  return defaultModel;
 }
 
 /** Returns true if any message contains image parts. */
