@@ -63,7 +63,10 @@ import {
   invalidateProjectContext,
 } from "../context/tree-cache.js";
 import { ensureWatching } from "../context/tree-watcher.js";
-import { MemoryService, renderPromptMemoryContext } from "../compaction/index.js";
+import {
+  MemoryService,
+  renderPromptMemoryContext,
+} from "../compaction/index.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
@@ -74,7 +77,7 @@ import {
 } from "../session/compact-apply.js";
 import { getModelContextLimit } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
-import { isPlainObject } from "../providers/utils.js";
+import { isPlainObject, providerSupportsVision } from "../providers/utils.js";
 import {
   noteSendAndCheckCold,
   summarizeCache,
@@ -116,6 +119,26 @@ export interface AgentLoopConfig {
   memory?: MemoryService;
   orchestrator?: ToolOrchestrator;
   recovery?: RecoveryManager;
+}
+
+// =============================================================================
+// extractToolImage
+// A tool signals "I produced an image" by putting { data, mediaType } under
+// metadata.image, which the orchestrator forwards as structuredData.
+// =============================================================================
+
+function extractToolImage(
+  result: ToolResult,
+): { data: string; mediaType: string } | undefined {
+  if (result.error) return undefined;
+  const data = result.structuredData;
+  if (!isPlainObject(data)) return undefined;
+  const image = (data as Record<string, unknown>).image;
+  if (!isPlainObject(image)) return undefined;
+  const { data: b64, mediaType } = image as Record<string, unknown>;
+  if (typeof b64 !== "string" || b64.length === 0) return undefined;
+  if (typeof mediaType !== "string" || mediaType.length === 0) return undefined;
+  return { data: b64, mediaType };
 }
 
 // =============================================================================
@@ -204,6 +227,13 @@ export class AgentLoop {
                 type: "code",
                 language: part.language || "",
                 content: part.content || "",
+              };
+            } else if (part.type === "image") {
+              return {
+                type: "image",
+                data: part.data || "",
+                mediaType: part.mediaType || "image/png",
+                altText: part.altText,
               };
             } else {
               const toolCall: ToolCall = {
@@ -339,15 +369,32 @@ export class AgentLoop {
       // Prune/compact history using idle-time gap detection
       this.history = this.maybeTimeBasedMicrocompact(this.history);
 
-      // Construct and push the new user message to history and store
+      // Construct and push the new user message to history and store.
+      // Attached images ride along as image parts, but only where the provider
+      // can actually see them — text-only providers reject image content.
+      const attachedImages =
+        input.images && providerSupportsVision(input.provider)
+          ? input.images
+          : [];
+      const imageParts: MessagePart[] = attachedImages.map((img) => ({
+        type: "image",
+        data: img.data,
+        mediaType: img.mediaType,
+        altText: img.altText,
+      }));
+      if (input.images?.length && attachedImages.length === 0) {
+        logger.warn(
+          `[AgentLoop] Provider ${input.provider} has no vision support — dropping ${input.images.length} attached image(s)`,
+        );
+      }
       const initialUserMessage: Message = {
         id: randomUUID(),
         role: "user",
-        parts: [{ type: "text", content: input.prompt }],
+        parts: [{ type: "text", content: input.prompt }, ...imageParts],
         timestamp: Date.now(),
       };
       this.history.push(initialUserMessage);
-      await this.appendUserMessage(input.prompt);
+      await this.appendUserMessage(input.prompt, imageParts);
       this.memory.addMessage("user", input.prompt);
 
       let totalInputTokens = 0;
@@ -379,7 +426,9 @@ export class AgentLoop {
 
         // Todo nudge: after several turns with no todowrite call, remind the
         // model to keep a plan. Queued as a transient reminder for this turn.
-        if (shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)) {
+        if (
+          shouldNudgeTodo(this.turnsSinceTodoWrite, this.turnsSinceLastNudge)
+        ) {
           this.pendingReminders.push(todoNudgeReminder());
           this.turnsSinceLastNudge = 0;
         }
@@ -449,7 +498,10 @@ export class AgentLoop {
         // per-run cap so a stubborn list can't loop forever.
         if (turnResult.toolResults.length === 0) {
           const gate = evaluateTodoGate(this.state.sessionId);
-          if (gate.forceContinue && this.todoGateForces < TODO_GATE_MAX_FORCES) {
+          if (
+            gate.forceContinue &&
+            this.todoGateForces < TODO_GATE_MAX_FORCES
+          ) {
             this.todoGateForces += 1;
             if (gate.reminder) this.pendingReminders.push(gate.reminder);
             console.log(
@@ -481,7 +533,8 @@ export class AgentLoop {
                 this.state.projectPath,
                 this.abort.signal,
               );
-              if (this.abort.signal.aborted) return this.complete("Interrupted");
+              if (this.abort.signal.aborted)
+                return this.complete("Interrupted");
               if (!verify.ok) {
                 this.pendingReminders.push(
                   verifyFailureReminder(verifyCmd.label, verify.output),
@@ -613,7 +666,10 @@ export class AgentLoop {
     model: string | undefined,
     trigger: "auto" | "manual",
   ): Promise<ApplyCompactionResult> {
-    BusEvents.stream(this.state.sessionId, { type: "compaction_start", trigger });
+    BusEvents.stream(this.state.sessionId, {
+      type: "compaction_start",
+      trigger,
+    });
     const compactOptions = this.compactOptions(provider, model);
 
     let outcome: ApplyCompactionResult;
@@ -650,7 +706,9 @@ export class AgentLoop {
         outcome.tokensAfter,
       );
     } else {
-      logger.warn(`[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`);
+      logger.warn(
+        `[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`,
+      );
     }
 
     BusEvents.stream(this.state.sessionId, {
@@ -849,6 +907,10 @@ export class AgentLoop {
       // else runs solo. Post-work (loop-health, assistantMessage patch,
       // session-store append) is always in original order for determinism.
       const toolResults: ToolResult[] = new Array(toolCalls.length);
+      // Images a tool produced this turn. A tool result is a text string on the
+      // wire, so base64 can't ride inside it — the images are re-emitted as a
+      // user message after the results instead (see below).
+      const toolImages: MessagePart[] = [];
       const batches = planToolBatches(toolCalls);
       for (const { start, end, parallel } of batches) {
         const batch = toolCalls.slice(start, end);
@@ -882,7 +944,40 @@ export class AgentLoop {
             part.result = result.modelOutput || result.error || "";
           }
           await this.appendToolMessage(tc, result);
+
+          const image = extractToolImage(result);
+          if (image) {
+            if (providerSupportsVision(provider)) {
+              toolImages.push({
+                type: "image",
+                data: image.data,
+                mediaType: image.mediaType,
+                altText: result.title,
+              });
+            } else {
+              logger.warn(
+                `[AgentLoop] Provider ${provider} has no vision support — dropping image from ${tc.tool}`,
+              );
+            }
+          }
         }
+      }
+
+      // Hand the model any images the tools produced. They go in as a user
+      // message after the tool results so the tool-call/tool-result pairing
+      // stays intact — providers reject a tool result that isn't plain text.
+      if (toolImages.length > 0) {
+        const caption =
+          toolImages.length === 1
+            ? "Image from the tool call above:"
+            : `${toolImages.length} images from the tool calls above:`;
+        this.history.push({
+          id: randomUUID(),
+          role: "user",
+          parts: [{ type: "text", content: caption }, ...toolImages],
+          timestamp: Date.now(),
+        });
+        await this.appendUserMessage(caption, toolImages);
       }
 
       // Add assistant response to MemoryService for token tracking
@@ -1235,9 +1330,11 @@ export class AgentLoop {
         toolName: toolCall.tool,
         args,
         mode: this.state.agentMode,
-        rules:
-          this.permissionSettings?.getRuleSet() ??
-          { allow: [], ask: [], deny: [] },
+        rules: this.permissionSettings?.getRuleSet() ?? {
+          allow: [],
+          ask: [],
+          deny: [],
+        },
         projectRoot: this.state.projectPath,
       });
 
@@ -1288,7 +1385,9 @@ export class AgentLoop {
               projectRoot: this.state.projectPath,
               settings: this.permissionSettings,
               sessionId: this.state.sessionId,
-              reason: evaluation.matchedRule ?? `${evaluation.source} (${this.state.agentMode} mode)`,
+              reason:
+                evaluation.matchedRule ??
+                `${evaluation.source} (${this.state.agentMode} mode)`,
             })
           : { allowed: false, reason: "Permission system unavailable" };
         if (!outcome.allowed) {
@@ -1431,9 +1530,7 @@ export class AgentLoop {
   // the per-project cache (context/tree-cache.ts); the loop invalidates it
   // after any mutating tool completes.
   // ===========================================================================
-  private async collectContext(
-    projectPath: string,
-  ): Promise<{
+  private async collectContext(projectPath: string): Promise<{
     success: boolean;
     value?: {
       name: string;
@@ -1648,13 +1745,30 @@ export class AgentLoop {
     }
   }
 
-  private async appendUserMessage(content: string): Promise<void> {
+  private async appendUserMessage(
+    content: string,
+    imageParts: MessagePart[] = [],
+  ): Promise<void> {
     if (!this.sessionStore) return;
     await this.ensureProjectPath();
     const message: SerializedMessage = {
       id: randomUUID(),
       role: "user",
-      parts: [{ type: "text", content }],
+      parts: [
+        { type: "text", content },
+        ...imageParts.flatMap((p) =>
+          p.type === "image"
+            ? [
+                {
+                  type: "image" as const,
+                  data: p.data,
+                  mediaType: p.mediaType,
+                  altText: p.altText,
+                },
+              ]
+            : [],
+        ),
+      ],
       timestamp: Date.now(),
     };
     await this.sessionStore.appendMessage(
