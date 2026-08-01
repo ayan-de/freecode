@@ -421,7 +421,12 @@ export class AgentLoop {
       const initialUserMessage: Message = {
         id: randomUUID(),
         role: "user",
-        parts: [{ type: "text", content: input.prompt }, ...imageParts],
+        // An image-only prompt carries no text. Providers reject empty text
+        // blocks, so omit the part rather than send a blank one.
+        parts: [
+          ...(input.prompt ? [{ type: "text" as const, content: input.prompt }] : []),
+          ...imageParts,
+        ],
         timestamp: Date.now(),
       };
       this.history.push(initialUserMessage);

@@ -75,7 +75,10 @@ import {
 } from "./components/message-row.js";
 import { getMessages } from "./state/message-store.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
-import { PromptEditor } from "./components/prompt-editor.js";
+import {
+  PromptEditor,
+  stripImageTokens,
+} from "./components/prompt-editor.js";
 import { createResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
@@ -104,12 +107,6 @@ let currentProvider = "";
 let currentModel = "";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
-// Images pasted with Ctrl+V, attached to the next prompt and then cleared.
-let pendingImages: Array<{
-  data: string;
-  mediaType: string;
-  altText?: string;
-}> = [];
 // Guards against overlapping clipboard reads from a Ctrl+V key burst.
 let isReadingClipboard = false;
 // Fixed top status header: hidden until the first prompt is sent, then shows
@@ -759,6 +756,7 @@ function handleToolEvent(event: StreamEvent) {
 async function submitPrompt(
   promptText: string,
   displayText?: string,
+  images?: Array<{ data: string; mediaType: string; altText?: string }>,
 ): Promise<void> {
   messageCount++;
   // First prompt reveals the fixed top status header.
@@ -830,12 +828,6 @@ async function submitPrompt(
 
   try {
     activeTurnSessionId = currentSession.sessionId;
-    // Hand off and clear: an image is attached to exactly one turn, and
-    // leaving it queued would silently re-send it on the next prompt.
-    const images = pendingImages.length > 0 ? pendingImages : undefined;
-    pendingImages = [];
-    // Clear the editor's pending images display
-    editor.pendingImages = [];
     const result = await sessionSendStreaming(
       currentSession.sessionId,
       promptText,
@@ -918,11 +910,17 @@ async function submitPrompt(
 }
 
 editor.onSubmit = async (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) return;
+  // Resolve the chips the user left in place, in document order — anything
+  // they deleted is simply not in `value` and never gets uploaded. The
+  // `[Image #N]` placeholders are then stripped so the model sees a clean text
+  // body; the bytes travel in the separate `images` payload.
+  const images = editor.takeImagesFor(value);
+  const promptText = stripImageTokens(value).trim();
+  // An image on its own is a valid prompt ("what is this?" is implied).
+  if (!promptText && images.length === 0) return;
 
-  if (trimmed.startsWith("/")) {
-    const parts = trimmed.slice(1).split(/\s+/);
+  if (promptText.startsWith("/")) {
+    const parts = promptText.slice(1).split(/\s+/);
     const commandName = parts[0]?.toLowerCase();
     const args = parts.slice(1);
 
@@ -1039,7 +1037,13 @@ editor.onSubmit = async (value: string) => {
     }
   }
 
-  await submitPrompt(trimmed);
+  // With images, echo the text the user actually typed (chips included) so the
+  // transcript shows where each one sat.
+  await submitPrompt(
+    promptText,
+    images.length > 0 ? value.trim() : undefined,
+    images,
+  );
 };
 
 // Prompt commands (e.g. /init) are defined once in core. Fetch them at startup
@@ -1449,21 +1453,17 @@ tui.addInputListener((data) => {
           createSystemMessage(
             "No image on the clipboard. (Needs `wl-paste`, `xclip`, or `pngpaste` installed.)",
           );
-        } else if (pendingImages.some((p) => p.data === image.data)) {
+        } else if (editor.hasImage(image.data)) {
           // Clipboard unchanged since the last paste — re-attaching the same
           // bytes is never what the user wants.
           createSystemMessage("That image is already attached.");
         } else {
-          pendingImages.push({
-            ...image,
-            altText: `pasted image (${image.mediaType})`,
+          // The chip lands at the cursor and is its own confirmation, so no
+          // system message here.
+          editor.insertImageAtCursor({
+            data: image.data,
+            mediaType: image.mediaType,
           });
-          // Update the editor to show the image container
-          editor.pendingImages = pendingImages;
-          const kb = ((image.data.length * 3) / 4 / 1024).toFixed(0);
-          createSystemMessage(
-            `Attached pasted image (${image.mediaType}, ~${kb}KB). It will be sent with your next message.`,
-          );
         }
       } finally {
         isReadingClipboard = false;
