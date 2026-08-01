@@ -374,17 +374,19 @@ export async function getModelContextLimit(
 }
 
 // Prompt commands (e.g. /init) — defined once in core, fetched by every frontend.
-export async function listCommands(): Promise<CommandInfo[]> {
-  return (await sendRequest("commands.list")) as CommandInfo[];
+export async function listCommands(projectPath: string): Promise<CommandInfo[]> {
+  return (await sendRequest("commands.list", { projectPath })) as CommandInfo[];
 }
 
 export async function resolveCommand(
   name: string,
   args: string[],
+  projectPath: string,
 ): Promise<string> {
   const { prompt } = (await sendRequest("commands.resolve", {
     name,
     args,
+    projectPath,
   })) as { prompt: string };
   return prompt;
 }

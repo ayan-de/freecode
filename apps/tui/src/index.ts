@@ -1018,7 +1018,7 @@ editor.onSubmit = async (value: string) => {
 void (async () => {
   try {
     startCli();
-    const coreCommands = await listCommands();
+    const coreCommands = await listCommands(process.cwd());
     for (const info of coreCommands) {
       registerCommand({
         name: info.name,
@@ -1026,7 +1026,7 @@ void (async () => {
         argHint: info.argHint,
         execute: async (args: string[]) => {
           try {
-            const prompt = await resolveCommand(info.name, args);
+            const prompt = await resolveCommand(info.name, args, process.cwd());
             const display = `/${info.name}${args.length ? ` ${args.join(" ")}` : ""}`;
             await submitPrompt(prompt, display);
           } catch (error) {

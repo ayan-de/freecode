@@ -173,11 +173,11 @@ export const METHODS = {
     result: [] as import("../types.js").ProviderInfo[],
   },
   "commands.list": {
-    params: undefined,
+    params: { projectPath: "" },
     result: [] as import("../types.js").CommandInfo[],
   },
   "commands.resolve": {
-    params: { name: "", args: [] as string[] },
+    params: { name: "", args: [] as string[], projectPath: "" },
     result: { prompt: "" },
   },
   "question.answer": {

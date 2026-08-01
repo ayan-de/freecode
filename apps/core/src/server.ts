@@ -459,15 +459,23 @@ const methodHandlers: Record<
     });
   },
 
-  "commands.list": async (): Promise<unknown[]> => {
-    return listCommandInfos();
+  "commands.list": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    const { projectPath } = params as { projectPath?: string };
+    return listCommandInfos(projectPath || process.cwd());
   },
 
   "commands.resolve": async (
     params: Record<string, unknown>,
   ): Promise<{ prompt: string }> => {
-    const { name, args } = params as { name: string; args?: string[] };
-    const prompt = resolveCommand(name, args ?? [], process.cwd());
+    const { name, args, projectPath } = params as {
+      name: string;
+      args?: string[];
+      projectPath?: string;
+    };
+    const cwd = projectPath || process.cwd();
+    const prompt = await resolveCommand(name, args ?? [], cwd, cwd);
     if (prompt == null) {
       throw new Error(`Command not found: ${name}`);
     }
