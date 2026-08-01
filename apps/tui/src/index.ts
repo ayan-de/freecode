@@ -828,6 +828,8 @@ async function submitPrompt(
     // leaving it queued would silently re-send it on the next prompt.
     const images = pendingImages.length > 0 ? pendingImages : undefined;
     pendingImages = [];
+    // Clear the editor's pending images display
+    editor.pendingImages = [];
     const result = await sessionSendStreaming(
       currentSession.sessionId,
       promptText,
@@ -1353,6 +1355,8 @@ tui.addInputListener((data) => {
             ...image,
             altText: `pasted image (${image.mediaType})`,
           });
+          // Update the editor to show the image container
+          editor.pendingImages = pendingImages;
           const kb = ((image.data.length * 3) / 4 / 1024).toFixed(0);
           createSystemMessage(
             `Attached pasted image (${image.mediaType}, ~${kb}KB). It will be sent with your next message.`,
