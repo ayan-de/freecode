@@ -95,6 +95,9 @@ export interface ProviderDefinition {
 export interface SessionConfig {
   projectPath: string;
   provider?: string;
+  // Pins the session to a model at start. Omitted, the session inherits
+  // config.json's current model rather than the provider's hardcoded default.
+  model?: string;
   agentMode?: "plan" | "build" | "review" | "explore" | "danger";
 }
 

@@ -808,9 +808,13 @@ async function submitPrompt(
         }
       }
 
+      // No hardcoded provider: send only what config.json actually resolved to
+      // and let core reject an unconfigured setup, rather than quietly starting
+      // the session on a provider the user never picked.
       currentSession = (await sessionStart({
         projectPath: process.cwd(),
-        provider: currentProvider || "minimax",
+        provider: currentProvider || undefined,
+        model: currentModel || undefined,
         agentMode: currentAgentMode,
       })) as SessionInfo;
     } catch (error) {
@@ -833,7 +837,10 @@ async function submitPrompt(
     const result = await sessionSendStreaming(
       currentSession.sessionId,
       promptText,
-      undefined,
+      // Send the model the status bar is displaying. Passing undefined let the
+      // request resolve to a different model than the one shown — the context
+      // meter read config.json while the wire carried the provider default.
+      currentModel || undefined,
       currentAgentMode,
       images,
       (event: StreamEvent) => {

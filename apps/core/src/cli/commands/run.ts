@@ -83,7 +83,7 @@ export const runCommand: CommandModule<object, RunArgs> = {
 
     const config = readConfig();
     // --model provider/model overrides the configured current model.
-    let provider = config.current?.provider ?? "anthropic";
+    let provider = config.current?.provider;
     let model = config.current?.model;
     if (argv.model) {
       const slash = argv.model.indexOf("/");
@@ -93,6 +93,14 @@ export const runCommand: CommandModule<object, RunArgs> = {
       } else {
         model = argv.model;
       }
+    }
+
+    if (!provider) {
+      console.error(
+        "No provider configured. Set current.provider in ~/.freecode/config.json, " +
+          "or pass --model <provider>/<model>.",
+      );
+      process.exit(1);
     }
 
     const projectPath = process.cwd();

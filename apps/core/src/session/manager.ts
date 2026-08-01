@@ -30,6 +30,9 @@ export interface SessionContext {
   title: string;
   projectPath: string;
   provider: string;
+  // Carried from SessionMeta so a resumed session restores the model it was
+  // pinned to instead of silently reverting to the provider's default.
+  model?: string;
   status: "active" | "interrupted" | "archived" | "deleted";
   createdAt: number;
   updatedAt: number;
@@ -114,6 +117,7 @@ export class SessionManager {
       title: meta.title,
       projectPath: meta.projectPath,
       provider: meta.provider,
+      model: meta.model,
       status: meta.status,
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
@@ -158,6 +162,7 @@ export class SessionManager {
       title: meta.title,
       projectPath: meta.projectPath,
       provider: meta.provider,
+      model: meta.model,
       status: meta.status,
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
@@ -234,6 +239,7 @@ export class SessionManager {
       title: meta.title + " (imported)",
       projectPath: meta.projectPath,
       provider: meta.provider,
+      model: meta.model,
     });
 
     for (const msg of messages) {
