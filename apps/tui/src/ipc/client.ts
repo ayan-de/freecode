@@ -106,7 +106,10 @@ export function startCli(onStderr?: (msg: string) => void): void {
     // built dist nor the source exists, this is almost certainly a SEA/dev
     // build copied outside the monorepo — fail loudly instead of spawning
     // `npx tsx <bad path>` and surfacing a cryptic ERR_MODULE_NOT_FOUND.
-    if (!existsSync(distPath) && !existsSync(pathResolve(srcDir, "server.ts"))) {
+    if (
+      !existsSync(distPath) &&
+      !existsSync(pathResolve(srcDir, "server.ts"))
+    ) {
       throw new Error(
         "[freecode] could not locate the core backend. This build must run " +
           "from the monorepo root (or set FREECODE_ROOT). If you installed " +
@@ -266,11 +269,13 @@ export async function sessionSend(
   sessionId: string,
   message: string,
   model?: string,
+  images?: Array<{ data: string; mediaType: string; altText?: string }>,
 ): Promise<SessionSendResult> {
   return (await sendRequest("session.send", {
     sessionId,
     message,
     model,
+    images,
   })) as SessionSendResult;
 }
 
@@ -279,6 +284,9 @@ export async function sessionSendStreaming(
   message: string,
   model: string | undefined,
   agentMode: string | undefined,
+  images:
+    | Array<{ data: string; mediaType: string; altText?: string }>
+    | undefined,
   onEvent: (event: StreamEvent) => void,
 ): Promise<SessionSendResult> {
   return new Promise((resolve, reject) => {
@@ -294,7 +302,7 @@ export async function sessionSendStreaming(
       jsonrpc: "2.0",
       id,
       method: "session.send",
-      params: { sessionId, message, model, agentMode },
+      params: { sessionId, message, model, agentMode, images },
     };
     pendingRequests.set(id, {
       resolve: resolve as (value: unknown) => void,
@@ -374,7 +382,9 @@ export async function getModelContextLimit(
 }
 
 // Prompt commands (e.g. /init) — defined once in core, fetched by every frontend.
-export async function listCommands(projectPath: string): Promise<CommandInfo[]> {
+export async function listCommands(
+  projectPath: string,
+): Promise<CommandInfo[]> {
   return (await sendRequest("commands.list", { projectPath })) as CommandInfo[];
 }
 
@@ -520,9 +530,7 @@ export interface McpServerStatus {
  * Get MCP server status from the running daemon.
  * Returns live status only when daemon is running (TUI/VSCode active).
  */
-export async function mcpStatus(
-  name?: string,
-): Promise<McpServerStatus[]> {
+export async function mcpStatus(name?: string): Promise<McpServerStatus[]> {
   return (await sendRequest(
     "mcp.status",
     name ? { name } : {},
