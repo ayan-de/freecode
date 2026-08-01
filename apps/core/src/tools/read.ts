@@ -13,6 +13,7 @@ interface ReadParams {
   filePath: string;
   offset?: number;
   limit?: number;
+  asImage?: boolean;
 }
 
 const DEFAULT_LIMIT = 2000;
@@ -66,6 +67,11 @@ const readSchema: JsonSchema = {
       type: "number",
       description: "The maximum number of lines to read (defaults to 2000)",
     },
+    asImage: {
+      type: "boolean",
+      description:
+        "Read the file as an image so the model can see it. Use for screenshots, diagrams, or design files. Supports .png/.jpg/.jpeg/.gif/.webp — not SVG (read those as text).",
+    },
   },
   required: ["filePath"],
 };
@@ -78,6 +84,18 @@ export function coerceNumber(value: unknown): number | undefined {
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);
     if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+// Same story for booleans: "true"/"false" arrive as strings from the same
+// providers, and `params.asImage === true` would silently read a PNG as text.
+export function coerceBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (v === "true") return true;
+    if (v === "false") return false;
   }
   return undefined;
 }
@@ -101,6 +119,9 @@ function validateReadInput(
   }
   if (p.limit !== undefined && coerceNumber(p.limit) === undefined) {
     return { valid: false, error: "limit must be a number" };
+  }
+  if (p.asImage !== undefined && coerceBoolean(p.asImage) === undefined) {
+    return { valid: false, error: "asImage must be a boolean" };
   }
   return { valid: true };
 }
@@ -126,6 +147,74 @@ async function executeRead(
     }
 
     const stat = fs.statSync(filepath);
+
+    // Handle image reading
+    if (coerceBoolean(params.asImage) === true) {
+      if (stat.isDirectory()) {
+        return {
+          success: false,
+          error: `Error: ${filepath} is a directory, not an image.`,
+        };
+      }
+      // NOTE: SVG and BMP are NOT supported - vision APIs don't accept these formats
+      const ext = path.extname(filepath).toLowerCase();
+      const imageExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+
+      if (!imageExtensions.includes(ext)) {
+        return {
+          success: false,
+          error: `Error: ${ext} is not a supported image format. Supported: ${imageExtensions.join(", ")}. SVG and BMP files are not supported as images.`,
+        };
+      }
+
+      try {
+        const imageBuffer = fs.readFileSync(filepath);
+        const fileSizeBytes = imageBuffer.length;
+        const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit
+
+        if (fileSizeBytes > maxSizeBytes) {
+          return {
+            success: false,
+            error: `Error: Image file is too large (${(fileSizeBytes / 1024 / 1024).toFixed(1)}MB). Maximum size is 10MB.`,
+          };
+        }
+
+        const base64 = imageBuffer.toString("base64");
+        const mediaType =
+          ext === ".png"
+            ? "image/png"
+            : ext === ".gif"
+              ? "image/gif"
+              : ext === ".webp"
+                ? "image/webp"
+                : "image/jpeg";
+
+        // The base64 never goes in `output` — that string is the tool result
+        // the model reads as text, and re-sending megabytes of it every turn
+        // would blow the context window. The loop lifts `metadata.image` into
+        // an image message part instead; this line is just the receipt.
+        const sizeKb = (fileSizeBytes / 1024).toFixed(1);
+        return {
+          success: true,
+          result: {
+            title: `${path.basename(filepath)} (image)`,
+            output: `Attached ${path.basename(filepath)} (${mediaType}, ${sizeKb}KB) as an image.`,
+            metadata: {
+              image: {
+                data: base64,
+                mediaType,
+                sizeBytes: fileSizeBytes,
+              },
+            },
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: `Error reading image: ${error}`,
+        };
+      }
+    }
 
     if (stat.isDirectory()) {
       const items = fs.readdirSync(filepath).sort();
@@ -171,9 +260,7 @@ async function executeRead(
       `<type>file</type>`,
       "<content>\n",
     ].join("\n");
-    output += lines.raw
-      .map((line, i) => `${i + offset}: ${line}`)
-      .join("\n");
+    output += lines.raw.map((line, i) => `${i + offset}: ${line}`).join("\n");
 
     const last = offset + lines.raw.length - 1;
     const next = last + 1;
