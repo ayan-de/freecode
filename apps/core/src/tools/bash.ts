@@ -142,6 +142,10 @@ export async function _executeBash(
     // the child gets EOF on stdin immediately — anything that would block on
     // a password prompt (git push over HTTPS, sudo, apt, etc.) will exit with
     // an error instead of hanging past the timeout.
+    //
+    // `detached` puts the shell in its own process group so the timeout can
+    // signal the whole tree. Without it, `npm test` (npm -> vitest -> workers)
+    // leaves grandchildren alive after the shell dies.
     const child = spawn(shell, shellArgs, {
       cwd,
       env: {
@@ -151,24 +155,46 @@ export async function _executeBash(
         APT_LISTCHANGES_FRONTEND: "none",
       },
       stdio: ["ignore", "pipe", "pipe"],
+      detached: !isWindows,
     });
 
     let stdout = "";
     let stderr = "";
     let killed = false;
+    let settled = false;
+
+    // Signal the process group, not just the shell, so descendants that
+    // outlive it (test runners, dev servers) go down with it. Falls back to
+    // the direct child if the group is already gone.
+    const killTree = (signal: NodeJS.Signals) => {
+      if (child.pid === undefined) return;
+      try {
+        if (isWindows) child.kill(signal);
+        else process.kill(-child.pid, signal);
+      } catch {
+        try {
+          child.kill(signal);
+        } catch {
+          /* already gone */
+        }
+      }
+    };
 
     const killTimer = setTimeout(() => {
-      if (!child.killed) child.kill("SIGKILL");
+      killTree("SIGKILL");
     }, timeout + 3000);
 
     const timer = setTimeout(() => {
       killed = true;
-      child.kill("SIGTERM");
+      killTree("SIGTERM");
     }, timeout);
+
+    let exitGrace: NodeJS.Timeout | undefined;
 
     const cleanup = () => {
       clearTimeout(timer);
       clearTimeout(killTimer);
+      if (exitGrace) clearTimeout(exitGrace);
     };
 
     child.stdout?.on("data", (data) => {
@@ -179,7 +205,22 @@ export async function _executeBash(
       stderr += data.toString();
     });
 
+    // `close` fires only once every stdio pipe is closed — and a surviving
+    // grandchild still holds the write end, so it may never fire at all. The
+    // tool promise would then never settle and the UI spins forever. Settle
+    // shortly after `exit` with whatever was captured; in the normal case
+    // `close` wins the race and this timer is cleared.
+    child.on("exit", (code, signal) => {
+      exitGrace = setTimeout(() => finish(code, signal), 250);
+    });
+
     child.on("close", (code, signal) => {
+      finish(code, signal);
+    });
+
+    function finish(code: number | null, _signal: NodeJS.Signals | null) {
+      if (settled) return;
+      settled = true;
       cleanup();
 
       let output = "";
@@ -219,9 +260,11 @@ export async function _executeBash(
       }
 
       resolve({ success: true, result });
-    });
+    }
 
     child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
       cleanup();
       resolve({
         success: false,

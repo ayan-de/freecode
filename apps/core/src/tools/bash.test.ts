@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { _executeBash } from "./bash.js";
 
 // Common CWD for tests — the tool reads it from ctx.cwd.
@@ -60,3 +61,46 @@ test(
     assert.notEqual(result.success, undefined);
   },
 );
+
+test(
+  "bash does not hang when a grandchild outlives the shell and holds the output pipe",
+  async () => {
+    // The `npm test` / `pnpm test` shape: the shell spawns a runner that
+    // spawns workers inheriting stdout. On timeout the shell dies but the
+    // workers keep the pipe's write end open, so `close` never fires. Before
+    // the fix the tool promise never settled and the UI spun forever.
+    const start = Date.now();
+    const result = await _executeBash(
+      { command: "cd /tmp && bash -c 'sleep 30 & echo started; wait'", timeout: 500 },
+      ctx,
+    );
+    const elapsed = Date.now() - start;
+    assert.ok(
+      elapsed < 4000,
+      `expected to settle shortly after a 500ms timeout, took ${elapsed}ms — the promise hung on 'close'`,
+    );
+    assert.equal(result.success, false);
+    if (result.success) throw new Error("unreachable");
+    assert.match(result.error, /timed out after 500ms/);
+  },
+);
+
+test("bash kills the whole process group on timeout", async () => {
+  // A descendant left running after the timeout keeps burning CPU and can
+  // hold ports/locks. The marker file proves nothing survived past the kill.
+  const marker = `/tmp/freecode-bash-group-${process.pid}-${Date.now()}`;
+  await _executeBash(
+    {
+      command: `bash -c '(sleep 1; touch ${marker}) & wait'`,
+      timeout: 300,
+    },
+    ctx,
+  );
+  // Wait past when the orphan would have written the marker.
+  await new Promise((r) => setTimeout(r, 2000));
+  assert.equal(
+    existsSync(marker),
+    false,
+    "descendant survived the timeout — process group was not killed",
+  );
+});

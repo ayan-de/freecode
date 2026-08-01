@@ -47,11 +47,15 @@ export function ensureWatching(projectPath: string): void {
       const watch = (chokidar as { watch: (p: string[], o: unknown) => FSWatcher })
         .watch;
       // Top-level entries (depth 0) + the git HEAD file specifically.
+      // persistent:false — the watcher must not be what keeps the process
+      // alive. The server is held open by its stdio anyway, and events still
+      // fire while it runs. With persistent:true any short-lived process that
+      // ran a turn (tests, one-shot CLI) hangs forever instead of exiting.
       const w = watch([projectPath, path.join(projectPath, ".git", "HEAD")], {
         ignored: IGNORED,
         ignoreInitial: true,
         depth: 0,
-        persistent: true,
+        persistent: false,
       });
       const onChange = () => scheduleInvalidate(projectPath);
       w.on("add", onChange)
