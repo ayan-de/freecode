@@ -104,6 +104,7 @@ import {
 } from "../effect/context.js";
 import {
   createRecoveryManagerFromConfig,
+  isContextOverflowError,
   type RecoveryManager,
 } from "./recovery/manager.js";
 
@@ -113,6 +114,12 @@ import {
 // createAgentLoopEffect); constructor fallbacks keep direct construction
 // working for tests and legacy call sites.
 // =============================================================================
+
+// How many times a single run may compact in response to the provider
+// rejecting the request as too long. Each attempt is a full round trip, so an
+// unbounded retry loop is expensive and, when compaction cannot free enough,
+// never converges.
+const MAX_OVERFLOW_COMPACTIONS = 3;
 
 export interface AgentLoopConfig {
   maxIterations?: number;
@@ -187,6 +194,10 @@ export class AgentLoop {
   // and so missed everything tool calls contributed. 0 until the first
   // response carries usage.
   private lastMeasuredContextTokens = 0;
+  // Compactions triggered by a provider rejecting the request as too long.
+  // Reset on any successful send; capped so a conversation that cannot be
+  // shrunk enough fails once instead of retrying forever.
+  private overflowCompactions = 0;
   // Verification gate state: whether this run mutated files (so verify is
   // worth running) and how many times the gate has run.
   private filesMutatedThisRun = false;
@@ -656,6 +667,50 @@ export class AgentLoop {
     }
   }
 
+  // Recover from a context-overflow rejection by compacting and sending once
+  // more. Rethrows anything else untouched, so ordinary failures still surface.
+  //
+  // The retry is deliberately not wrapped in this handler again: a second
+  // overflow within the same turn means compaction did not free enough, and
+  // looping on that burns quota without converging. claude-code records 1,279
+  // sessions hitting 50+ consecutive compaction failures (up to 3,272) for
+  // ~250K wasted calls a day before they added the same cap.
+  private async compactAndRetry(
+    error: unknown,
+    system: SystemBlock[],
+    provider: string,
+    model: string | undefined,
+  ): Promise<Awaited<ReturnType<typeof this.sendToProvider>>> {
+    if (!isContextOverflowError(error)) throw error;
+
+    if (this.overflowCompactions >= MAX_OVERFLOW_COMPACTIONS) {
+      logger.error(
+        `[AgentLoop] Context overflow persisted after ${this.overflowCompactions} compactions; giving up.`,
+      );
+      throw error;
+    }
+    this.overflowCompactions += 1;
+
+    logger.warn(
+      `[AgentLoop] Provider rejected the request as too long; compacting and retrying ` +
+        `(attempt ${this.overflowCompactions}/${MAX_OVERFLOW_COMPACTIONS}).`,
+    );
+    BusEvents.stream(this.state.sessionId, {
+      type: "notice",
+      level: "warn",
+      content:
+        "The conversation outgrew the model's context window. Compacting and retrying.",
+    });
+
+    const outcome = await this.runCompaction(provider, model, "auto");
+    // Nothing was freed (already minimal, or a PreCompact hook blocked it), so
+    // the same request would be rebuilt at the same size.
+    if (!outcome.compacted) throw error;
+
+    // this.history was reloaded from the trimmed store inside runCompaction.
+    return await this.sendToProvider(this.history, system, provider, model);
+  }
+
   // Build compaction options that summarize via the active provider/model.
   // Cancellable through the loop's AbortController. On provider-lookup failure
   // returns {}, so MemoryService.compact falls back to the heuristic summary.
@@ -861,12 +916,28 @@ export class AgentLoop {
         finalSystemBlocks = [{ text: hookResult.modifiedPrompt, cache: true }];
       }
 
-      const providerResult = await this.sendToProvider(
-        this.history,
-        finalSystemBlocks,
-        provider,
-        model,
-      );
+      // The threshold check is a prediction, and predictions miss: one turn can
+      // add more than the buffer covers, or the session may have been resumed
+      // onto a model with a smaller window. Rather than surface the rejection,
+      // compact and send again — the only recovery that can work, since
+      // retrying an oversized request unchanged always fails the same way.
+      let providerResult: Awaited<ReturnType<typeof this.sendToProvider>>;
+      try {
+        providerResult = await this.sendToProvider(
+          this.history,
+          finalSystemBlocks,
+          provider,
+          model,
+        );
+        this.overflowCompactions = 0;
+      } catch (error) {
+        providerResult = await this.compactAndRetry(
+          error,
+          finalSystemBlocks,
+          provider,
+          model,
+        );
+      }
 
       // Record how full the window actually got. Each call resends the whole
       // conversation, so the last call's input *is* the occupancy — no summing.
