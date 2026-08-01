@@ -75,7 +75,11 @@ import {
   applyCompaction,
   type ApplyCompactionResult,
 } from "../session/compact-apply.js";
-import { getModelContextLimit, modelSupportsImages } from "../models-dev.js";
+import {
+  getModelContextLimit,
+  modelSupportsImages,
+  resolveMaxOutputTokens,
+} from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import {
@@ -640,17 +644,12 @@ export class AgentLoop {
     try {
       const limit = await getModelContextLimit(provider, model);
       if (limit <= 0) return undefined;
-      // Providers count the tokens reserved for the reply against the same
-      // window, so the usable input budget is the limit minus that reservation.
-      // MiniMax reserves 65536 — against M2's 196608 window that is a third of
-      // the space, and compacting against the raw limit would fire far too late.
-      let reserved = 0;
-      try {
-        reserved = getProvider(provider as any).info.maxOutputTokens ?? 0;
-      } catch {
-        // Unknown provider: fall back to the raw limit rather than guessing.
-      }
-      const usable = limit - reserved;
+      // The reply reservation is charged against this same window, so subtract
+      // it to get what the conversation may actually occupy. Must come from
+      // resolveMaxOutputTokens — the identical call the request is built from
+      // (see callProviderOnce) — or we would budget against one number and
+      // send another.
+      const usable = limit - (await resolveMaxOutputTokens(provider, model));
       return usable > 0 ? usable : limit;
     } catch {
       return undefined;
@@ -1136,6 +1135,11 @@ export class AgentLoop {
       });
     }
 
+    // Sized from the model's own ceiling rather than a per-provider constant,
+    // and shared with resolveContextLimit so the reservation the request makes
+    // is exactly the one compaction budgeted for.
+    const maxTokens = await resolveMaxOutputTokens(provider, model);
+
     // Prefer streaming when the provider supports it AND we have a listener.
     // If either is missing, fall back to the one-shot execute() path so callers
     // and downstream code paths are unchanged.
@@ -1159,6 +1163,7 @@ export class AgentLoop {
         system,
         tools,
         model,
+        maxTokens,
         abortSignal: this.abort.signal,
       })) {
         if (this.abort.signal.aborted) break;
