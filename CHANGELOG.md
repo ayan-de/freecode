@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.1
+
+### Fixed
+- Bash tool could hang forever on any command that left descendants running (`npm test` / `pnpm test` → test runner → workers). The tool resolved only on the child's `close` event, which fires once every stdio pipe is closed — a surviving grandchild still holds the write end, so `close` never arrived and the turn spun indefinitely. This also made the v0.8.2 timeout-as-failure fix unreachable in practice, since that code ran inside the `close` handler. The shell now starts in its own process group (`detached`) and the timeout signals the whole group, so descendants go down with it; the result also settles shortly after `exit` as a fallback if `close` never fires. Timed-out runs no longer strand orphaned processes.
+- Project tree watcher (`context/tree-watcher.ts`) started chokidar with `persistent: true` and nothing ever called `stopWatching`, so the watcher handle kept the event loop alive. Any short-lived process that ran a turn hung instead of exiting — most visibly the core test suite, which passed every assertion and then never terminated. Now `persistent: false`; the server is held open by its stdio anyway and change events still fire.
+
 ## v0.9.0
 
 ### Added
