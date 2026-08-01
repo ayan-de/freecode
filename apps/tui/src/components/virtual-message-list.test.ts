@@ -136,6 +136,141 @@ test("resolveLogicalPosition returns null for clicks below the last rendered lin
   list.destroy();
 });
 
+/**
+ * A message whose rendered text can be changed in place, and that counts how
+ * often it was asked to render — lets the cache be observed from outside.
+ */
+function addCounted(text: string): { renders: number; text: string; id: number } {
+  const spy = { renders: 0, text, id: 0 };
+  const msg = addMessage("system", text, {
+    render: () => {
+      spy.renders++;
+      return [spy.text];
+    },
+    invalidate: () => {},
+  });
+  spy.id = msg.id;
+  return spy;
+}
+
+test("settled messages are rendered once, not on every frame", () => {
+  clearMessages();
+  const old = addCounted("old");
+  addLines(60, "filler");
+  const list = new VirtualMessageList(100, () => 10);
+
+  list.render(80);
+  const afterFirst = old.renders;
+  for (let i = 0; i < 20; i++) list.render(80);
+
+  // The message sits far above the viewport; re-rendering it 20 more times is
+  // the cost that made long conversations crawl.
+  assert.equal(old.renders, afterFirst);
+  list.destroy();
+});
+
+test("messages in the live tail are re-rendered every frame", () => {
+  clearMessages();
+  addLines(60, "filler");
+  const tail = addCounted("tail");
+  const list = new VirtualMessageList(100, () => 10);
+
+  list.render(80);
+  const afterFirst = tail.renders;
+  list.render(80);
+  list.render(80);
+
+  // Streaming text and tool progress mutate in place with no store event, so
+  // the tail must never be served from the cache.
+  assert.equal(tail.renders, afterFirst + 2);
+  list.destroy();
+});
+
+test("a widened terminal re-renders cached messages at the new width", () => {
+  clearMessages();
+  const old = addCounted("old");
+  addLines(60, "filler");
+  const list = new VirtualMessageList(100, () => 10);
+
+  list.render(80);
+  const afterFirst = old.renders;
+  list.render(120);
+
+  assert.equal(old.renders, afterFirst + 1);
+  list.destroy();
+});
+
+test("invalidateMessage picks up a change to a settled message", () => {
+  clearMessages();
+  const old = addCounted("before");
+  addLines(60, "filler");
+  const list = new VirtualMessageList(100, () => 10);
+  list.render(80);
+
+  // Toggling a collapsed thinking/tool row mutates it without a store event.
+  old.text = "after";
+  assert.equal(list.getLineAt(0), "before");
+
+  list.invalidateMessage(old.id);
+  list.render(80);
+  assert.equal(list.getLineAt(0), "after");
+  list.destroy();
+});
+
+test("cached lines match an uncached render, scrolled and following", () => {
+  clearMessages();
+  addLines(200, "content");
+  const cached = new VirtualMessageList(100, () => 10);
+  const uncached = new VirtualMessageList(100, () => 10);
+  // Defeat the cache so this list always renders every message, the way the
+  // list behaved before caching existed.
+  (uncached as unknown as { renderCache: Map<number, unknown> }).renderCache = {
+    get: () => undefined,
+    set: () => {},
+    delete: () => {},
+    keys: () => [],
+    size: 0,
+  } as never;
+
+  for (let i = 0; i < 5; i++) {
+    cached.render(80);
+    uncached.render(80);
+  }
+  assert.deepEqual(cached.render(80), uncached.render(80));
+
+  for (let i = 0; i < 7; i++) {
+    cached.scrollPageUp();
+    uncached.scrollPageUp();
+  }
+  assert.deepEqual(cached.render(80), uncached.render(80));
+
+  cached.scrollToBottom();
+  uncached.scrollToBottom();
+  assert.deepEqual(cached.render(80), uncached.render(80));
+
+  cached.destroy();
+  uncached.destroy();
+});
+
+test("the cache does not outlive the messages it describes", () => {
+  clearMessages();
+  for (let i = 0; i < 40; i++) addLines(4, `first-${i}`);
+  const list = new VirtualMessageList(100, () => 10);
+  list.render(80);
+  const cache = (list as unknown as { renderCache: Map<number, unknown> })
+    .renderCache;
+  assert.equal(cache.size, 40);
+
+  clearMessages();
+  for (let i = 0; i < 3; i++) addLines(4, `second-${i}`);
+  list.render(80);
+
+  // Entries for dropped messages go with them, so the cache tracks the
+  // history rather than growing for the life of the process.
+  assert.equal(cache.size, 3);
+  list.destroy();
+});
+
 test("getLineAt returns the same logical line before and after a scroll", () => {
   clearMessages();
   addLines(40);

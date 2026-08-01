@@ -45,6 +45,13 @@ export class VirtualMessageList implements Component {
   private getSelection: () => Selection | null;
 
   private getVerticalOffset: () => number;
+  /**
+   * Rendered lines per message, reused until that message changes or the
+   * terminal width does. Without it every frame re-parsed the markdown of the
+   * entire conversation to show ~40 rows, so cost grew with history length
+   * (~43 ms/frame at 100 turns) and streaming turns stuttered.
+   */
+  private renderCache = new Map<number, { width: number; lines: string[] }>();
 
   constructor(
     maxVisible = 100,
@@ -174,7 +181,7 @@ export class VirtualMessageList implements Component {
     const entry = this.lastLineMap[clickedIndex];
     if (entry?.msg?.component && "toggle" in entry.msg.component && typeof (entry.msg.component as any).toggle === "function") {
       (entry.msg.component as any).toggle();
-      this.invalidate();
+      this.invalidateMessage(entry.msg.id);
       return true;
     }
     return false;
@@ -209,6 +216,58 @@ export class VirtualMessageList implements Component {
   }
 
   /**
+   * Render each message, taking settled ones from the cache.
+   *
+   * The newest messages are re-rendered every frame: streaming text, tool
+   * progress output, and the thinking timer all mutate their component in
+   * place, and they are always at the tail. The pass walks backwards and keeps
+   * rendering until it has covered a viewport's worth of rows, so the live
+   * region is always fresh — including when the user has scrolled up, where
+   * stale line counts down there would skew the scroll math.
+   *
+   * Everything above that is settled: only a click-toggle changes it, and
+   * those call sites drop the entry (see `invalidateMessage`).
+   */
+  private renderMessages(
+    messages: MessageInstance[],
+    width: number,
+  ): string[][] {
+    const budget = this.contentRows() + 1;
+    const out: string[][] = new Array(messages.length);
+    const liveIds = new Set<number>();
+    let freshRows = 0;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]!;
+      liveIds.add(msg.id);
+      const cached = this.renderCache.get(msg.id);
+      if (freshRows >= budget && cached && cached.width === width) {
+        out[i] = cached.lines;
+        continue;
+      }
+      const rendered = msg.component.render(width);
+      this.renderCache.set(msg.id, { width, lines: rendered });
+      out[i] = rendered;
+      freshRows += rendered.length;
+    }
+
+    // Drop entries for messages the store has dropped, so the cache tracks the
+    // history instead of growing for the life of the process.
+    if (this.renderCache.size > liveIds.size) {
+      for (const id of this.renderCache.keys()) {
+        if (!liveIds.has(id)) this.renderCache.delete(id);
+      }
+    }
+    return out;
+  }
+
+  /** Drop a message's cached lines — call after mutating it (e.g. a toggle). */
+  invalidateMessage(id: number): void {
+    this.renderCache.delete(id);
+    this.invalidate();
+  }
+
+  /**
    * Render the message list.
    * In-progress message always stays at the bottom; all other messages render above it.
    * In scrolled mode, only a viewport window plus an indicator row is returned.
@@ -237,10 +296,11 @@ export class VirtualMessageList implements Component {
 
     // Render regular messages first (older messages, then newer ones)
     const visibleMessages = regularMessages.slice(-this.maxVisible);
+    const perMessage = this.renderMessages(visibleMessages, width);
 
-    for (const msg of visibleMessages) {
-      const msgLines = msg.component.render(width);
-      for (const line of msgLines) {
+    for (let i = 0; i < visibleMessages.length; i++) {
+      const msg = visibleMessages[i]!;
+      for (const line of perMessage[i]!) {
         lines.push(line);
         this.lastLineMap.push({ msg });
       }

@@ -1478,7 +1478,9 @@ tui.addInputListener((data) => {
       const msg = messages[i];
       if (msg.component instanceof ThinkingMessage) {
         msg.component.toggle();
-        tui.requestRender();
+        // Collapsing/expanding changes the message's height, so its cached
+        // lines in the list have to go.
+        messageList.invalidateMessage(msg.id);
         break;
       }
     }
