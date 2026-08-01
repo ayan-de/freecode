@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.0
+
+### Added
+- Docs command with user command examples
+
 ## v0.8.2
 
 ### Fixed
