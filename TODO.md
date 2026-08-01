@@ -268,3 +268,7 @@ What's needed to implement it:
 
 The config schema already supports remote (url field in McpServerSchema), but the actual connection code only
 handles local stdio.
+
+Need a feature like this 
+ ~128k uncached · /clear to start fresh
+                                                                              new task? /clear to save 128.2k tokens
