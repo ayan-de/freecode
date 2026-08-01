@@ -794,7 +794,18 @@ export async function startServer() {
 
   process.stdin.setEncoding("utf-8");
 
-  process.stdin.on("data", async (chunk: string) => {
+  const dispatchRequest = (request: JsonRpcRequest): void => {
+    void handleRequest(request)
+      .then((response) => {
+        process.stdout.write(JSON.stringify(response) + "\n");
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Request error: ${message}\n`);
+      });
+  };
+
+  process.stdin.on("data", (chunk: string) => {
     buffer += chunk;
 
     const lines = buffer.split("\n");
@@ -803,9 +814,7 @@ export async function startServer() {
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
-        const request = JSON.parse(line) as JsonRpcRequest;
-        const response = await handleRequest(request);
-        process.stdout.write(JSON.stringify(response) + "\n");
+        dispatchRequest(JSON.parse(line) as JsonRpcRequest);
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         process.stderr.write(`Parse error: ${error}\n`);
@@ -816,10 +825,7 @@ export async function startServer() {
   process.stdin.on("end", () => {
     if (buffer.trim()) {
       try {
-        const request = JSON.parse(buffer) as JsonRpcRequest;
-        handleRequest(request).then((r) => {
-          process.stdout.write(JSON.stringify(r) + "\n");
-        });
+        dispatchRequest(JSON.parse(buffer) as JsonRpcRequest);
       } catch (e) {
         process.stderr.write(`Final parse error: ${e}\n`);
       }
