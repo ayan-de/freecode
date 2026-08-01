@@ -16,6 +16,15 @@ export type MessagePart =
       type: "tool";
       tool: { name: string; args: Record<string, unknown> };
       result?: string;
+    }
+  | {
+      type: "image";
+      /** Base64-encoded image data (without the data:image/xxx;base64, prefix) */
+      data: string;
+      /** Media type: image/png, image/jpeg, image/gif, image/webp */
+      mediaType: string;
+      /** Optional plain-text description for providers without vision support */
+      altText?: string;
     };
 
 // =============================================================================
