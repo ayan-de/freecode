@@ -200,17 +200,6 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
   return coreMessages;
 }
 
-/**
- * Providers whose models accept image content parts. Anything else gets a
- * text placeholder instead — sending an image part to a text-only provider
- * (deepseek, minimax, zai) is a hard 400, not a graceful degrade.
- */
-const VISION_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
-
-export function providerSupportsVision(provider: string): boolean {
-  return VISION_PROVIDERS.has(provider);
-}
-
 /** Returns true if any message contains image parts. */
 export function messagesContainImages(messages: Message[]): boolean {
   for (const msg of messages) {

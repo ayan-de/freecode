@@ -24,6 +24,8 @@ export interface ProviderModel {
   description?: string;
   /** Present when models.dev reports limits for this model. */
   limit?: ModelLimit;
+  /** Input modalities, e.g. ["text", "image", "pdf"]. Absent if unreported. */
+  inputModalities?: string[];
 }
 
 export interface Provider {
@@ -94,6 +96,9 @@ async function fetchFromNetwork(): Promise<Provider[]> {
                           output: modelData.limit.output ?? 0,
                         }
                       : undefined,
+                  inputModalities: Array.isArray(modelData.modalities?.input)
+                    ? (modelData.modalities.input as string[])
+                    : undefined,
                 });
               }
 
@@ -168,4 +173,27 @@ export async function getModelContextLimit(
   const lower = modelId.toLowerCase();
   const ci = models.find((m) => m.id.toLowerCase() === lower);
   return ci?.limit?.context ?? 0;
+}
+
+/**
+ * Whether a model accepts image input. Vision is a *model* capability, not a
+ * provider one — anthropic ships text-only models and some text-first
+ * providers ship vision models — so this reads models.dev per model rather
+ * than keeping a hardcoded provider allowlist.
+ *
+ * Unknown models return false: sending an image part to a text-only model is
+ * a hard 400 from the provider, so failing closed with a message the user can
+ * act on beats a request that dies on the wire.
+ */
+export async function modelSupportsImages(
+  providerId: string,
+  modelId: string | undefined,
+): Promise<boolean> {
+  if (!modelId) return false;
+  const models = await getProviderModels(providerId).catch(() => []);
+  const lower = modelId.toLowerCase();
+  const match =
+    models.find((m) => m.id === modelId) ??
+    models.find((m) => m.id.toLowerCase() === lower);
+  return match?.inputModalities?.includes("image") ?? false;
 }

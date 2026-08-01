@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  convertToCoreMessages,
-  messagesContainImages,
-  providerSupportsVision,
-} from "./utils.js";
+import { convertToCoreMessages, messagesContainImages } from "./utils.js";
 import type { Message } from "../agent/types.js";
 
 test("multimodal message conversion: passes through image parts to provider format", () => {
@@ -158,13 +154,4 @@ test("multimodal message conversion: keeps tool calls and results when an image 
   assert.equal(toolResult.toolCallId, "call-1");
   assert.equal(result[2].role, "user");
   assert.equal((result[2].content as any[])[1].type, "image");
-});
-
-test("providerSupportsVision: gates image parts to providers that accept them", () => {
-  assert.equal(providerSupportsVision("anthropic"), true);
-  assert.equal(providerSupportsVision("openai"), true);
-  assert.equal(providerSupportsVision("gemini"), true);
-  assert.equal(providerSupportsVision("deepseek"), false);
-  assert.equal(providerSupportsVision("minimax"), false);
-  assert.equal(providerSupportsVision("zai"), false);
 });

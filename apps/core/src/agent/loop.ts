@@ -75,9 +75,9 @@ import {
   applyCompaction,
   type ApplyCompactionResult,
 } from "../session/compact-apply.js";
-import { getModelContextLimit } from "../models-dev.js";
+import { getModelContextLimit, modelSupportsImages } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
-import { isPlainObject, providerSupportsVision } from "../providers/utils.js";
+import { isPlainObject } from "../providers/utils.js";
 import {
   noteSendAndCheckCold,
   summarizeCache,
@@ -370,22 +370,32 @@ export class AgentLoop {
       this.history = this.maybeTimeBasedMicrocompact(this.history);
 
       // Construct and push the new user message to history and store.
-      // Attached images ride along as image parts, but only where the provider
-      // can actually see them — text-only providers reject image content.
-      const attachedImages =
-        input.images && providerSupportsVision(input.provider)
-          ? input.images
-          : [];
-      const imageParts: MessagePart[] = attachedImages.map((img) => ({
-        type: "image",
-        data: img.data,
-        mediaType: img.mediaType,
-        altText: img.altText,
-      }));
-      if (input.images?.length && attachedImages.length === 0) {
-        logger.warn(
-          `[AgentLoop] Provider ${input.provider} has no vision support — dropping ${input.images.length} attached image(s)`,
-        );
+      // Attached images ride along as image parts, but only where the model can
+      // actually see them — a text-only model rejects image content outright.
+      const canSeeImages =
+        !!input.images?.length &&
+        (await modelSupportsImages(input.provider, input.model));
+      const imageParts: MessagePart[] = canSeeImages
+        ? input.images!.map((img) => ({
+            type: "image",
+            data: img.data,
+            mediaType: img.mediaType,
+            altText: img.altText,
+          }))
+        : [];
+      if (input.images?.length && !canSeeImages) {
+        // Loudly, not just to the log: the user attached something and would
+        // otherwise watch the model claim it received no image.
+        const note =
+          `${input.model ?? input.provider} cannot accept image input, so ` +
+          `${input.images.length} attached image(s) were not sent. ` +
+          `Switch to a vision model (e.g. an Anthropic, OpenAI, or Gemini model) to use images.`;
+        logger.warn(`[AgentLoop] ${note}`);
+        BusEvents.stream(this.state.sessionId, {
+          type: "notice",
+          level: "warn",
+          content: note,
+        });
       }
       const initialUserMessage: Message = {
         id: randomUUID(),
@@ -947,7 +957,7 @@ export class AgentLoop {
 
           const image = extractToolImage(result);
           if (image) {
-            if (providerSupportsVision(provider)) {
+            if (await modelSupportsImages(provider, model)) {
               toolImages.push({
                 type: "image",
                 data: image.data,
@@ -955,9 +965,15 @@ export class AgentLoop {
                 altText: result.title,
               });
             } else {
-              logger.warn(
-                `[AgentLoop] Provider ${provider} has no vision support — dropping image from ${tc.tool}`,
-              );
+              const note =
+                `${model ?? provider} cannot accept image input, so the image ` +
+                `read by ${tc.tool} was not sent. Switch to a vision model to use images.`;
+              logger.warn(`[AgentLoop] ${note}`);
+              BusEvents.stream(this.state.sessionId, {
+                type: "notice",
+                level: "warn",
+                content: note,
+              });
             }
           }
         }
