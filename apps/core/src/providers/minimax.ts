@@ -34,6 +34,7 @@ const PROVIDER_INFO = {
   defaultModel: "MiniMax-M2",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: MAX_OUTPUT_TOKENS,
 };
 
 function createMiniMaxProvider(_apiKey: string): AIProvider {
@@ -55,7 +56,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
     const generateOptions: any = {
       model: minimax(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || MAX_OUTPUT_TOKENS,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };

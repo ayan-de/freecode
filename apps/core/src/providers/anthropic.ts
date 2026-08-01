@@ -22,6 +22,7 @@ const PROVIDER_INFO = {
   defaultModel: "claude-sonnet-4-5",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: 4096,
 };
 
 function createAnthropicProvider(_apiKey: string): AIProvider {
@@ -41,7 +42,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     const generateOptions: any = {
       model: anthropic(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -136,7 +137,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     const generateOptions: any = {
       model: anthropic(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };

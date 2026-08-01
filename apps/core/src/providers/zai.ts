@@ -27,6 +27,7 @@ const PROVIDER_INFO = {
   defaultModel: "glm-5.2",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: 4096,
 };
 
 function createZaiProvider(_apiKey: string): AIProvider {
@@ -47,7 +48,7 @@ function createZaiProvider(_apiKey: string): AIProvider {
     const generateOptions: any = {
       model: zai(model),
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };

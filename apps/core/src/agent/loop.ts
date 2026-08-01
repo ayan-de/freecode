@@ -177,6 +177,12 @@ export class AgentLoop {
   private todoGateForces = 0;
   private turnsSinceTodoWrite = 0;
   private turnsSinceLastNudge = 0;
+  // The provider's own count of the last request's input (prompt + cache
+  // reads + cache writes) — i.e. how full the model's window actually is.
+  // Drives auto-compaction, which previously read MemoryService's estimate
+  // and so missed everything tool calls contributed. 0 until the first
+  // response carries usage.
+  private lastMeasuredContextTokens = 0;
   // Verification gate state: whether this run mutated files (so verify is
   // worth running) and how many times the gate has run.
   private filesMutatedThisRun = false;
@@ -633,7 +639,19 @@ export class AgentLoop {
     if (!model) return undefined;
     try {
       const limit = await getModelContextLimit(provider, model);
-      return limit > 0 ? limit : undefined;
+      if (limit <= 0) return undefined;
+      // Providers count the tokens reserved for the reply against the same
+      // window, so the usable input budget is the limit minus that reservation.
+      // MiniMax reserves 65536 — against M2's 196608 window that is a third of
+      // the space, and compacting against the raw limit would fire far too late.
+      let reserved = 0;
+      try {
+        reserved = getProvider(provider as any).info.maxOutputTokens ?? 0;
+      } catch {
+        // Unknown provider: fall back to the raw limit rather than guessing.
+      }
+      const usable = limit - reserved;
+      return usable > 0 ? usable : limit;
     } catch {
       return undefined;
     }
@@ -663,7 +681,14 @@ export class AgentLoop {
     model: string | undefined,
   ): Promise<void> {
     const contextLimit = await this.resolveContextLimit(provider, model);
-    if (!this.memory.shouldCompact(model ?? provider, contextLimit)) return;
+    if (
+      !this.memory.shouldCompact(
+        model ?? provider,
+        contextLimit,
+        this.lastMeasuredContextTokens,
+      )
+    )
+      return;
     await this.runCompaction(provider, model, "auto");
   }
 
@@ -692,7 +717,13 @@ export class AgentLoop {
         compactOptions,
       });
       // Reload so this.history matches the trimmed store.
-      if (outcome.compacted) await this.loadHistory();
+      if (outcome.compacted) {
+        await this.loadHistory();
+        // The measurement describes the pre-trim request and would re-trigger
+        // compaction on the next check. Clear it so the estimate is used until
+        // the provider reports a fresh number.
+        this.lastMeasuredContextTokens = 0;
+      }
     } else {
       // No store (e.g. tests): memory-only compaction, slice native history.
       const result = await this.memory.compact(compactOptions);
@@ -837,6 +868,17 @@ export class AgentLoop {
         provider,
         model,
       );
+
+      // Record how full the window actually got. Each call resends the whole
+      // conversation, so the last call's input *is* the occupancy — no summing.
+      // Captured here (not in run()) because maybeCompact fires before this
+      // turn's result reaches the caller.
+      if (providerResult.usage) {
+        this.lastMeasuredContextTokens =
+          (providerResult.usage.inputTokens ?? 0) +
+          (providerResult.usage.cacheReadInputTokens ?? 0) +
+          (providerResult.usage.cacheCreationInputTokens ?? 0);
+      }
 
       // Emit thinking content if present (for UI to display as streaming reasoning)
       if (providerResult.thinking) {

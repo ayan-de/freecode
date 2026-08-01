@@ -6,6 +6,11 @@ export interface ProviderInfo {
   defaultModel: string;
   supportsStreaming: boolean;
   supportsTools: boolean;
+  // Tokens this provider reserves for the reply when the caller doesn't set
+  // maxTokens. Providers count it against the context window, so the usable
+  // input budget is (context limit - this), not the full limit — compaction
+  // subtracts it before deciding whether to fire.
+  maxOutputTokens: number;
 }
 
 export interface ToolDef {

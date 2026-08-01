@@ -21,6 +21,7 @@ const PROVIDER_INFO = {
   defaultModel: "gpt-4o",
   supportsStreaming: true,
   supportsTools: true,
+  maxOutputTokens: 4096,
 };
 
 function createOpenAIProvider(_apiKey: string): AIProvider {
@@ -46,7 +47,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       model: openai(model),
       system: systemPrompt,
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };
@@ -107,7 +108,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       model: openai(model),
       system: systemPrompt,
       temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || 4096,
+      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
     };

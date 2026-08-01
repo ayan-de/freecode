@@ -89,3 +89,32 @@ test("blocked compaction backs off instead of retrying every message", async () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("shouldCompact uses the provider's measured tokens over its own estimate", () => {
+  const dir = mkdtempSync(join(tmpdir(), "freecode-memory-"));
+  try {
+    const service = new MemoryService(`session-measured-${Date.now()}`, {
+      storage: new FileMemoryStorage(dir),
+      config: { autoCompactBufferTokens: 10_000 },
+    });
+
+    // A tool-heavy turn: the real request was huge, but memory only recorded
+    // the stub, so its own estimate stays tiny.
+    service.addMessage("user", "read every file");
+    service.addMessage("assistant", "[Executed 1 tools]");
+
+    // Estimate alone is nowhere near the limit — this is the old behaviour
+    // that let sessions overflow the window without ever compacting.
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608), false);
+
+    // Given what the provider actually measured, it must fire.
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 190_000), true);
+    // Still below the threshold once the buffer is applied.
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 100_000), false);
+    // A zero/absent measurement falls back to the estimate rather than
+    // reading as "empty context".
+    assert.equal(service.shouldCompact("MiniMax-M2", 196_608, 0), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
