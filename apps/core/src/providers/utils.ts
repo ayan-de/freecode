@@ -202,6 +202,22 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
 }
 
 /**
+ * Ceiling on the tokens any provider reserves for a reply.
+ *
+ * Providers count `max_tokens` against the same context window as the input —
+ * MiniMax rejects the request outright when the two exceed it — so every token
+ * reserved here is one the conversation cannot use. A fixed reservation is
+ * also regressive: 64K is 6% of a 1M window but a third of a 196K one, which
+ * dragged auto-compaction on MiniMax-M2 down to firing at 60% occupancy.
+ *
+ * 32K matches opencode's OUTPUT_TOKEN_MAX and is still ~128KB of output — far
+ * more than a single file write needs, so it keeps the headroom the old 64K
+ * was raised to provide. See also claude-code, which caps the equivalent
+ * reservation at 20K (`MAX_OUTPUT_TOKENS_FOR_SUMMARY`).
+ */
+export const OUTPUT_TOKEN_CAP = 32_000;
+
+/**
  * Resolves the model for a request, falling back to the provider's default.
  *
  * The fallback exists for API callers that omit a model, but it used to be a

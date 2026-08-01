@@ -13,6 +13,7 @@ import {
   buildAnthropicSystemParam,
   buildToolsParam,
   resolveModel,
+  OUTPUT_TOKEN_CAP,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
@@ -24,9 +25,12 @@ const BASE_URL = "https://api.minimax.io/anthropic/v1";
 // The old 4096 default truncated large tool calls (e.g. a `write` with a long
 // body) mid-JSON, which the AI SDK then surfaced as an unparseable tool call.
 // The endpoint's own ceilings are far higher — 524288 for MiniMax-M3, 196608
-// for MiniMax-M2 — so 64K is comfortably valid on both while leaving room for
-// a full file write in one call.
-const MAX_OUTPUT_TOKENS = 65536;
+// for MiniMax-M2 — so this only needs to be large enough for a full file write
+// in one call. It was 65536, but MiniMax charges max_tokens against the same
+// context window, so that reserved a third of M2's 196608 and forced
+// auto-compaction to fire at 60% occupancy. OUTPUT_TOKEN_CAP keeps the write
+// headroom while giving the rest of the window back to the conversation.
+const MAX_OUTPUT_TOKENS = OUTPUT_TOKEN_CAP;
 
 const PROVIDER_INFO = {
   id: "minimax" as const,
