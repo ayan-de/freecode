@@ -1,7 +1,7 @@
 import type { ModelMessage, AssistantModelMessage, ToolModelMessage } from "ai";
 import { jsonSchema } from "ai";
 import type { Message } from "../agent/types.js";
-import type { SystemBlock, ToolDef } from "./types.js";
+import type { MultimodalContentPart, SystemBlock, ToolDef } from "./types.js";
 
 /**
  * Converts FreeCode's ToolDef[] into the AI SDK's tools map, wrapping each
@@ -40,7 +40,9 @@ export function buildToolsParam(
  */
 export function buildAnthropicSystemParam(
   system: string | SystemBlock[],
-): string | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
+):
+  | string
+  | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
   if (typeof system === "string") return system;
   return system.map((block) => {
     const part: {
@@ -73,18 +75,49 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
 
   for (const msg of messages) {
     if (msg.role === "user") {
-      const textParts: string[] = [];
-      for (const part of msg.parts) {
-        if (part.type === "text") {
-          textParts.push(part.content);
-        } else if (part.type === "code") {
-          textParts.push(`\`\`\`${part.language}\n${part.content}\n\`\`\``);
+      // Check if any part is an image - if so, use array content format for vision
+      const hasImage = msg.parts.some((p) => p.type === "image");
+
+      if (hasImage) {
+        // Vision mode: use array content format with image parts
+        const contentParts: MultimodalContentPart[] = [];
+        for (const part of msg.parts) {
+          if (part.type === "text") {
+            contentParts.push({ type: "text", text: part.content });
+          } else if (part.type === "code") {
+            contentParts.push({
+              type: "text",
+              text: `\`\`\`${part.language}\n${part.content}\n\`\`\``,
+            });
+          } else if (part.type === "image") {
+            // AI SDK expects { type: "image", image: base64 string or URL, mediaType?: string }
+            // The SDK handles provider-specific conversion (Anthropic, OpenAI, Gemini, etc.)
+            contentParts.push({
+              type: "image",
+              image: part.data,
+              mediaType: part.mediaType,
+            });
+          }
         }
+        coreMessages.push({
+          role: "user",
+          content: contentParts,
+        });
+      } else {
+        // Text-only mode: simple string content
+        const textParts: string[] = [];
+        for (const part of msg.parts) {
+          if (part.type === "text") {
+            textParts.push(part.content);
+          } else if (part.type === "code") {
+            textParts.push(`\`\`\`${part.language}\n${part.content}\n\`\`\``);
+          }
+        }
+        coreMessages.push({
+          role: "user",
+          content: textParts.join("\n\n"),
+        });
       }
-      coreMessages.push({
-        role: "user",
-        content: textParts.join("\n\n"),
-      });
     } else if (msg.role === "assistant") {
       const textParts: string[] = [];
       const toolCalls: Array<{
@@ -165,4 +198,25 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
   }
 
   return coreMessages;
+}
+
+/**
+ * Providers whose models accept image content parts. Anything else gets a
+ * text placeholder instead — sending an image part to a text-only provider
+ * (deepseek, minimax, zai) is a hard 400, not a graceful degrade.
+ */
+const VISION_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
+
+export function providerSupportsVision(provider: string): boolean {
+  return VISION_PROVIDERS.has(provider);
+}
+
+/** Returns true if any message contains image parts. */
+export function messagesContainImages(messages: Message[]): boolean {
+  for (const msg of messages) {
+    for (const part of msg.parts) {
+      if (part.type === "image") return true;
+    }
+  }
+  return false;
 }
