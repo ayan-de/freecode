@@ -79,7 +79,7 @@ import {
   PromptEditor,
   stripImageTokens,
 } from "./components/prompt-editor.js";
-import { createResumePicker } from "./components/resume-picker.js";
+import { ResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
@@ -93,7 +93,7 @@ import {
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { createQuestionPicker } from "./components/question-picker.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
-import type { StreamEvent } from "@thisisayande/freecode-shared";
+import type { SerializedMessage, StreamEvent } from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
 
@@ -122,7 +122,7 @@ let modeLine: ModeLine;
 
 let modelSelector: SearchableSelectList | null = null;
 let providerSelector: SearchableSelectList | null = null;
-let resumeSelector: SelectList | null = null;
+let resumeSelector: ResumePicker | null = null;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
@@ -355,7 +355,12 @@ function hideModelSelector(): void {
 }
 
 function hideResumeSelector(): void {
-  removeSelector(resumeSelector);
+  if (resumeSelector) {
+    const idx = tui.children.indexOf(resumeSelector);
+    if (idx !== -1) {
+      tui.children.splice(idx, 1);
+    }
+  }
   resumeSelector = null;
   tui.requestRender();
 }
@@ -528,50 +533,80 @@ async function showResumePicker(): Promise<void> {
     const sessions = await sessionList({});
 
     if (sessions.length === 0) {
-      showMessage("**No sessions found.**");
+      showMessage("**No previous sessions to resume.**");
       return;
     }
 
     // Sort by lastTurnAt descending (most recent first)
     sessions.sort((a, b) => b.lastTurnAt - a.lastTurnAt);
 
-    const { component: picker } = createResumePicker(
-      sessions,
-      {
-        onSelect: async (sessionId: string) => {
-          hideResumeSelector();
-          showMessage(`**Resuming session...**`);
-          try {
-            const result = await sessionResume(sessionId);
-            currentSession = { sessionId: result.sessionId };
-            hideTodoPanel(); // clear any prior session's pinned todos
-            // Load messages from the resumed session into the UI
-            if (result.messages && result.messages.length > 0) {
-              loadSessionMessages(result.messages);
-            }
-            showMessage(
-              `**Session resumed with ${result.messages?.length || 0} messages.**`,
-            );
-          } catch (err) {
-            showMessage(`**Error resuming session:** ${err}`);
-          }
-          tui.setFocus(editor);
+    // Lazily fetched previews keyed by session id. We also track which id is
+    // currently in-flight so a slow request for one session doesn't overwrite a
+    // freshly fetched preview for another.
+    const previewCache = new Map<string, SerializedMessage[]>();
+    let inflightId: string | null = null;
+
+    async function ensurePreview(sessionId: string): Promise<void> {
+      if (previewCache.has(sessionId)) return;
+      if (inflightId === sessionId) return;
+      inflightId = sessionId;
+      try {
+        const result = await sessionResume(sessionId);
+        const messages = result.messages ?? [];
+        previewCache.set(sessionId, messages);
+        if (resumeSelector && resumeSelector.selectedId() === sessionId) {
+          resumeSelector.setPreview(sessionId, messages);
           tui.requestRender();
-        },
-        onCancel: () => {
-          hideResumeSelector();
-          tui.setFocus(editor);
-          tui.requestRender();
-        },
+        }
+      } catch {
+        // Best-effort: the picker keeps showing the loading state. The user can
+        // still navigate and pick another session. We intentionally swallow the
+        // error here; the resume-on-Enter path surfaces it.
+      } finally {
+        if (inflightId === sessionId) inflightId = null;
+      }
+    }
+
+    const picker = new ResumePicker(sessions, {
+      onSelectionChange: (sessionId: string) => {
+        ensurePreview(sessionId);
       },
-      defaultSelectListTheme,
-    );
+      onSelect: async (sessionId: string) => {
+        hideResumeSelector();
+        showMessage(`**Resuming session...**`);
+        try {
+          const result = await sessionResume(sessionId);
+          currentSession = { sessionId: result.sessionId };
+          hideTodoPanel(); // clear any prior session's pinned todos
+          if (result.messages && result.messages.length > 0) {
+            loadSessionMessages(result.messages);
+          }
+          showMessage(
+            `**Session resumed with ${result.messages?.length || 0} messages.**`,
+          );
+        } catch (err) {
+          showMessage(`**Error resuming session:** ${err}`);
+        }
+        tui.setFocus(editor);
+        tui.requestRender();
+      },
+      onCancel: () => {
+        hideResumeSelector();
+        tui.setFocus(editor);
+        tui.requestRender();
+      },
+    });
 
     resumeSelector = picker;
 
     const editorIdx = tui.children.indexOf(editor);
     tui.children.splice(editorIdx + 1, 0, resumeSelector);
     tui.setFocus(resumeSelector);
+
+    // Kick off the first preview fetch for the highlighted row (cursor = 0).
+    const firstId = picker.selectedId();
+    if (firstId) ensurePreview(firstId);
+
     tui.requestRender();
   } catch (err) {
     showMessage(`**Error loading sessions:** ${err}`);
@@ -1360,7 +1395,15 @@ tui.addInputListener((data) => {
     const isRelease = data.endsWith("m");
 
     if ((cb & 0x40) !== 0) {
-      messageList.scrollBy((cb & 0x01) === 1 ? WHEEL_STEP : -WHEEL_STEP);
+      const down = (cb & 0x01) === 1;
+      // The resume modal covers the chat, so while it is open the wheel drives
+      // whichever of its panes the pointer is over, not the history behind it.
+      if (resumeSelector) {
+        resumeSelector.handleMouseWheel(down ? 1 : -1, cx - 1);
+        tui.requestRender();
+        return { consume: true };
+      }
+      messageList.scrollBy(down ? WHEEL_STEP : -WHEEL_STEP);
       return { consume: true };
     }
 
