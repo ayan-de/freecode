@@ -8,10 +8,29 @@
   "bin": {
     "freecode": "./dist/index.js"
   },
+  "//files": [
+    "npm resolves ignore files from the package directory, and there is no",
+    "apps/tui/.gitignore — the repo root one does not apply. Without this",
+    "allowlist the tarball picked up everything in the folder, including the",
+    "compiled `dist/freecode` + `dist/freecode-bun` binaries (93 MB packed,",
+    "248 MB unpacked), all of src/, and the stray Next.js config files.",
+    "The GitHub release already distributes the binaries; npm only needs the",
+    "tsc output the `bin` entry points at. LICENSE and README are always",
+    "included by npm regardless of this list."
+  ],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.d.ts"
+  ],
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "check-types": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^0.80.10",
