@@ -69,12 +69,34 @@ registerProvider("test-fake" as ProviderId, {
 
 // Slow provider that respects AbortSignal — used for interruption tests.
 let providerAborted = false;
+
+/**
+ * Resolves the instant the slow provider's execute() is entered.
+ *
+ * The interruption tests used to sleep a fixed 50/200ms and hope the loop had
+ * reached the provider by then. Under load (the whole suite in parallel) it
+ * sometimes hadn't, so interrupt() fired before the request existed, nothing
+ * was aborted, and `providerAborted` stayed false — a flake that only ever
+ * showed up in CI. Awaiting the real event makes the ordering deterministic.
+ */
+let providerStarted: Promise<void>;
+let markProviderStarted: () => void;
+
+function resetSlowProvider(): void {
+  providerAborted = false;
+  providerStarted = new Promise<void>((resolve) => {
+    markProviderStarted = resolve;
+  });
+}
+resetSlowProvider();
+
 registerProvider("test-slow" as ProviderId, {
   info: fakeProviderInfo("test-slow"),
   create: (): AIProvider => ({
     info: fakeProviderInfo("test-slow"),
     execute: (opts: ExecuteOptions) =>
       new Promise<ExecuteResult>((resolve, reject) => {
+        markProviderStarted();
         const t = setTimeout(() => resolve(doneResult), 10_000);
         opts.abortSignal?.addEventListener("abort", () => {
           clearTimeout(t);
@@ -144,20 +166,24 @@ test("createAgentLoopEffect uses the layer-provided MemoryService", async () => 
 
 test("interrupt() aborts an in-flight provider call within 100ms", async () => {
   const sessionId = "abort-test-session";
-  providerAborted = false;
+  resetSlowProvider();
   const memory = new MemoryService(sessionId, { storage: inMemoryStorage() });
   const { runtime, loop, projectPath } = await makeLoopWith(memory, sessionId);
   try {
-    const started = Date.now();
     const running = loop.run({
       prompt: "hang forever",
       sessionId,
       provider: "test-slow",
       projectPath,
     });
-    setTimeout(() => loop.interrupt(), 50);
+    // Interrupt only once the provider call is genuinely in flight.
+    await providerStarted;
+    const interruptedAt = Date.now();
+    loop.interrupt();
     const result = await running;
-    const elapsed = Date.now() - started;
+    // Measured from the interrupt, not from loop.run(): what's under test is
+    // abort latency, not how long the loop takes to start up on a busy box.
+    const elapsed = Date.now() - interruptedAt;
 
     assert.equal(providerAborted, true, "provider saw the abort signal");
     assert.ok(elapsed < 1_000, `resolved in ${elapsed}ms, expected < 1000ms`);
@@ -175,7 +201,7 @@ test("interrupt() aborts an in-flight provider call within 100ms", async () => {
 
 test("interrupting the runEffect fiber aborts the provider call", async () => {
   const sessionId = "fiber-test-session";
-  providerAborted = false;
+  resetSlowProvider();
   const memory = new MemoryService(sessionId, { storage: inMemoryStorage() });
   const { runtime, loop, projectPath } = await makeLoopWith(memory, sessionId);
   try {
@@ -187,8 +213,9 @@ test("interrupting the runEffect fiber aborts the provider call", async () => {
         projectPath,
       }),
     );
-    // Give the loop time to reach the provider call, then interrupt the fiber
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait for the loop to actually reach the provider call, then interrupt
+    // the fiber — a fixed sleep here raced the loop under parallel load.
+    await providerStarted;
     await runtime.runPromise(Fiber.interrupt(fiber));
 
     assert.equal(providerAborted, true, "provider saw the abort signal");

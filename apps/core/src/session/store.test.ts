@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, beforeEach } from "node:test";
+import assert from "node:assert/strict";
 import { SessionStore, createSessionStore } from "./store.js";
 import { rm } from "fs/promises";
 
@@ -18,10 +19,10 @@ describe("SessionStore", () => {
       provider: "claude",
     });
     const meta = await store.getMeta(sessionId);
-    expect(meta).not.toBeNull();
-    expect(meta!.id).toBe(sessionId);
-    expect(meta!.title).toBe("Test Session");
-    expect(meta!.status).toBe("active");
+    assert.notEqual(meta, null);
+    assert.equal(meta!.id, sessionId);
+    assert.equal(meta!.title, "Test Session");
+    assert.equal(meta!.status, "active");
   });
 
   it("appends messages to messages.jsonl", async () => {
@@ -38,8 +39,8 @@ describe("SessionStore", () => {
     };
     await store.appendMessage(sessionId, msg);
     const messages = await store.getMessages(sessionId);
-    expect(messages).toHaveLength(1);
-    expect(messages[0].parts[0]).toEqual({ type: "text", content: "hello" });
+    assert.equal(messages.length, 1);
+    assert.deepEqual(messages[0].parts[0], { type: "text", content: "hello" });
   });
 
   it("marks message as interrupted", async () => {
@@ -57,7 +58,7 @@ describe("SessionStore", () => {
     await store.appendMessage(sessionId, msg);
     await store.markInterrupted(sessionId, "msg-1");
     const msgs = await store.getMessages(sessionId);
-    expect(msgs[0].interrupted).toBe(true);
+    assert.equal(msgs[0].interrupted, true);
   });
 
   it("detects interrupted sessions", async () => {
@@ -75,7 +76,7 @@ describe("SessionStore", () => {
     await store.appendMessage(sessionId, msg);
     await store.markInterrupted(sessionId, "msg-1");
     const interrupted = await store.getInterruptedSession();
-    expect(interrupted?.sessionId).toBe(sessionId);
+    assert.equal(interrupted?.sessionId, sessionId);
   });
 
   it("lists sessions with filter", async () => {
@@ -94,11 +95,11 @@ describe("SessionStore", () => {
     await store.updateStatus(s1, "archived");
     const active = await store.list({ status: "active" });
     // After archiving s1, only s2 remains active
-    expect(active).toHaveLength(1);
-    expect(active[0].title).toBe("S2");
+    assert.equal(active.length, 1);
+    assert.equal(active[0].title, "S2");
     const archived = await store.list({ status: "archived" });
-    expect(archived).toHaveLength(1);
-    expect(archived[0].title).toBe("S1");
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0].title, "S1");
   });
 
   it("forks session with new id", async () => {
@@ -109,8 +110,8 @@ describe("SessionStore", () => {
     });
     const forkId = await store.fork(parentId);
     const forkMeta = await store.getMeta(forkId);
-    expect(forkMeta?.parentId).toBe(parentId);
-    expect(forkId).not.toBe(parentId);
+    assert.equal(forkMeta?.parentId, parentId);
+    assert.notEqual(forkId, parentId);
   });
 
   it("updates session meta", async () => {
@@ -121,7 +122,7 @@ describe("SessionStore", () => {
     });
     await store.updateMeta(sessionId, { title: "Updated" });
     const meta = await store.getMeta(sessionId);
-    expect(meta?.title).toBe("Updated");
+    assert.equal(meta?.title, "Updated");
   });
 
   it("deletes session", async () => {
@@ -132,6 +133,6 @@ describe("SessionStore", () => {
     });
     await store.deleteSession(sessionId);
     const meta = await store.getMeta(sessionId);
-    expect(meta?.status).toBe("deleted");
+    assert.equal(meta?.status, "deleted");
   });
 });
