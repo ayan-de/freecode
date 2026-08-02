@@ -32,6 +32,7 @@ import { plainText } from "./utils/ansi-select.js";
 import { copyToClipboard, readImageFromClipboard } from "./utils/clipboard.js";
 import {
   startCli,
+  stopCli,
   sessionStart,
   sessionSendStreaming,
   sessionStop,
@@ -85,6 +86,7 @@ import { ResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { SafeTUI } from "./render-guard.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
+import { installCrashHandlers } from "./crash-handler.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 // import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
 import { ContextBox } from "./components/context-box.js";
@@ -1665,6 +1667,13 @@ process.on("exit", () => stopSoundFn?.());
 // shutdown() path above — restoreScreen() is idempotent, so this is a no-op
 // when the alt screen was already exited cleanly.
 process.on("exit", restoreScreen);
+
+// Faults that escape every try/catch: restore the terminal, take the backend
+// down, and print a legible report instead of vanishing mid-session.
+installCrashHandlers({
+  stopCli,
+  getSessionId: () => currentSession?.sessionId,
+});
 
 process.stdout.write(ENTER_ALT_SCREEN);
 tui.start();
