@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.14.0
+
+### Changed
+- **MCP tools now respect the permission system.** `toolKind()` classified every `mcp__*` tool as read-only, contradicting the doc comment directly above it, so MCP tools skipped the permission prompt entirely in build mode and were waved through `plan`/`review`/`explore` by `modeEnforcement`. An MCP server is arbitrary third-party code, so they now fail closed: a tool is treated as read-only only when its server declares `readOnlyHint: true` in its annotations, which `convertMcpTool` previously discarded. Read-only tools (search, fetch, list) behave as before; anything unannotated prompts on first use in build mode. The escape hatch is a server-level allow rule — `mcp__linear` covers every tool that server exposes. Read-only claims are cleared when a server disconnects, so a later server reusing a tool name can't inherit the exemption.
+
+### Added
+- Uncaught exceptions and unhandled rejections are now handled. Previously Node's default handler painted the stack into the alt screen, which was then wiped on restore — the TUI vanished with no explanation and the spawned core backend was left for the OS to reap. The handler restores the terminal first so the report survives, stops the backend, prints the trace, and points at `freecode --resume <id>` since the session is already persisted.
+- The core backend is respawned when it dies, with bounded retries (3, backing off 250ms/1s/3s) so a backend that can't start reports it instead of fork-bombing. A process that stayed up more than a minute refreshes the budget rather than spending one accumulated over a long session. Because core keeps its session map in memory, a respawned backend has never heard of the session still on screen, so the frontend re-resumes it server-side — without reloading messages, which would duplicate the visible history.
+- API keys are masked at the prompt. They were typed into a plain input and sat on screen in clear text; the alt screen keeps them out of shell scrollback but not out of screenshots, recordings, screen sharing or `tmux capture-pane`.
+- CI on every push and pull request (lint, typecheck, build, test). The only workflow was `release.yml`, which fires on a `v*` tag and goes straight to `bun --compile` — nothing ran tests, types or lint before a release shipped.
+- MIT `LICENSE` files. Three published packages declared `"license": "MIT"` with no LICENSE anywhere in the repo.
+
+### Fixed
+- Bash tool output was never displayed. `isFileRead` had gained `"bash"`, which suppressed the entire result branch, so every command rendered as a bare `● Run(ls)` header with no output and not even the `(no output)` fallback.
+- A core crash left the TUI frozen forever. In-flight JSON-RPC calls were never rejected and there was no request timeout, so callers waited indefinitely with no way back short of quitting. Calls are now rejected on backend death and carry a deadline. `session.send` uses an idle deadline reset by each stream event rather than a flat one, since it settles only when the whole turn is done — a total timeout would kill any turn longer than it.
+- The core exit/error handlers wrote through `console.log`/`console.error`, injecting raw text into the alt-screen frame and corrupting the differential renderer that `render-guard.ts` exists to protect.
+- Message history grew without bound. `messageStore` was constructed with no options, so its `maxMessages` cap never applied and every message — each holding its component and full tool-result strings — was retained for the life of the process. This is the growth behind long-session degradation.
+- MCP tool calls could be silently re-run. `behavior.isDestructive` was hardcoded `false`, and both retry paths (`tools/orchestrator.ts`, `agent/recovery/manager.ts`) read that as "safe to retry" — so a transient failure could re-issue a mutation and create the same issue twice. It now derives from `readOnlyHint`.
+- The npm package was 93.1 MB packed / 247.6 MB unpacked across 147 files. npm resolves ignore files from the package directory and `apps/tui` has no `.gitignore`, so nothing was excluded — the tarball carried the compiled `dist/freecode` and `dist/freecode-bun` binaries the GitHub release already distributes, all of `src/`, and leftover Next.js config. A `files` allowlist brings it to 76.1 kB / 266.9 kB across 59 files.
+- Test suites are green and actually run. `apps/tui` declared no `lint`/`check-types`/`test` scripts, so turbo skipped it entirely; `session/manager.test.ts` and `session/store.test.ts` imported from `vitest`, which isn't a dependency, so 27 tests had never once executed; and two interruption tests in `runtime.test.ts` slept a fixed 50/200ms hoping the loop had reached the provider, which failed under parallel load.
+
+### Removed
+- The 4.7 MB commercial music track bundled in `apps/tui/src/assets/`, redistributed under a license we have no standing to grant over someone else's recording. Nothing was lost: `playSound()` had no callers, and `tsc` never copied the `.mp3` into `dist`, so the feature could only ever have run under `tsx src/`.
+
 ## v0.13.0
 
 ### Added
