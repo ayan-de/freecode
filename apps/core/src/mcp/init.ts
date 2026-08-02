@@ -11,6 +11,10 @@ import {
 } from "./client-registry.js";
 import { convertMcpTool } from "./convert-tool.js";
 import { registerMcpTool, unregisterMcpTools } from "../tools/index.js";
+import {
+  setMcpToolReadOnly,
+  clearMcpToolKinds,
+} from "../permission/mode-policy.js";
 import { BusEvents } from "../bus/index.js";
 import type { McpServer } from "./types.js";
 
@@ -67,6 +71,11 @@ async function connectServer(
     for (const tool of tools) {
       const converted = convertMcpTool(tool, server.name);
       registerMcpTool(converted);
+      // A server declaring a tool read-only is what lets the permission layer
+      // stop prompting for it; without the claim it stays mutating.
+      if (tool.annotations?.readOnlyHint === true) {
+        setMcpToolReadOnly(converted.id);
+      }
     }
 
     BusEvents.mcpServerStarted(server.name, tools.length);
@@ -116,6 +125,7 @@ export async function stopMcpServers(): Promise<void> {
   // Unregister all MCP tools
   for (const name of names) {
     unregisterMcpTools(`mcp__${name}__`);
+    clearMcpToolKinds(`mcp__${name}__`);
   }
 }
 
@@ -153,5 +163,6 @@ export async function disconnectMcpServer(name: string): Promise<void> {
   await client.close();
   removeClient(name);
   unregisterMcpTools(`mcp__${name}__`);
+  clearMcpToolKinds(`mcp__${name}__`);
   BusEvents.mcpServerStopped(name, "manual");
 }

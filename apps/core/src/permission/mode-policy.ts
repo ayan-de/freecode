@@ -20,19 +20,49 @@ const READONLY_TOOLS = new Set([
 const NETWORK_TOOLS = new Set(["webfetch", "websearch"]);
 
 /**
- * Unknown tools (including MCP) are mutating — fail closed.
+ * MCP tools whose server declared them read-only via the `readOnlyHint`
+ * annotation. Populated as servers connect, cleared as they disconnect (see
+ * `mcp/init.ts`), so the set only ever describes tools currently on offer.
  *
- * MCP tools get no exemption: an MCP server is arbitrary third-party code, and
- * nothing in the wire format tells us whether a given tool mutates (the MCP
- * `readOnlyHint` annotation is not currently captured by `convertMcpTool`). The
- * spec requires mutating MCP tools to be denied in plan mode regardless of
- * allow rules (§4), which is only sound if the unknown case is mutating.
+ * Membership is an explicit claim, never an inference: a tool with no
+ * annotation, or from a server that never connected, is absent and therefore
+ * mutating.
+ */
+const READONLY_MCP_TOOLS = new Set<string>();
+
+/** Record an MCP tool as read-only. Only ever called for `readOnlyHint: true`. */
+export function setMcpToolReadOnly(toolName: string): void {
+  READONLY_MCP_TOOLS.add(toolName.toLowerCase());
+}
+
+/**
+ * Drop every recorded tool under a server prefix (`mcp__linear__`), so a
+ * disconnected server can't leave a read-only claim behind for a later tool
+ * that happens to reuse the name.
+ */
+export function clearMcpToolKinds(prefix: string): void {
+  const lower = prefix.toLowerCase();
+  for (const name of READONLY_MCP_TOOLS) {
+    if (name.startsWith(lower)) READONLY_MCP_TOOLS.delete(name);
+  }
+}
+
+/**
+ * Unknown tools are mutating — fail closed.
  *
- * The cost is a prompt on first use in build mode; the escape hatch is a
- * server-level allow rule (`mcp__linear`) that covers every tool it exposes.
+ * An MCP server is arbitrary third-party code, so an MCP tool is only treated
+ * as read-only when its server explicitly said so via `readOnlyHint`. The spec
+ * requires mutating MCP tools to be denied in plan mode regardless of allow
+ * rules (§4), which is only sound while the unannotated case stays mutating.
+ *
+ * The cost for an unannotated tool is a prompt on first use in build mode; the
+ * escape hatch is a server-level allow rule (`mcp__linear`) covering every tool
+ * that server exposes.
  */
 export function toolKind(toolName: string): ToolKind {
-  return READONLY_TOOLS.has(toolName.toLowerCase()) ? "readonly" : "mutating";
+  const lower = toolName.toLowerCase();
+  if (READONLY_MCP_TOOLS.has(lower)) return "readonly";
+  return READONLY_TOOLS.has(lower) ? "readonly" : "mutating";
 }
 
 export function isNetworkTool(toolName: string): boolean {

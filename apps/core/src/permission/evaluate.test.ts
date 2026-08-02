@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { evaluatePermission } from "./evaluate.js";
 import { parseRuleSet } from "./rules.js";
 import { emptyRuleSet } from "./rule-types.js";
+import { setMcpToolReadOnly, clearMcpToolKinds } from "./mode-policy.js";
 import type { AgentMode } from "../agent/types.js";
 
 const ROOT = "/proj";
@@ -104,6 +105,35 @@ test("build mode: reads outside the project root and network tools ask", () => {
 
 test("build mode: unknown/MCP tools are mutating and ask by default", () => {
   assert.equal(evaluate("build", "mcp__linear__create_issue", {}).decision, "ask");
+});
+
+test("an MCP tool its server declared read-only stops asking", () => {
+  const tool = "mcp__linear__search_issues";
+  assert.equal(evaluate("build", tool, {}).decision, "ask");
+
+  // What a server sends as `readOnlyHint: true` — see mcp/init.ts.
+  setMcpToolReadOnly(tool);
+  assert.equal(evaluate("build", tool, {}).decision, "allow");
+  // ...and read-only means it also survives the modes that hard-deny mutation.
+  assert.equal(evaluate("plan", tool, {}).decision, "allow");
+
+  clearMcpToolKinds("mcp__linear__");
+});
+
+test("a disconnected server's read-only claims do not outlive it", () => {
+  const tool = "mcp__scratch__peek";
+  setMcpToolReadOnly(tool);
+  assert.equal(evaluate("plan", tool, {}).decision, "allow");
+
+  // Otherwise a later server reusing the name would inherit the exemption.
+  clearMcpToolKinds("mcp__scratch__");
+  assert.equal(evaluate("plan", tool, {}).decision, "deny");
+});
+
+test("one server's read-only claim does not cover its neighbours", () => {
+  setMcpToolReadOnly("mcp__linear__search_issues");
+  assert.equal(evaluate("build", "mcp__github__create_pr", {}).decision, "ask");
+  clearMcpToolKinds("mcp__linear__");
 });
 
 test("allow rules satisfy build-mode asks", () => {
