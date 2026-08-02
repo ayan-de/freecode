@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.13.0
+
+### Added
+- Claude Code tab in `/resume`. The session picker now has two tabs — Freecode and Claude Code — switched with `←` / `→` (or `h` / `l`). Core scans `$CLAUDE_CONFIG_DIR` (defaults to `~/.claude`, matching upstream Claude Code), merges `sessions-index.json` with a jsonl fallback, and returns a `ClaudeSessionMeta[]` for the list. The preview pane renders the full transcript as markdown via the new `session.claudeTranscript` IPC method. The tab is read-only for this iteration — Enter on the Claude Code tab shows a "coming soon" message and the modal stays open; the actual import-and-resume flow is a follow-up.
+
 ## v0.9.1
 
 ### Fixed
