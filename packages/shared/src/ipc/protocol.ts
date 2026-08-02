@@ -189,6 +189,23 @@ export const METHODS = {
     params: { sessionId: "" },
     result: {} as import("../types.js").SessionResumeResult,
   },
+  // Lists Claude Code sessions discovered under $CLAUDE_CONFIG_DIR (defaults
+  // to ~/.claude). Read-only: core never writes to the user's Claude Code
+  // store. See apps/core/src/claude-sessions/.
+  "session.claudeList": {
+    params: {} as {
+      projectPath?: string;
+      limit?: number;
+    },
+    result: [] as import("../types.js").ClaudeSessionMeta[],
+  },
+  // Reads a Claude Code session transcript and converts it to the
+  // SerializedMessage shape so the frontend can reuse the existing
+  // preview-markdown renderer.
+  "session.claudeTranscript": {
+    params: { sessionId: "" },
+    result: {} as import("../types.js").ClaudeTranscript,
+  },
   "providers.list": {
     params: undefined,
     result: [] as import("../types.js").ProviderInfo[],

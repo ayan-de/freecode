@@ -187,3 +187,45 @@ export interface SessionFilter {
   status?: SessionStatus;
   projectPath?: string;
 }
+
+/**
+ * One Claude Code session as returned by `session.claudeList`. Slimmed to
+ * the columns the resume picker renders — mirrors `SessionMeta` so the
+ * frontend can reuse the same row renderer, with `provider` pinned to the
+ * `"claude-code"` literal so `Enter` can dispatch by tab.
+ *
+ * `fullPath` is the absolute path to the `.jsonl` transcript (used by
+ * `session.claudeTranscript` to re-read it).
+ */
+export interface ClaudeSessionMeta {
+  id: string;
+  title: string;
+  projectPath: string;
+  provider: "claude-code";
+  model?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Same as `updatedAt` — Claude Code has no separate per-turn clock. */
+  lastTurnAt: number;
+  turnCount: number;
+  fullPath: string;
+}
+
+/**
+ * Wire shape of the `session.claudeTranscript` response. The transcript is
+ * converted to `SerializedMessage[]` so the existing preview markdown
+ * renderer (see `apps/tui/src/components/resume-picker.tsx::transcriptToMarkdown`)
+ * is reused with no changes.
+ */
+export interface ClaudeTranscript {
+  sessionId: string;
+  messages: SerializedMessage[];
+}
+
+/**
+ * Optional filter accepted by `session.claudeList`.
+ */
+export interface ClaudeListFilter {
+  projectPath?: string;
+  limit?: number;
+}

@@ -21,6 +21,9 @@ export type {
   SessionContext,
   SessionResumeResult,
   SessionFilter,
+  ClaudeSessionMeta,
+  ClaudeTranscript,
+  ClaudeListFilter,
 } from "./types.js";
 
 // IPC Protocol
