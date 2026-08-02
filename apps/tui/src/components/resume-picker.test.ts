@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type {
+  ClaudeSessionMeta,
   SerializedMessage,
   SessionMeta,
 } from "@thisisayande/freecode-shared";
@@ -29,6 +30,20 @@ function makeSessions(n: number): SessionMeta[] {
   }));
 }
 
+function makeClaudeSessions(n: number): ClaudeSessionMeta[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `c${i}`,
+    title: `Claude Session ${i}`,
+    projectPath: "/tmp/claude",
+    provider: "claude-code" as const,
+    createdAt: 1,
+    updatedAt: 1,
+    lastTurnAt: 1,
+    turnCount: 2,
+    fullPath: `/tmp/claude/${i}.jsonl`,
+  }));
+}
+
 /** A transcript long enough that the preview pane definitely overflows. */
 function longTranscript(): SerializedMessage[] {
   return Array.from({ length: 40 }, (_, i) => ({
@@ -49,7 +64,7 @@ function backgroundPerColumn(row: string): (number | null)[] {
   const out: (number | null)[] = [];
   let bg: number | null = null;
   for (let i = 0; i < row.length; i++) {
-    if (row[i] === "" && row[i + 1] === "[") {
+    if (row[i] === "\x1b" && row[i + 1] === "[") {
       const end = row.indexOf("m", i);
       if (end === -1) break;
       const params = row.slice(i + 2, end).split(";");
@@ -68,7 +83,7 @@ test("every card row is the same width at any terminal size", () => {
   // A row that is wider than its neighbours pushes its right-hand `│` past the
   // card edge, which shows up as a border segment out of line with the rest.
   for (const w of [30, 40, 46, 60, 100, 200]) {
-    const picker = new ResumePicker(makeSessions(4), {
+    const picker = new ResumePicker(makeSessions(4), [], {
       onSelect: () => {},
       onCancel: () => {},
     });
@@ -87,11 +102,21 @@ test("every card row is the same width at any terminal size", () => {
 });
 
 test("every row of a session spans the list column with one background", () => {
-  const picker = new ResumePicker(makeSessions(4), {
+  const picker = new ResumePicker(makeSessions(4), [], {
     onSelect: () => {},
     onCancel: () => {},
   });
   const frame = picker.render(WIDTH);
+  const widths = frame.map(visibleWidth);
+  const distinct = [...new Set(widths)];
+  assert.equal(
+    distinct.length,
+    1,
+    `width=${WIDTH}: rows ${widths
+      .map((v, i) => (v === widths[0] ? null : `${i}:${v}`))
+      .filter(Boolean)
+      .join(", ")} differ from ${widths[0]}`,
+  );
 
   // Row 0 = top border, 1 = blank, 2 = title; the list starts at row 3, and
   // the cursor sits on the first session, so rows 3..7 are the selected entry
@@ -126,7 +151,7 @@ test("every row of a session spans the list column with one background", () => {
 
 test("wheel over the list column moves the cursor and clamps at both ends", () => {
   const selected: string[] = [];
-  const picker = new ResumePicker(makeSessions(5), {
+  const picker = new ResumePicker(makeSessions(5), [], {
     onSelectionChange: (id) => selected.push(id),
     onSelect: () => {},
     onCancel: () => {},
@@ -149,7 +174,7 @@ test("wheel over the list column moves the cursor and clamps at both ends", () =
 });
 
 test("wheel over the preview column scrolls the preview, not the cursor", () => {
-  const picker = new ResumePicker(makeSessions(3), {
+  const picker = new ResumePicker(makeSessions(3), [], {
     onSelect: () => {},
     onCancel: () => {},
   });
@@ -172,7 +197,7 @@ test("wheel over the preview column scrolls the preview, not the cursor", () => 
 });
 
 test("wheel focus follows the pane under the pointer", () => {
-  const picker = new ResumePicker(makeSessions(3), {
+  const picker = new ResumePicker(makeSessions(3), [], {
     onSelect: () => {},
     onCancel: () => {},
   });
@@ -182,4 +207,188 @@ test("wheel focus follows the pane under the pointer", () => {
   assert.equal(picker.isPreviewFocused(), true);
   picker.handleMouseWheel(1, OVER_LIST);
   assert.equal(picker.isPreviewFocused(), false);
+});
+
+// -----------------------------------------------------------------------------
+// v2 — tab navigation (Freecode | Claude Code)
+// -----------------------------------------------------------------------------
+
+test("left/right arrow swaps tabs and resets the preview scroll", () => {
+  const picker = new ResumePicker(makeSessions(3), makeClaudeSessions(2), {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  assert.equal(picker.activeTabName(), "freecode");
+  assert.equal(picker.selectedId(), "s0");
+
+  // Move cursor + scroll preview to a non-default state, then swap tabs.
+  picker.handleMouseWheel(1, OVER_LIST);
+  picker.handleMouseWheel(1, OVER_LIST);
+  assert.equal(picker.selectedId(), "s2");
+
+  picker.handleInput("\x1b[C");
+  assert.equal(picker.activeTabName(), "claude-code");
+  // Claude Code tab resets to its own cursor = 0 on first swap. Subsequent
+  // swaps preserve the per-tab cursor (handled by the next test).
+  assert.equal(picker.selectedId(), "c0");
+  assert.equal(picker.isPreviewFocused(), false);
+});
+
+test("h/l mirror ←/→ for vim-style users", () => {
+  const picker = new ResumePicker(makeSessions(2), makeClaudeSessions(2), {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  picker.handleInput("l");
+  assert.equal(picker.activeTabName(), "claude-code");
+  picker.handleInput("h");
+  assert.equal(picker.activeTabName(), "freecode");
+});
+
+test("→ on Claude Code (right tab) and ← on Freecode (left tab) are no-ops", () => {
+  const picker = new ResumePicker(makeSessions(2), makeClaudeSessions(2), {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  // From Freecode, → should swap. From Claude Code, → should NOT wrap back.
+  picker.handleInput("\x1b[C");
+  assert.equal(picker.activeTabName(), "claude-code");
+  picker.handleInput("\x1b[C");
+  assert.equal(picker.activeTabName(), "claude-code");
+
+  picker.handleInput("\x1b[D");
+  assert.equal(picker.activeTabName(), "freecode");
+  picker.handleInput("\x1b[D");
+  assert.equal(picker.activeTabName(), "freecode");
+});
+
+test("per-tab cursor is preserved across tab swaps", () => {
+  const picker = new ResumePicker(makeSessions(4), makeClaudeSessions(3), {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  // Move the Freecode cursor to s2.
+  picker.handleMouseWheel(1, OVER_LIST);
+  picker.handleMouseWheel(1, OVER_LIST);
+  assert.equal(picker.selectedId(), "s2");
+
+  // Swap to Claude Code and move to c1.
+  picker.handleInput("\x1b[C");
+  picker.handleMouseWheel(1, OVER_LIST);
+  assert.equal(picker.selectedId(), "c1");
+
+  // Back to Freecode → still s2.
+  picker.handleInput("\x1b[D");
+  assert.equal(picker.selectedId(), "s2");
+
+  // And back to Claude Code → still c1.
+  picker.handleInput("\x1b[C");
+  assert.equal(picker.selectedId(), "c1");
+});
+
+test("onSelectionChange reports the active tab", () => {
+  const calls: Array<{ id: string; tab: string }> = [];
+  const picker = new ResumePicker(makeSessions(3), makeClaudeSessions(2), {
+    onSelectionChange: (id, tab) => calls.push({ id, tab }),
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  picker.handleMouseWheel(1, OVER_LIST);
+  picker.handleInput("\x1b[C");
+  picker.handleMouseWheel(1, OVER_LIST);
+
+  // Three events: initial Freecode cursor move, switch to Claude Code, then
+  // Claude Code cursor move.
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[0], { id: "s1", tab: "freecode" });
+  assert.deepEqual(calls[1], { id: "c0", tab: "claude-code" });
+  assert.deepEqual(calls[2], { id: "c1", tab: "claude-code" });
+});
+
+test("Enter on Claude Code tab dispatches with tab='claude-code'", () => {
+  let selectedTab: string | null = null;
+  let selectedId: string | null = null;
+  const picker = new ResumePicker(makeSessions(2), makeClaudeSessions(2), {
+    onSelect: (id, tab) => {
+      selectedId = id;
+      selectedTab = tab;
+    },
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  picker.handleInput("\x1b[C");
+  picker.handleInput("\r");
+  assert.equal(selectedTab, "claude-code");
+  assert.equal(selectedId, "c0");
+});
+
+test("Enter on Freecode tab still dispatches with tab='freecode'", () => {
+  let selectedTab: string | null = null;
+  let selectedId: string | null = null;
+  const picker = new ResumePicker(makeSessions(2), makeClaudeSessions(2), {
+    onSelect: (id, tab) => {
+      selectedId = id;
+      selectedTab = tab;
+    },
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  picker.handleInput("\r");
+  assert.equal(selectedTab, "freecode");
+  assert.equal(selectedId, "s0");
+});
+
+test("Tab key still swaps focus between list and preview (independent of tabs)", () => {
+  const picker = new ResumePicker(makeSessions(2), makeClaudeSessions(2), {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+
+  picker.handleInput("\t");
+  assert.equal(picker.isPreviewFocused(), true);
+  picker.handleInput("\t");
+  assert.equal(picker.isPreviewFocused(), false);
+  // Tab swap must not change the active tab.
+  assert.equal(picker.activeTabName(), "freecode");
+});
+
+test("setClaudeSessions updates the list without disturbing the cursor on the Freecode tab", () => {
+  const picker = new ResumePicker(makeSessions(4), [], {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.render(WIDTH);
+  picker.handleMouseWheel(1, OVER_LIST);
+  assert.equal(picker.selectedId(), "s1");
+
+  picker.setClaudeSessions(makeClaudeSessions(3));
+  // Freecode cursor is preserved; Claude Code cursor is reset to 0.
+  assert.equal(picker.selectedId(), "s1");
+  picker.handleInput("\x1b[C");
+  assert.equal(picker.selectedId(), "c0");
+});
+
+test("cacheSize reports the total across both tabs", () => {
+  const picker = new ResumePicker(makeSessions(2), makeClaudeSessions(2), {
+    onSelect: () => {},
+    onCancel: () => {},
+  });
+  picker.setPreview("s0", []);
+  picker.setPreview("s1", []);
+  picker.handleInput("\x1b[C");
+  picker.setPreview("c0", []);
+  assert.equal(picker.cacheSize(), 3);
 });

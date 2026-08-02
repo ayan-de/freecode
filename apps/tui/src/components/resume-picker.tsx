@@ -1,17 +1,18 @@
 // =============================================================================
-// Resume Picker — two-pane session resume modal (list on left, transcript
-// preview on right). Lazily fetches `session.resume` per cursor row and caches
-// results. Behavior matches `apps/tui-rs/src/ui/session.rs` and is pinned by
-// `docs/superpowers/specs/2026-08-02-resume-modal.md`.
+// Resume Picker — two-pane modal with tabbed session sources.
 //
-// UX essentials:
-//   - `↑`/`↓` jump a session at a time (one row of the list = one session,
-//     rendered as 5 lines: title, project, closed, created, blank).
-//   - `Tab` swaps focus between list and preview. The focused pane receives
-//     `↑`/`↓` and `PageUp`/`PageDown`.
-//   - List auto-scrolls (and is explicitly scrollable) so the cursor stays
-//     visible as the user pages through.
-//   - Preview independently scrolls (its vertical text is wrapped by width).
+// Left pane: list of sessions (most-recent first). Right pane: markdown
+// transcript preview of the highlighted session. The list+preview is one
+// tab; the user can flip between Freecode sessions and Claude Code sessions
+// with ← / →.
+//
+// v1 (Freecode-only) behavior is preserved exactly — the Freecode tab uses
+// the same keybindings, scroll model, and preview-cache strategy. Tab
+// navigation is orthogonal to the existing Tab = list/preview focus split;
+// see `handleInput` for the dispatch.
+//
+// Spec: `docs/superpowers/specs/2026-08-02-resume-modal.md` (v1) +
+//       `docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md` (v2).
 // =============================================================================
 
 import {
@@ -23,6 +24,7 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type {
+  ClaudeSessionMeta,
   SerializedMessage,
   SessionMeta,
 } from "@thisisayande/freecode-shared";
@@ -206,42 +208,54 @@ function renderScrollbar(
 // ResumePicker
 // -----------------------------------------------------------------------------
 
+/** A tab identifies which session source the list + preview are showing. */
+export type ResumeTab = "freecode" | "claude-code";
+
 export interface ResumePickerCallbacks {
   /**
    * Fires when the cursor moves to a different session. The wiring layer is
-   * responsible for firing the lazy `session.resume` if the id is not yet
-   * cached and pushing the result back via `setPreview`.
+   * responsible for firing the lazy `session.resume` (Freecode tab) or
+   * `session.claudeTranscript` (Claude Code tab) if the id is not yet cached
+   * and pushing the result back via `setPreview`.
    */
-  onSelectionChange?: (sessionId: string) => void;
-  /** Fires on Enter — wiring layer should resume + close. */
-  onSelect: (sessionId: string) => void;
+  onSelectionChange?: (sessionId: string, tab: ResumeTab) => void;
+  /**
+   * Fires on Enter. The wiring layer dispatches by tab:
+   *   - Freecode: resume + close.
+   *   - Claude Code: show a "coming soon" message; the modal stays open.
+   */
+  onSelect: (sessionId: string, tab: ResumeTab) => void;
   /** Fires on Esc / Ctrl+C — wiring layer should close and refocus editor. */
   onCancel: () => void;
 }
 
 /**
- * The /resume modal: a list of sessions on the left and a markdown preview of
- * the highlighted session's transcript on the right. Owns its own keyboard
- * routing so Tab swaps focus between panes, arrow keys take the focused pane's
- * behaviour, and the inner `SelectList` is no longer used (the cursor model
- * IS the list; we render rows directly so `↑`/`↓` jump a session at a time).
+ * The /resume modal: a tabbed session picker. Each tab is a two-pane view
+ * (list left, preview right). Owns its own keyboard routing so:
+ *  - Tab / BackTab swap focus between list and preview (within the active tab).
+ *  - ↑ / ↓ move the cursor or scroll the preview (whichever has focus).
+ *  - ← / → swap tabs (no wrap-around; the right tab's → is a no-op).
+ *
+ * Cursor, list scroll, preview cache, and pending preview are all kept
+ * *per tab*, so swapping tabs preserves each view's state.
  */
 export class ResumePicker implements Component {
-  /** All sessions, sorted most-recent first. */
-  private readonly sessions: SessionMeta[];
-  /** Current cursor position in `sessions` (one per session). */
-  private cursor = 0;
-  /** Index of the first visible session in the list column. */
-  private listScroll = 0;
-  /** Cached transcripts keyed by session id. */
-  private previews = new Map<string, SerializedMessage[]>();
-  /** Pending preview for the highlighted row (resolved asynchronously). */
-  private pendingPreview: string | null = null;
-  /** Vertical scroll offset into the rendered preview. */
-  private previewScroll = 0;
+  /** Per-tab state — kept separate so tab swaps don't reset the cursor. */
+  private readonly tabState: Record<
+    ResumeTab,
+    {
+      sessions: SessionMeta[] | ClaudeSessionMeta[];
+      cursor: number;
+      listScroll: number;
+      previews: Map<string, SerializedMessage[]>;
+      pendingPreview: string | null;
+    }
+  >;
+  /** Which tab is currently active. Defaults to Freecode. */
+  private activeTab: ResumeTab = "freecode";
   /** True when the preview pane has focus (Tab toggles). */
   private previewFocus = false;
-  /** Markdown renderer for the preview pane. */
+  /** Markdown renderer for the preview pane (shared, reset on tab swap). */
   private readonly markdown: Markdown;
   /** Cached rendered preview lines (recomputed when text or width changes). */
   private cachedPreviewText = "";
@@ -249,25 +263,72 @@ export class ResumePicker implements Component {
   private cachedPreviewWidth = 0;
 
   constructor(
-    sessions: SessionMeta[],
+    freecodeSessions: SessionMeta[],
+    claudeSessions: ClaudeSessionMeta[],
     private readonly callbacks: ResumePickerCallbacks,
   ) {
-    this.sessions = sessions;
+    this.tabState = {
+      freecode: {
+        sessions: freecodeSessions,
+        cursor: 0,
+        listScroll: 0,
+        previews: new Map(),
+        pendingPreview: null,
+      },
+      "claude-code": {
+        sessions: claudeSessions,
+        cursor: 0,
+        listScroll: 0,
+        previews: new Map(),
+        pendingPreview: null,
+      },
+    };
     this.markdown = new Markdown("", 0, 0, markdownTheme);
   }
 
-  /** Highlighted session id, or null when the list is empty. */
-  selectedId(): string | null {
-    return this.sessions[this.cursor]?.id ?? null;
+  // ---------------------------------------------------------------------------
+  // Per-tab accessors — every state read goes through these so adding more
+  // tabs is a one-line change here and nowhere else.
+  // ---------------------------------------------------------------------------
+
+  private get state() {
+    return this.tabState[this.activeTab];
   }
 
   /**
-   * Push a fetched transcript into the preview cache and re-render. Called by
-   * the wiring layer after a lazy `session.resume` IPC resolves.
+   * Replace the Claude Code session list (called after the lazy
+   * `session.claudeList` resolves). Resets the cursor to 0 so the user lands
+   * on the most-recent row.
+   */
+  setClaudeSessions(sessions: ClaudeSessionMeta[]): void {
+    const tab = this.tabState["claude-code"];
+    tab.sessions = sessions;
+    tab.cursor = 0;
+    tab.listScroll = 0;
+    tab.pendingPreview = sessions[0]?.id ?? null;
+    this.invalidate();
+  }
+
+  /**
+   * Push a fetched transcript into the active tab's preview cache and
+   * re-render. Called by the wiring layer after a lazy IPC resolves.
    */
   setPreview(sessionId: string, messages: SerializedMessage[]): void {
-    this.previews.set(sessionId, messages);
-    this.pendingPreview = null;
+    const tab = this.state;
+    tab.previews.set(sessionId, messages);
+    tab.pendingPreview = null;
+    this.invalidate();
+  }
+
+  /** The active tab. */
+  activeTabName(): ResumeTab {
+    return this.activeTab;
+  }
+
+  /** Highlighted session id in the active tab, or null when the list is empty. */
+  selectedId(): string | null {
+    const tab = this.state;
+    return tab.sessions[tab.cursor]?.id ?? null;
   }
 
   /** True when the preview pane is currently focused (Tab has been pressed). */
@@ -275,9 +336,12 @@ export class ResumePicker implements Component {
     return this.previewFocus;
   }
 
-  /** Total number of cached previews (useful for tests). */
+  /** Total number of cached previews across both tabs (useful for tests). */
   cacheSize(): number {
-    return this.previews.size;
+    return (
+      this.tabState.freecode.previews.size +
+      this.tabState["claude-code"].previews.size
+    );
   }
 
   invalidate(): void {
@@ -287,17 +351,18 @@ export class ResumePicker implements Component {
   }
 
   // ---------------------------------------------------------------------------
-  // Cursor / scroll
+  // Cursor / scroll (all per-tab)
   // ---------------------------------------------------------------------------
 
-  /** Advance the cursor by `delta` sessions, wrapping. */
+  /** Advance the cursor by `delta` sessions, wrapping within the active tab. */
   private moveCursor(delta: number): void {
-    if (this.sessions.length === 0) return;
-    const n = this.sessions.length;
-    this.cursor = (this.cursor + delta + n) % n;
+    const tab = this.state;
+    if (tab.sessions.length === 0) return;
+    const n = tab.sessions.length;
+    tab.cursor = (tab.cursor + delta + n) % n;
     this.previewScroll = 0;
-    this.pendingPreview = this.sessions[this.cursor]?.id ?? null;
-    this.callbacks.onSelectionChange?.(this.sessions[this.cursor].id);
+    tab.pendingPreview = tab.sessions[tab.cursor]?.id ?? null;
+    this.callbacks.onSelectionChange?.(tab.sessions[tab.cursor].id, this.activeTab);
   }
 
   /**
@@ -306,23 +371,28 @@ export class ResumePicker implements Component {
    * surprising (unlike `↑`/`↓`, which wrap by design).
    */
   private stepCursor(delta: number): void {
-    if (this.sessions.length === 0) return;
+    const tab = this.state;
+    if (tab.sessions.length === 0) return;
     const next = Math.min(
-      Math.max(0, this.cursor + delta),
-      this.sessions.length - 1,
+      Math.max(0, tab.cursor + delta),
+      tab.sessions.length - 1,
     );
-    if (next === this.cursor) return;
-    this.cursor = next;
+    if (next === tab.cursor) return;
+    tab.cursor = next;
     this.previewScroll = 0;
-    this.pendingPreview = this.sessions[this.cursor].id;
-    this.callbacks.onSelectionChange?.(this.sessions[this.cursor].id);
+    tab.pendingPreview = tab.sessions[tab.cursor].id;
+    this.callbacks.onSelectionChange?.(tab.sessions[tab.cursor].id, this.activeTab);
   }
 
   /** Scroll the list by `deltaSessions` (clamped); does not move the cursor. */
   private scrollList(deltaSessions: number): void {
+    const tab = this.state;
     const visible = this.visibleSessions(this.cachedListHeight);
-    const max = Math.max(0, this.sessions.length - visible);
-    this.listScroll = Math.min(Math.max(0, this.listScroll + deltaSessions), max);
+    const max = Math.max(0, tab.sessions.length - visible);
+    tab.listScroll = Math.min(
+      Math.max(0, tab.listScroll + deltaSessions),
+      max,
+    );
   }
 
   /** Scroll the preview by `deltaLines` (clamped). */
@@ -340,6 +410,8 @@ export class ResumePicker implements Component {
   private cachedPreviewHeight = 0;
   /** List column width captured per render, for mouse hit-testing. */
   private cachedListWidth = 0;
+  /** Vertical scroll offset into the rendered preview. (Per-pane, not per-tab.) */
+  private previewScroll = 0;
 
   /** Compute how many sessions fit in `height` rows (each session is 5 rows). */
   private visibleSessions(height: number): number {
@@ -355,7 +427,9 @@ export class ResumePicker implements Component {
    * so this must live on the picker itself.
    *
    * Routing rules:
-   *  - `Tab` / `BackTab` → swap focus between list and preview
+   *  - `←` / `h` → swap to previous tab (no-op on Freecode; the left tab).
+   *  - `→` / `l` → swap to next tab (no-op on Claude Code; the right tab).
+   *  - `Tab` / `BackTab` → swap focus between list and preview (within tab).
    *  - `↑` / `k`:
    *      - list focus  → cursor -1 (wraps)
    *      - preview focus → scroll preview up by 1 line
@@ -368,10 +442,18 @@ export class ResumePicker implements Component {
    *           preview to top
    *  - `End`  → list focus: jump cursor to last session; preview focus: scroll
    *           preview to bottom
-   *  - `Enter` → emit onSelect with the highlighted id
-   *  - `Esc` / `Ctrl+C` → emit onCancel
+   *  - `Enter` → emit onSelect with the highlighted id + active tab.
+   *  - `Esc` / `Ctrl+C` → emit onCancel.
    */
   handleInput(data: string): void {
+    if (matchesKey(data, Key.left) || data === "h") {
+      this.switchTab("freecode");
+      return;
+    }
+    if (matchesKey(data, Key.right) || data === "l") {
+      this.switchTab("claude-code");
+      return;
+    }
     if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift("tab"))) {
       this.previewFocus = !this.previewFocus;
       this.previewScroll = 0;
@@ -400,11 +482,12 @@ export class ResumePicker implements Component {
     if (matchesKey(data, Key.home)) {
       if (this.previewFocus) this.previewScroll = 0;
       else {
-        this.cursor = 0;
-        this.listScroll = 0;
+        const tab = this.state;
+        tab.cursor = 0;
+        tab.listScroll = 0;
         this.previewScroll = 0;
-        this.pendingPreview = this.sessions[0]?.id ?? null;
-        this.callbacks.onSelectionChange?.(this.sessions[0]?.id);
+        tab.pendingPreview = tab.sessions[0]?.id ?? null;
+        this.callbacks.onSelectionChange?.(tab.sessions[0]?.id, this.activeTab);
       }
       return;
     }
@@ -416,24 +499,48 @@ export class ResumePicker implements Component {
         );
         this.previewScroll = max;
       } else {
-        this.cursor = Math.max(0, this.sessions.length - 1);
+        const tab = this.state;
+        tab.cursor = Math.max(0, tab.sessions.length - 1);
         const visible = this.visibleSessions(this.cachedListHeight);
-        this.listScroll = Math.max(0, this.sessions.length - visible);
+        tab.listScroll = Math.max(0, tab.sessions.length - visible);
         this.previewScroll = 0;
-        this.pendingPreview = this.sessions[this.cursor]?.id ?? null;
-        this.callbacks.onSelectionChange?.(this.sessions[this.cursor]?.id);
+        tab.pendingPreview = tab.sessions[tab.cursor]?.id ?? null;
+        this.callbacks.onSelectionChange?.(
+          tab.sessions[tab.cursor]?.id,
+          this.activeTab,
+        );
       }
       return;
     }
     if (matchesKey(data, Key.enter)) {
       const id = this.selectedId();
-      if (id) this.callbacks.onSelect(id);
+      if (id) this.callbacks.onSelect(id, this.activeTab);
       return;
     }
     if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
       this.callbacks.onCancel();
       return;
     }
+  }
+
+  /**
+   * Move to the requested tab if it is not the active tab. No-op when already
+   * active (so `→` from Claude Code and `←` from Freecode are silent).
+   */
+  private switchTab(target: ResumeTab): void {
+    if (this.activeTab === target) return;
+    this.activeTab = target;
+    // Switching tabs resets the per-pane focus + scroll so the user lands
+    // on a fresh view. The list cursor + preview cache are preserved.
+    this.previewFocus = false;
+    this.previewScroll = 0;
+    this.invalidate();
+    // Kick off a preview fetch for the new tab's highlighted row (the
+    // wiring layer may have it cached, but the safest path is to fire the
+    // callback again — it's idempotent).
+    const tab = this.state;
+    const id = tab.sessions[tab.cursor]?.id ?? null;
+    if (id) this.callbacks.onSelectionChange?.(id, this.activeTab);
   }
 
   /**
@@ -472,12 +579,20 @@ export class ResumePicker implements Component {
     // right edge, so their `│` no longer lined up with the card.
     const innerWidth = cardWidth - 2;
 
-    const titleText = " Resume a session ";
-    const titleRow = cardRow(TITLE_BG(ellipsize(titleText, innerWidth)), innerWidth);
+    const tabStrip = this.renderTabStrip(innerWidth);
+    // The title row carries the tab strip right-aligned; the title text
+    // gets the remaining budget on the left, ellipsized if too long.
+    const tabStripWidth = visibleWidth(tabStrip);
+    const titleBudget = Math.max(0, innerWidth - tabStripWidth);
+    const titleText = ellipsize(" Resume a session ", titleBudget);
+    const titleRow = cardRow(
+      TITLE_BG(titleText) + (tabStripWidth > 0 ? tabStrip : ""),
+      innerWidth,
+    );
 
     const hint = this.previewFocus
-      ? " ↑/↓ scroll preview · Tab back to list · Enter resume · Esc cancel "
-      : " ↑/↓ move · Tab focus preview · Enter resume · Esc cancel ";
+      ? " ↑/↓ scroll preview · ←/→ tab · Tab list · Enter resume · Esc cancel "
+      : " ↑/↓ move · ←/→ tab · Tab preview · Enter resume · Esc cancel ";
     const hintRow = cardRow(DIM(ellipsize(hint, innerWidth)), innerWidth);
 
     const topBorder = ACCENT("╭" + "─".repeat(innerWidth) + "╮");
@@ -492,16 +607,18 @@ export class ResumePicker implements Component {
     this.cachedPreviewHeight = innerHeight;
     this.cachedListWidth = listWidth;
 
+    const tab = this.state;
+
     // Auto-scroll the list so the cursor stays visible. We do this in render
     // (not in moveCursor) so a terminal resize changes the visible window.
     const visibleSessions = this.visibleSessions(innerHeight);
-    if (this.cursor < this.listScroll) {
-      this.listScroll = this.cursor;
-    } else if (this.cursor >= this.listScroll + visibleSessions) {
-      this.listScroll = this.cursor - visibleSessions + 1;
+    if (tab.cursor < tab.listScroll) {
+      tab.listScroll = tab.cursor;
+    } else if (tab.cursor >= tab.listScroll + visibleSessions) {
+      tab.listScroll = tab.cursor - visibleSessions + 1;
     }
-    const maxListScroll = Math.max(0, this.sessions.length - visibleSessions);
-    if (this.listScroll > maxListScroll) this.listScroll = maxListScroll;
+    const maxListScroll = Math.max(0, tab.sessions.length - visibleSessions);
+    if (tab.listScroll > maxListScroll) tab.listScroll = maxListScroll;
 
     const listLines = this.renderListColumn(listWidth, innerHeight);
     const previewLines = this.renderPreviewColumn(previewWidth, innerHeight);
@@ -527,25 +644,46 @@ export class ResumePicker implements Component {
   }
 
   // ---------------------------------------------------------------------------
-  // Per-column renderers
+  // Tab strip + per-column renderers
   // ---------------------------------------------------------------------------
 
+  /**
+   * Build the right-aligned tab strip for the title row. The strip renders
+   * directly on the title row's cyan background — no card background re-open
+   * is needed because the title is solid-colour. We just dim the inactive
+   * tab and accent the active one; the arrow markers (`◀` / `▶`) flank the
+   * active label so the user always sees the tab affordance.
+   */
+  private renderTabStrip(width: number): string {
+    if (width < 12) return "";
+    const freecodeLabel = "Freecode";
+    const claudeLabel = "Claude Code";
+    // The strip is ` ◀ Claude Code ▶ ` at full size; smaller terminals drop
+    // the markers.
+    const isClaude = this.activeTab === "claude-code";
+    const freecode = isClaude ? DIM(freecodeLabel) : ACCENT("▎ " + freecodeLabel);
+    const claude = isClaude ? ACCENT("▎ " + claudeLabel) : DIM(claudeLabel);
+    const arrow = (ch: string) => (width >= 22 ? DIM(ch) : "");
+    return `${arrow("◀ ")}${freecode}${DIM(" ")}${claude}${arrow(" ▶")}`;
+  }
+
   private renderListColumn(width: number, height: number): string[] {
+    const tab = this.state;
     const visible = this.visibleSessions(height);
-    const start = this.listScroll;
-    const end = Math.min(this.sessions.length, start + visible);
+    const start = tab.listScroll;
+    const end = Math.min(tab.sessions.length, start + visible);
 
     // Each session takes ROWS_PER_SESSION rows. We render exactly
     // `visible * ROWS_PER_SESSION` rows, padding if there are fewer sessions.
     const out: string[] = [];
-    const showScrollbar = this.sessions.length > visible;
+    const showScrollbar = tab.sessions.length > visible;
     const innerContentWidth = showScrollbar
       ? Math.max(0, width - SCROLLBAR_WIDTH)
       : width;
     const scrollbar = showScrollbar
       ? renderScrollbar(
           visible * ROWS_PER_SESSION,
-          this.sessions.length,
+          tab.sessions.length,
           visible,
           start,
           !this.previewFocus,
@@ -554,8 +692,8 @@ export class ResumePicker implements Component {
 
     for (let i = 0; i < visible; i++) {
       const sessionIdx = start + i;
-      const session = this.sessions[sessionIdx];
-      const isSel = sessionIdx === this.cursor;
+      const session = tab.sessions[sessionIdx];
+      const isSel = sessionIdx === tab.cursor;
       for (let r = 0; r < ROWS_PER_SESSION; r++) {
         const rowOut = session
           ? this.renderSessionRow(session, isSel, r, innerContentWidth)
@@ -584,9 +722,12 @@ export class ResumePicker implements Component {
    * for everything after it, so the highlight band stopped at the end of the
    * text rather than spanning the column. Pad first (on the plain string, so
    * `padRight` measures real characters), colour once, reset last.
+   *
+   * Accepts both `SessionMeta` and `ClaudeSessionMeta` — they share every
+   * field the row renderer reads.
    */
   private renderSessionRow(
-    s: SessionMeta,
+    s: SessionMeta | ClaudeSessionMeta,
     isSel: boolean,
     rowIdx: number,
     width: number,
@@ -618,11 +759,14 @@ export class ResumePicker implements Component {
     }
 
     const id = this.selectedId();
+    const tab = this.state;
     let text: string;
     if (id === null) {
       text = "";
-    } else if (this.previews.has(id)) {
-      text = transcriptToMarkdown(this.previews.get(id)!);
+    } else if (tab.previews.has(id)) {
+      text = transcriptToMarkdown(tab.previews.get(id)!);
+    } else if (this.activeTab === "claude-code" && tab.sessions.length === 0) {
+      text = "_No Claude Code sessions found._";
     } else {
       // Either racing with the async fetch or never fetched.
       text = "_loading preview…_";
