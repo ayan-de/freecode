@@ -1021,7 +1021,6 @@ editor.onSubmit = async (value: string) => {
       if (commandName === "freecode" && !commandRegistry.get("freecode")) {
         const mod = await import("./commands/freecode/index.js");
         mod.registerFreecodeCommand();
-        stopSoundFn = mod.stopSound;
       }
       if (commandName === "mcp" && !commandRegistry.get("mcp")) {
         const mod = await import("./commands/freecode/mcp.js");
@@ -1679,10 +1678,6 @@ if (resumeArg.present && resumeArg.id) {
   checkForInterruptedSession();
 }
 
-// stopSound only matters once the freecode module has been lazy-loaded
-// (sound can only be playing if it was); see the /freecode dispatch above.
-let stopSoundFn: (() => void) | null = null;
-process.on("exit", () => stopSoundFn?.());
 // Safety net for crash / uncaught-exception exits that skip the explicit
 // shutdown() path above — restoreScreen() is idempotent, so this is a no-op
 // when the alt screen was already exited cleanly.
