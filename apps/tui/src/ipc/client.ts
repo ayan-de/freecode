@@ -12,6 +12,9 @@ import type {
   ToolListItem,
   ToolResult,
   SessionConfig,
+  SessionMeta,
+  SessionFilter,
+  SessionResumeResult,
   ProviderInfo,
   CommandInfo,
   StreamEvent,
@@ -460,26 +463,6 @@ export async function getCurrentModel(): Promise<
 // Session List/Resume Methods
 // =============================================================================
 
-export interface SessionMeta {
-  id: string;
-  title: string;
-  projectPath: string;
-  provider: string;
-  model?: string;
-  status: "active" | "interrupted" | "archived" | "deleted";
-  createdAt: number;
-  updatedAt: number;
-  lastTurnAt: number;
-  turnCount: number;
-  parentId?: string;
-  aggregatedTokenCount?: number;
-}
-
-export interface SessionFilter {
-  status?: "active" | "interrupted" | "archived" | "deleted";
-  projectPath?: string;
-}
-
 export async function sessionList(
   filter?: SessionFilter,
 ): Promise<SessionMeta[]> {
@@ -492,25 +475,8 @@ export async function sessionList(
 export async function sessionResume(
   sessionId: string,
   agentMode?: string,
-): Promise<{ sessionId: string; messages?: SerializedMessage[] }> {
-  return (await sendRequest("session.resume", { sessionId, agentMode })) as {
-    sessionId: string;
-    messages?: SerializedMessage[];
-  };
-}
-
-export interface SerializedMessage {
-  id: string;
-  role: "user" | "assistant";
-  parts: Array<{
-    type: "text" | "code" | "tool";
-    content?: string;
-    language?: string;
-    tool?: { name: string; args: Record<string, unknown> };
-    result?: string;
-  }>;
-  timestamp: number;
-  interrupted?: boolean;
+): Promise<SessionResumeResult> {
+  return (await sendRequest("session.resume", { sessionId, agentMode })) as SessionResumeResult;
 }
 
 // =============================================================================

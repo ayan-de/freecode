@@ -1,4 +1,5 @@
 import type { Component } from "@earendil-works/pi-tui";
+import type { SerializedMessage } from "@thisisayande/freecode-shared";
 import {
   addMessage,
   removeMessage,
@@ -192,20 +193,7 @@ export function clearAllMessages(): void {
 /**
  * Load messages from a resumed session into the UI
  */
-export function loadSessionMessages(
-  messages: Array<{
-    id: string;
-    role: "user" | "assistant";
-    parts: Array<{
-      type: "text" | "code" | "tool";
-      content?: string;
-      language?: string;
-      tool?: { name: string; args: Record<string, unknown> };
-      result?: string;
-    }>;
-    timestamp: number;
-  }>,
-): void {
+export function loadSessionMessages(messages: SerializedMessage[]): void {
   for (const msg of messages) {
     let content = "";
     if (msg.role === "user") {

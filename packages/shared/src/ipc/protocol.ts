@@ -177,6 +177,18 @@ export const METHODS = {
       reason?: string;
     },
   },
+  "session.list": {
+    // METHODS entries are values, not types — an optional field needs a cast.
+    params: {} as {
+      projectPath?: string;
+      status?: import("../types.js").SessionStatus;
+    },
+    result: [] as import("../types.js").SessionMeta[],
+  },
+  "session.resume": {
+    params: { sessionId: "" },
+    result: {} as import("../types.js").SessionResumeResult,
+  },
   "providers.list": {
     params: undefined,
     result: [] as import("../types.js").ProviderInfo[],

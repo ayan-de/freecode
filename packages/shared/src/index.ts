@@ -15,6 +15,12 @@ export type {
   ProviderDefinition,
   SessionConfig,
   SessionInfo,
+  SessionStatus,
+  SessionMeta,
+  SerializedMessage,
+  SessionContext,
+  SessionResumeResult,
+  SessionFilter,
 } from "./types.js";
 
 // IPC Protocol
