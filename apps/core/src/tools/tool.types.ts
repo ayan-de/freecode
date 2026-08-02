@@ -184,6 +184,8 @@ export interface JsonSchemaProperty {
   type?: string;
   enum?: string[];
   items?: JsonSchemaProperty | JsonSchemaProperty[];
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
 }
 
 export interface JsonSchema {

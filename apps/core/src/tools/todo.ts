@@ -61,8 +61,25 @@ const todoSchema: JsonSchema = {
   properties: {
     todos: {
       description:
-        "The full, updated todo list. Each item: { id, content, status } where status is 'pending', 'in_progress', or 'completed'. Keep exactly one item 'in_progress' at a time.",
+        "The full, updated todo list. Keep exactly one item 'in_progress' at a time.",
       type: "array",
+      // An array without `items` leaves providers that constrain decoding
+      // against the schema with nothing to shape the elements with, so the
+      // model occasionally emits a scalar or a non-JSON string instead of a
+      // list. Spelling the item out is what keeps the call well-formed.
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Stable identifier for the task." },
+          content: { type: "string", description: "What the task is." },
+          status: {
+            type: "string",
+            enum: STATUSES,
+            description: "Current state of the task.",
+          },
+        },
+        required: ["content", "status"],
+      },
     },
   },
   required: ["todos"],
@@ -77,7 +94,15 @@ function validateTodoInput(
   const raw = (params as Record<string, unknown>).todos;
   const list = typeof raw === "string" ? safeParse(raw) : raw;
   if (!Array.isArray(list)) {
-    return { valid: false, error: "todos must be an array" };
+    // Echo what arrived: a bare "must be an array" gives the model nothing to
+    // correct against and it tends to retry the same malformed call.
+    return {
+      valid: false,
+      error:
+        `todos must be an array of { id, content, status } objects, received ` +
+        `${JSON.stringify(raw)}. Resend the full list, e.g. ` +
+        `{"todos":[{"id":"1","content":"...","status":"in_progress"}]}`,
+    };
   }
   for (const item of list) {
     if (!item || typeof item !== "object") {
