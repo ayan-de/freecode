@@ -83,6 +83,7 @@ import {
   stripImageTokens,
 } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
+import { MaskedInput } from "./components/masked-input.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { SafeTUI } from "./render-guard.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
@@ -496,7 +497,8 @@ async function showApiKeyInput(
     1,
     0,
   );
-  apiKeyEditor = new Input();
+  // MaskedInput, not Input: the key must not be painted in clear text.
+  apiKeyEditor = new MaskedInput();
 
   const editorIdx = tui.children.indexOf(editor);
   tui.children.splice(editorIdx + 1, 0, apiKeyPrompt, apiKeyEditor);
