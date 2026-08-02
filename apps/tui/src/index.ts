@@ -38,6 +38,8 @@ import {
   sessionCompact,
   sessionList,
   sessionResume,
+  sessionClaudeList,
+  sessionClaudeTranscript,
   listProviders,
   listModels,
   listCommands,
@@ -94,7 +96,11 @@ import {
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { createQuestionPicker } from "./components/question-picker.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
-import type { SerializedMessage, StreamEvent } from "@thisisayande/freecode-shared";
+import type {
+  ClaudeSessionMeta,
+  SerializedMessage,
+  StreamEvent,
+} from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
 
@@ -533,7 +539,16 @@ async function showResumePicker(): Promise<void> {
   hideModelSelector();
 
   try {
-    const sessions = await sessionList({});
+    // Fetch both lists in parallel; the Claude Code list is best-effort.
+    // A failure (no ~/.claude on this machine) is silently swallowed and
+    // the Claude Code tab renders empty — the Freecode tab stays primary.
+    const [sessions, claudeSessionsRaw] = await Promise.all([
+      sessionList({}),
+      sessionClaudeList({}).catch((err): ClaudeSessionMeta[] => {
+        console.warn("Failed to list Claude Code sessions:", err);
+        return [];
+      }),
+    ]);
 
     if (sessions.length === 0) {
       showMessage("**No previous sessions to resume.**");
@@ -542,22 +557,32 @@ async function showResumePicker(): Promise<void> {
 
     // Sort by lastTurnAt descending (most recent first)
     sessions.sort((a, b) => b.lastTurnAt - a.lastTurnAt);
+    const claudeSessions = claudeSessionsRaw;
 
-    // Lazily fetched previews keyed by session id. We also track which id is
-    // currently in-flight so a slow request for one session doesn't overwrite a
-    // freshly fetched preview for another.
+    // Lazily fetched previews keyed by session id (shared between tabs).
+    // We also track which id is currently in-flight so a slow request for
+    // one session doesn't overwrite a freshly fetched preview for another.
     const previewCache = new Map<string, SerializedMessage[]>();
     let inflightId: string | null = null;
 
-    async function ensurePreview(sessionId: string): Promise<void> {
+    async function ensurePreview(
+      sessionId: string,
+      tab: "freecode" | "claude-code",
+    ): Promise<void> {
       if (previewCache.has(sessionId)) return;
       if (inflightId === sessionId) return;
       inflightId = sessionId;
       try {
-        const result = await sessionResume(sessionId);
-        const messages = result.messages ?? [];
+        const messages =
+          tab === "freecode"
+            ? (await sessionResume(sessionId)).messages ?? []
+            : (await sessionClaudeTranscript(sessionId)).messages ?? [];
         previewCache.set(sessionId, messages);
-        if (resumeSelector && resumeSelector.selectedId() === sessionId) {
+        if (
+          resumeSelector &&
+          resumeSelector.selectedId() === sessionId &&
+          resumeSelector.activeTabName() === tab
+        ) {
           resumeSelector.setPreview(sessionId, messages);
           tui.requestRender();
         }
@@ -570,11 +595,21 @@ async function showResumePicker(): Promise<void> {
       }
     }
 
-    const picker = new ResumePicker(sessions, {
-      onSelectionChange: (sessionId: string) => {
-        ensurePreview(sessionId);
+    const picker = new ResumePicker(sessions, claudeSessions, {
+      onSelectionChange: (sessionId: string, tab) => {
+        ensurePreview(sessionId, tab);
       },
-      onSelect: async (sessionId: string) => {
+      onSelect: async (sessionId: string, tab) => {
+        if (tab === "claude-code") {
+          // Tab is read-only for this iteration — surface a stub message and
+          // leave the modal open so the user can keep browsing. The actual
+          // import-and-resume flow is a follow-up PR.
+          showMessage(
+            "**Importing Claude Code sessions is coming soon.** Press Esc to close the picker.",
+          );
+          tui.requestRender();
+          return;
+        }
         hideResumeSelector();
         showMessage(`**Resuming session...**`);
         try {
@@ -608,7 +643,7 @@ async function showResumePicker(): Promise<void> {
 
     // Kick off the first preview fetch for the highlighted row (cursor = 0).
     const firstId = picker.selectedId();
-    if (firstId) ensurePreview(firstId);
+    if (firstId) ensurePreview(firstId, "freecode");
 
     tui.requestRender();
   } catch (err) {
