@@ -19,10 +19,19 @@ const READONLY_TOOLS = new Set([
 
 const NETWORK_TOOLS = new Set(["webfetch", "websearch"]);
 
-/** Unknown tools (including MCP) are mutating — fail closed */
+/**
+ * Unknown tools (including MCP) are mutating — fail closed.
+ *
+ * MCP tools get no exemption: an MCP server is arbitrary third-party code, and
+ * nothing in the wire format tells us whether a given tool mutates (the MCP
+ * `readOnlyHint` annotation is not currently captured by `convertMcpTool`). The
+ * spec requires mutating MCP tools to be denied in plan mode regardless of
+ * allow rules (§4), which is only sound if the unknown case is mutating.
+ *
+ * The cost is a prompt on first use in build mode; the escape hatch is a
+ * server-level allow rule (`mcp__linear`) that covers every tool it exposes.
+ */
 export function toolKind(toolName: string): ToolKind {
-  // MCP tools are readonly by default (they only query external services)
-  if (toolName.toLowerCase().startsWith("mcp__")) return "readonly";
   return READONLY_TOOLS.has(toolName.toLowerCase()) ? "readonly" : "mutating";
 }
 
