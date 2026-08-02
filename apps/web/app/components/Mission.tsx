@@ -1,5 +1,3 @@
-import { Target } from "lucide-react";
-
 export function Mission() {
   return (
     <section id="mission" className="w-full max-w-4xl mx-auto pt-4 pb-12 text-left">

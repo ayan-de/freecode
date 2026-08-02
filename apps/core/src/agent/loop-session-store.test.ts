@@ -52,7 +52,9 @@ test("AgentLoop appendToolMessage creates correct serialized message structure",
     toolCallId: "tool-1",
     tool: "read",
     title: "Read file",
-    stdout: "file contents",
+    // modelOutput, not the legacy `stdout`: appendToolMessage persists the
+    // context-capped output that gets replayed to the provider.
+    modelOutput: "file contents",
   };
 
   await (loop as any).appendToolMessage(toolCall, result);

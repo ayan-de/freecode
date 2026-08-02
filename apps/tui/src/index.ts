@@ -32,6 +32,8 @@ import { plainText } from "./utils/ansi-select.js";
 import { copyToClipboard, readImageFromClipboard } from "./utils/clipboard.js";
 import {
   startCli,
+  stopCli,
+  setCliRestartHandler,
   sessionStart,
   sessionSendStreaming,
   sessionStop,
@@ -82,9 +84,11 @@ import {
   stripImageTokens,
 } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
+import { MaskedInput } from "./components/masked-input.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { SafeTUI } from "./render-guard.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
+import { installCrashHandlers } from "./crash-handler.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 // import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
 import { ContextBox } from "./components/context-box.js";
@@ -494,7 +498,8 @@ async function showApiKeyInput(
     1,
     0,
   );
-  apiKeyEditor = new Input();
+  // MaskedInput, not Input: the key must not be painted in clear text.
+  apiKeyEditor = new MaskedInput();
 
   const editorIdx = tui.children.indexOf(editor);
   tui.children.splice(editorIdx + 1, 0, apiKeyPrompt, apiKeyEditor);
@@ -1016,7 +1021,6 @@ editor.onSubmit = async (value: string) => {
       if (commandName === "freecode" && !commandRegistry.get("freecode")) {
         const mod = await import("./commands/freecode/index.js");
         mod.registerFreecodeCommand();
-        stopSoundFn = mod.stopSound;
       }
       if (commandName === "mcp" && !commandRegistry.get("mcp")) {
         const mod = await import("./commands/freecode/mcp.js");
@@ -1600,6 +1604,23 @@ startCli((stderrMsg) => {
   createSystemMessage(stderrMsg);
 });
 
+// Core keeps its session map in memory, so a respawned backend has never heard
+// of the session still on screen and the next turn would fail with "Session not
+// found". Re-resume it server-side; the transcript is already rendered here, so
+// deliberately no loadSessionMessages() — that would duplicate the history.
+setCliRestartHandler(() => {
+  if (!currentSession) return;
+  const sessionId = currentSession.sessionId;
+  void sessionResume(sessionId).then(
+    () => createSystemMessage("**Session recovered.** You can keep going."),
+    (err) =>
+      createSystemMessage(
+        `**Could not recover the session:** ${err instanceof Error ? err.message : String(err)}. ` +
+          `Try \`/resume\`.`,
+      ),
+  );
+});
+
 loadCurrentModel();
 
 // Check for interrupted sessions on startup
@@ -1657,14 +1678,17 @@ if (resumeArg.present && resumeArg.id) {
   checkForInterruptedSession();
 }
 
-// stopSound only matters once the freecode module has been lazy-loaded
-// (sound can only be playing if it was); see the /freecode dispatch above.
-let stopSoundFn: (() => void) | null = null;
-process.on("exit", () => stopSoundFn?.());
 // Safety net for crash / uncaught-exception exits that skip the explicit
 // shutdown() path above — restoreScreen() is idempotent, so this is a no-op
 // when the alt screen was already exited cleanly.
 process.on("exit", restoreScreen);
+
+// Faults that escape every try/catch: restore the terminal, take the backend
+// down, and print a legible report instead of vanishing mid-session.
+installCrashHandlers({
+  stopCli,
+  getSessionId: () => currentSession?.sessionId,
+});
 
 process.stdout.write(ENTER_ALT_SCREEN);
 tui.start();

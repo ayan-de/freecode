@@ -23,7 +23,6 @@ import {
 import { getModelContextLimit } from "../../utils/model-limits.js";
 import { formatTokenCount } from "../../utils/format-tokens.js";
 import { formatDuration } from "../../utils/format-duration.js";
-export { stopSound } from "./sound.js";
 
 // State
 let currentSession: SessionInfo | null = null;

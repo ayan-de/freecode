@@ -57,3 +57,43 @@ test("unregisterMcpTools removes a disconnected server's tools", () => {
     "tool must be removed after disconnect",
   );
 });
+
+// =============================================================================
+// readOnlyHint → isDestructive
+//
+// Both retry paths (tools/orchestrator.ts, agent/recovery/manager.ts) read
+// isDestructive as "safe to silently re-run", so getting this wrong re-issues
+// mutations on a transient failure.
+// =============================================================================
+
+test("a tool declared readOnlyHint is not treated as destructive", () => {
+  const tool = convertMcpTool(
+    {
+      name: "search",
+      inputSchema: { type: "object" },
+      annotations: { readOnlyHint: true },
+    },
+    "hints",
+  );
+  assert.equal(tool.behavior.isDestructive, false);
+});
+
+test("an unannotated tool is destructive, so it is never auto-retried", () => {
+  const tool = convertMcpTool(
+    { name: "create_issue", inputSchema: { type: "object" } },
+    "hints",
+  );
+  assert.equal(tool.behavior.isDestructive, true);
+});
+
+test("readOnlyHint: false is destructive, same as no hint at all", () => {
+  const tool = convertMcpTool(
+    {
+      name: "write",
+      inputSchema: { type: "object" },
+      annotations: { readOnlyHint: false },
+    },
+    "hints",
+  );
+  assert.equal(tool.behavior.isDestructive, true);
+});

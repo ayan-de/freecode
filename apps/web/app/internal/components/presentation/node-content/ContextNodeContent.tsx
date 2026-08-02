@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import styles from "../ArchitectureExplorer.module.css";
 import { NodeHeader } from "./NodeHeader";
 
 export function ContextNodeContent() {
-  const [compilationStep, setCompilationStep] = useState(0);
+  // Only the setter is read: the interval below drives the animation via
+  // CSS, so the step value itself is never rendered.
+  const [, setCompilationStep] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {

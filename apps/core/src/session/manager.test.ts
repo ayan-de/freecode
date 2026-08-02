@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, beforeEach } from "node:test";
+import assert from "node:assert/strict";
 import { rm } from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -23,8 +24,8 @@ describe("SessionManager", () => {
         "claude",
         "Test Session",
       );
-      expect(sessionId).toBeDefined();
-      expect(typeof sessionId).toBe("string");
+      assert.notEqual(sessionId, undefined);
+      assert.equal(typeof sessionId, "string");
     });
 
     it("stores session metadata via sessionStore", async () => {
@@ -34,11 +35,11 @@ describe("SessionManager", () => {
         "Test Session",
       );
       const meta = await sessionStore.getMeta(sessionId);
-      expect(meta).not.toBeNull();
-      expect(meta!.title).toBe("Test Session");
-      expect(meta!.projectPath).toBe("/tmp/test-project");
-      expect(meta!.provider).toBe("claude");
-      expect(meta!.status).toBe("active");
+      assert.notEqual(meta, null);
+      assert.equal(meta!.title, "Test Session");
+      assert.equal(meta!.projectPath, "/tmp/test-project");
+      assert.equal(meta!.provider, "claude");
+      assert.equal(meta!.status, "active");
     });
   });
 
@@ -57,10 +58,10 @@ describe("SessionManager", () => {
       });
 
       const ctx = await manager.resume(sessionId);
-      expect(ctx.id).toBe(sessionId);
-      expect(ctx.title).toBe("Test Session");
-      expect(ctx.messages).toHaveLength(1);
-      expect(ctx.messages[0].parts[0].content).toBe("Hello");
+      assert.equal(ctx.id, sessionId);
+      assert.equal(ctx.title, "Test Session");
+      assert.equal(ctx.messages.length, 1);
+      assert.equal(ctx.messages[0].parts[0].content, "Hello");
     });
 
     it("injects resume marker when session is interrupted", async () => {
@@ -81,8 +82,9 @@ describe("SessionManager", () => {
       const ctx = await manager.resume(sessionId);
       // Should have original message + injected resume message
       const lastMsg = ctx.messages[ctx.messages.length - 1];
-      expect(lastMsg.role).toBe("user");
-      expect(lastMsg.parts[0].content).toBe(
+      assert.equal(lastMsg.role, "user");
+      assert.equal(
+        lastMsg.parts[0].content,
         "Continue from where you left off.",
       );
     });
@@ -99,8 +101,8 @@ describe("SessionManager", () => {
       });
 
       const messages = await sessionStore.getMessages(sessionId);
-      expect(messages).toHaveLength(1);
-      expect(messages[0].parts[0].content).toBe("Test");
+      assert.equal(messages.length, 1);
+      assert.equal(messages[0].parts[0].content, "Test");
     });
   });
 
@@ -117,10 +119,10 @@ describe("SessionManager", () => {
 
       await manager.markInterrupted(sessionId, msgId);
       const messages = await sessionStore.getMessages(sessionId);
-      expect(messages[0].interrupted).toBe(true);
+      assert.equal(messages[0].interrupted, true);
 
       const meta = await sessionStore.getMeta(sessionId);
-      expect(meta!.status).toBe("interrupted");
+      assert.equal(meta!.status, "interrupted");
     });
   });
 
@@ -130,7 +132,7 @@ describe("SessionManager", () => {
       await manager.start("/tmp/p2", "claude", "Session 2");
 
       const sessions = await manager.list();
-      expect(sessions).toHaveLength(2);
+      assert.equal(sessions.length, 2);
     });
 
     it("filters by projectPath", async () => {
@@ -138,8 +140,8 @@ describe("SessionManager", () => {
       await manager.start("/tmp/p2", "claude", "Session 2");
 
       const sessions = await manager.list({ projectPath: "/tmp/p1" });
-      expect(sessions).toHaveLength(1);
-      expect(sessions[0].title).toBe("Session 1");
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0].title, "Session 1");
     });
 
     it("filters by status", async () => {
@@ -148,8 +150,8 @@ describe("SessionManager", () => {
       await manager.archive(s1);
 
       const active = await manager.list({ status: "active" });
-      expect(active).toHaveLength(1);
-      expect(active[0].title).toBe("Session 2");
+      assert.equal(active.length, 1);
+      assert.equal(active[0].title, "Session 2");
     });
   });
 
@@ -159,7 +161,7 @@ describe("SessionManager", () => {
       await manager.archive(sessionId);
 
       const meta = await sessionStore.getMeta(sessionId);
-      expect(meta!.status).toBe("archived");
+      assert.equal(meta!.status, "archived");
     });
   });
 
@@ -170,7 +172,7 @@ describe("SessionManager", () => {
 
       // After delete, session should be marked as deleted in store
       const meta = await sessionStore.getMeta(sessionId);
-      expect(meta!.status).toBe("deleted");
+      assert.equal(meta!.status, "deleted");
     });
   });
 
@@ -189,14 +191,14 @@ describe("SessionManager", () => {
       });
 
       const forkId = await manager.fork(sessionId);
-      expect(forkId).not.toBe(sessionId);
+      assert.notEqual(forkId, sessionId);
 
       const forkMeta = await sessionStore.getMeta(forkId);
-      expect(forkMeta!.parentId).toBe(sessionId);
-      expect(forkMeta!.title).toBe("Parent (fork)");
+      assert.equal(forkMeta!.parentId, sessionId);
+      assert.equal(forkMeta!.title, "Parent (fork)");
 
       const forkMessages = await sessionStore.getMessages(forkId);
-      expect(forkMessages).toHaveLength(1);
+      assert.equal(forkMessages.length, 1);
     });
   });
 
@@ -206,8 +208,8 @@ describe("SessionManager", () => {
       await manager.switch(sessionId);
 
       const current = await manager.getCurrent();
-      expect(current).not.toBeNull();
-      expect(current!.id).toBe(sessionId);
+      assert.notEqual(current, null);
+      assert.equal(current!.id, sessionId);
     });
   });
 });

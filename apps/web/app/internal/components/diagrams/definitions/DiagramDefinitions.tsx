@@ -1,9 +1,5 @@
 import React from "react";
 
-interface DiagramDefinitionsProps {
-  children?: React.ReactNode;
-}
-
 export function DiagramDefinitions() {
   return (
     <defs>

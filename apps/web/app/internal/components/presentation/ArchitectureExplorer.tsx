@@ -5,7 +5,6 @@ import { X } from "lucide-react";
 import styles from "./ArchitectureExplorer.module.css";
 import { type NodeType } from "../diagrams/FreeCodeInternalDiagram";
 import {
-  NodeHeader,
   ClientsNodeContent,
   AgentNodeContent,
   SubagentsNodeContent,

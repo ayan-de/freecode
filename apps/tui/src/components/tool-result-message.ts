@@ -69,7 +69,7 @@ export class ToolResultMessage implements Component {
     
     const toolNameLower = this.toolName.toLowerCase();
     const isFileUpdate = ["write", "edit", "replace_file_content", "multi_replace_file_content"].includes(toolNameLower);
-    const isFileRead = ["read", "view_file", "skill", "webfetch", "bash"].includes(toolNameLower);
+    const isFileRead = ["read", "view_file", "skill", "webfetch"].includes(toolNameLower);
     const isRun = ["bash", "run_command"].includes(toolNameLower);
 
     let filename: string | undefined = undefined;

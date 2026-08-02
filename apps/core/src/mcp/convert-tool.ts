@@ -6,6 +6,12 @@ interface McpToolDef {
   name: string;
   description?: string;
   inputSchema: unknown;
+  /**
+   * Optional MCP tool annotations. `readOnlyHint` is the only one we act on:
+   * it drives both the permission classification (see `permission/
+   * mode-policy.ts`) and `isDestructive` below.
+   */
+  annotations?: { readOnlyHint?: boolean };
 }
 
 interface CallToolResult {
@@ -16,6 +22,9 @@ interface CallToolResult {
 export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
   // Use mcp__server__tool format for permission rule matching
   const prefixedName = `mcp__${serverName}__${mcpTool.name}`;
+  // Only an explicit `true` counts — an absent annotation says nothing about
+  // the tool, and guessing "harmless" is how a create_issue call gets retried.
+  const isReadOnly = mcpTool.annotations?.readOnlyHint === true;
 
   return {
     id: prefixedName,
@@ -55,7 +64,11 @@ export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
     },
     behavior: {
       isConcurrencySafe: true,
-      isDestructive: false,
+      // Both retry paths (tools/orchestrator.ts, agent/recovery/manager.ts)
+      // read this as "safe to silently re-run". It was hardcoded false, so a
+      // transient failure could re-issue a mutation — running create_issue
+      // twice. Anything not declared read-only is now single-attempt.
+      isDestructive: !isReadOnly,
       interruptBehavior: "await",
       maxResultSizeChars: 50000,
       userFacingName: `${serverName}/${mcpTool.name}`,
