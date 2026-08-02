@@ -83,7 +83,8 @@ import { createResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
-import { StatusHeader } from "./components/status-header.js";
+// import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
+import { ContextBox } from "./components/context-box.js";
 import { ModeLine } from "./components/mode-line.js";
 import {
   createProviderSelector,
@@ -109,8 +110,8 @@ let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
 // Guards against overlapping clipboard reads from a Ctrl+V key burst.
 let isReadingClipboard = false;
-// Fixed top status header: hidden until the first prompt is sent, then shows
-// mode/model on the left and live context-window usage on the right.
+// Context-window usage widget (top-right overlay): hidden until the first
+// prompt is sent, then shows live tokens/limit + a progress bar + percent.
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
@@ -145,15 +146,32 @@ const infoBox = new ResponsiveInfoBox(
 // Fixed header pinned to the top row. Added as the TUI's first child so it
 // renders above the scrollable history and never scrolls away. Hidden (0 rows)
 // until the first prompt is sent — see hasFirstMessage.
-const statusHeader = new StatusHeader(
+// const statusHeader = new StatusHeader(
+//   () => hasFirstMessage,
+//   () => currentAgentMode,
+//   () => currentProvider,
+//   () => currentModel,
+//   () => contextTokens,
+//   () => contextLimitTokens,
+// );
+// tui.addChild(statusHeader);
+
+// Floating top-right overlay showing the context-window usage widget (replaces
+// the right half of the old StatusHeader). Non-capturing so it never steals
+// focus from the editor; hidden on narrow terminals so it can't crowd the chat.
+const contextBox = new ContextBox(
   () => hasFirstMessage,
-  () => currentAgentMode,
-  () => currentProvider,
-  () => currentModel,
   () => contextTokens,
   () => contextLimitTokens,
 );
-tui.addChild(statusHeader);
+const contextBoxOverlay = tui.showOverlay(contextBox, {
+  anchor: "top-right",
+  width: contextBox.width(),
+  offsetX: 2,
+  offsetY: 1,
+  nonCapturing: true,
+  visible: (termWidth) => termWidth >= 60,
+});
 
 // tui.addChild(new Text("\nType your messages below. Press Ctrl+C to exit."));
 
@@ -165,14 +183,13 @@ const selectionStore = new SelectionStore();
 // list's first entry (see VirtualMessageList) so it scrolls away with the
 // rest of the history instead of sitting fixed above the viewport.
 // The viewport callback tells the list how many rows it may use in scrolled
-// mode: terminal height minus the chrome below it (editor, spacers, mode line)
-// and the fixed status header, so the scrolled window and the input stay on
-// screen together.
+// mode: terminal height minus the chrome below it (editor, spacers, mode line),
+// so the scrolled window and the input stay on screen together. The context
+// widget is now a top-right overlay and doesn't reserve viewport rows.
 const getMessageListOffset = () => {
   const idx = tui.children.indexOf(messageList);
   if (idx <= 0) return 0;
   return tui.children.slice(0, idx).reduce((sum, child) => {
-    if (child === statusHeader) return sum + statusHeader.height();
     return sum + child.render(terminal.columns).length;
   }, 0);
 };
@@ -183,9 +200,6 @@ messageList = new VirtualMessageList(
     const otherHeight = tui.children
       .filter((child) => child !== messageList)
       .reduce((sum, child) => {
-        if (child === statusHeader) {
-          return sum + statusHeader.height();
-        }
         return sum + child.render(terminal.columns).length;
       }, 0);
     return Math.max(6, terminal.rows - otherHeight);
@@ -222,10 +236,11 @@ editor.setAutocompleteProvider(autocompleteProvider);
 
 tui.addChild(editor);
 tui.addChild(new Spacer(1));
-// Mode/model line below the input. Hidden after the first prompt — the fixed
-// top StatusHeader carries the same info from then on.
+// Mode/model line below the input. Always visible now — the top StatusHeader
+// has been retired (its context widget moved into a top-right overlay), so
+// this line is the only place mode and model are displayed.
 modeLine = new ModeLine(
-  () => hasFirstMessage,
+  () => false,
   () => currentAgentMode,
   () => currentProvider,
   () => currentModel,
@@ -248,8 +263,8 @@ function updateModelDisplay(): void {
 }
 
 function updateAgentModeDisplay(): void {
-  // ModeLine and StatusHeader read mode/model through live getters, so a
-  // re-render is all that's needed to reflect a mode cycle or model change.
+  // ModeLine reads mode/model through live getters, so a re-render is all
+  // that's needed to reflect a mode cycle or model change.
   tui.requestRender();
 }
 
@@ -759,7 +774,7 @@ async function submitPrompt(
   images?: Array<{ data: string; mediaType: string; altText?: string }>,
 ): Promise<void> {
   messageCount++;
-  // First prompt reveals the fixed top status header.
+  // First prompt reveals the top-right context-usage overlay.
   hasFirstMessage = true;
   // Reset the live streamed-token estimate for this turn.
   streamedChars = 0;
@@ -881,7 +896,7 @@ async function submitPrompt(
       const cachedTokens = result.usage?.cacheReadInputTokens ?? 0;
       const contextTokensUsed =
         result.usage?.contextTokens ?? inTokens + cachedTokens;
-      // Feed the fixed top header's context-usage progress bar.
+      // Feed the top-right context-usage overlay's progress bar.
       contextTokens = contextTokensUsed;
       contextLimitTokens = contextLimit;
       let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
