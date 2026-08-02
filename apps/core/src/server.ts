@@ -74,6 +74,14 @@ import { readDailyUsage } from "./usage/tracker.js";
 import { getSkillsManagerForProject } from "./skills/manager.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
+import {
+  listClaudeSessions,
+  readClaudeTranscript,
+} from "./claude-sessions/index.js";
+import type {
+  ClaudeSessionMeta,
+  ClaudeTranscript,
+} from "@thisisayande/freecode-shared";
 
 // SessionStore is resolved from the Effect runtime so the whole process shares
 // the single DI-provided instance (layers memoize construction).
@@ -693,6 +701,27 @@ const methodHandlers: Record<
       sessionId: context.id,
       messages: context.messages,
     };
+  },
+
+  // Claude Code session discovery. Read-only — we never write back to the
+  // user's ~/.claude. The picker shows these as a second tab in /resume
+  // (see docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md).
+  "session.claudeList": async (
+    params: Record<string, unknown>,
+  ): Promise<ClaudeSessionMeta[]> => {
+    const { projectPath, limit } = params as {
+      projectPath?: string;
+      limit?: number;
+    };
+    return listClaudeSessions({ projectPath, limit });
+  },
+
+  "session.claudeTranscript": async (
+    params: Record<string, unknown>,
+  ): Promise<ClaudeTranscript> => {
+    const { sessionId } = params as { sessionId: string };
+    const messages = await readClaudeTranscript(sessionId);
+    return { sessionId, messages };
   },
 
   "session.switch": async (params: Record<string, unknown>): Promise<void> => {
