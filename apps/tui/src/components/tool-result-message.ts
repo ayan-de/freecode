@@ -86,7 +86,9 @@ export class ToolResultMessage implements Component {
       const cmdArg = (this.args.CommandLine || this.args.command || "") as string;
       if (cmdArg) {
         headerAction = "Run";
-        headerTarget = `(${cmdArg})`;
+        // Heredocs and `node -e '…'` make the command multi-line; flatten it
+        // the way formatArgs does so the header stays a single terminal row.
+        headerTarget = `(${cmdArg.replace(/\s*\n\s*/g, " ")})`;
       }
     }
 

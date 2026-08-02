@@ -81,6 +81,7 @@ import {
 } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
 import { InterruptController } from "./interrupt-controller.js";
+import { SafeTUI } from "./render-guard.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { ResponsiveInfoBox } from "./components/info-box.js";
 // import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
@@ -134,7 +135,9 @@ const toolMessageComponents = new Map<
 >();
 
 const terminal = new ProcessTerminal();
-tui = new TUI(terminal);
+// SafeTUI, not TUI: it clamps every rendered line to a single terminal row, so
+// a stray newline or an over-wide line can't desync the differential renderer.
+tui = new SafeTUI(terminal);
 
 import { Spacer } from "@earendil-works/pi-tui";
 

@@ -41,6 +41,24 @@ test("large multi-line results render one terminal row per line, collapsed", () 
   assert.match(lines.join("|"), /\+45 lines/);
 });
 
+test("a multi-line bash command is flattened in the Run header", () => {
+  const msg = new ToolResultMessage({
+    toolCallId: "call-4",
+    toolName: "Bash",
+    args: {
+      command: "cd apps/tui && node -e '\nconst x = 1;\nconsole.log(x);\n'",
+    },
+    result: "1",
+    success: true,
+  });
+
+  const lines = msg.render(80);
+  for (const line of lines) {
+    assert.ok(!line.includes("\n"), `embedded newline in: ${line}`);
+  }
+  assert.match(lines.join("|"), /Run\(cd apps\/tui/);
+});
+
 test("multi-line string args are flattened in the header", () => {
   const msg = new ToolResultMessage({
     toolCallId: "call-3",
