@@ -7,6 +7,9 @@ import {
   FreeCodeInternalDiagram,
   type NodeType,
 } from "../diagrams";
+// IntroSection is only referenced from the commented-out intro block below,
+// which is parked behind a TODO rather than deleted.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { ArchitectureExplorer, IntroSection } from "../presentation";
 import styles from "./ArchitectureContent.module.css";
 
@@ -63,6 +66,9 @@ export function OverviewContainer() {
   );
 }
 
+// Consumed only by the commented-out BoundaryDiagram block above; kept so
+// that section can be restored without rebuilding the data.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const BOUNDARY_LAYERS = [
   {
     name: "CLI (All Intelligence)",

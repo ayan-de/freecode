@@ -1,20 +1,13 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Cpu,
   Database,
   Network,
   GitBranch,
-  ArrowRight,
-  Lock,
-  RefreshCw,
   Play,
-  Sparkles,
-  Info,
-  Layers,
-  CheckCircle2,
-  AlertTriangle
+  Layers
 } from "lucide-react";
 import styles from "./MemoryContainer.module.css";
 
@@ -749,7 +742,7 @@ export function MemoryContainer() {
                 <tr>
                   <td><strong>One-Turn-Behind</strong></td>
                   <td>Retrieval Caching</td>
-                  <td>Retrieved memories are fetched asynchronously during turn N-1's background cycle, making turn N injection instantaneous (0ms block).</td>
+                  <td>Retrieved memories are fetched asynchronously during turn N-1&apos;s background cycle, making turn N injection instantaneous (0ms block).</td>
                 </tr>
                 <tr>
                   <td><strong>Fire-and-Forget</strong></td>

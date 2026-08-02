@@ -1,5 +1,3 @@
-import { Divider } from "../../../components/Divider";
-
 interface Tab {
   id: string;
   label: string;

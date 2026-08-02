@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build + test + lint + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Skip the postinstall Playwright browser fetch — the TUI doesn't
+      # need it for tests/lints, and downloading Chromium would balloon
+      # CI time without catching anything these jobs look at.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # shared has no dependencies and only emits types — core + tui both
+      # need it before they can build/typecheck.
+      - name: Build shared
+        run: pnpm --filter @thisisayande/freecode-shared build
+
+      # turbo walks every workspace, picks up `lint`, `check-types`, and
+      # `test` from packages that declare them. Adding a script to a new
+      # package is enough to opt in — no edit here.
+      - name: Lint
+        run: pnpm turbo run lint
+
+      - name: Typecheck
+        run: pnpm turbo run check-types
+
+      - name: Build
+        run: pnpm turbo run build
+
+      - name: Test
+        run: pnpm turbo run test

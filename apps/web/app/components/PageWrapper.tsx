@@ -3,8 +3,6 @@ interface PageWrapperProps {
   className?: string;
 }
 
-const offset = "max(80px, calc((100vw - 1024px) / 2))";
-
 export function PageWrapper({ children, className = "" }: PageWrapperProps) {
   return (
     <div
