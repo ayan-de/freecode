@@ -140,8 +140,17 @@ class MessageStoreImpl {
   }
 }
 
-// Singleton instance
-export const messageStore = new MessageStoreImpl();
+// Singleton instance.
+//
+// maxMessages caps the history so long sessions don't grow unbounded — the
+// store keeps full tool-result strings in each message's Component, so
+// letting the array grow for the process lifetime is what made hour-long
+// sessions degrade. Default keeps ~2000 messages, roughly the last few
+// hundred turns; the virtual list only renders the visible window anyway.
+const DEFAULT_MAX_MESSAGES = 2000;
+export const messageStore = new MessageStoreImpl({
+  maxMessages: DEFAULT_MAX_MESSAGES,
+});
 
 // Helper functions that delegate to the store
 export function addMessage(

@@ -29,12 +29,42 @@ import type {
 let requestId = 0;
 let cliProcess: ChildProcess | null = null;
 let messageBuffer = "";
-let pendingRequests = new Map<
-  number | string,
-  { resolve: (value: unknown) => void; reject: (error: Error) => void }
->();
+interface PendingRequest {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  /** Restart the idle deadline — see `registerPending`. */
+  touch: () => void;
+}
+let pendingRequests = new Map<number | string, PendingRequest>();
 let onStreamEvent: ((event: StreamEvent) => void) | null = null;
 let stderrHandler: ((msg: string) => void) | null = null;
+/**
+ * Id of the in-flight streaming call, if any. Stream events carry no id of
+ * their own, and only one turn streams at a time (`onStreamEvent` is a single
+ * slot), so this is what lets an event reset that call's deadline.
+ */
+let activeStreamId: number | string | null = null;
+
+/**
+ * Per-request timeout. Core hangs used to leave the TUI spinning forever
+ * with no recovery and no restart — every JSON-RPC call now gets a
+ * deadline, and any in-flight call whose core process exits is rejected
+ * outright (see the error/exit handlers below).
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Idle deadline for `session.send`. That call resolves only when the whole
+ * agent turn is done, so a total timeout would kill every turn longer than
+ * it — this one is reset by each stream event instead, and fires only when
+ * core has gone completely silent.
+ *
+ * It has to clear the longest a turn can legitimately be quiet: bash takes a
+ * caller-supplied `timeout` with no upper bound (default 60s), and a single
+ * tool call emits nothing between `tool_start` and `tool_complete`. Ten
+ * minutes leaves that room while still bounding a wedged backend.
+ */
+const STREAM_IDLE_TIMEOUT_MS = 600_000;
 
 function generateId(): number {
   return ++requestId;
@@ -49,6 +79,10 @@ function parseResponse(data: string): JsonRpcResponse[] {
     try {
       const parsed = JSON.parse(line);
       if (parsed.type && !parsed.jsonrpc && onStreamEvent) {
+        // Proof of life for the turn in flight: push its deadline out.
+        if (activeStreamId !== null) {
+          pendingRequests.get(activeStreamId)?.touch();
+        }
         onStreamEvent(parsed as StreamEvent);
         continue;
       }
@@ -169,14 +203,89 @@ export function startCli(onStderr?: (msg: string) => void): void {
   });
 
   cliProcess.on("error", (err) => {
-    console.error("[CLI process error]", err);
+    // console.* would write raw text straight into the alt-screen frame and
+    // corrupt the differential render that render-guard.ts exists to
+    // protect; route through stderrHandler instead.
+    stderrHandler?.(`[freecode] core process error: ${err.message}`);
+    rejectAllPending(`CLI process error: ${err.message}`);
     cliProcess = null;
   });
 
   cliProcess.on("exit", (code) => {
-    console.log("[CLI exited]", code);
+    stderrHandler?.(
+      `[freecode] core process exited (code ${code ?? "null"})`,
+    );
+    rejectAllPending(`CLI process exited (code ${code ?? "null"})`);
     cliProcess = null;
   });
+}
+
+/**
+ * Reject every in-flight JSON-RPC call with the given reason. Called when
+ * the core process dies so callers don't hang forever waiting for a reply
+ * that will never come.
+ */
+function rejectAllPending(reason: string): void {
+  if (pendingRequests.size === 0) return;
+  const err = new Error(reason);
+  for (const pending of pendingRequests.values()) {
+    pending.reject(err);
+  }
+  pendingRequests.clear();
+}
+
+/**
+ * Track an in-flight JSON-RPC call and arm its deadline.
+ *
+ * The deadline is an *idle* one: `touch()` restarts it. Plain request/response
+ * calls never touch it, so it behaves as a flat timeout; `session.send`
+ * restarts it on every stream event (see `parseResponse`), so a turn that
+ * keeps producing output runs as long as it needs while a core that has gone
+ * silent is still caught.
+ *
+ * On expiry the entry is dropped from the map *before* rejecting, so a late
+ * response can't settle the same promise twice — nor can the process
+ * error/exit handlers, which only walk what's still in the map.
+ */
+function registerPending(
+  id: number | string,
+  method: string,
+  timeoutMs: number,
+  settle: { resolve: (value: unknown) => void; reject: (error: Error) => void },
+): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const disarm = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const arm = (): void => {
+    disarm();
+    timer = setTimeout(() => {
+      timer = null;
+      if (pendingRequests.delete(id)) {
+        settle.reject(
+          new Error(`Request "${method}" timed out after ${timeoutMs}ms`),
+        );
+      }
+    }, timeoutMs);
+  };
+
+  pendingRequests.set(id, {
+    resolve: (value) => {
+      disarm();
+      settle.resolve(value);
+    },
+    reject: (err) => {
+      disarm();
+      settle.reject(err);
+    },
+    touch: arm,
+  });
+  arm();
 }
 
 function sendRequest(
@@ -191,10 +300,7 @@ function sendRequest(
 
     const id = generateId();
     const request: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
-    pendingRequests.set(id, {
-      resolve: resolve as (value: unknown) => void,
-      reject,
-    });
+    registerPending(id, method, REQUEST_TIMEOUT_MS, { resolve, reject });
 
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
@@ -309,10 +415,20 @@ export async function sessionSendStreaming(
       method: "session.send",
       params: { sessionId, message, model, agentMode, images },
     };
-    pendingRequests.set(id, {
-      resolve: resolve as (value: unknown) => void,
-      reject,
+    // Idle deadline, not a total one — this promise settles only when the
+    // whole turn is done, which is unbounded by design.
+    activeStreamId = id;
+    registerPending(id, "session.send", STREAM_IDLE_TIMEOUT_MS, {
+      resolve: (value) => {
+        activeStreamId = null;
+        resolve(value as SessionSendResult);
+      },
+      reject: (err) => {
+        activeStreamId = null;
+        reject(err);
+      },
     });
+
     cliProcess.stdin.write(JSON.stringify(request) + "\n");
   });
 }
