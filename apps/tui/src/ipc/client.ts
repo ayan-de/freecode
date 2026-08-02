@@ -66,6 +66,63 @@ const REQUEST_TIMEOUT_MS = 30_000;
  */
 const STREAM_IDLE_TIMEOUT_MS = 600_000;
 
+// -----------------------------------------------------------------------------
+// Backend supervision
+//
+// A core that dies used to end the session: calls reject honestly now, but the
+// TUI had no way back short of quitting. These respawn it, with a bounded
+// budget so a backend that cannot start (bad config, missing binary) reports
+// that instead of fork-bombing.
+// -----------------------------------------------------------------------------
+
+/** Set by stopCli() so a shutdown we asked for is never treated as a crash. */
+let shuttingDown = false;
+let restartAttempts = 0;
+let spawnedAt = 0;
+let onCliRestart: (() => void) | null = null;
+
+const RESTART_BACKOFF_MS = [250, 1_000, 3_000];
+const MAX_RESTART_ATTEMPTS = RESTART_BACKOFF_MS.length;
+
+/**
+ * A backend that ran this long before dying was healthy, not crash-looping, so
+ * its death gets a fresh budget. Without this, three unrelated crashes over a
+ * long day would permanently exhaust the retries.
+ */
+const HEALTHY_UPTIME_MS = 60_000;
+
+/**
+ * Called after a successful respawn. Core keeps its session map in memory, so
+ * the new process knows nothing about the session the UI is still showing —
+ * the frontend has to re-resume it before the next turn can work.
+ */
+export function setCliRestartHandler(handler: () => void): void {
+  onCliRestart = handler;
+}
+
+function scheduleRestart(): void {
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    stderrHandler?.(
+      "[freecode] core backend keeps exiting — giving up. Restart freecode.",
+    );
+    return;
+  }
+  const delay = RESTART_BACKOFF_MS[restartAttempts] ?? 3_000;
+  restartAttempts++;
+  const attempt = restartAttempts;
+
+  setTimeout(() => {
+    if (shuttingDown || cliProcess) return;
+    startCli();
+    if (cliProcess) {
+      stderrHandler?.(
+        `[freecode] core backend restarted (attempt ${attempt}/${MAX_RESTART_ATTEMPTS}).`,
+      );
+      onCliRestart?.();
+    }
+  }, delay);
+}
+
 function generateId(): number {
   return ++requestId;
 }
@@ -217,7 +274,14 @@ export function startCli(onStderr?: (msg: string) => void): void {
     );
     rejectAllPending(`CLI process exited (code ${code ?? "null"})`);
     cliProcess = null;
+    activeStreamId = null;
+    // A backend that stayed up this long wasn't crash-looping; don't spend the
+    // retry budget accumulated over a whole session on it.
+    if (Date.now() - spawnedAt > HEALTHY_UPTIME_MS) restartAttempts = 0;
+    if (!shuttingDown) scheduleRestart();
   });
+
+  spawnedAt = Date.now();
 }
 
 /**
@@ -307,6 +371,9 @@ function sendRequest(
 }
 
 export function stopCli(): void {
+  // Latch before killing: the exit handler must see this as a shutdown we
+  // asked for, or it will helpfully respawn the backend we're tearing down.
+  shuttingDown = true;
   if (cliProcess) {
     cliProcess.kill();
     cliProcess = null;

@@ -33,6 +33,7 @@ import { copyToClipboard, readImageFromClipboard } from "./utils/clipboard.js";
 import {
   startCli,
   stopCli,
+  setCliRestartHandler,
   sessionStart,
   sessionSendStreaming,
   sessionStop,
@@ -1602,6 +1603,23 @@ tui.addInputListener((data) => {
 // call so the handler is attached when the process spawns.
 startCli((stderrMsg) => {
   createSystemMessage(stderrMsg);
+});
+
+// Core keeps its session map in memory, so a respawned backend has never heard
+// of the session still on screen and the next turn would fail with "Session not
+// found". Re-resume it server-side; the transcript is already rendered here, so
+// deliberately no loadSessionMessages() — that would duplicate the history.
+setCliRestartHandler(() => {
+  if (!currentSession) return;
+  const sessionId = currentSession.sessionId;
+  void sessionResume(sessionId).then(
+    () => createSystemMessage("**Session recovered.** You can keep going."),
+    (err) =>
+      createSystemMessage(
+        `**Could not recover the session:** ${err instanceof Error ? err.message : String(err)}. ` +
+          `Try \`/resume\`.`,
+      ),
+  );
 });
 
 loadCurrentModel();
