@@ -15,6 +15,8 @@ import type {
   SessionMeta,
   SessionFilter,
   SessionResumeResult,
+  ClaudeSessionMeta,
+  ClaudeTranscript,
   ProviderInfo,
   CommandInfo,
   StreamEvent,
@@ -477,6 +479,28 @@ export async function sessionResume(
   agentMode?: string,
 ): Promise<SessionResumeResult> {
   return (await sendRequest("session.resume", { sessionId, agentMode })) as SessionResumeResult;
+}
+
+// =============================================================================
+// Claude Code Session Methods (read-only — see
+// docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md)
+// =============================================================================
+
+export async function sessionClaudeList(
+  filter?: { projectPath?: string; limit?: number },
+): Promise<ClaudeSessionMeta[]> {
+  return (await sendRequest(
+    "session.claudeList",
+    filter as Record<string, unknown>,
+  )) as ClaudeSessionMeta[];
+}
+
+export async function sessionClaudeTranscript(
+  sessionId: string,
+): Promise<ClaudeTranscript> {
+  return (await sendRequest("session.claudeTranscript", {
+    sessionId,
+  })) as ClaudeTranscript;
 }
 
 // =============================================================================
