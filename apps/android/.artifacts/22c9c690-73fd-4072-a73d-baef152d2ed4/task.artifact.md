@@ -1,4 +1,9 @@
-- [ ] Remove `kotlinOptions` from `app/build.gradle.kts`
-- [ ] Remove `kotlin-android` from root `build.gradle.kts`
-- [ ] Remove `kotlin-android` from `libs.versions.toml`
-- [ ] Verify build with `gradle sync` and `assembleDebug`
+- [x] Remove `kotlinOptions` from `app/build.gradle.kts`
+- [x] Remove `kotlin-android` from root `build.gradle.kts`
+- [x] Remove `kotlin-android` from `libs.versions.toml`
+- [x] Add `material` and `appcompat` dependencies
+- [x] Fix `MainActivity.kt` (vault property, smart cast, unused import)
+- [x] Fix `ChatScreen.kt` (`userAgentString` reference)
+- [x] Fix `FreecodeJsBridge.kt` (`TurnStateService.requestState` call)
+- [x] Fix `PairUrl.kt` (destructuring error)
+- [x] Verify build with `gradle sync` and `assembleDebug`
