@@ -310,6 +310,9 @@ export async function askQuestion(
       () => {
         if (pendingQuestions.has(requestId)) {
           pendingQuestions.delete(requestId);
+          // Publish a rejected broadcast so attached frontends can dismiss
+          // their modals. Same shape as the user-driven reject path.
+          bus.publish({ type: "question.rejected", requestId });
           reject(new Error("Question timed out"));
         }
       },
@@ -321,24 +324,41 @@ export async function askQuestion(
 
 /**
  * Answer a pending question. Called by the frontend when user responds.
+ *
+ * Returns true if the question was still pending and this call resolved it,
+ * false if it had already been resolved by another device or a timeout. The
+ * boolean lets the JSON-RPC layer tell the loser of a multi-device race
+ * apart from the winner (spec §4.4 — see REQUEST_ALREADY_RESOLVED / -32002).
+ *
+ * Also publishes `question.answered` so other attached frontends dismiss
+ * their modals without a round-trip — mirroring the existing permission
+ * resolution broadcasts.
  */
-export function answerQuestion(requestId: string, answers: string[]): void {
+export function answerQuestion(
+  requestId: string,
+  answers: string[],
+): boolean {
   const pending = pendingQuestions.get(requestId);
-  if (pending) {
-    pending.resolve(answers);
-    pendingQuestions.delete(requestId);
-  }
+  if (!pending) return false;
+  pending.resolve(answers);
+  pendingQuestions.delete(requestId);
+  bus.publish({ type: "question.answered", requestId, answers });
+  return true;
 }
 
 /**
  * Reject a pending question. Called by the frontend when user dismisses.
+ *
+ * Returns true if this call resolved the prompt; false if it had already
+ * been resolved by another device or a timeout. See answerQuestion.
  */
-export function rejectQuestion(requestId: string): void {
+export function rejectQuestion(requestId: string): boolean {
   const pending = pendingQuestions.get(requestId);
-  if (pending) {
-    pending.reject(new Error("Question rejected by user"));
-    pendingQuestions.delete(requestId);
-  }
+  if (!pending) return false;
+  pending.reject(new Error("Question rejected by user"));
+  pendingQuestions.delete(requestId);
+  bus.publish({ type: "question.rejected", requestId });
+  return true;
 }
 
 // ============================================================================
@@ -384,6 +404,10 @@ export async function askPermission(
     const timer = setTimeout(() => {
       if (pendingPermissions.has(requestId)) {
         pendingPermissions.delete(requestId);
+        // askPermission callers treat rejection as deny — the timeout is
+        // therefore equivalent to a UI reject. Broadcast so attached
+        // frontends close any modal they may have shown.
+        bus.publish({ type: "permission.rejected", requestId });
         reject(new Error("Permission request timed out"));
       }
     }, timeoutMs);
@@ -395,23 +419,23 @@ export async function askPermission(
 export function answerPermission(
   requestId: string,
   answer: PermissionAnswer,
-): void {
+): boolean {
   const pending = pendingPermissions.get(requestId);
-  if (pending) {
-    pending.resolve(answer);
-    pendingPermissions.delete(requestId);
-    bus.publish({ type: "permission.answered", requestId, answer });
-  }
+  if (!pending) return false;
+  pending.resolve(answer);
+  pendingPermissions.delete(requestId);
+  bus.publish({ type: "permission.answered", requestId, answer });
+  return true;
 }
 
 /** Reject a pending permission request. Called by the frontend on dismiss. */
-export function rejectPermission(requestId: string): void {
+export function rejectPermission(requestId: string): boolean {
   const pending = pendingPermissions.get(requestId);
-  if (pending) {
-    pending.reject(new Error("Permission rejected by user"));
-    pendingPermissions.delete(requestId);
-    bus.publish({ type: "permission.rejected", requestId });
-  }
+  if (!pending) return false;
+  pending.reject(new Error("Permission rejected by user"));
+  pendingPermissions.delete(requestId);
+  bus.publish({ type: "permission.rejected", requestId });
+  return true;
 }
 
 // ============================================================================
