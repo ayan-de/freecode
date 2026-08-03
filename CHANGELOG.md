@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.16.0
+
+### Fixed
+- **Long tasks no longer stop early with `oscillation_detected`.** The loop-health oscillation heuristic scored repeated edits to the same file *path* rather than actual edit/revert cycles, and its score was a session-lifetime accumulator with no decay — every edit past the third to a given file added a point, so the tenth edit to a single file reached the hard-stop threshold. That is routine for any multi-file feature, and a run doing real work would be killed mid-task. The detector now scores genuine reverts: an edit is a content transition (`oldString` → `newString`), and only an edit that inverts an earlier one on the same file counts. Both sides are hashed and the search window is bounded, so nothing large is retained. Steady forward progress on one file no longer scores at all, while a real edit/revert/edit cycle still escalates and stops the loop.
+- Loop-health state is reset per run. The `AgentLoop` instance is reused across turns, so the accumulated oscillation score used to carry into the next prompt — once a session tripped the threshold, every later prompt in it stopped at the health check before ever reaching the provider.
+- Token usage is now reported on every loop exit path. Abnormal stops (loop health, max iterations, interrupt) discarded the accumulated totals, so a run that had spent minutes of real work displayed as `↓0 ↑0`.
+- Repaired a `.gitignore` entry that had been corrupted by a missing trailing newline: appending a new pattern fused it onto the previous line, which silently dropped the `bench/jcode-bench/target` rule and exposed hundreds of build artifacts as untracked.
+
 ## v0.15.0
 
 ### Added
