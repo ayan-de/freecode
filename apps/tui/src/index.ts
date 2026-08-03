@@ -50,6 +50,8 @@ import {
   setCurrentModel,
   getLastAgentMode,
   setLastAgentMode,
+  getPromptHistory,
+  appendPromptHistory,
   setApiKey,
   answerQuestion,
   rejectQuestion,
@@ -1042,6 +1044,12 @@ editor.onSubmit = async (value: string) => {
   // An image on its own is a valid prompt ("what is this?" is implied).
   if (!promptText && images.length === 0) return;
 
+  // Record the submission in the editor's in-memory ring and the on-disk
+  // history.jsonl. The IPC call is best-effort: a transient core hiccup
+  // shouldn't block the prompt from going out.
+  editor.addToHistory(promptText);
+  void appendPromptHistory(promptText);
+
   if (promptText.startsWith("/")) {
     const parts = promptText.slice(1).split(/\s+/);
     const commandName = parts[0]?.toLowerCase();
@@ -1175,6 +1183,20 @@ void (async () => {
   try {
     startCli();
     const coreCommands = await listCommands(process.cwd());
+
+    // Seed the editor's in-memory up-arrow ring with the persisted history so
+    // recall works across sessions. `addToHistory` is at the same call site
+    // that submit uses, so the editor's dedup and 100-item cap are applied
+    // identically.
+    try {
+      const history = await getPromptHistory();
+      // addToHistory prepends, so iterate oldest-first to keep disk order.
+      for (let i = history.length - 1; i >= 0; i--) {
+        editor.addToHistory(history[i] ?? "");
+      }
+    } catch {
+      // Backend not up yet (or no history) — start with an empty ring.
+    }
     for (const info of coreCommands) {
       registerCommand({
         name: info.name,

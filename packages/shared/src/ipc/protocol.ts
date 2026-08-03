@@ -261,6 +261,17 @@ export const METHODS = {
       tools: string[];
     }[],
   },
+  // Persisted prompt history — up-arrow recall across sessions. Core owns
+  // ~/.freecode/history.jsonl; the TUI seeds its in-memory ring at startup
+  // and appends on every submit.
+  "history.list": {
+    params: undefined,
+    result: [] as string[],
+  },
+  "history.append": {
+    params: { text: "" },
+    result: undefined as void,
+  },
 } as const;
 
 export type MethodName = keyof typeof METHODS;

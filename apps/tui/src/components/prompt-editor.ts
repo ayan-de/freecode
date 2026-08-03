@@ -9,6 +9,43 @@ export interface PendingImage {
 }
 
 /**
+ * Format the prompt-history index for the bottom-border indicator.
+ * 1-based from the most recent entry, so `[3/12]` is the 3rd-most-recent of
+ * 12. Returns null when not browsing (`historyIndex === -1`) or when the
+ * ring is empty.
+ *
+ * Pure helper — extracted from `PromptEditor` so it can be unit-tested
+ * without standing up a pi-tui `TUI` + `Terminal`.
+ */
+export function formatHistoryIndicator(
+  historyIndex: number,
+  total: number,
+): string | null {
+  if (historyIndex < 0 || total === 0) return null;
+  return `[${historyIndex + 1}/${total}]`;
+}
+
+/**
+ * Build a bottom-border strip with the history indicator spliced just after
+ * the leading dashes. Re-emits the entire line through `borderColor` so the
+ * ANSI seams stay consistent (mixing colored and uncolored runs would leak
+ * the color's reset code into the middle).
+ */
+export function buildHistoryBorder(
+  indicator: string,
+  width: number,
+  borderColor: (s: string) => string,
+  sideDashes = 2,
+): string {
+  const text = ` ${indicator} `;
+  const textVisible = text.length;
+  const dashCount = Math.max(0, width - textVisible);
+  const leftCount = Math.min(sideDashes, dashCount);
+  const rightCount = Math.max(0, dashCount - leftCount);
+  return borderColor("─".repeat(leftCount) + text + "─".repeat(rightCount));
+}
+
+/**
  * Inline placeholder for a pasted image, in Claude Code's `[Image #N]` shape.
  * The token is ordinary editor text, so it word-wraps, moves, and deletes like
  * anything the user typed — the yellow chip styling and whole-token backspace
@@ -216,6 +253,31 @@ export class PromptEditor extends Editor {
     if (editorLines.length > 1 && (editorLines[1] ?? "").startsWith("  ")) {
       editorLines[1] = this.borderColor("❯") + (editorLines[1] ?? "").slice(1);
     }
+
+    // While paging through history with up/down, stamp `[N/total]` onto the
+    // bottom border so the user knows how far they've gone. pi-tui keeps
+    // historyIndex private, so reach for the runtime field TypeScript hides.
+    // We rebuild the border from scratch (rather than editing the existing
+    // colored line in place) to keep ANSI consistent at the seams.
+    const lastIdx = editorLines.length - 1;
+    const indicator = this.historyIndicator();
+    if (indicator !== null && lastIdx >= 0) {
+      editorLines[lastIdx] = buildHistoryBorder(indicator, width, this.borderColor);
+    }
     return editorLines;
+  }
+
+  /**
+   * `[N/total]` for the current up/down position, or null when not browsing
+   * history (historyIndex === -1) or when the ring is empty.
+   */
+  private historyIndicator(): string | null {
+    const base = this as unknown as {
+      historyIndex?: number;
+      history?: string[];
+    };
+    const idx = base.historyIndex ?? -1;
+    const total = base.history?.length ?? 0;
+    return formatHistoryIndicator(idx, total);
   }
 }

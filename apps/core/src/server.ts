@@ -73,6 +73,7 @@ import {
 } from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
 import { readDailyUsage } from "./usage/tracker.js";
+import { appendHistory, readHistoryDisplays } from "./history/store.js";
 import { getSkillsManagerForProject } from "./skills/manager.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
@@ -461,6 +462,19 @@ const methodHandlers: Record<
 
   "usage.get": async (): Promise<unknown[]> => {
     return readDailyUsage();
+  },
+
+  // Persisted prompt history for up-arrow recall. Core owns
+  // ~/.freecode/history.jsonl; the editor's in-memory ring is seeded at
+  // startup and appended on every submit.
+  "history.list": async (): Promise<string[]> => {
+    return readHistoryDisplays();
+  },
+  "history.append": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { text } = params as { text: string };
+    appendHistory(text);
   },
 
   "skills.list": async (

@@ -653,6 +653,22 @@ export async function setLastAgentMode(mode: string): Promise<void> {
 }
 
 // =============================================================================
+// Prompt History — persists across sessions so up-arrow recall works after
+// restart. Core owns ~/.freecode/history.jsonl; the editor's in-memory ring
+// is seeded at startup and appended on every submit.
+// =============================================================================
+
+/** Prompt strings, newest-first, ready to seed the editor's history. */
+export async function getPromptHistory(): Promise<string[]> {
+  return (await sendRequest("history.list")) as string[];
+}
+
+/** Append a submitted prompt to the on-disk history. Best-effort. */
+export async function appendPromptHistory(text: string): Promise<void> {
+  await sendRequest("history.append", { text });
+}
+
+// =============================================================================
 // Session List/Resume Methods
 // =============================================================================
 
