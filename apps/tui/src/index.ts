@@ -121,6 +121,9 @@ let currentProvider = "";
 let currentModel = "";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
+// True once the saved mode (or lack thereof) has been fetched from config —
+// ModeLine stays hidden until then so it never flashes the "build" default.
+let modeLoaded = false;
 // Guards against overlapping clipboard reads from a Ctrl+V key burst.
 let isReadingClipboard = false;
 // Context-window usage widget (top-right overlay): hidden until the first
@@ -255,7 +258,7 @@ tui.addChild(new Spacer(1));
 // has been retired (its context widget moved into a top-right overlay), so
 // this line is the only place mode and model are displayed.
 modeLine = new ModeLine(
-  () => false,
+  () => !modeLoaded,
   () => currentAgentMode,
   () => currentProvider,
   () => currentModel,
@@ -679,10 +682,12 @@ async function loadCurrentModel(): Promise<void> {
     ) {
       currentAgentMode = savedMode as typeof currentAgentMode;
       editor.borderColor = MODE_COLORS[currentAgentMode];
-      updateAgentModeDisplay();
     }
   } catch {
     // CLI might not be running yet, ignore
+  } finally {
+    modeLoaded = true;
+    updateAgentModeDisplay();
   }
 }
 
