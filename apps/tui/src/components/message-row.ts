@@ -27,6 +27,23 @@ export function resetLiveOutputTokens(): void {
   liveOutputTokens = 0;
 }
 
+// Live input-token growth on top of the initial per-turn estimate, fed from
+// tool results as they land (each one gets fed back into context for the
+// next internal turn) — see bumpLiveInputTokens in index.ts. Keeps ↓ moving
+// during long multi-tool-call turns instead of sitting flat until the final
+// usage arrives.
+let liveInputGrowth = 0;
+
+/** Add to the live input-token growth estimate (e.g. per tool result). */
+export function bumpLiveInputTokens(n: number): void {
+  liveInputGrowth += n;
+}
+
+/** Clear the live input-token growth at the start/end of a turn. */
+export function resetLiveInputTokens(): void {
+  liveInputGrowth = 0;
+}
+
 /**
  * In-progress message component with live timer and token counts.
  * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
@@ -75,7 +92,7 @@ class InProgressMessage implements Component {
     // lands (this.outputTokens > 0), at which point the real count wins.
     const outputTokens =
       this.outputTokens > 0 ? this.outputTokens : liveOutputTokens;
-    const inStr = formatTokenCount(this.baseInputTokens);
+    const inStr = formatTokenCount(this.baseInputTokens + liveInputGrowth);
     const outStr = formatTokenCount(outputTokens);
     let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
     if (this.cachedTokens > 0) {

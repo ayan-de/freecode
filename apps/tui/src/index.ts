@@ -79,6 +79,8 @@ import {
 import {
   setLiveOutputTokens,
   resetLiveOutputTokens,
+  bumpLiveInputTokens,
+  resetLiveInputTokens,
   ThinkingMessage,
 } from "./components/message-row.js";
 import { getMessages } from "./state/message-store.js";
@@ -757,6 +759,9 @@ function handleToolEvent(event: StreamEvent) {
         event.success,
         event.duration_ms,
       );
+      // The tool result gets fed back into context for the next internal
+      // turn, so grow the live ↓ estimate along with it (~4 chars/token).
+      bumpLiveInputTokens(Math.round(event.result.length / 4));
       // Mirror the todo list into the pinned right-middle panel (in addition
       // to the inline chat rendering above).
       if (event.toolName === "todowrite") {
@@ -889,6 +894,7 @@ async function submitPrompt(
   // Reset the live streamed-token estimate for this turn.
   streamedChars = 0;
   resetLiveOutputTokens();
+  resetLiveInputTokens();
 
   // A fresh prompt starts a fresh view: clear the pinned todo panel so a prior
   // task's plan doesn't linger. It reappears if the agent calls todowrite again.
