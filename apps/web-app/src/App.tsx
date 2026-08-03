@@ -6,6 +6,8 @@ import { ChatView } from "./components/ChatView";
 import { Titlebar } from "./components/Titlebar";
 import { RightSidebar } from "./components/RightSidebar";
 import { SettingsModal } from "./components/SettingsModal";
+import { QuestionModal } from "./components/QuestionModal";
+import { PermissionModal } from "./components/PermissionModal";
 import { PanelLeft, PanelRight } from "lucide-react";
 import {
   connectBackend,
@@ -32,6 +34,15 @@ export const App: React.FC = () => {
   const setStatus = useChatStore((s) => s.setStatus);
   const setError = useChatStore((s) => s.setError);
   const clearMessages = useChatStore((s) => s.clearMessages);
+  // Spec §4.4 — multi-device approval flow. The store holds at most one
+  // pending question and one pending permission; the modal components
+  // render based on whichever slot is occupied.
+  const pendingQuestion = useChatStore((s) => s.pendingQuestion);
+  const pendingPermission = useChatStore((s) => s.pendingPermission);
+  const setPendingQuestion = useChatStore((s) => s.setPendingQuestion);
+  const setPendingPermission = useChatStore((s) => s.setPendingPermission);
+  const markQuestionResolved = useChatStore((s) => s.markQuestionResolved);
+  const markPermissionResolved = useChatStore((s) => s.markPermissionResolved);
 
   // Connection states
   const [connState, setConnState] = useState<
@@ -53,9 +64,15 @@ export const App: React.FC = () => {
   const [agentMode, setAgentMode] = useState("build");
   const [apiKey, setApiKeyInput] = useState("");
 
-  // Responsive sidebar open on mobile
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  // Responsive sidebar: default to OPEN on desktop (>=1024px) and CLOSED on
+  // mobile. The drawer pattern (lg:relative / fixed inset-y-0) keeps the
+  // Sidebar component the same on both; only the initial open state differs.
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true,
+  );
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true,
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   // File mention database pre-fetched on session start
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
@@ -117,11 +134,49 @@ export const App: React.FC = () => {
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, []);
 
-  // Handle stream events from CLI
+// Handle stream events from CLI
   const handleStreamEvent = useCallback(
     (event: any) => {
       const currentMessages = useChatStore.getState().messages;
       const lastMsg = currentMessages[currentMessages.length - 1];
+
+      // Spec §4.4 — incoming prompts. These don't touch the message
+      // list; they fill a slot in the store and the modal components
+      // render. Resolution broadcasts below dismiss the modal on this
+      // device too, so the race-loser closes cleanly.
+      if (event.type === "question_asked") {
+        setPendingQuestion({
+          requestId: event.requestId,
+          sessionId: event.sessionId,
+          questions: event.questions,
+        });
+        return;
+      }
+      if (event.type === "permission_asked") {
+        setPendingPermission({
+          requestId: event.requestId,
+          sessionId: event.sessionId,
+          toolName: event.toolName,
+          args: event.args || {},
+          description: event.description,
+          suggestedRule: event.suggestedRule,
+          reason: event.reason,
+        });
+        return;
+      }
+      if (event.type === "question.answered" || event.type === "question.rejected") {
+        // Verb-shaped bus event names leak through the bridge. We map
+        // them onto the wire shape so a single switch below handles
+        // both.
+        const kind = event.type === "question.answered" ? "answered" : "rejected";
+        markQuestionResolved(event.requestId, kind);
+        return;
+      }
+      if (event.type === "permission.answered" || event.type === "permission.rejected") {
+        const kind = event.type === "permission.answered" ? "answered" : "rejected";
+        markPermissionResolved(event.requestId, kind);
+        return;
+      }
 
       // Ensure we have an assistant message to append parts to
       let activeMsg = lastMsg;
@@ -390,21 +445,25 @@ export const App: React.FC = () => {
     <div className="flex flex-col h-screen w-screen bg-bg-primary overflow-hidden font-sans">
       <Titlebar />
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Absolute Fixed Left Toggle */}
+        {/* Left Toggle — visible on every screen size. On mobile the sidebar
+            is a drawer (overlay); on desktop it's a persistent column, and
+            the toggle collapses it back to a thin rail. */}
         <div className="absolute top-0 left-0 h-10 w-14 flex items-center justify-center z-50">
           <button
             onClick={() => setSidebarOpen((prev) => !prev)}
             className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-white/5 transition-colors"
+            aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
           >
             <PanelLeft size={16} className={sidebarOpen ? "text-white" : ""} />
           </button>
         </div>
 
-        {/* Absolute Fixed Right Toggle */}
+        {/* Right Toggle — same pattern. */}
         <div className="absolute top-0 right-0 h-10 w-14 flex items-center justify-center z-50">
           <button
             onClick={() => setRightSidebarOpen((prev) => !prev)}
             className="p-1.5 text-gray-400 hover:text-white rounded-md hover:bg-white/5 transition-colors"
+            aria-label={rightSidebarOpen ? "Close panel" : "Open panel"}
           >
             <PanelRight
               size={16}
@@ -451,6 +510,15 @@ export const App: React.FC = () => {
           isOpen={settingsOpen}
           onClose={() => setSettingsOpen(false)}
         />
+
+        {/* Spec §4.4 — approval modals. Mounted at the App root so they
+            survive side-panel toggles and shell-navigations. The store
+            holds at most one of each; whichever slot is occupied
+            renders. */}
+        {pendingQuestion && <QuestionModal question={pendingQuestion} />}
+        {pendingPermission && (
+          <PermissionModal permission={pendingPermission} />
+        )}
       </div>
     </div>
   );

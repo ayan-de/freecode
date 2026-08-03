@@ -32,6 +32,12 @@ export interface ModelInfo {
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import {
+  openStreamReader,
+  discoverToken,
+  type SSEController,
+  type SSEEvent,
+} from "./lib/sse-reader.js";
 
 // Helper to check if we are running inside the Tauri desktop app
 const isTauri =
@@ -105,10 +111,16 @@ async function sendRequest<T>(
       invoke("send_to_cli", { message: JSON.stringify(request) }).catch(reject);
     });
   } else {
-    // Fallback to HTTP for normal web browsers
+    // Fallback to HTTP for normal web browsers. Carry the bearer token
+    // so a non-loopback bind (spec §4.1) doesn't 401 every call.
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const token = discoverToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await fetch(`${HTTP_BASE_URL}/api`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(request),
     });
 
@@ -116,13 +128,22 @@ async function sendRequest<T>(
     const data = await response.json();
 
     if (data.error) {
-      throw new Error(data.error.message || "Request failed");
+      // Server-side error. Surface the JSON-RPC error shape — call sites
+      // can inspect data.error.code to render -32002 (already-resolved)
+      // as state, not failure (spec §4.4).
+      const err = new Error(data.error.message || "Request failed") as Error & {
+        code?: number;
+        data?: unknown;
+      };
+      err.code = data.error.code;
+      err.data = data.error.data;
+      throw err;
     }
     return data.result as T;
   }
 }
 
-let eventSource: EventSource | null = null;
+let streamController: SSEController | null = null;
 
 export function registerStreamListener(
   sessionId: string,
@@ -131,28 +152,52 @@ export function registerStreamListener(
   streamCallback = callback;
 
   if (!isTauri) {
-    if (eventSource) eventSource.close();
-    eventSource = new EventSource(
-      `${HTTP_BASE_URL}/events?sessionId=${sessionId}`,
-    );
-    eventSource.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (streamCallback && data.type) {
-          streamCallback(data);
+    // Tear down any previous reader before starting a new one. The new
+    // reader will reconnect with the last id: it observed, so the
+    // switch is gap-free.
+    if (streamController) streamController.close();
+    const token = discoverToken();
+    streamController = openStreamReader(
+      sessionId,
+      token,
+      (event: SSEEvent) => {
+        // Each event is `{ data: <json>, id?, event? }`. The data field
+        // is the wire payload — JSON.parsed by the server already (the
+        // server serializes once). We surface it to the callback as
+        // before so the rest of the SPA keeps the existing shape.
+        if (event.data === undefined || event.data === null) return;
+        if (typeof event.data !== "string") {
+          // The server always sends JSON; non-string data is unexpected.
+          console.warn("Unexpected SSE data shape", event.data);
+          return;
         }
-      } catch (err) {
-        console.error("Failed to parse SSE message", err);
-      }
-    };
+        try {
+          // The data is a JSON string. The server serializes the wire
+          // event once into the data: field, so we parse here.
+          const payload = JSON.parse(event.data);
+          if (streamCallback && payload.type) {
+            streamCallback(payload);
+          }
+        } catch (err) {
+          console.error("Failed to parse SSE message", err);
+        }
+      },
+      {
+        // Spec §4.2: stay alive through a network blip. The exponential
+        // backoff caps at 30s so we don't hammer while the phone is in
+        // a tunnel.
+        initialReconnectMs: 500,
+        maxReconnectMs: 30_000,
+      },
+    );
   }
 }
 
 export function unregisterStreamListener(): void {
   streamCallback = null;
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
+  if (streamController) {
+    streamController.close();
+    streamController = null;
   }
 }
 
@@ -233,6 +278,53 @@ export async function callTool(
 
 export async function stopSession(sessionId: string): Promise<void> {
   return sendRequest<void>("session.stop", { sessionId });
+}
+
+// =============================================================================
+// Approval flow (spec §4.4) — answer / reject the prompts the agent emits.
+//
+// These RPCs return void on success but THROW a -32002 error when the
+// request had already been resolved by another device or the timeout
+// (REQUEST_ALREADY_RESOLVED). Callers should render that as a normal
+// outcome ("Already answered on another device"), not as a failure.
+// =============================================================================
+
+/** Answer a question prompt (multi-choice). */
+export async function answerQuestion(
+  requestId: string,
+  answers: string[],
+): Promise<void> {
+  return sendRequest<void>("question.answer", { requestId, answers });
+}
+
+/** Reject (dismiss) a question prompt without answering. */
+export async function rejectQuestion(requestId: string): Promise<void> {
+  return sendRequest<void>("question.reject", { requestId });
+}
+
+export type PermissionDecision =
+  | "allow-once"
+  | "allow-session"
+  | "allow-project"
+  | "allow-always"
+  | "deny";
+
+/** Answer a permission prompt — allow (with optional scope) or deny. */
+export async function answerPermission(
+  requestId: string,
+  decision: PermissionDecision,
+  editedRule?: string,
+): Promise<void> {
+  return sendRequest<void>("permission.answer", {
+    requestId,
+    decision,
+    editedRule,
+  });
+}
+
+/** Reject (dismiss) a permission prompt. Treated as deny by askPermission. */
+export async function rejectPermission(requestId: string): Promise<void> {
+  return sendRequest<void>("permission.reject", { requestId });
 }
 
 export interface SessionContext {

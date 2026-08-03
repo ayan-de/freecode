@@ -39,10 +39,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-bg-primary">
       {/* Header */}
-      <header className="h-10 border-b border-border bg-black flex items-center justify-between px-12 z-10">
-        <div className="flex items-center gap-3">
+      <header className="h-10 border-b border-border bg-black flex items-center justify-between px-12 sm:px-14 z-10">
+        <div className="flex items-center gap-3 min-w-0">
           {/* Connection Status */}
-          <div className="flex items-center gap-2 text-sm font-semibold">
+          <div className="flex items-center gap-2 text-sm font-semibold truncate">
             {connState === "connected" ? (
               <span className="flex items-center gap-1.5 text-emerald-400">
                 <Wifi size={14} /> Connected

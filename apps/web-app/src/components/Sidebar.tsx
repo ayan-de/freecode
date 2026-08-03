@@ -187,10 +187,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Drag Handle */}
+        {/* Drag Handle — desktop only. Mouse-only gesture; touch users
+            rely on the toggle button + overlay to close. */}
         <div
           onMouseDown={handleMouseDown}
-          className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500/50 transition-colors z-50 ${
+          className={`hidden lg:block absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-indigo-500/50 transition-colors z-50 ${
             isDragging ? "bg-indigo-500" : "bg-transparent"
           }`}
           style={{ transform: "translateX(50%)" }}
