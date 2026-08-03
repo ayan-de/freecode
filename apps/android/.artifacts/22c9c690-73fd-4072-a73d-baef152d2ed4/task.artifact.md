@@ -1,0 +1,4 @@
+- [ ] Remove `kotlinOptions` from `app/build.gradle.kts`
+- [ ] Remove `kotlin-android` from root `build.gradle.kts`
+- [ ] Remove `kotlin-android` from `libs.versions.toml`
+- [ ] Verify build with `gradle sync` and `assembleDebug`
