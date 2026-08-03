@@ -7,7 +7,8 @@
 **Extends:** `2026-05-25-architecture-v4.md` (frontends are thin presentation
 layers)
 **Touches:** `apps/tui/src/themes.ts`, `apps/tui/src/components/resume-picker.tsx`,
-`packages/ui/src/theme/`, `~/.freecode/config.json`
+`packages/ui/src/theme/`, `apps/core/src/providers/config.ts`, `apps/core/src/server.ts`,
+`~/.freecode/config.json`
 
 ---
 
@@ -33,7 +34,10 @@ This spec introduces a **central theme system** for the TUI:
    cyan/dark-grey strings.
 4. **User-facing switch.** A `/theme` slash command with `list`, `current`, and
    `set <name>` sub-commands. The choice persists in `~/.freecode/config.json`
-   (`"theme": "<name>"`). Hot-reload on switch — no TUI restart.
+   (`"theme": "<name>"`) through **core's existing config module**
+   (`apps/core/src/providers/config.ts`), the same one that already owns
+   `lastAgentMode`/`current`/`providers` in that file — not a second,
+   TUI-owned reader/writer. Hot-reload on switch — no TUI restart.
 
 The user's words: *"the resume modal make it use our theme check we have theme
 means yellow variant etc we need to centralise the theme"*. The "yellow variant"
@@ -82,15 +86,61 @@ change.
 { "theme": "monokai" }
 ```
 
-Read at TUI startup. If the file is missing or the key is absent, `default` is
-used. If the key is present but the value isn't a known palette name, `default`
-is used and a one-line warning is emitted to stderr (the spec keeps the prompt
-history clean — warnings that the user can't act on don't belong in the prompt).
+Per the thin-client rule ("Core owns everything" — `CLAUDE.md`), the TUI does
+**not** read or write this file itself. `apps/core/src/providers/config.ts`
+already owns `~/.freecode/config.json` end-to-end (`readConfig`/`writeConfig`,
+plus typed getters/setters like `getLastAgentMode`/`setLastAgentMode`). Theme
+follows the exact same pattern:
 
-`/theme set` writes to `~/.freecode/config.json` preserving all other keys. It
-does not engage the core CLI's wider config machinery (e.g. migrated schemas);
-it's a simple read-or-write of the `theme` field. The TUI owns the file
-end-to-end for this key.
+```ts
+// apps/core/src/providers/config.ts
+export interface Config {
+  // …
+  lastAgentMode?: string;
+  theme?: string;
+  // …
+}
+
+export function getTheme(): string | undefined {
+  return readConfig().theme;
+}
+
+export function setTheme(name: string): void {
+  const config = readConfig();
+  config.theme = name;
+  writeConfig(config);
+}
+```
+
+…and is exposed over the existing JSON-RPC surface in `apps/core/src/server.ts`,
+mirroring `config.getLastAgentMode` / `config.setLastAgentMode`:
+
+```ts
+"config.getTheme": async (): Promise<unknown> => {
+  return getTheme();
+},
+
+"config.setTheme": async (params: Record<string, unknown>): Promise<void> => {
+  const { name } = params as { name: string };
+  setTheme(name);
+},
+```
+
+The TUI calls these two methods over IPC — it never touches the file
+directly. Validation (is `name` a known `PaletteName`?) happens in the TUI
+before the call, since the palette table (`packages/ui/src/theme/palettes.ts`)
+is TUI-facing presentation data, not something core needs to know about;
+core just stores whatever string it's given, same as it does today for
+`lastAgentMode`.
+
+Read at TUI startup via `config.getTheme`. If the key is absent, `default` is
+used. If the value isn't a known palette name, `default` is used and a
+one-line warning is emitted to stderr (the spec keeps the prompt history
+clean — warnings the user can't act on don't belong in the prompt).
+
+`/theme set` calls `config.setTheme`, which preserves all other keys in
+`config.json` (same `readConfig` → mutate → `writeConfig` round-trip every
+other setter already uses).
 
 ### Reload semantics
 
@@ -124,9 +174,11 @@ to its monokai blue, and the build-mode badge stays neon-green-yellow
 ┌──────────────────────────────────────────────────────────────────────┐
 │ apps/tui/src/theme/                                                   │
 │   apply.ts   — Palette → MarkdownTheme / SelectListTheme / …          │
-│   loader.ts  — reads ~/.freecode/config.json → resolves palette       │
+│   loader.ts  — calls config.getTheme/config.setTheme over IPC,        │
+│                resolves the result to a known PaletteName             │
 │   store.ts   — tiny mutable holder for the active palette name        │
-│   TUI-specific. Uses chalk + pi-tui types.                            │
+│   TUI-specific. Uses chalk + pi-tui types. No fs access — config      │
+│   persistence lives in apps/core (see below).                         │
 └──────────────────────────────────────────────────────────────────────┘
                           │
                           ▼
@@ -378,68 +430,50 @@ on `titleBg` (the palette's accent) so the header is readable in every palette.
 
 ### Loader (`apps/tui/src/theme/loader.ts`)
 
-```ts
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
-import {
-  PALETTES, DEFAULT_PALETTE_NAME,
-  type Palette, type PaletteName,
-} from "@repo/ui/theme";
+The TUI never touches `~/.freecode/config.json`. It calls the IPC client's
+`config.getTheme` / `config.setTheme` methods (backed by
+`apps/core/src/providers/config.ts`, same as `getLastAgentMode`), and resolves
+whatever string comes back to a known `PaletteName`:
 
-const CONFIG_PATH = join(homedir(), ".freecode", "config.json");
+```ts
+import { PALETTES, DEFAULT_PALETTE_NAME, type Palette, type PaletteName } from "@repo/ui/theme";
+import type { IpcClient } from "../ipc/client"; // whatever the existing client type is called
 
 export interface LoadedPalette {
   palette: Palette;
-  name: PaletteName;            // resolved name (may differ from disk if invalid)
-  /** True when `name` came from disk and matches a known palette. */
-  fromConfig: boolean;
+  name: PaletteName;            // resolved name (may differ from what core returned, if invalid)
+  fromConfig: boolean;          // true when core returned a known palette name
 }
 
-export async function loadPaletteFromConfig(): Promise<LoadedPalette> {
-  let raw: string | undefined;
+export async function loadPaletteFromConfig(ipc: IpcClient): Promise<LoadedPalette> {
+  let raw: unknown;
   try {
-    raw = await readFile(CONFIG_PATH, "utf8");
+    raw = await ipc.call("config.getTheme", {});
   } catch (err: any) {
-    if (err?.code !== "ENOENT") {
-      console.warn(`freecode: could not read ${CONFIG_PATH}: ${err.message}`);
-    }
+    console.warn(`freecode: could not read theme from config: ${err.message}`);
     return { palette: PALETTES[DEFAULT_PALETTE_NAME], name: DEFAULT_PALETTE_NAME, fromConfig: false };
   }
-  let json: any;
-  try {
-    json = JSON.parse(raw);
-  } catch {
-    console.warn(`freecode: ${CONFIG_PATH} is not valid JSON; using default theme`);
-    return { palette: PALETTES[DEFAULT_PALETTE_NAME], name: DEFAULT_PALETTE_NAME, fromConfig: false };
+  if (typeof raw === "string" && raw in PALETTES) {
+    return { palette: PALETTES[raw as PaletteName], name: raw as PaletteName, fromConfig: true };
   }
-  const name = json?.theme;
-  if (typeof name === "string" && name in PALETTES) {
-    return { palette: PALETTES[name as PaletteName], name: name as PaletteName, fromConfig: true };
-  }
-  if (typeof name === "string") {
-    console.warn(`freecode: unknown theme "${name}", falling back to default`);
+  if (typeof raw === "string") {
+    console.warn(`freecode: unknown theme "${raw}", falling back to default`);
   }
   return { palette: PALETTES[DEFAULT_PALETTE_NAME], name: DEFAULT_PALETTE_NAME, fromConfig: false };
 }
 
-export async function writePaletteToConfig(name: PaletteName): Promise<void> {
-  let existing: Record<string, unknown> = {};
-  try {
-    const raw = await readFile(CONFIG_PATH, "utf8");
-    existing = JSON.parse(raw);
-  } catch (err: any) {
-    if (err?.code !== "ENOENT") throw err;
-  }
-  existing.theme = name;
-  await writeFile(CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf8");
+export async function writePaletteToConfig(ipc: IpcClient, name: PaletteName): Promise<void> {
+  await ipc.call("config.setTheme", { name });
 }
 ```
 
-The loader is **async** because the rest of the TUI's startup is async
-already (the IPC client connects async). The single read at startup is
-microseconds. `LoadedPalette` returns the resolved name alongside the palette
-so the store doesn't need to remember which name it picked up.
+The loader is **async** because it's now an IPC round-trip (the rest of the
+TUI's startup is already async for the same reason — the IPC client connects
+async). `LoadedPalette` returns the resolved name alongside the palette so the
+store doesn't need to remember which name it picked up. Malformed-JSON and
+missing-file handling both move into core's `readConfig` (which already
+returns `{}` for a missing file — see `providers/config.ts`); the TUI only
+has to handle "core returned something that isn't a known palette name."
 
 ### Store (`apps/tui/src/theme/store.ts`)
 
@@ -450,12 +484,13 @@ import {
   PALETTES, DEFAULT_PALETTE_NAME,
   type Palette, type PaletteName,
 } from "@repo/ui/theme";
+import type { IpcClient } from "../ipc/client";
 
 let activePaletteName: PaletteName = DEFAULT_PALETTE_NAME;
 let resumeColorsCached: ResumeColors = applyResumeColors(defaultPalette());
 
-export async function initTheme(): Promise<void> {
-  const loaded = await loadPaletteFromConfig();
+export async function initTheme(ipc: IpcClient): Promise<void> {
+  const loaded = await loadPaletteFromConfig(ipc);
   activePaletteName = loaded.name;
   resumeColorsCached = applyResumeColors(loaded.palette);
 }
@@ -464,11 +499,11 @@ export function resumeColors(): ResumeColors {
   return resumeColorsCached;
 }
 
-export async function setActivePalette(name: PaletteName): Promise<void> {
+export async function setActivePalette(ipc: IpcClient, name: PaletteName): Promise<void> {
   const p: Palette = PALETTES[name];
   resumeColorsCached = applyResumeColors(p);
   activePaletteName = name;
-  await writePaletteToConfig(name);
+  await writePaletteToConfig(ipc, name);
 }
 
 export function activePaletteName(): PaletteName {
@@ -477,9 +512,11 @@ export function activePaletteName(): PaletteName {
 ```
 
 The store is a tiny module-level holder. The TUI's `index.ts` calls
-`initTheme()` once at startup before constructing the picker. The picker's
-constructor receives `resumeColors()` as a plain argument — no module-level
-singleton for the picker, so unit tests can inject a test palette.
+`initTheme(ipc)` once at startup (after the IPC client connects) before
+constructing the picker. The picker's constructor receives `resumeColors()`
+as a plain argument — no module-level singleton for the picker, so unit tests
+can inject a test palette. Because persistence is now an IPC call, unit tests
+for `loader.ts`/`store.ts` inject a stub `IpcClient` instead of stubbing `fs`.
 
 ### `apps/tui/src/themes.ts` shim
 
@@ -528,15 +565,16 @@ top-level `await` chain before the ResumePicker is constructed:
 import { initTheme, resumeColors } from "./theme/store";
 import { ResumePicker } from "./components/resume-picker";
 
-await initTheme();
+// after the IPC client has connected
+await initTheme(ipc);
 // … other init …
 const picker = new ResumePicker(freecodeSessions, claudeSessions, resumeColors(), callbacks);
 ```
 
-If `initTheme()` rejects (e.g. permission denied on the config file), the TUI
+If `initTheme()` rejects (e.g. the `config.getTheme` IPC call fails), the TUI
 catches, logs the error, and falls back to in-memory `default` — the same
 fallback `loadPaletteFromConfig` uses internally. We never block startup on
-config-file failures.
+config failures.
 
 ### Resume picker refactor
 
@@ -626,8 +664,8 @@ no React, no JSX, no DOM.
 TUI index.ts
    │
    ▼
-await initTheme()                  ← loads ~/.freecode/config.json (or default)
-   │
+await initTheme(ipc)               ← ipc.call("config.getTheme") → core reads
+   │                                  ~/.freecode/config.json (or default)
    ▼
 resumeColors() returns ResumeColors
    │
@@ -644,11 +682,12 @@ ResumePicker(sessions, …, resumeColors(), callbacks)
 User types: /theme set monokai
    │
    ▼
-setActivePalette("monokai")
+setActivePalette(ipc, "monokai")
    │
    ├──> PALETTES["monokai"] → apply → resumeColorsCached (in-memory)
    │
-   └──> writePaletteToConfig("monokai") → ~/.freecode/config.json
+   └──> ipc.call("config.setTheme", { name: "monokai" })
+              → core's setTheme() → readConfig/writeConfig → ~/.freecode/config.json
    │
    ▼
 TUI re-renders → resume picker uses new colours on the next frame.
@@ -657,16 +696,20 @@ TUI re-renders → resume picker uses new colours on the next frame.
 
 ### Conflict / error cases
 
-- **Config file missing.** `loadPaletteFromConfig` swallows `ENOENT` and
-  returns `defaultPalette()`. No warning.
-- **Config file present but malformed JSON.** `JSON.parse` throws; the
-  loader catches, emits a one-line stderr warning, and returns `defaultPalette()`.
+- **Config file missing.** `readConfig()` (core) returns `{}`, so
+  `config.getTheme` resolves to `undefined`; the TUI loader falls back to
+  `defaultPalette()`. No warning.
+- **`config.getTheme` IPC call fails** (e.g. core crashed or the pipe is
+  down). The TUI loader catches, emits a one-line stderr warning, and returns
+  `defaultPalette()`. Malformed on-disk JSON is core's problem, not the TUI's
+  — same as it already is for `lastAgentMode`/`current`/`providers`.
 - **Config file with unknown theme name.** Loader emits a one-line stderr
   warning (`freecode: unknown theme "foo", falling back to default`) and
   returns `defaultPalette()`. The malformed key is NOT erased — the user can
   fix it via `/theme set` or by editing the file directly.
 - **`/theme set foo` with unknown name.** Pushed into the prompt history as
-  an error message. State unchanged.
+  an error message. State unchanged; no IPC call is made (validated
+  client-side against `PALETTES` before calling `config.setTheme`).
 
 ## Testing
 
@@ -678,8 +721,12 @@ TUI re-renders → resume picker uses new colours on the next frame.
 - `apps/tui/src/theme/apply.test.ts` — `applyMarkdownTheme(defaultPalette())`
   produces the same `MarkdownTheme` shape as the pre-shim `defaultMarkdownTheme`
   (i.e. we don't accidentally rewire heading vs link).
-- `apps/tui/src/theme/loader.test.ts` — happy path, missing file, malformed
-  JSON, unknown theme name, write-then-read round-trip.
+- `apps/core/src/providers/config.test.ts` (or wherever the existing
+  `getLastAgentMode`/`setLastAgentMode` tests live) — `getTheme`/`setTheme`
+  round-trip, missing key, preserves other config keys on write.
+- `apps/tui/src/theme/loader.test.ts` — happy path and unknown-theme-name
+  fallback, against a **stub `IpcClient`** (no `fs` mocking — the TUI no
+  longer touches the file).
 - `apps/tui/src/components/resume-picker.test.ts` — updated to assert on
   token-derived values via a test palette (`{ accent: "#FFFFFF", … }`).
 - `apps/tui/src/commands/built-in.test.ts` (or equivalent) — `/theme list`,
@@ -710,6 +757,13 @@ TUI re-renders → resume picker uses new colours on the next frame.
    to the resume picker. Users who want their *entire* TUI to follow the
    palette must restart. Acceptable for v1; a future version can rebuild the
    shim on `/theme set` if it matters.
+5. **Thin-client boundary.** An earlier draft of this spec had the TUI read
+   and write `~/.freecode/config.json` directly. That violates "core owns
+   everything" (`CLAUDE.md`) and would duplicate the read/write logic
+   `apps/core/src/providers/config.ts` already implements for
+   `lastAgentMode`. Fixed by routing theme persistence through
+   `config.getTheme`/`config.setTheme` (core) over the existing IPC
+   `config.*` surface, matching the `lastAgentMode` pattern exactly.
 
 ## Open questions
 
