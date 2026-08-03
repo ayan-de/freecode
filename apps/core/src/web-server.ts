@@ -28,6 +28,7 @@ import {
   addSubscriber,
   removeSubscriber,
   disposeSession,
+  replayToSubscriber,
 } from "./web/stream-subscribers.js";
 import {
   compareTokens,
@@ -179,6 +180,22 @@ export function startWebServer(
       // before any data event. Real heartbeats are emitted every 15s by the
       // reaper in stream-subscribers.ts — see HEARTBEAT_MS.
       res.write(": connected\n\n");
+
+      // Last-Event-ID-driven replay (spec §4.2). The browser EventSource
+      // API automatically sends Last-Event-ID; the fetch-based reader
+      // (Phase 3C) sets it explicitly from the last id: it observed.
+      // Parse defensively: a missing/garbage header is treated as
+      // "no replay needed".
+      const lastEventId = req.headers["last-event-id"];
+      let afterSeq: number | undefined;
+      if (typeof lastEventId === "string") {
+        const parsed = Number.parseInt(lastEventId, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) afterSeq = parsed;
+      }
+      // replayToSubscriber writes directly to res, bypassing the per-event
+      // publish path so a brand-new subscriber doesn't receive its own
+      // live events double-counted.
+      replayToSubscriber(sessionId, res, afterSeq);
 
       // Wire format `data: <json>\n\n` is owned by stream-subscribers so
       // the caller doesn't need to pass a writer. The module also binds
