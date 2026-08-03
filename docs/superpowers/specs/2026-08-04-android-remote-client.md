@@ -407,16 +407,20 @@ Each phase is independently useful and independently verifiable.
 
 | Phase | Work | Verify |
 | --- | --- | --- |
-| **1. Harden the server** | §4.1 auth, §4.3 multi-subscriber + heartbeat/reaper cleanup, §4.4 one-shot resolution, CORS fix, QR output | Unit tests on token compare + origin logic; `curl` without a token gets `401`; two `curl` SSE clients on one session both receive every event; **kill a client with `SIGKILL` (no clean close) and assert the subscriber set drains within 60s**; **two clients answer one `requestId`, assert exactly one wins and the other gets `-32002`** |
-| **2. Resumable stream** | §4.2 seq + ring buffer + `Last-Event-ID` + `stream_gap` | Test: subscribe, kill the connection mid-turn, reconnect with `Last-Event-ID`, assert zero missing seqs; assert `stream_gap` on forced eviction |
-| **3. SPA mobile + approvals** | Responsive layout (drawers for `Sidebar`/`RightSidebar`), `question_asked`/`permission_asked` modals wired to the answer RPCs, `-32002` and resolution-broadcast handling, fetch-based SSE reader with auth header + resume | Approve a `bash` call from a phone browser over the tailnet; rotate the phone; background 60s and confirm the transcript is gap-free; **answer from the TUI and confirm the phone's modal self-dismisses** |
-| **4. Android shell** | Compose scaffold, pairing/QR, token vault, WebView + bridge, foreground service with the §5.3 state machine | Pair by scanning; run a turn with the screen locked; **lock the phone, trigger a permission prompt, and confirm the escalated notification arrives and is answerable well inside the 5-minute deny deadline** |
+| **1. Harden the server** ✅ | §4.1 auth, §4.3 multi-subscriber + heartbeat/reaper cleanup, §4.4 one-shot resolution, CORS fix, QR output | Unit tests on token compare + origin logic; `curl` without a token gets `401`; two `curl` SSE clients on one session both receive every event; **kill a client with `SIGKILL` (no clean close) and assert the subscriber set drains within 60s**; **two clients answer one `requestId`, assert exactly one wins and the other gets `-32002`** |
+| **2. Resumable stream** ✅ | §4.2 seq + ring buffer + `Last-Event-ID` + `stream_gap` | Test: subscribe, kill the connection mid-turn, reconnect with `Last-Event-ID`, assert zero missing seqs; assert `stream_gap` on forced eviction |
+| **3. SPA mobile + approvals** ✅ | Responsive layout (drawers for `Sidebar`/`RightSidebar`), `question_asked`/`permission_asked` modals wired to the answer RPCs, `-32002` and resolution-broadcast handling, fetch-based SSE reader with auth header + resume | Approve a `bash` call from a phone browser over the tailnet; rotate the phone; background 60s and confirm the transcript is gap-free; **answer from the TUI and confirm the phone's modal self-dismisses** |
+| **4. Android shell** ⏳ | Compose scaffold, pairing/QR, token vault, WebView + bridge, foreground service with the §5.3 state machine | Pair by scanning; run a turn with the screen locked; **lock the phone, trigger a permission prompt, and confirm the escalated notification arrives and is answerable well inside the 5-minute deny deadline** |
 | **5. Push (deferred)** | Turn-complete + blocked-on-approval notifications via FCM | out of v1 scope |
 
 **Phases 1–3 deliver the feature via a mobile browser.** Phase 4 makes it a real
 app. That ordering is deliberate: it means the risky, security-sensitive work
 gets exercised through a trivially debuggable client before any Gradle project
 exists, and if Phase 4 stalls you still have a working remote setup.
+
+**Status:** Phases 1–3 landed (commit chain ending at `168440b`). The mobile
+browser path delivers the v1 spec target today; Phase 4 (the native Compose
+shell) is the only follow-up the §7 phasing table leaves for future work.
 
 ## 8. Open questions
 
