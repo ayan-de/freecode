@@ -72,6 +72,7 @@ import {
   type PermissionAnswer,
 } from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
+import { publishToSession, publishToAll } from "./web/stream-subscribers.js";
 import { readDailyUsage } from "./usage/tracker.js";
 import { appendHistory, readHistoryDisplays } from "./history/store.js";
 import { getSkillsManagerForProject } from "./skills/manager.js";
@@ -133,7 +134,10 @@ interface SessionInfo {
 }
 
 export const sessions: Map<string, SessionInfo> = new Map();
-export const sessionEventCallbacks = new Map<string, (event: any) => void>();
+// Per-session SSE subscriber fan-out lives in web/stream-subscribers.ts —
+// each session owns a Set<Subscriber> rather than a single callback, and
+// the module also runs the heartbeat/idle-reaper that prunes dead sockets.
+// The web-server imports addSubscriber/removeSubscriber directly.
 
 function createSession(config: SessionConfig): SessionInfo {
   const id = randomUUID();
@@ -925,12 +929,13 @@ export async function startServer() {
     if (!wire) return;
     const line = JSON.stringify(wire) + "\n";
     process.stdout.write(line); // TUI reads stdout lines
-    // Web SSE: route to the owning session if known, else broadcast.
+    // Web SSE: route to the owning session if known, else broadcast to all
+    // sessions (preserves the previous "no sessionId ⇒ fan-out" behavior).
     const sid = (event as { sessionId?: string }).sessionId;
     if (sid) {
-      sessionEventCallbacks.get(sid)?.(wire);
+      publishToSession(sid, wire);
     } else {
-      for (const cb of sessionEventCallbacks.values()) cb(wire);
+      publishToAll(wire);
     }
   });
 
