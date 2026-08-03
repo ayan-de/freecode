@@ -28,6 +28,8 @@ import {
   setCurrentModel,
   hasApiKey,
   getCurrentModel,
+  getLastAgentMode,
+  setLastAgentMode,
   type ProviderId,
 } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
@@ -560,6 +562,17 @@ const methodHandlers: Record<
 
   "config.getCurrentModel": async (): Promise<unknown> => {
     return getCurrentModel();
+  },
+
+  "config.getLastAgentMode": async (): Promise<unknown> => {
+    return getLastAgentMode();
+  },
+
+  "config.setLastAgentMode": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { mode } = params as { mode: string };
+    setLastAgentMode(mode);
   },
 
   // ========== Memory Methods ==========

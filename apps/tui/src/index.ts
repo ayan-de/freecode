@@ -48,6 +48,8 @@ import {
   resolveCommand,
   getCurrentModel,
   setCurrentModel,
+  getLastAgentMode,
+  setLastAgentMode,
   setApiKey,
   answerQuestion,
   rejectQuestion,
@@ -293,6 +295,7 @@ function cycleAgentMode(): void {
   currentAgentMode = modes[(idx + 1) % modes.length];
   editor.borderColor = MODE_COLORS[currentAgentMode];
   updateAgentModeDisplay();
+  setLastAgentMode(currentAgentMode).catch(() => {});
 }
 
 function showMessage(content: string): void {
@@ -667,6 +670,16 @@ async function loadCurrentModel(): Promise<void> {
       currentProvider = current.provider;
       currentModel = current.model;
       updateModelDisplay();
+    }
+
+    const savedMode = await getLastAgentMode();
+    if (
+      savedMode &&
+      ["plan", "build", "review", "explore", "danger"].includes(savedMode)
+    ) {
+      currentAgentMode = savedMode as typeof currentAgentMode;
+      editor.borderColor = MODE_COLORS[currentAgentMode];
+      updateAgentModeDisplay();
     }
   } catch {
     // CLI might not be running yet, ignore

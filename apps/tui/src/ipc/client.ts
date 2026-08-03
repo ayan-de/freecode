@@ -644,6 +644,14 @@ export async function getCurrentModel(): Promise<
     | undefined;
 }
 
+export async function getLastAgentMode(): Promise<string | undefined> {
+  return (await sendRequest("config.getLastAgentMode")) as string | undefined;
+}
+
+export async function setLastAgentMode(mode: string): Promise<void> {
+  await sendRequest("config.setLastAgentMode", { mode });
+}
+
 // =============================================================================
 // Session List/Resume Methods
 // =============================================================================

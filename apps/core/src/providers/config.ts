@@ -17,6 +17,7 @@ export interface Config {
     provider: string;
     model: string;
   };
+  lastAgentMode?: string;
   // Phase 4 recovery: providers to fall back to (in order) when the current
   // provider exhausts its retry budget or hits a fatal error.
   recovery?: {
@@ -99,6 +100,16 @@ export function getCurrentModel():
 export function setCurrentModel(provider: string, model: string): void {
   const config = readConfig();
   config.current = { provider, model };
+  writeConfig(config);
+}
+
+export function getLastAgentMode(): string | undefined {
+  return readConfig().lastAgentMode;
+}
+
+export function setLastAgentMode(mode: string): void {
+  const config = readConfig();
+  config.lastAgentMode = mode;
   writeConfig(config);
 }
 
