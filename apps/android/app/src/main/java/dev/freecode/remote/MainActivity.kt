@@ -29,16 +29,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
 import dev.freecode.remote.ui.ChatScreen
-import dev.freecode.remote.ui.ConnectionScreen
 import dev.freecode.remote.ui.PairingScreen
 import dev.freecode.remote.vault.CredentialVault
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var vault: CredentialVault
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val vault = CredentialVault(applicationContext)
+        vault = CredentialVault(applicationContext)
         setContent {
             MaterialTheme(colorScheme = darkScheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -76,7 +77,8 @@ private fun AppRoot(vault: CredentialVault, intent: Intent?) {
     // ChatScreen call back into the vault to clear or refresh on
     // re-pair.
     var saved by remember { mutableStateOf(vault.load()) }
-    if (saved == null) {
+    val currentSaved = saved
+    if (currentSaved == null) {
         PairingScreen(
             initialPairUrl = intent?.dataString,
             onPaired = { creds ->
@@ -86,7 +88,7 @@ private fun AppRoot(vault: CredentialVault, intent: Intent?) {
         )
         return
     }
-    ChatScreen(creds = saved, onForget = {
+    ChatScreen(creds = currentSaved, onForget = {
         vault.clear()
         saved = null
     })

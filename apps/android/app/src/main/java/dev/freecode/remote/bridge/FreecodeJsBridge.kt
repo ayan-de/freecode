@@ -37,6 +37,7 @@ import org.json.JSONObject
  * `window.FreecodeBridge.setTurnState(state)`.
  */
 class FreecodeJsBridge(
+    private val context: android.content.Context,
     private val credentials: Credentials,
 ) {
 
@@ -62,6 +63,6 @@ class FreecodeJsBridge(
             "idle" -> TurnState.Idle
             else -> return // ignore unknowns; the SPA may add new states
         }
-        TurnStateService.requestState(parsed)
+        TurnStateService.requestState(context, parsed)
     }
 }

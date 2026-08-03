@@ -37,10 +37,14 @@ object PairUrl {
         }
         if (url.scheme != "freecode") return null
         val authority = url.authority ?: return null
-        val (hostPart, portPart) = when {
-            authority.contains(':') -> authority.split(':', limit = 2)
-            else -> authority to null
+        val parts = if (authority.contains(':')) {
+            authority.split(':', limit = 2)
+        } else {
+            listOf(authority)
         }
+        val hostPart = parts[0]
+        val portPart = if (parts.size > 1) parts[1] else null
+
         if (hostPart.isBlank()) return null
         val port = portPart?.toIntOrNull() ?: return null
         if (port !in 1..65535) return null

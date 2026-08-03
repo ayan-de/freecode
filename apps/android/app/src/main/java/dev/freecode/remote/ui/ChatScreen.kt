@@ -87,7 +87,7 @@ fun ChatScreen(
     // Wire up the bridge once per credential change. The bridge holds
     // the credentials in memory; the WebView is responsible for using
     // them via FreecodeBridge.getCredentials().
-    val bridge = remember(creds) { FreecodeJsBridge(creds) }
+    val bridge = remember(creds) { FreecodeJsBridge(ctx.applicationContext, creds) }
 
     // Network observer — pushes ConnectivityManager changes into the
     // SPA via __freecodeOnNetworkChanged.
@@ -113,7 +113,7 @@ fun ChatScreen(
             settings.mediaPlaybackRequiresUserGesture = true
             // Token goes through the bridge, not the URL.
             settings.saveFormData = false
-            settings.userAgentString = "$userAgentString FreeCodeRemote/0.1"
+            settings.userAgentString = "${settings.userAgentString} FreeCodeRemote/0.1"
             addJavascriptInterface(bridge, "FreecodeBridge")
 
             // Spin up the foreground service as soon as the WebView
