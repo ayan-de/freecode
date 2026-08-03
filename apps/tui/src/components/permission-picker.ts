@@ -13,7 +13,7 @@ export interface PermissionRequestView {
 }
 
 // Renders a permission request's decisions as a SelectList. The tool call
-// context rides in the item descriptions (mirrors question-picker rendering).
+// context rides in the item descriptions (mirrors the older question picker).
 export function createPermissionPicker(
   request: PermissionRequestView,
   callbacks: {

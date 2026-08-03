@@ -186,6 +186,7 @@ export interface JsonSchemaProperty {
   items?: JsonSchemaProperty | JsonSchemaProperty[];
   properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
+  minItems?: number;
 }
 
 export interface JsonSchema {
@@ -193,6 +194,7 @@ export interface JsonSchema {
   properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
   items?: JsonSchemaProperty | JsonSchemaProperty[];
+  minItems?: number;
 }
 
 // =============================================================================

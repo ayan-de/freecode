@@ -30,16 +30,40 @@ interface QuestionParams {
 // Question Schema
 // =============================================================================
 
+const questionOptionSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    label: { type: "string", description: "Display text (1-5 words, concise)" },
+    description: { type: "string", description: "Explanation of this choice" },
+  },
+  required: ["label"],
+};
+
+const questionItemSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    question: { type: "string", description: "Complete question text" },
+    header: { type: "string", description: "Very short label (max 30 chars)" },
+    options: {
+      type: "array",
+      description: "Available choices; must be non-empty",
+      items: questionOptionSchema,
+      minItems: 1,
+    },
+    multiple: { type: "boolean", description: "Allow selecting multiple choices" },
+    custom: { type: "boolean", description: "Allow typing a custom answer (default: true)" },
+  },
+  required: ["question", "options"],
+};
+
 const questionSchema: JsonSchema = {
   type: "object",
   properties: {
     questions: {
       type: "array",
-      description:
-        "Array of questions to ask. Each question is an object: " +
-        "{ question: string, header?: string, options: Array<{ label: string, description: string }>, multiple?: boolean, custom?: boolean }. " +
-        "`options` is REQUIRED and MUST be a non-empty array of objects, each with a `label`.",
-      items: { type: "object" },
+      description: "Array of questions to ask the user",
+      items: questionItemSchema,
+      minItems: 1,
     },
   },
   required: ["questions"],

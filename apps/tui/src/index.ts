@@ -100,7 +100,7 @@ import {
   createModelSelector,
 } from "./components/model-picker.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
-import { createQuestionPicker } from "./components/question-picker.js";
+import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
 import type {
   ClaudeSessionMeta,
@@ -545,6 +545,9 @@ async function showApiKeyInput(
   };
 }
 
+// Inline text input replaced by the QuestionModal overlay (see
+// components/question-modal.ts). The old inline picker/Input path is gone.
+
 async function showResumePicker(): Promise<void> {
   hideResumeSelector();
   hideModelSelector();
@@ -779,36 +782,45 @@ function handleToolEvent(event: StreamEvent) {
       break;
     }
     case "question_asked": {
-      // Render each question as a SelectList in sequence, collecting answers
-      // indexed by question, then reply once the last one is answered.
+      // Render each question as a centered modal card in sequence, collecting
+      // answers indexed by question, then reply once the last one is answered.
+      // A synthetic "Other" row inside each modal lets the user type their own
+      // answer via an inline editor instead of picking a preset.
       const answers: string[] = [];
       const askAt = (i: number) => {
-        const picker = createQuestionPicker(
-          event.questions[i],
-          {
-            onSelect: (label) => {
-              answers[i] = label;
-              removeSelector(picker);
-              if (i + 1 < event.questions.length) {
-                askAt(i + 1);
-              } else {
-                void answerQuestion(event.requestId, answers);
-                tui.setFocus(editor);
-              }
-              tui.requestRender();
-            },
-            onCancel: () => {
-              removeSelector(picker);
-              void rejectQuestion(event.requestId);
-              tui.setFocus(editor);
-              tui.requestRender();
-            },
-          },
-          defaultSelectListTheme,
+        const spec = event.questions[i];
+        const modal = new QuestionModal(
+          spec.header ?? "Question",
+          spec.question,
+          spec.options,
         );
-        const editorIdx = tui.children.indexOf(editor);
-        tui.children.splice(editorIdx + 1, 0, picker);
-        tui.setFocus(picker);
+        // Cap the overlay width to the terminal so the centered card doesn't
+        // overflow on narrow displays.
+        const overlay = tui.showOverlay(modal, {
+          anchor: "center",
+          width: Math.min(modal.width(), Math.max(24, terminal.columns - 4)),
+        });
+        const finish = (text: string | null) => {
+          overlay.hide();
+          tui.setFocus(editor);
+          tui.requestRender();
+          if (text === null) {
+            void rejectQuestion(event.requestId);
+            return;
+          }
+          answers[i] = text;
+          if (i + 1 < event.questions.length) {
+            askAt(i + 1);
+          } else {
+            void answerQuestion(event.requestId, answers);
+          }
+        };
+        modal.onSelect = (label) => finish(label);
+        modal.onCancel = () => finish(null);
+        // No-op hooks for now — we re-render on every state change so a
+        // separate "opened Other" notification isn't needed.
+        modal.onOpenedOther = () => tui.requestRender();
+        modal.onCancelEdit = () => tui.requestRender();
         tui.requestRender();
       };
       askAt(0);
