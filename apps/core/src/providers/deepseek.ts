@@ -12,6 +12,7 @@ import {
   convertToCoreMessages,
   buildToolsParam,
   resolveModel,
+  PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
@@ -45,6 +46,7 @@ function createDeepSeekProvider(_apiKey: string): AIProvider {
       maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
+      maxRetries: PROVIDER_MAX_RETRIES,
     };
     if (opts.messages) {
       generateOptions.messages = convertToCoreMessages(opts.messages);

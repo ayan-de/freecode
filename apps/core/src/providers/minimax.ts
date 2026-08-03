@@ -14,6 +14,7 @@ import {
   buildToolsParam,
   resolveModel,
   OUTPUT_TOKEN_CAP,
+  PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 
@@ -63,6 +64,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
       maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
       tools: tools as any,
       abortSignal: opts.abortSignal,
+      maxRetries: PROVIDER_MAX_RETRIES,
     };
 
     if (opts.system) {

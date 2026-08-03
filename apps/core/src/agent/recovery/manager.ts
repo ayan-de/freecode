@@ -39,13 +39,30 @@ export interface RecoveryPolicy {
 // errors (code ECONNRESET etc., possibly nested under cause).
 // =============================================================================
 
+/**
+ * The AI SDK wraps a failed call in `AI_RetryError`, which carries the real
+ * `APICallError`s in `errors[]` and exposes no status of its own. Reading the
+ * wrapper directly makes every nested 429/5xx look statusless, so a rate limit
+ * is misread as fatal. Unwrap to the last real error before classifying.
+ */
+function unwrapProviderError(error: unknown): unknown {
+  if (!error || typeof error !== "object") return error;
+  const anyErr = error as { lastError?: unknown; errors?: unknown };
+  if (anyErr.lastError) return unwrapProviderError(anyErr.lastError);
+  if (Array.isArray(anyErr.errors) && anyErr.errors.length > 0) {
+    return unwrapProviderError(anyErr.errors[anyErr.errors.length - 1]);
+  }
+  return error;
+}
+
 export function getErrorStatus(error: unknown): number | undefined {
-  if (error && typeof error === "object") {
-    const anyErr = error as Record<string, unknown>;
+  const unwrapped = unwrapProviderError(error);
+  if (unwrapped && typeof unwrapped === "object") {
+    const anyErr = unwrapped as Record<string, unknown>;
     if (typeof anyErr.statusCode === "number") return anyErr.statusCode;
     if (typeof anyErr.status === "number") return anyErr.status;
   }
-  const msg = String((error as Error)?.message ?? error ?? "");
+  const msg = String((unwrapped as Error)?.message ?? unwrapped ?? "");
   const match = msg.match(/(?:API error|status(?:\s+code)?)[:\s]+(\d{3})/i);
   return match ? Number(match[1]) : undefined;
 }
@@ -92,6 +109,60 @@ export function isContextOverflowError(error: unknown): boolean {
   return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => msg.includes(pattern));
 }
 
+// A quota rejection arrives as a 429, exactly like a transient rate limit, and
+// providers word it differently. Only the message separates "slow down" from
+// "your plan is spent" — and the difference matters: one is worth waiting out,
+// the other can never succeed no matter how long we back off.
+//   MiniMax:   Token Plan usage limit reached: Upgrade your Token Plan (2056)
+//   Anthropic: credit balance is too low
+//   OpenAI:    You exceeded your current quota, please check your plan
+//   Gemini:    Quota exceeded / billing
+const QUOTA_EXHAUSTED_PATTERNS = [
+  "usage limit reached",
+  "quota",
+  "insufficient credit",
+  "credit balance",
+  "billing",
+  "upgrade your",
+  "purchase credits",
+  "payment required",
+  "exceeded your current",
+];
+
+/**
+ * Whether a provider refused because the account is out of allowance, rather
+ * than because it is momentarily busy. Retrying is pointless — every attempt
+ * re-sends the whole conversation for a guaranteed rejection — so this is
+ * treated as fatal and short-circuits the retry budget entirely.
+ *
+ * Narrow by design: a false positive turns a recoverable rate limit into a
+ * dead turn, so an unlabelled 429 keeps the benefit of the doubt and retries.
+ */
+export function isQuotaExhaustedError(error: unknown): boolean {
+  if (!error) return false;
+  const status = getErrorStatus(error);
+  // 402 is unambiguous; the rest arrive as 429 alongside ordinary rate limits.
+  if (status !== undefined && status !== 429 && status !== 402) return false;
+  if (status === 402) return true;
+  const msg = String(
+    (unwrapProviderError(error) as Error)?.message ?? error,
+  ).toLowerCase();
+  return QUOTA_EXHAUSTED_PATTERNS.some((pattern) => msg.includes(pattern));
+}
+
+/**
+ * A provider error carries the entire request on `requestBodyValues` — every
+ * message, the system prompt and all tool schemas. Printing the raw object
+ * spills the whole conversation into the terminal and buries the one line that
+ * matters. Returns just that line.
+ */
+export function describeProviderError(error: unknown): string {
+  const unwrapped = unwrapProviderError(error);
+  const message = String((unwrapped as Error)?.message ?? unwrapped ?? "");
+  const status = getErrorStatus(error);
+  return status !== undefined ? `${status}: ${message}` : message;
+}
+
 const NETWORK_ERROR_CODES = new Set([
   "ECONNRESET",
   "ECONNREFUSED",
@@ -112,6 +183,7 @@ function getErrorCode(error: unknown): string | undefined {
 
 export function isTransientError(error: unknown): boolean {
   if (isAbortError(error)) return false; // user interrupt is never retried
+  if (isQuotaExhaustedError(error)) return false; // no amount of waiting helps
   const status = getErrorStatus(error);
   if (status === 429) return true;
   if (status !== undefined) return status >= 500; // other 4xx = fatal
@@ -158,6 +230,9 @@ function selectPolicy(
   error: unknown,
   policies: RecoveryPolicies,
 ): RecoveryPolicy | undefined {
+  // Checked before the 429 policy: a spent quota is also a 429, but retrying
+  // it just re-sends the conversation five times for the same rejection.
+  if (isQuotaExhaustedError(error)) return undefined;
   if (getErrorStatus(error) === 429) return policies.http429;
   if (isTransientError(error)) return policies.transient;
   return undefined; // fatal — no retry, straight to fallback chain
@@ -224,6 +299,19 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+// Reads as advice rather than a stack trace: the session is already persisted,
+// so the useful next step is topping up or switching provider, not debugging.
+function quotaExhaustedMessage(chain: string[], error: unknown): string {
+  const tried =
+    chain.length > 1 ? `all providers [${chain.join(", ")}]` : `"${chain[0]}"`;
+  const detail = describeProviderError(error);
+  const hint =
+    chain.length > 1
+      ? "Top up an account, or add another provider to recovery.fallbackProviders."
+      : `Top up "${chain[0]}", or set recovery.fallbackProviders in ~/.freecode/config.json to fail over automatically.`;
+  return `Provider quota exhausted on ${tried}. ${hint}\nProvider said — ${detail}`;
 }
 
 // =============================================================================
@@ -305,8 +393,8 @@ export function createRecoveryManager(
         const delayMs = computeDelay(policy, attempt, error);
         options.onRetry?.({ provider, attempt, delayMs, error });
         logger.warn(
-          `[Recovery] ${provider} attempt ${attempt}/${policy.maxAttempts} failed (${String(
-            (error as Error)?.message ?? error,
+          `[Recovery] ${provider} attempt ${attempt}/${policy.maxAttempts} failed (${describeProviderError(
+            error,
           )}); retrying in ${delayMs}ms`,
         );
         yield* Effect.tryPromise({
@@ -340,18 +428,28 @@ export function createRecoveryManager(
           const next = chain[chain.indexOf(provider) + 1];
           if (next) {
             logger.warn(
-              `[Recovery] provider "${provider}" exhausted (${String(
-                (error as Error)?.message ?? error,
+              `[Recovery] provider "${provider}" exhausted (${describeProviderError(
+                error,
               )}); falling back to "${next}"`,
             );
           }
         }
       }
 
+      // Quota exhaustion is a billing state, not a bug: say what happened and
+      // what fixes it. Throwing a plain Error also drops the SDK error's
+      // `requestBodyValues`, so nothing downstream — logs, the bus, or a crash
+      // report — can spill the conversation while reporting this.
+      if (isQuotaExhaustedError(lastError)) {
+        const message = quotaExhaustedMessage(chain, lastError);
+        BusEvents.sessionError(ctx.sessionId, message);
+        throw new Error(message);
+      }
+
       BusEvents.sessionError(
         ctx.sessionId,
-        `Recovery exhausted across providers [${chain.join(", ")}]: ${String(
-          (lastError as Error)?.message ?? lastError,
+        `Recovery exhausted across providers [${chain.join(", ")}]: ${describeProviderError(
+          lastError,
         )}`,
       );
       throw lastError;

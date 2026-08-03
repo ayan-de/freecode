@@ -218,6 +218,20 @@ export function convertToCoreMessages(messages: Message[]): ModelMessage[] {
 export const OUTPUT_TOKEN_CAP = 32_000;
 
 /**
+ * Retries are owned by `RecoveryManager`, not the AI SDK.
+ *
+ * The SDK defaults to 2 retries (3 attempts) and treats every 429 as
+ * retryable, including a hard "you are out of credits" quota rejection that
+ * can never succeed. Worse, its attempts multiply with ours — its 3 against
+ * the 429 policy's 5 is up to 15 full-conversation round trips for one turn.
+ *
+ * Leaving it at 0 puts every retry decision in one place, where a quota error
+ * can be told apart from a transient rate limit and the provider's own
+ * `retry-after` header is honored.
+ */
+export const PROVIDER_MAX_RETRIES = 0;
+
+/**
  * Resolves the model for a request, falling back to the provider's default.
  *
  * The fallback exists for API callers that omit a model, but it used to be a
