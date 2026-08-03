@@ -33,6 +33,12 @@ import { evaluatePermission } from "../permission/evaluate.js";
 import { promptForPermission } from "../permission/prompt.js";
 import { PermissionSettingsManager } from "../permission/settings.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
+import {
+  isRevert,
+  toEditTransition,
+  RECENT_EDIT_WINDOW,
+  type EditTransition,
+} from "./oscillation.js";
 import { logger } from "../utils/logger.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
@@ -180,7 +186,8 @@ export class AgentLoop {
   // Loop health tracking state
   private recentToolCalls: Array<{ tool: string; args: string }> = [];
   private recentReasoning: string[] = [];
-  private lastFileStates: string[] = [];
+  // Recent edit transitions, newest last — searched for inverses to spot reverts.
+  private recentEdits: EditTransition[] = [];
   private fileStateHash: string = "";
   // Reminder state (Phase 2): transient <system-reminder> blocks drained into
   // the next turn's prompt, plus counters for the todo nudge/gate.
@@ -325,11 +332,22 @@ export class AgentLoop {
       status: "starting",
       projectPath: input.projectPath,
       agentMode: input.agentMode ?? "build",
+      // Loop health is per-run. oscillationScore only ever climbs, so carrying
+      // it across prompts would let one run's history stop the *next* one at
+      // the health check before it ever reached the provider.
+      loopHealth: {
+        repeatedTools: 0,
+        stagnantTurns: 0,
+        oscillationScore: 0,
+        repeatedReasoningScore: 0,
+      },
     };
     // Fresh cancellation scope per run
     this.abort = new AbortController();
 
     // Reset per-run reminder state (this instance is reused across turns).
+    this.recentToolCalls = [];
+    this.recentEdits = [];
     this.pendingReminders = [];
     this.todoGateForces = 0;
     this.turnsSinceTodoWrite = 0;
@@ -424,7 +442,9 @@ export class AgentLoop {
         // An image-only prompt carries no text. Providers reject empty text
         // blocks, so omit the part rather than send a blank one.
         parts: [
-          ...(input.prompt ? [{ type: "text" as const, content: input.prompt }] : []),
+          ...(input.prompt
+            ? [{ type: "text" as const, content: input.prompt }]
+            : []),
           ...imageParts,
         ],
         timestamp: Date.now(),
@@ -440,6 +460,16 @@ export class AgentLoop {
       // resends the whole conversation, so summing would double-count).
       let lastTurnContextTokens = 0;
 
+      // Usage accumulated so far. Every exit below reports it — an abnormal
+      // stop (loop health, max iterations, interrupt) has still spent whatever
+      // tokens it spent, and dropping the totals renders the run as free.
+      const usageSoFar = () => ({
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheReadInputTokens: totalCacheReadTokens,
+        contextTokens: lastTurnContextTokens,
+      });
+
       // =======================================================================
       // CONTINUOUS LOOP - Core agent cycle
       // =======================================================================
@@ -447,14 +477,24 @@ export class AgentLoop {
         // Check: Have we hit max iterations?
         if (this.state.iterationCount >= this.config.maxIterations) {
           await this.stop("max_iterations_reached");
-          return this.complete("Max iterations reached");
+          return this.complete(
+            "Max iterations reached",
+            undefined,
+            undefined,
+            usageSoFar(),
+          );
         }
 
         // Check: Loop health (detect stuck patterns)
         const healthAction = this.evaluateLoopHealth();
         if (healthAction.action === "stop") {
           await this.stop(healthAction.reason || "loop_health_stop");
-          return this.complete(`Loop stopped: ${healthAction.reason}`);
+          return this.complete(
+            `Loop stopped: ${healthAction.reason}`,
+            undefined,
+            undefined,
+            usageSoFar(),
+          );
         }
         if (healthAction.action === "warn") {
           logger.debug(`[AgentLoop] Warning: ${healthAction.reason}`);
@@ -494,7 +534,12 @@ export class AgentLoop {
           // Interrupted mid-turn (Ctrl+C / session.stop): the provider or tool
           // call was aborted — that is a clean stop, not a failure.
           if (this.abort.signal.aborted) {
-            return this.complete("Interrupted");
+            return this.complete(
+              "Interrupted",
+              undefined,
+              undefined,
+              usageSoFar(),
+            );
           }
           return this.fail("Turn execution failed", turnResult.error);
         }
@@ -570,7 +615,12 @@ export class AgentLoop {
                 this.abort.signal,
               );
               if (this.abort.signal.aborted)
-                return this.complete("Interrupted");
+                return this.complete(
+                  "Interrupted",
+                  undefined,
+                  undefined,
+                  usageSoFar(),
+                );
               if (!verify.ok) {
                 this.pendingReminders.push(
                   verifyFailureReminder(verifyCmd.label, verify.output),
@@ -606,7 +656,13 @@ export class AgentLoop {
               changedFiles: [...this.mutatedFiles],
               priorReport: this.lastVerifierReport,
             });
-            if (this.abort.signal.aborted) return this.complete("Interrupted");
+            if (this.abort.signal.aborted)
+              return this.complete(
+                "Interrupted",
+                undefined,
+                undefined,
+                usageSoFar(),
+              );
             this.lastVerifierReport = verification.report;
             if (verification.verdict === "FAIL") {
               this.pendingReminders.push(
@@ -625,12 +681,7 @@ export class AgentLoop {
             "Done",
             turnResult.responseText,
             turnResult.thinking,
-            {
-              inputTokens: totalInputTokens,
-              outputTokens: totalOutputTokens,
-              cacheReadInputTokens: totalCacheReadTokens,
-              contextTokens: lastTurnContextTokens,
-            },
+            usageSoFar(),
           );
         }
 
@@ -641,7 +692,7 @@ export class AgentLoop {
         };
       }
 
-      return this.complete("Loop stopped");
+      return this.complete("Loop stopped", undefined, undefined, usageSoFar());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return this.fail("Loop error", message);
@@ -1725,24 +1776,31 @@ export class AgentLoop {
       };
     }
 
-    // C. Track oscillation (edit same file repeatedly)
+    // C. Track oscillation (edit/revert/edit on the same file). Only an edit
+    // that undoes an earlier one scores — repeatedly editing one file is how
+    // normal work on a large file looks, and counting that stops real tasks.
+    // A failed edit changed nothing, so it can't be part of a revert cycle.
     if (
       toolCall.tool === "edit" &&
+      !result.error &&
       toolCall.args &&
       typeof toolCall.args === "object"
     ) {
       const args = toolCall.args as Record<string, unknown>;
       const filePath = (args.filePath ?? args.path) as string;
-      if (filePath) {
-        this.lastFileStates.push(filePath);
-        if (this.lastFileStates.length > 10) {
-          this.lastFileStates.shift();
+      const { oldString, newString } = args;
+      if (
+        filePath &&
+        typeof oldString === "string" &&
+        typeof newString === "string"
+      ) {
+        const edit = toEditTransition(filePath, oldString, newString);
+        const reverted = isRevert(this.recentEdits, edit);
+        this.recentEdits.push(edit);
+        if (this.recentEdits.length > RECENT_EDIT_WINDOW) {
+          this.recentEdits.shift();
         }
-        // Detect edit/revert/edit pattern on same file
-        const sameFileEdits = this.lastFileStates.filter(
-          (f) => f === filePath,
-        ).length;
-        if (sameFileEdits >= 3) {
+        if (reverted) {
           this.state.loopHealth = {
             ...this.state.loopHealth,
             oscillationScore: this.state.loopHealth.oscillationScore + 1,
