@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.15.0
+
+### Added
+- Prompt history persistence: previously typed prompts are now saved per-project and recallable with the up-arrow, mirroring shell history.
+- `/theme` slash command with a token-based theme system (default / solarized-dark / monokai), applied through a chalk/pi-tui apply layer and persisted to `~/.freecode/config.json` with hot-reload.
+- `lastAgentMode` is now persisted in config, so the TUI reopens in the agent mode it was last left in instead of always defaulting to build.
+
+### Changed
+- The question flow now renders as a centered `QuestionModal` overlay instead of the old inline question picker, matching the permission-picker's presentation.
+- The in-progress status line's `↓` (input token) counter now grows live during multi-tool-call turns instead of sitting flat at the initial estimate until the turn finishes — each tool result bumps it by its own size (~4 chars/token), corrected by the real usage once the turn completes.
+
+### Fixed
+- The `ModeLine` no longer flashes the wrong agent mode on startup before config has loaded (`modeLoaded` gate).
+
 ## v0.14.0
 
 ### Changed
