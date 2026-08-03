@@ -89,7 +89,8 @@ describe("web/stream-subscribers", () => {
 
       assert.equal(a.written.length, 1);
       assert.equal(b.written.length, 1);
-      assert.match(a.written[0], /^data: /);
+      // SSE frame format: id: <seq>\ndata: <json>\n\n
+      assert.match(a.written[0], /^id: 1\ndata: /);
       assert.match(a.written[0], /"content":"hi"/);
     });
 
