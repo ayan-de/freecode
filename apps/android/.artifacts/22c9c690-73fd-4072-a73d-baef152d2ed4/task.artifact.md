@@ -1,0 +1,4 @@
+- [x] Update `strings.xml` to rename app to "Freecode"
+- [x] Update `ChatScreen.kt` for User Agent and banner text
+- [x] Update `TurnStateService.kt` for default status text
+- [x] Verify build and strings

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification icon. Foreground service notifications require a
+     single-color (white) silhouette on transparent so Android can
+     tint it. Vector path is a stylised "F" matching the FreeCode
+     monogram in apps/core. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M5,4 L19,4 L19,7 L9,7 L9,11 L17,11 L17,14 L9,14 L9,20 L5,20 Z" />
+</vector>

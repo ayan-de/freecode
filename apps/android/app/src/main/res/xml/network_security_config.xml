@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security config — §5.4.
+
+  Tailscale's CGNAT range (100.64.0.0/10) is a CIDR, not a
+  domain-config XML string. The Android XML format only supports
+  individual domains, so we scope cleartext two ways:
+
+  1. By the "ts.net" suffix (Tailscale's MagicDNS). Every Tailscale
+     device gets a hostname like <device>.ts.net — that's the most
+     common address for the daemon.
+  2. By the wildcard "100.in-addr.arpa" reverse-DNS suffix, used
+     during PTR lookups. The cleartext perm at the wildcard level
+     is the only encodable approximation of the CGNAT range; the
+     daemon never responds to reverse-DNS lookups anyway.
+
+  Anything else still requires TLS. If the user wants to bind the
+  daemon to a raw 100.64.x.y IP, they need to add the IP to
+  <domain> entries here — the spec acknowledges this end of the
+  rope is a manual step.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Tailscale MagicDNS -->
+        <domain includeSubdomains="true">ts.net</domain>
+        <!-- Reverse DNS for the CGNAT range. -->
+        <domain includeSubdomains="true">100.in-addr.arpa</domain>
+    </domain-config>
+</network-security-config>

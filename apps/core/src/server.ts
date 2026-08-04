@@ -72,6 +72,7 @@ import {
   type PermissionAnswer,
 } from "./bus/index.js";
 import { busEventToClientEvent } from "./bus/bridge.js";
+import { publishToSession, publishToAll } from "./web/stream-subscribers.js";
 import { readDailyUsage } from "./usage/tracker.js";
 import { appendHistory, readHistoryDisplays } from "./history/store.js";
 import { getSkillsManagerForProject } from "./skills/manager.js";
@@ -92,6 +93,20 @@ import type {
 // the single DI-provided instance (layers memoize construction).
 async function getSessionStore(): Promise<SessionStore> {
   return getAppRuntime().runPromise(SessionStoreTag);
+}
+
+// JSON-RPC error code returned when a question/permission prompt is answered
+// but had already been resolved by another device or by the prompt timeout
+// (spec §4.4). Distinct from a generic -32603 internal error so frontends
+// can render it as a normal outcome ("Already answered on another device")
+// rather than a failure.
+const REQUEST_ALREADY_RESOLVED = -32002;
+
+class JsonRpcError extends Error {
+  constructor(public readonly code: number, message: string) {
+    super(message);
+    this.name = "JsonRpcError";
+  }
 }
 
 // Loops with an in-flight turn, keyed by sessionId — session.stop and the
@@ -121,7 +136,10 @@ interface SessionInfo {
 }
 
 export const sessions: Map<string, SessionInfo> = new Map();
-export const sessionEventCallbacks = new Map<string, (event: any) => void>();
+// Per-session SSE subscriber fan-out lives in web/stream-subscribers.ts —
+// each session owns a Set<Subscriber> rather than a single callback, and
+// the module also runs the heartbeat/idle-reaper that prunes dead sockets.
+// The web-server imports addSubscriber/removeSubscriber directly.
 
 function createSession(config: SessionConfig): SessionInfo {
   const id = randomUUID();
@@ -411,12 +429,27 @@ const methodHandlers: Record<
       requestId: string;
       answers: string[];
     };
-    answerQuestion(requestId, answers);
+    if (!answerQuestion(requestId, answers)) {
+      // Another device (or the timeout) already closed this request. Tell
+      // the caller explicitly rather than report success for an answer that
+      // was discarded — silent success on a dropped answer is materially
+      // worse than an error (spec §4.4). Frontends render -32002 as state,
+      // not failure ("Already answered on another device").
+      throw new JsonRpcError(
+        REQUEST_ALREADY_RESOLVED,
+        "Request already resolved",
+      );
+    }
   },
 
   "question.reject": async (params: Record<string, unknown>): Promise<void> => {
     const { requestId } = params as { requestId: string };
-    rejectQuestion(requestId);
+    if (!rejectQuestion(requestId)) {
+      throw new JsonRpcError(
+        REQUEST_ALREADY_RESOLVED,
+        "Request already resolved",
+      );
+    }
   },
 
   "permission.answer": async (
@@ -427,14 +460,24 @@ const methodHandlers: Record<
       decision: PermissionAnswer["decision"];
       editedRule?: string;
     };
-    answerPermission(requestId, { decision, editedRule });
+    if (!answerPermission(requestId, { decision, editedRule })) {
+      throw new JsonRpcError(
+        REQUEST_ALREADY_RESOLVED,
+        "Request already resolved",
+      );
+    }
   },
 
   "permission.reject": async (
     params: Record<string, unknown>,
   ): Promise<void> => {
     const { requestId } = params as { requestId: string };
-    rejectPermission(requestId);
+    if (!rejectPermission(requestId)) {
+      throw new JsonRpcError(
+        REQUEST_ALREADY_RESOLVED,
+        "Request already resolved",
+      );
+    }
   },
 
   "providers.list": async (): Promise<unknown[]> => {
@@ -859,6 +902,11 @@ export async function handleRequest(
     const result = await handler(request.params ?? {});
     return createResponse(request.id, result);
   } catch (error) {
+    if (error instanceof JsonRpcError) {
+      // Carries a domain-specific error code (e.g. -32002 for already-resolved
+      // prompts) that the generic -32603 would otherwise hide.
+      return createError(request.id, error.code, error.message);
+    }
     const message = error instanceof Error ? error.message : String(error);
     return createError(request.id, -32603, message);
   }
@@ -895,12 +943,13 @@ export async function startServer() {
     if (!wire) return;
     const line = JSON.stringify(wire) + "\n";
     process.stdout.write(line); // TUI reads stdout lines
-    // Web SSE: route to the owning session if known, else broadcast.
+    // Web SSE: route to the owning session if known, else broadcast to all
+    // sessions (preserves the previous "no sessionId ⇒ fan-out" behavior).
     const sid = (event as { sessionId?: string }).sessionId;
     if (sid) {
-      sessionEventCallbacks.get(sid)?.(wire);
+      publishToSession(sid, wire);
     } else {
-      for (const cb of sessionEventCallbacks.values()) cb(wire);
+      publishToAll(wire);
     }
   });
 

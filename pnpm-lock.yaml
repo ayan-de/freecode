@@ -60,6 +60,9 @@ importers:
       '@thisisayande/freecode-shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@types/qrcode-terminal':
+        specifier: ^0.12.2
+        version: 0.12.2
       ai:
         specifier: ^6.0.191
         version: 6.0.191(zod@3.25.76)
@@ -78,6 +81,9 @@ importers:
       playwright:
         specifier: ^1.42.0
         version: 1.59.1
+      qrcode-terminal:
+        specifier: ^0.12.0
+        version: 0.12.0
       tree-sitter-javascript:
         specifier: 0.23.1
         version: 0.23.1
@@ -1712,6 +1718,9 @@ packages:
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
 
+  '@types/qrcode-terminal@0.12.2':
+    resolution: {integrity: sha512-v+RcIEJ+Uhd6ygSQ0u5YYY7ZM+la7GgPbs0V/7l/kFs2uO4S8BcIUEMoP7za4DNIqNnUD5npf0A/7kBhrCKG5Q==}
+
   '@types/react-dom@18.3.7':
     resolution: {integrity: sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==}
     peerDependencies:
@@ -3265,6 +3274,10 @@ packages:
 
   pure-rand@6.1.0:
     resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
+
+  qrcode-terminal@0.12.0:
+    resolution: {integrity: sha512-EXtzRZmC+YGmGlDFbXKxQiMZNwCLEO6BANKXG4iCtSIM0yqc/pappSx3RIKr4r0uh5JsBckOXeKrB3Iz7mdQpQ==}
+    hasBin: true
 
   qs@6.15.2:
     resolution: {integrity: sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==}
@@ -4932,6 +4945,8 @@ snapshots:
       undici-types: 6.21.0
 
   '@types/prop-types@15.7.15': {}
+
+  '@types/qrcode-terminal@0.12.2': {}
 
   '@types/react-dom@18.3.7(@types/react@18.3.29)':
     dependencies:
@@ -6675,6 +6690,8 @@ snapshots:
   punycode@2.3.1: {}
 
   pure-rand@6.1.0: {}
+
+  qrcode-terminal@0.12.0: {}
 
   qs@6.15.2:
     dependencies:

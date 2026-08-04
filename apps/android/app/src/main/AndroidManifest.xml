@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AndroidManifest — FreeCode Remote shell.
+
+  Permissions:
+  - INTERNET for /api + /events calls from the WebView
+  - CAMERA for QR scan in PairingScreen (CameraX + ML Kit)
+  - ACCESS_NETWORK_STATE for the §5.2 ConnectivityManager observer
+  - FOREGROUND_SERVICE + FOREGROUND_SERVICE_SPECIAL_USE (API 34+) for
+    the §5.3 foreground service. The exact notification type needs to
+    match the use case — "specialUse" lets us cite the blocked-prompt
+    case in metadata; "dataSync" is the conservative fallback if Play
+    Console complains during review.
+
+  Network security config (§5.4) scopes cleartext to Tailscale's CGNAT
+  range so the WebView can reach the daemon over the tailnet without
+  enabling process-wide cleartext.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- API 33+: without this the blocked-state escalation is silently
+         dropped, which is the exact failure the service exists to
+         prevent. Requested at runtime on first launch. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.FreecodeRemote"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.FreecodeRemote">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Deep link handler for freecode://<host>:<port>?token=… —
+                 the QR pairing URL opens the app with the credentials
+                 pre-filled on PairingScreen. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="freecode" />
+            </intent-filter>
+        </activity>
+
+        <!-- §5.3 foreground service — runs across `working` and
+             `blocked` states, stops on `idle`. The notification type
+             switches between low (working) and high (blocked) at runtime;
+             both forms are specialUse with this metadata. -->
+        <service
+            android:name=".service.TurnStateService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="freecode_remote_session" />
+        </service>
+
+    </application>
+
+</manifest>
