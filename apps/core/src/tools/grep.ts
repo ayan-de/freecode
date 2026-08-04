@@ -88,6 +88,7 @@ function countMatches(output: string, mode: string): number {
 // =============================================================================
 
 const RIPGREP_TIMEOUT_MS = 30_000;
+const DEFAULT_HEAD_LIMIT = 100;
 
 function runRipgrep(
   args: string[],
@@ -177,9 +178,10 @@ async function executeGrep(
     if (params.glob) args.push("--glob", params.glob);
     if (params.type) args.push("--type", params.type);
 
-    if (params.head_limit) {
-      args.push(`--max-count=${params.head_limit}`);
-    }
+    // ponytail: ripgrep has no output cap by default — an unbounded pattern
+    // in a large repo can flood context. Cap matches per file unless the
+    // model asked for a specific limit.
+    args.push(`--max-count=${params.head_limit ?? DEFAULT_HEAD_LIMIT}`);
 
     args.push(params.pattern);
     // Always give rg an explicit path. Without one it reads stdin and blocks
