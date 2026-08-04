@@ -1,27 +1,30 @@
-# Migrate to AGP Built-in Kotlin
+# Rename App to "Freecode" and Clean Up Terminology
 
-The project is using Android Gradle Plugin (AGP) 9.1.0, which introduces and enables built-in Kotlin support by default. The current build failure is caused by a conflict between the manually applied `org.jetbrains.kotlin.android` plugin and the new built-in Kotlin support in AGP 9.
+The user wants to rename the app to "Freecode" and remove "agent" as a suffix/label from the UI.
 
 ## Proposed Changes
 
-### Build Configuration
+### Resources
 
-#### [MODIFY] [libs.versions.toml](file:///home/ayan-de/Projects/freecode/apps/android/gradle/libs.versions.toml)
-- Remove `kotlin-android` from the `[plugins]` section as it's no longer required.
+#### [MODIFY] [strings.xml](file:///home/ayan-de/Projects/freecode/apps/android/app/src/main/res/values/strings.xml)
+- Change `app_name` from "FreeCode Remote" to "Freecode".
+- Update `pairing_title` from "Pair with FreeCode" to "Pair with Freecode".
+- Change `chat_state_working` from "Agent is working" to "Freecode is working".
+- Update `notif_channel_session_desc` from "Keeps the agent connected..." to "Keeps Freecode connected...".
+- Update `notif_working_title` from "FreeCode is working" to "Freecode is working".
 
-#### [MODIFY] [build.gradle.kts](file:///home/ayan-de/Projects/freecode/apps/android/build.gradle.kts) (root)
-- Remove `alias(libs.plugins.kotlin.android) apply false` from the `plugins` block.
+### Source Code
 
-#### [MODIFY] [app/build.gradle.kts](file:///home/ayan-de/Projects/freecode/apps/android/app/build.gradle.kts)
-- Remove `alias(libs.plugins.kotlin.android)` from the `plugins` block.
-- Remove the `kotlinOptions` block inside `android { ... }` as it's redundant with `compileOptions` in AGP 9 built-in Kotlin.
-- Ensure `alias(libs.plugins.kotlin.compose)` remains if it's compatible with built-in Kotlin (to be verified during execution).
+#### [MODIFY] [ChatScreen.kt](file:///home/ayan-de/Projects/freecode/apps/android/app/src/main/java/dev/freecode/remote/ui/ChatScreen.kt)
+- Update `userAgentString` from "FreeCodeRemote/0.1" to "Freecode/0.1".
+- Update the connectivity banner message from "watching the agent" to "watching Freecode".
+
+#### [MODIFY] [TurnStateService.kt](file:///home/ayan-de/Projects/freecode/apps/android/app/src/main/java/dev/freecode/remote/service/TurnStateService.kt)
+- Update default `target` from "the agent" to "Freecode".
 
 ## Verification Plan
 
-### Automated Tests
-- Run `gradle sync` to ensure the project configuration is valid.
-- Run `./gradlew :app:assembleDebug` to verify that Kotlin compilation and Compose compiler are working correctly.
-
 ### Manual Verification
-- Check for any Lint or IDE errors in Kotlin files.
+- Verify the app name in the launcher (once deployed).
+- Verify the strings in the pairing and chat screens.
+- Verify the notification text.

@@ -1,9 +1,4 @@
-- [x] Remove `kotlinOptions` from `app/build.gradle.kts`
-- [x] Remove `kotlin-android` from root `build.gradle.kts`
-- [x] Remove `kotlin-android` from `libs.versions.toml`
-- [x] Add `material` and `appcompat` dependencies
-- [x] Fix `MainActivity.kt` (vault property, smart cast, unused import)
-- [x] Fix `ChatScreen.kt` (`userAgentString` reference)
-- [x] Fix `FreecodeJsBridge.kt` (`TurnStateService.requestState` call)
-- [x] Fix `PairUrl.kt` (destructuring error)
-- [x] Verify build with `gradle sync` and `assembleDebug`
+- [x] Update `strings.xml` to rename app to "Freecode"
+- [x] Update `ChatScreen.kt` for User Agent and banner text
+- [x] Update `TurnStateService.kt` for default status text
+- [x] Verify build and strings
