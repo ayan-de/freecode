@@ -16,7 +16,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,6 +24,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.ui.graphics.Color
@@ -42,7 +43,18 @@ class MainActivity : ComponentActivity() {
         vault = CredentialVault(applicationContext)
         setContent {
             MaterialTheme(colorScheme = darkScheme) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+                // Box, not Surface. Material3's Surface applies
+                // .clip(shape), which creates a graphicsLayer — an
+                // offscreen render layer. A WebView nested inside one
+                // draws only its base layer: the page background paints
+                // and every composited layer above it (all the actual
+                // content) is silently dropped. That produced a screen
+                // of flat #0a0b0d with a fully laid-out DOM behind it.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                ) {
                     AppRoot(vault = vault, intent = intent)
                 }
             }
@@ -56,7 +68,18 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         setContent {
             MaterialTheme(colorScheme = darkScheme) {
-                Surface(modifier = Modifier.fillMaxSize()) {
+                // Box, not Surface. Material3's Surface applies
+                // .clip(shape), which creates a graphicsLayer — an
+                // offscreen render layer. A WebView nested inside one
+                // draws only its base layer: the page background paints
+                // and every composited layer above it (all the actual
+                // content) is silently dropped. That produced a screen
+                // of flat #0a0b0d with a fully laid-out DOM behind it.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                ) {
                     AppRoot(vault = vault, intent = intent)
                 }
             }
