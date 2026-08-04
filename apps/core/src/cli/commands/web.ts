@@ -1,24 +1,10 @@
 import type { CommandModule } from "yargs";
-import { exec } from "child_process";
+import { openBrowser } from "../../utils/open-browser.js";
 
 interface WebArgs {
   port: number;
   host: string;
   open: boolean;
-}
-
-function openBrowser(url: string) {
-  const start =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
-  exec(`${start} ${url}`, (err) => {
-    if (err) {
-      console.error(`Failed to open browser: ${err.message}`);
-    }
-  });
 }
 
 export const webCommand: CommandModule<object, WebArgs> = {

@@ -296,6 +296,79 @@ export class MemoryGraphService {
     }
   }
 
+  // Variant of retrieve() used by the graph explorer's `/api/search` endpoint.
+  // Same scoring, same fallback, but exposes the cascade's raw output (id +
+  // score + via) and which seed mode was used so the UI can highlight the
+  // walked path without paying the round trip to a typed entry.
+  async retrieveForExplorer(
+    query: string,
+  ): Promise<{
+    results: RetrievalResult[];
+    seedMode: "vector" | "keyword";
+  }> {
+    const fallback = (): {
+      results: RetrievalResult[];
+      seedMode: "vector" | "keyword";
+    } => {
+      // Match retrieve()'s keyword-fallback shape: synthetic descending scores
+      // keep order meaningful even when there's no graph to walk.
+      const kw = findRelevantMemories(query, this.store, { limit: 32 });
+      return {
+        results: kw.map((e, i) => ({
+          id: memoryId(e.type, e.name),
+          score: 1 - i * 0.05,
+        })),
+        seedMode: "keyword",
+      };
+    };
+
+    try {
+      const entries = this.store.list();
+      if (entries.length === 0) return { results: [], seedMode: "keyword" };
+      await this.sync(entries);
+
+      const seedMode: "vector" | "keyword" = embedder.available()
+        ? "vector"
+        : "keyword";
+      const seeds = await this.seed(query);
+      if (seeds.length === 0) return fallback();
+
+      const scored = cascadeRetrieve(seeds, this.graph, { maxDepth: 2 });
+      return { results: scored, seedMode };
+    } catch {
+      return fallback();
+    }
+  }
+
+  // Dump the traversable graph for `/api/graph`. Ensures a sync against the
+  // current file state first so the explorer sees fresh data even on a
+  // never-retrieved service. Returns empty arrays for an empty project rather
+  // than throwing.
+  async dumpGraphForExplorer(): Promise<{
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+    embedderAvailable: boolean;
+  }> {
+    try {
+      const entries = this.store.list();
+      if (entries.length === 0) {
+        return {
+          nodes: [],
+          edges: [],
+          embedderAvailable: embedder.available(),
+        };
+      }
+      await this.sync(entries);
+    } catch {
+      // Best-effort sync — fall through to whatever's already on disk.
+    }
+    return {
+      nodes: this.graph.allNodes(),
+      edges: this.graph.allEdges(),
+      embedderAvailable: embedder.available(),
+    };
+  }
+
   private sessionMemory(sessionId: string): SessionMemory {
     let st = this.sessions.get(sessionId);
     if (st) {
