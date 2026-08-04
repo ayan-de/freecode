@@ -16,6 +16,10 @@ interface GlobParams {
   cwd?: string;
 }
 
+// ponytail: fast-glob has no result cap — a broad pattern (e.g. "**/*.ts")
+// on a large tree can flood context with thousands of paths.
+const MAX_ENTRIES = 200;
+
 // =============================================================================
 // Glob Schema
 // =============================================================================
@@ -112,15 +116,18 @@ async function executeGlob(
       };
     }
 
-    const formatted = entries
-      .map((e) => path.resolve(resolvedCwd, e))
-      .join("\n");
+    const truncated = entries.length > MAX_ENTRIES;
+    const shown = truncated ? entries.slice(0, MAX_ENTRIES) : entries;
+    let formatted = shown.map((e) => path.resolve(resolvedCwd, e)).join("\n");
+    if (truncated) {
+      formatted += `\n... truncated at ${MAX_ENTRIES} of ${entries.length} matches. Narrow the pattern to see more.`;
+    }
     return {
       success: true,
       result: {
         title: "glob",
         output: formatted,
-        metadata: { count: entries.length },
+        metadata: { count: entries.length, truncated },
       },
     };
   } catch (error) {
