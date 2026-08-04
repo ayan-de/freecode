@@ -66,7 +66,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -139,6 +138,15 @@ fun ChatScreen(
             settings.saveFormData = false
             settings.userAgentString = "${settings.userAgentString} Freecode/0.1"
             addJavascriptInterface(bridge, "FreecodeBridge")
+
+            // Give the WebView its own opaque background instead of
+            // relying on a Compose layer behind it. Some devices will
+            // not composite a WebView left transparent, and this also
+            // removes the white flash the Compose background existed
+            // to hide. Pure black is deliberate: it is distinguishable
+            // from the Material Surface colour (#121318) behind it, so
+            // a screenshot says which layer actually painted.
+            setBackgroundColor(android.graphics.Color.BLACK)
 
             // §5.4: remote debugging in debug builds only. Read the
             // debuggable flag off applicationInfo rather than
@@ -257,11 +265,11 @@ fun ChatScreen(
                 onRepair = onForget,
             )
         }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black),
-        ) {
+        // No background modifier here. An opaque Compose layer in this
+        // position is a candidate for hiding the WebView entirely, and
+        // the WebView paints its own background anyway (set below), so
+        // the modifier bought nothing but risk.
+        Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 factory = { webView },
                 modifier = Modifier.fillMaxSize(),
