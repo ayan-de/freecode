@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.19.0
+
+### Added
+- **Prompt from your phone.** `freecode mobile` is one command from nothing to a paired phone: it checks Tailscale (installing, starting and signing in with your confirmation — never silent `sudo`), resolves your MagicDNS hostname, serves the UI over your tailnet, prints a QR, and confirms when the phone actually connects. No port is opened to the internet and the `127.0.0.1` default bind is unchanged; remote exposure still requires an explicit `--host`.
+- **Android client** (`apps/android`) — a Compose shell hosting the existing web UI, with QR pairing, an encrypted token vault, and a foreground service that keeps the approval window alive while the screen is off. Not distributed yet: build it yourself with `./gradlew assembleDebug`. See `docs/mobile-remote-setup.md`.
+- Lost agent output is now visible. When you reconnect after being offline longer than the server's replay buffer, the transcript shows an explicit "output lost while disconnected" marker instead of silently closing over the hole.
+
+### Changed
+- **Blocking prompts now time out after 30 minutes instead of 5.** This applies everywhere, not just on mobile. A timeout is not a retry — permission prompts treat it as *deny* — and 5 minutes assumed someone sitting at the keyboard. The trade-off is that an unattended local loop can now sit blocked for 30 minutes before unwedging itself; a hung loop is visible and interruptible, a silent deny is neither.
+- The web UI derives its viewport height by measurement rather than `100vh`, which is unreliable in mobile webviews.
+
+### Fixed
+- The web UI hard-coded `http://127.0.0.1:4096` for its API and event-stream calls, so serving it to any other device made that device fetch its own loopback. It now resolves the daemon from the page origin, which is what made remote access work at all.
+- `freecode web` printed the pairing URL but never the QR code — three separate bugs in the terminal QR call, each failing silently.
+- The Android pairing probe ran blocking network I/O on the main thread, so pairing could never succeed.
+- A page loaded into a not-yet-measured webview had every `100vh` frozen at zero, rendering a fully-laid-out app inside a zero-height box: a black screen with a perfectly healthy DOM behind it.
+- Several Android foreground-service defects that together meant a blocked-approval notification could never reach you: the service never actually entered the foreground, posted its escalation to a channel that cannot alert, and lacked the notification permission entirely.
+
 ## v0.18.2
 
 ### Fixed
