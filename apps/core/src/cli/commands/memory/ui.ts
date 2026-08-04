@@ -119,11 +119,6 @@ async function install(version: string): Promise<void> {
   }
 }
 
-// Helper that keeps the Buffer-typed fetch above readable.
-function archiveBytes(archive: Buffer): Buffer {
-  return archive;
-}
-
 // ---------------------------------------------------------------------------
 // Subcommands
 // ---------------------------------------------------------------------------
@@ -140,7 +135,7 @@ function versionOption(yargs: import("yargs").Argv) {
   });
 }
 
-const uiInstallCommand: CommandModule<object, UiArgs> = {
+export const uiInstallCommand: CommandModule<object, UiArgs> = {
   command: "ui-install",
   describe:
     "Download the graph explorer UI addon (~280 KB) into ~/.freecode/addons/graph-ui/",
@@ -166,7 +161,7 @@ const uiInstallCommand: CommandModule<object, UiArgs> = {
   },
 };
 
-const uiUninstallCommand: CommandModule<object, UiArgs> = {
+export const uiUninstallCommand: CommandModule<object, UiArgs> = {
   command: "ui-uninstall",
   describe: "Remove the graph explorer UI addon from ~/.freecode/addons/graph-ui/",
   builder: (yargs) => yargs,
@@ -178,15 +173,4 @@ const uiUninstallCommand: CommandModule<object, UiArgs> = {
     fs.rmSync(ADDON_DIR, { recursive: true, force: true });
     process.stdout.write(`  Removed ${ADDON_DIR}\n`);
   },
-};
-
-export const uiCommand: CommandModule = {
-  command: "ui",
-  describe: "Manage the optional graph explorer UI addon",
-  builder: (yargs) =>
-    yargs
-      .command(uiInstallCommand)
-      .command(uiUninstallCommand)
-      .demandCommand(1, "Specify a subcommand (ui-install or ui-uninstall)"),
-  handler: () => {},
 };

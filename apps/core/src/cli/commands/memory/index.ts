@@ -1,6 +1,6 @@
 import type { CommandModule } from "yargs";
 import { graphCommand } from "./graph.js";
-import { uiCommand } from "./ui.js";
+import { uiInstallCommand, uiUninstallCommand } from "./ui.js";
 
 export const memoryCommand: CommandModule = {
   command: "memory",
@@ -8,7 +8,8 @@ export const memoryCommand: CommandModule = {
   builder: (yargs) =>
     yargs
       .command(graphCommand)
-      .command(uiCommand)
+      .command(uiInstallCommand)
+      .command(uiUninstallCommand)
       .demandCommand(1, "Specify a subcommand"),
   handler: () => {},
 };
