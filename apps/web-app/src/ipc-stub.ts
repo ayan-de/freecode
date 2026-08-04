@@ -34,17 +34,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   openStreamReader,
-  discoverToken,
   type SSEController,
   type SSEEvent,
 } from "./lib/sse-reader.js";
+import { getConnection } from "./lib/connection.js";
 
 // Helper to check if we are running inside the Tauri desktop app
 const isTauri =
   typeof window !== "undefined" &&
   (window as any).__TAURI_INTERNALS__ !== undefined;
-
-const HTTP_BASE_URL = "http://127.0.0.1:4096";
 
 let nextRequestId = 1;
 const pendingRequests = new Map<
@@ -116,9 +114,9 @@ async function sendRequest<T>(
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    const token = discoverToken();
+    const { baseUrl, token } = getConnection();
     if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetch(`${HTTP_BASE_URL}/api`, {
+    const response = await fetch(`${baseUrl}/api`, {
       method: "POST",
       headers,
       body: JSON.stringify(request),
@@ -156,10 +154,9 @@ export function registerStreamListener(
     // reader will reconnect with the last id: it observed, so the
     // switch is gap-free.
     if (streamController) streamController.close();
-    const token = discoverToken();
     streamController = openStreamReader(
       sessionId,
-      token,
+      getConnection().token,
       (event: SSEEvent) => {
         // Each event is `{ data: <json>, id?, event? }`. The data field
         // is the wire payload — JSON.parsed by the server already (the
@@ -199,6 +196,17 @@ export function unregisterStreamListener(): void {
     streamController.close();
     streamController = null;
   }
+}
+
+/**
+ * Force the event stream to reconnect now. Called by the Android shell
+ * (via window.__freecodeOnNetworkChanged) when ConnectivityManager
+ * reports the network came back, so a cell↔wifi handover doesn't wait
+ * on a TCP timeout. Resume is gap-free — the reconnect carries
+ * Last-Event-ID.
+ */
+export function reconnectStream(): void {
+  streamController?.reconnectNow();
 }
 
 export async function listTools(): Promise<ToolListItem[]> {

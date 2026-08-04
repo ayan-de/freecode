@@ -12,7 +12,7 @@
 // ceiling so a network outage doesn't pin the phone awake at full CPU.
 // =============================================================================
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:4096";
+import { getConnection } from "./connection.js";
 
 export interface SSEEvent {
   /** Wire payload (parsed JSON). */
@@ -45,8 +45,8 @@ export interface SSEReaderOptions {
    */
   maxAttempts?: number;
   /**
-   * Provide a base URL other than the default. Useful when the page is
-   * served from a different origin than the daemon.
+   * Override the resolved base URL. Defaults to the daemon origin the
+   * rest of the SPA talks to (see lib/connection.ts).
    */
   baseUrl?: string;
 }
@@ -54,6 +54,13 @@ export interface SSEReaderOptions {
 export interface SSEController {
   /** Permanently stop the reader and refuse to reconnect. */
   close(): void;
+  /**
+   * Drop the current connection and reconnect immediately, resetting
+   * backoff. Used when the platform tells us the network changed (cell
+   * ↔ wifi handover), which TCP itself can take minutes to notice.
+   * Resume is unaffected — the new request carries Last-Event-ID.
+   */
+  reconnectNow(): void;
 }
 
 /**
@@ -73,7 +80,7 @@ export function openStreamReader(
   onEvent: (event: SSEEvent) => void,
   options: SSEReaderOptions = {},
 ): SSEController {
-  const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
+  const baseUrl = options.baseUrl ?? getConnection().baseUrl;
   const initialMs = options.initialReconnectMs ?? 500;
   const maxMs = options.maxReconnectMs ?? 30_000;
   const maxAttempts = options.maxAttempts ?? 0;
@@ -86,7 +93,11 @@ export function openStreamReader(
 
   const connect = async (): Promise<void> => {
     if (stopped) return;
-    controller = new AbortController();
+    // Held locally as well as on `controller` so that a connect aborted
+    // by reconnectNow() can't null out the *replacement* controller
+    // when its own finally block runs a microtask later.
+    const own = new AbortController();
+    controller = own;
     try {
       const url = new URL(`${baseUrl}/events`);
       url.searchParams.set("sessionId", sessionId);
@@ -99,7 +110,7 @@ export function openStreamReader(
       const response = await fetch(url.toString(), {
         method: "GET",
         headers,
-        signal: controller.signal,
+        signal: own.signal,
       });
 
       if (!response.ok) {
@@ -187,10 +198,13 @@ export function openStreamReader(
       if (err instanceof DOMException && err.name === "AbortError") return;
       // Anything else: schedule a reconnect.
     } finally {
-      controller = null;
+      if (controller === own) controller = null;
     }
 
     if (stopped) return;
+    // A newer connect has already taken over (reconnectNow) — don't
+    // stack a second reconnect on top of it.
+    if (controller !== null) return;
     scheduleReconnect();
   };
 
@@ -219,27 +233,19 @@ export function openStreamReader(
       }
       controller?.abort();
     },
+    reconnectNow(): void {
+      if (stopped) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      attempt = 0;
+      // Aborting makes the in-flight connect() bail out through its
+      // AbortError branch without scheduling its own reconnect, so we
+      // own the next connect exclusively.
+      controller?.abort();
+      void connect();
+    },
   };
 }
 
-/**
- * Try to read the bearer token from the URL (?token=…) and from any
- * global injected by the Android native bridge. Returns null when no
- * token is available, in which case the reader sends no Authorization
- * header — appropriate for loopback binds.
- */
-export function discoverToken(): string | null {
-  // 1) Query parameter — used by the QR pairing URL on the desktop.
-  try {
-    const u = new URL(window.location.href);
-    const fromQuery = u.searchParams.get("token");
-    if (fromQuery) return fromQuery;
-  } catch {
-    // Ignore — window.location may be unavailable in some test envs.
-  }
-  // 2) Android bridge — Phase 4. The native side calls a JS hook to
-  // inject credentials; the SPA reads them via window.__freecodeAuth.
-  const w = window as unknown as { __freecodeAuth?: { token?: string } };
-  if (w.__freecodeAuth?.token) return w.__freecodeAuth.token;
-  return null;
-}
