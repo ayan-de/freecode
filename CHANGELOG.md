@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.17.0
+
+### Fixed
+- `grep` had no default result cap — an unbounded pattern in a large repo returned every ripgrep match straight into context. Now defaults to `--max-count=100` per file unless the model passes an explicit `head_limit`.
+- `glob` had no result cap at all — a broad pattern (e.g. `**/*.ts`) on a large tree could flood context with thousands of paths. Now caps output at 200 entries with a truncation notice, matching the pattern already used by `ls`.
+
 ## v0.16.0
 
 ### Fixed
