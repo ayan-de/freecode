@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.19.1
+
+### Fixed
+- **The released binary served no web UI.** `freecode web` (and therefore `freecode mobile` and every phone client) returned 404 for every page: the compiled binary bundles JavaScript but not static assets, and nothing shipped the web app alongside it. The desktop never noticed — the TUI doesn't use the web UI and the API answered normally, so pairing a phone even reported success — while the phone, which has no interface of its own and simply displays what the desktop serves, showed a blank screen with no error anywhere. The web app now travels with the binary, the packaging step refuses to build without it, and the server says so loudly if it's ever missing again.
+
 ## v0.19.0
 
 ### Added
