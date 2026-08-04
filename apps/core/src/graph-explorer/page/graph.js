@@ -130,19 +130,23 @@
     }
     emptyEl.hidden = true;
 
+    // forceLink()'s default accessors read `.source`/`.target`, and it
+    // resolves those id strings to node objects *in place* on whatever array
+    // it's given. The same array (same object references) must be bound to
+    // the DOM here, or tick()'s `d.source.x` reads stale/undefined data —
+    // build it once and pass it to both .data() below and sim.force("link").
+    const links = edges.map((e) => ({
+      source: e.from,
+      target: e.to,
+      kind: e.kind,
+      weight: e.weight,
+    }));
+
     // Edge weights cap link distance inversely: stronger bonds (Supersedes
     // 0.9) sit closer than weaker ones (InCluster 0.6).
     linksSel = edgeLayer
       .selectAll("line.edge")
-      .data(
-        edges.map((e) => ({
-          source: e.from,
-          target: e.to,
-          kind: e.kind,
-          weight: e.weight,
-        })),
-        (d) => `${d.source}->${d.target}:${d.kind}`,
-      )
+      .data(links, (d) => `${d.source}->${d.target}:${d.kind}`)
       .join("line")
       .attr("class", (d) => `edge ${d.kind}`)
       .attr("stroke-width", (d) => 0.8 + d.weight * 2);
@@ -176,7 +180,7 @@
       .attr("class", "edge-label");
 
     sim.nodes(nodes);
-    sim.force("link").links(edges);
+    sim.force("link").links(links);
     fitToView(nodes);
 
     const memCount = nodes.filter((n) => n.kind === "Memory").length;
