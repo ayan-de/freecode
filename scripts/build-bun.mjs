@@ -7,7 +7,14 @@
 // =============================================================================
 
 import { execFileSync } from "child_process";
-import { readFileSync, statSync, existsSync, readdirSync, copyFileSync } from "fs";
+import {
+  readFileSync,
+  statSync,
+  existsSync,
+  readdirSync,
+  copyFileSync,
+  cpSync,
+} from "fs";
 import { createRequire } from "module";
 import { fileURLToPath } from "url";
 import { dirname, resolve, join } from "path";
@@ -59,6 +66,9 @@ const args = [
 if (target) args.push("--target", target);
 args.push("--outfile", outfile, resolve(repoRoot, "apps/tui/src/entry.ts"));
 
+// Preflight before the (slow) compile: refuse to package without the SPA.
+assertWebUiBuilt();
+
 console.log(
   `[bun] compiling self-contained binary${target ? ` (${target})` : ""}...`,
 );
@@ -77,6 +87,37 @@ console.log("[bun] self-contained: TUI + core bundled; runs from anywhere.");
 // own directory before importing fastembed; on Windows same-directory DLLs
 // are found by the default search order with no env var needed.
 copyOnnxSharedLibs(outfile, target);
+
+// `bun build --compile` bundles JS, not static assets, so the web SPA has to
+// travel as loose files beside the binary — same treatment as the onnx libs
+// above. web-server.ts looks for `web-ui/` next to process.execPath.
+//
+// Without this the binary starts fine and /api answers normally, but `/`
+// 404s. That is invisible on a desktop (the TUI never loads the SPA) and
+// fatal on a phone, whose client has no UI of its own and renders this
+// bundle in a WebView. Hence the hard failure rather than a warning.
+copyWebUi(outfile);
+
+function webUiSrc() {
+  return resolve(repoRoot, "apps/web-app/dist");
+}
+
+function assertWebUiBuilt() {
+  if (existsSync(join(webUiSrc(), "index.html"))) return;
+  throw new Error(
+    "apps/web-app/dist/index.html missing — run `pnpm --filter web-app " +
+      "build` before packaging. Shipping without it produces a binary whose " +
+      "web UI 404s: a blank screen for `freecode web` and for every phone " +
+      "client, with no error on either side.",
+  );
+}
+
+function copyWebUi(binOutfile) {
+  const src = webUiSrc();
+  const dest = join(dirname(binOutfile), "web-ui");
+  cpSync(src, dest, { recursive: true });
+  console.log(`[bun] copied web UI → ${dest}`);
+}
 
 function targetPlatformArch(bunTarget) {
   if (!bunTarget) return { platform: process.platform, arch: process.arch };

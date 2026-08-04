@@ -52,6 +52,34 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
+/**
+ * Where the built SPA lives.
+ *
+ * Two layouts, because the binary and the repo are shaped differently:
+ *
+ *  - Released binary: `bun build --compile` embeds core's JS but not static
+ *    assets, so `apps/web-app/dist` is shipped as a loose `web-ui/` directory
+ *    beside the executable (same trick as the onnxruntime shared libs).
+ *    `__dirname` inside a compiled bun binary points at a virtual path, so it
+ *    can't be used here — resolve from process.execPath instead.
+ *  - Repo: the usual apps/core/dist → apps/web-app/dist hop.
+ *
+ * Returns the first candidate that actually contains an index.html, or null.
+ * A null return is a packaging bug, and the caller says so loudly: /api keeps
+ * working without the SPA, so this failed silently as a 404 on `/` — which
+ * looks, from a phone, exactly like a blank screen.
+ */
+function resolveWebUiDir(): string | null {
+  const candidates = [
+    path.join(path.dirname(process.execPath), "web-ui"),
+    path.join(__dirname, "..", "..", "web-app", "dist"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, "index.html"))) return dir;
+  }
+  return null;
+}
+
 export interface WebServerOptions {
   /** Loopback bind (default) skips auth. Non-loopback requires it. */
   requireAuth?: boolean;
@@ -80,7 +108,19 @@ export function startWebServer(
   host: string = "127.0.0.1",
   options: WebServerOptions = {},
 ): http.Server {
-  const distDir = path.join(__dirname, "..", "..", "web-app", "dist");
+  const webUiDir = resolveWebUiDir();
+  if (!webUiDir) {
+    // Loud, once, at startup. The phone client has no UI of its own — it
+    // renders this SPA in a WebView — so a missing bundle is not a
+    // degraded experience, it is a blank screen with no error anywhere.
+    console.error(
+      "[Server] FATAL: web UI bundle not found. `/` will 404 and any " +
+        "browser or phone client will show a blank page. Expected " +
+        "`web-ui/` beside the executable (released binary) or " +
+        "`apps/web-app/dist` (repo — run `pnpm --filter web-app build`).",
+    );
+  }
+  const distDir = webUiDir ?? "";
   const requireAuth = options.requireAuth ?? false;
   const authOn = isAuthRequired(host, requireAuth);
   const token: string = options._token ?? loadOrCreateToken();

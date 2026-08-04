@@ -34,11 +34,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      # Bun bundles core from its built dist, so shared + core must compile first.
-      - name: Build shared + core
+      # Bun bundles core from its built dist, so shared + core must compile
+      # first. web-app is not bundled into the binary — build-bun.mjs copies
+      # its dist beside the executable as `web-ui/`, which is what serves the
+      # browser and every phone client. Skip it and the binary 404s on `/`.
+      - name: Build shared + core + web UI
         run: |
           pnpm --filter @thisisayande/freecode-shared build
           pnpm --filter @thisisayande/freecode-core build
+          pnpm --filter web-app build
 
       # One Linux runner cross-compiles every target thanks to `bun --target`.
       # Each target builds into its own staging dir — build-bun.mjs copies the
