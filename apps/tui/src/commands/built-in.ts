@@ -1,7 +1,7 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
 import { restoreScreen } from "../terminal-screen.js";
-import { getUsage, listSkills, type SkillInfo } from "../ipc/client.js";
+import { getUsage, graphExplore, listSkills, type SkillInfo } from "../ipc/client.js";
 
 const helpCommand: Command = {
   name: "help",
@@ -16,6 +16,7 @@ const helpCommand: Command = {
 - **/compact** - Summarize older turns to free up context
 - **/usage** - Show daily token usage heatmap
 - **/skills** - List available skills (global + project)
+- **/graph** - Open the memory knowledge graph in your browser
 - **/exit** - Exit FreeCode
 
 Use **PgUp/PgDn** to scroll the message history.
@@ -164,6 +165,34 @@ const skillsCommand: Command = {
   },
 };
 
+// Open the optional graph explorer in a separate browser window. Unlike
+// /usage's fullscreen heatmap, this doesn't touch the terminal at all — the
+// browser is a separate window and the TUI keeps working normally.
+const graphCommand: Command = {
+  name: "graph",
+  description: "Open the memory knowledge graph in your browser",
+  execute: async (_args, ctx) => {
+    try {
+      const result = await graphExplore();
+      if ("error" in result) {
+        ctx.showMessage(
+          "**Graph explorer UI not installed.**\n\n" +
+            "Run this in a terminal to download it once (~280 KB):\n\n" +
+            "```\nfreecode memory ui-install\n```\n\n" +
+            "Then run **/graph** again — the server checks the addon at request time, " +
+            "no restart needed.",
+        );
+        return;
+      }
+      ctx.showMessage(`Graph explorer running at **${result.url}**`);
+    } catch (err) {
+      ctx.showMessage(
+        `*Error opening graph explorer: ${err instanceof Error ? err.message : String(err)}*`,
+      );
+    }
+  },
+};
+
 export function registerBuiltInCommands(): void {
   registerCommand(helpCommand);
   registerCommand(clearCommand);
@@ -173,4 +202,5 @@ export function registerBuiltInCommands(): void {
   registerCommand(compactCommand);
   registerCommand(usageCommand);
   registerCommand(skillsCommand);
+  registerCommand(graphCommand);
 }

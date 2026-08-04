@@ -612,6 +612,20 @@ export async function listSkills(): Promise<SkillInfo[]> {
   })) as SkillInfo[];
 }
 
+/**
+ * Open the optional graph explorer in the browser. Returns the URL on
+ * success; returns `{ error: "not-installed" }` when the user hasn't run
+ * `freecode memory ui-install` yet (the addon is a separate ~280 KB download
+ * from the GitHub release).
+ */
+export async function graphExplore(): Promise<
+  { url: string } | { error: "not-installed" }
+> {
+  return (await sendRequest("graph.explore")) as
+    | { url: string }
+    | { error: "not-installed" };
+}
+
 export interface ConfigInfo {
   providers?: Record<string, { apiKey?: string }>;
   current?: { provider: string; model: string };
