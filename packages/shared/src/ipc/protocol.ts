@@ -272,6 +272,14 @@ export const METHODS = {
     params: { text: "" },
     result: undefined as void,
   },
+  // Open the optional graph explorer in the browser. Returns { url } on
+  // success; { error: "not-installed" } if the user hasn't run
+  // `freecode memory ui-install` yet (the addon is opt-in, ~280 KB download
+  // from the GitHub release). Spec: 2026-08-04-memory-graph-explorer-design.md.
+  "graph.explore": {
+    params: undefined,
+    result: {} as { url: string } | { error: "not-installed" },
+  },
 } as const;
 
 export type MethodName = keyof typeof METHODS;
