@@ -1,6 +1,5 @@
 import type { CommandModule } from "yargs";
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
@@ -81,9 +80,14 @@ async function install(version: string): Promise<void> {
   // The release tarball wraps everything in a top-level `page/` directory
   // (the dir the workflow tared), so we strip one component to land the
   // files at the addon root.
-  const tmpExtract = fs.mkdtempSync(
-    path.join(os.tmpdir(), "freecode-graph-ui-"),
-  );
+  //
+  // The staging dir must be on the same filesystem as ADDON_DIR — rename()
+  // can't cross devices (EXDEV), and os.tmpdir() (/tmp) is frequently a
+  // separate tmpfs mount from $HOME, where ~/.freecode lives. Stage inside
+  // ADDON_DIR's own parent instead.
+  const addonsRoot = path.dirname(ADDON_DIR);
+  fs.mkdirSync(addonsRoot, { recursive: true });
+  const tmpExtract = fs.mkdtempSync(path.join(addonsRoot, ".graph-ui-"));
   try {
     fs.writeFileSync(path.join(tmpExtract, archiveName), archive);
     execFileSync(
@@ -93,12 +97,10 @@ async function install(version: string): Promise<void> {
     );
     fs.rmSync(path.join(tmpExtract, archiveName), { force: true });
 
-    fs.mkdirSync(path.dirname(ADDON_DIR), { recursive: true });
     // Replace any existing install in one swap — old dir goes to a trash dir
-    // we delete after the new one is in place, so `ui-install` is idempotent.
-    const trash = fs.mkdtempSync(
-      path.join(os.tmpdir(), "freecode-graph-ui-old-"),
-    );
+    // (same filesystem, same reasoning) we delete after the new one is in
+    // place, so `ui-install` is idempotent.
+    const trash = fs.mkdtempSync(path.join(addonsRoot, ".graph-ui-old-"));
     if (fs.existsSync(ADDON_DIR)) {
       fs.renameSync(ADDON_DIR, path.join(trash, "graph-ui"));
     }
@@ -124,14 +126,17 @@ async function install(version: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 interface UiArgs {
-  version?: string;
+  addonVersion?: string;
 }
 
 function versionOption(yargs: import("yargs").Argv) {
-  return yargs.option("version", {
+  // Named addon-version, not version — yargs reserves --version/-v for its
+  // own built-in "show version number" flag; reusing the name emits a
+  // runtime warning and shadows the built-in flag.
+  return yargs.option("addon-version", {
     type: "string",
     describe:
-      "Override the addon version (defaults to the running freecode --version)",
+      "Override the addon version to fetch (defaults to the running freecode --version)",
   });
 }
 
@@ -141,10 +146,10 @@ export const uiInstallCommand: CommandModule<object, UiArgs> = {
     "Download the graph explorer UI addon (~280 KB) into ~/.freecode/addons/graph-ui/",
   builder: versionOption,
   handler: async (argv) => {
-    const version = argv.version || resolveVersion();
+    const version = argv.addonVersion || resolveVersion();
     if (version === "unknown") {
       process.stderr.write(
-        "  Could not determine the running freecode version; pass --version vX.Y.Z explicitly.\n",
+        "  Could not determine the running freecode version; pass --addon-version vX.Y.Z explicitly.\n",
       );
       process.exitCode = 1;
       return;

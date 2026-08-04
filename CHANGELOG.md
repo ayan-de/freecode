@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.18.1
+
+### Fixed
+- `freecode memory ui-install` failed against the real published release with `EXDEV: cross-device link not permitted`. The addon was staged in `os.tmpdir()` (`/tmp`, frequently a separate filesystem from `$HOME`) before an atomic `rename()` into `~/.freecode/addons/graph-ui/` — `rename()` can't cross filesystems. Staging now happens inside the addon directory's own parent, guaranteeing the same filesystem.
+- The addon-version override option was named `--version`, colliding with yargs' built-in `-v`/`--version` flag and emitting a runtime warning on every install. Renamed to `--addon-version`.
+
 ## v0.18.0
 
 ### Added
