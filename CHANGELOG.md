@@ -5,6 +5,7 @@
 ### Fixed
 - `grep` had no default result cap — an unbounded pattern in a large repo returned every ripgrep match straight into context. Now defaults to `--max-count=100` per file unless the model passes an explicit `head_limit`.
 - `glob` had no result cap at all — a broad pattern (e.g. `**/*.ts`) on a large tree could flood context with thousands of paths. Now caps output at 200 entries with a truncation notice, matching the pattern already used by `ls`.
+- **Memory knowledge graph: tags written in YAML-array syntax (`tags: [editor]`, `tags: [tooling, package-manager]`) produced malformed tag nodes.** The frontmatter parser only split on commas without stripping brackets, so `[editor]` became the literal tag `"[editor]"`, and a multi-item bracketed list split into fragments each keeping a stray `[` or `]` (`"[tooling"`, `"package-manager]"`). Tags now parse correctly whether written as `tags: a, b` or `tags: [a, b]`, so every user who wrote tags in bracket syntax will get correctly-tagged graph nodes and `HasTag` edges once they update.
 
 ## v0.16.0
 

@@ -62,10 +62,12 @@ export interface ParsedMemory {
   content: string;
 }
 
-// Parse a comma-separated frontmatter list (`a, b, c`). Empty → undefined.
+// Parse a comma-separated frontmatter list (`a, b, c` or YAML-style `[a, b, c]`).
+// Empty → undefined.
 function parseList(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
-  const items = value
+  const stripped = value.trim().replace(/^\[/, "").replace(/\]$/, "");
+  const items = stripped
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
