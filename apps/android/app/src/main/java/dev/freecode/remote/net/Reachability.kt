@@ -18,6 +18,8 @@ package dev.freecode.remote.net
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -31,14 +33,21 @@ object Reachability {
         data class Error(val message: String) : Result()
     }
 
+    /**
+     * Blocking HttpURLConnection work, so this must never run on the
+     * caller's dispatcher: PairingScreen calls it from
+     * rememberCoroutineScope(), which is Dispatchers.Main, and Android
+     * throws NetworkOnMainThreadException there. `suspend` alone does
+     * not move work off the calling thread — withContext does.
+     */
     suspend fun probe(
         ctx: Context,
         host: String,
         port: Int,
         token: String,
-    ): Result {
-        if (!isOnline(ctx)) return Result.Unreachable
-        return try {
+    ): Result = withContext(Dispatchers.IO) {
+        if (!isOnline(ctx)) return@withContext Result.Unreachable
+        try {
             val url = URL("http://$host:$port/api")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
