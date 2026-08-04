@@ -15,6 +15,11 @@ This is a thin Compose shell that:
 4. **Runs a foreground service** while the agent is `working` or `blocked`
    on an approval, so the screen-off case doesn't lose the answer window.
 
+The spec's `ConnectionScreen` is folded into `ChatScreen`'s connectivity
+banner — it shows on a WebView load error or when `NetworkObserver`
+reports no network, and carries the re-pair action. That keeps the user
+inside the WebView's history instead of bouncing them to a dead end.
+
 It is **not** part of the pnpm workspace — it builds independently via Gradle.
 The only tie to the monorepo is the path the WebView loads (`http://host:port/`)
 and this README.
@@ -34,8 +39,7 @@ apps/android/
         │   ├── MainActivity.kt           # Compose root + nav
         │   ├── ui/
         │   │   ├── PairingScreen.kt      # QR + manual entry
-        │   │   ├── ConnectionScreen.kt   # reachability + re-pair
-        │   │   └── ChatScreen.kt         # WebView host
+        │   │   └── ChatScreen.kt         # WebView host + connectivity banner
         │   ├── bridge/
         │   │   └── FreecodeJsBridge.kt   # @JavascriptInterface surfaces
         │   ├── vault/

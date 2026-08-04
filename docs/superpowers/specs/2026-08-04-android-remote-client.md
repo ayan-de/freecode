@@ -410,7 +410,7 @@ Each phase is independently useful and independently verifiable.
 | **1. Harden the server** ✅ | §4.1 auth, §4.3 multi-subscriber + heartbeat/reaper cleanup, §4.4 one-shot resolution, CORS fix, QR output | Unit tests on token compare + origin logic; `curl` without a token gets `401`; two `curl` SSE clients on one session both receive every event; **kill a client with `SIGKILL` (no clean close) and assert the subscriber set drains within 60s**; **two clients answer one `requestId`, assert exactly one wins and the other gets `-32002`** |
 | **2. Resumable stream** ✅ | §4.2 seq + ring buffer + `Last-Event-ID` + `stream_gap` | Test: subscribe, kill the connection mid-turn, reconnect with `Last-Event-ID`, assert zero missing seqs; assert `stream_gap` on forced eviction |
 | **3. SPA mobile + approvals** ✅ | Responsive layout (drawers for `Sidebar`/`RightSidebar`), `question_asked`/`permission_asked` modals wired to the answer RPCs, `-32002` and resolution-broadcast handling, fetch-based SSE reader with auth header + resume | Approve a `bash` call from a phone browser over the tailnet; rotate the phone; background 60s and confirm the transcript is gap-free; **answer from the TUI and confirm the phone's modal self-dismisses** |
-| **4. Android shell** ⏳ | Compose scaffold, pairing/QR, token vault, WebView + bridge, foreground service with the §5.3 state machine | Pair by scanning; run a turn with the screen locked; **lock the phone, trigger a permission prompt, and confirm the escalated notification arrives and is answerable well inside the 5-minute deny deadline** |
+| **4. Android shell** 🔨 | Compose scaffold, pairing/QR, token vault, WebView + bridge, foreground service with the §5.3 state machine | Pair by scanning; run a turn with the screen locked; **lock the phone, trigger a permission prompt, and confirm the escalated notification arrives and is answerable well inside the 5-minute deny deadline** |
 | **5. Push (deferred)** | Turn-complete + blocked-on-approval notifications via FCM | out of v1 scope |
 
 **Phases 1–3 deliver the feature via a mobile browser.** Phase 4 makes it a real
@@ -418,9 +418,34 @@ app. That ordering is deliberate: it means the risky, security-sensitive work
 gets exercised through a trivially debuggable client before any Gradle project
 exists, and if Phase 4 stalls you still have a working remote setup.
 
-**Status:** Phases 1–3 landed (commit chain ending at `168440b`). The mobile
-browser path delivers the v1 spec target today; Phase 4 (the native Compose
-shell) is the only follow-up the §7 phasing table leaves for future work.
+**Status:** Phases 1–3 landed (commit chain ending at `168440b`). Phase 4 is
+code-complete (🔨) but **not yet verified on a device** — the §7 Phase 4
+verification row is still outstanding and is the gate on calling it done.
+
+Three defects found while wiring the shell to the SPA are worth recording,
+since each silently defeated a guarantee stated above:
+
+- The SPA hard-coded `http://127.0.0.1:4096` for `/api` and `/events`, so a
+  phone fetched its *own* loopback. This broke the Phase 3 mobile-browser
+  path too, not just the app — §7's "approve a bash call from a phone
+  browser" cannot have passed as written. Base URL is now derived from the
+  page origin (`web-app/src/lib/connection.ts`).
+- The native bridge exposed `FreecodeBridge.getCredentials()` while the SPA
+  read `window.__freecodeAuth`, so the token never crossed the seam and
+  every request 401'd. Both carriers are now accepted.
+- The §5.3 state machine had no producer: nothing in the SPA ever called
+  `setTurnState`, and the service never called `startForeground` outside the
+  `blocked` branch, used a plain `startService` (illegal from background on
+  API 26+), never ran its watchdog, and posted the blocked escalation to an
+  `IMPORTANCE_LOW` channel where API 26+ ignores `PRIORITY_HIGH`.
+  `POST_NOTIFICATIONS` was absent entirely, so on API 33+ every notification
+  was dropped. The escalation is now a separate high-importance channel.
+
+One deliberate deviation from §5.3: a resolution broadcast returns the state
+machine to `working`, not `idle`. Stopping the service on a broadcast is a
+trap on Android 12+, where a backgrounded app cannot legally start a
+foreground service again — the next `permission_asked` of the same turn
+could not re-escalate. `done`/`error` remain the only routes to `idle`.
 
 ## 8. Open questions
 
