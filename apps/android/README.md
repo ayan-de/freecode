@@ -56,7 +56,13 @@ apps/android/
             └── drawable/ic_notification.xml      # foreground notif icon
 ```
 
-## Build
+## Setup, build and debugging
+
+Full contributor runbook — Tailscale login, MagicDNS, pairing, `adb` recipes,
+and the failure modes hit during device bring-up — lives in
+[`docs/mobile-remote-setup.md`](../../docs/mobile-remote-setup.md).
+
+Quick version:
 
 ```
 cd apps/android
