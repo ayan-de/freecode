@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.18.2
+
+### Fixed
+- The `/graph` explorer hides Tag/Cluster node labels by default to avoid crowding the layout, but had no fallback — their names were undiscoverable in the UI (only visible via the raw `/api/graph` JSON), which worked against the feature's educational goal. Every node now gets a native hover tooltip (`name (kind)`) via an SVG `<title>` element, so nothing in the graph is a mystery dot anymore.
+
 ## v0.18.1
 
 ### Fixed

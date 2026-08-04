@@ -163,6 +163,15 @@
       .style("fill", nodeColor)
       .call(drag);
 
+    // Tag/Cluster labels are hidden by default to avoid crowding (see
+    // node-labels below) — a native <title> makes every node's name/kind
+    // discoverable on hover without adding permanent visual clutter.
+    nodesSel
+      .selectAll("title")
+      .data((d) => [d])
+      .join("title")
+      .text((d) => `${d.label} (${d.kind})`);
+
     nodeLabelsSel = labelLayer
       .selectAll("text.node-label")
       .data(
