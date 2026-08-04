@@ -29,13 +29,10 @@
 //
 // Belt and braces: the state machine is driven by wire events and so
 // can miss a transition if the stream drops. The service additionally
-// caps itself with a watchdog — if no event of any kind arrives for 10
-// minutes (twice the 5-minute prompt timeout), it stops regardless of
-// reported state.
-//
-// §8 Q5 (open question about prompt timeout for remote use): the
-// watchdog is wired to a constant below so a follow-up can plumb a
-// longer timeout without changing the state machine.
+// caps itself with a watchdog — if no event of any kind arrives for
+// twice the daemon's prompt timeout, it stops regardless of reported
+// state. §8 Q5 settled that timeout at 30 minutes, so the watchdog is
+// 60. See WATCHDOG_MS below.
 // =============================================================================
 
 package dev.freecode.remote.service
@@ -59,8 +56,16 @@ import dev.freecode.remote.R
 
 enum class TurnState { Working, Blocked, Idle }
 
-/** Watchdog window — twice the spec's 5-minute prompt timeout. */
-private const val WATCHDOG_MS = 10 * 60 * 1000L
+/**
+ * Watchdog window — twice the daemon's prompt timeout (PROMPT_TIMEOUT_MS
+ * in core's bus/index.ts, 30 minutes as of §8 Q5), so it can never fire
+ * while an answer would still have been accepted.
+ *
+ * Keep these two in step. A watchdog shorter than the prompt timeout
+ * reaps the service mid-wait and reintroduces the silent deny this
+ * whole mechanism exists to prevent.
+ */
+private const val WATCHDOG_MS = 60 * 60 * 1000L
 
 /** How often the watchdog re-checks. */
 private const val WATCHDOG_TICK_MS = 30 * 1000L
@@ -164,7 +169,7 @@ class TurnStateService : Service() {
                 // The escalation: a separate high-importance notification
                 // so it can actually heads-up over the lockscreen. This
                 // is the thing standing between the user and a silent
-                // 5-minute deny.
+                // deny when the prompt times out.
                 notifications.notify(ALERT_NOTIF_ID, buildAlert(info))
             }
         }

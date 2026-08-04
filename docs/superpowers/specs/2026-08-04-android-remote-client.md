@@ -459,12 +459,25 @@ could not re-escalate. `done`/`error` remain the only routes to `idle`.
    `freecode web --rotate-token` is worth it depends on how many devices pair.
 4. **Multiple phones.** One shared token, or per-device tokens with a revocation
    list? One token is right for a single-user tool; revisit only if it isn't.
-5. **Is 5 minutes the right prompt timeout for remote use?** The current value
-   (`index.ts:316,364`) was chosen for someone sitting at the machine. Remote
-   adds notification latency, phone-unlock, and the possibility of being
-   somewhere you cannot answer for ten minutes — and the penalty for missing it
-   is a silent deny (§5.3). Options: leave it, raise it globally, or make it
-   configurable and longer when a remote subscriber is attached. Leaning toward
-   configurable with an unchanged default, since silently extending how long a
-   local loop can hang is its own regression. **Decide before Phase 4** — the
-   watchdog window in §5.3 is derived from this number.
+5. ~~**Is 5 minutes the right prompt timeout for remote use?**~~ **Decided:
+   raised globally to 30 minutes.** The original value was chosen for someone
+   sitting at the machine; remote adds notification latency, phone-unlock, and
+   the possibility of being somewhere you cannot answer for a while — and the
+   penalty for missing it is a silent deny (§5.3).
+
+   The spec leaned toward "configurable, unchanged default" to avoid silently
+   extending how long a local loop can hang. That regression is real and is
+   accepted rather than avoided: an unattended local loop can now sit for 30
+   minutes before unwedging itself. The asymmetry is what settles it — a hung
+   loop is visible and you can interrupt it, whereas a timeout is not a retry:
+   `askPermission`'s callers treat it as **deny**, so the agent proceeds as
+   though you refused, and you find out from the transcript afterwards.
+
+   One knob rather than two also keeps the failure modes enumerable. A
+   remote-aware timeout means the deny deadline depends on whether a
+   subscriber happened to be attached when the prompt fired — a race that
+   would be miserable to debug from the wrong end of a tailnet.
+
+   Implemented as `PROMPT_TIMEOUT_MS` in `bus/index.ts`, shared by the
+   question and permission paths so they cannot drift. The §5.3 watchdog is
+   derived from it and is now 60 minutes.

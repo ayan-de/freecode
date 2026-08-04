@@ -94,7 +94,7 @@ async function getSessionStore(): Promise<SessionStore> {
 }
 
 // JSON-RPC error code returned when a question/permission prompt is answered
-// but had already been resolved by another device or by the 5-minute timeout
+// but had already been resolved by another device or by the prompt timeout
 // (spec §4.4). Distinct from a generic -32603 internal error so frontends
 // can render it as a normal outcome ("Already answered on another device")
 // rather than a failure.

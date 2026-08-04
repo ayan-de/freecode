@@ -271,6 +271,27 @@ class FreeCodeBus extends EventEmitter {
 export const bus = FreeCodeBus.getInstance();
 
 // ============================================================================
+// Blocking-prompt timeout
+// ============================================================================
+
+/**
+ * How long a question or permission prompt waits for a human before it
+ * gives up. Shared by both so the two can't drift.
+ *
+ * 30 minutes, raised from 5 to settle spec §8 Q5. The original value
+ * assumed someone sitting at the machine; remote use adds notification
+ * latency, phone-unlock, and simply being somewhere you can't answer for
+ * a while. The penalty for missing the window is not a retry — permission
+ * callers treat a timeout as **deny**, so the agent proceeds as though
+ * you refused.
+ *
+ * The cost is borne locally: an unattended local loop can now hang for
+ * 30 minutes instead of 5 before unwedging itself. That is the accepted
+ * trade — a hung loop is visible and recoverable, a silent deny is not.
+ */
+export const PROMPT_TIMEOUT_MS = 30 * 60 * 1000;
+
+// ============================================================================
 // Question-specific Bus helpers
 // ============================================================================
 
@@ -304,20 +325,17 @@ export async function askQuestion(
       questions,
     } as QuestionAskedEvent);
 
-    // Timeout after 5 minutes. unref() so a pending question never keeps the
-    // process alive on its own (it also lets tests exit once resolved).
-    const timer = setTimeout(
-      () => {
-        if (pendingQuestions.has(requestId)) {
-          pendingQuestions.delete(requestId);
-          // Publish a rejected broadcast so attached frontends can dismiss
-          // their modals. Same shape as the user-driven reject path.
-          bus.publish({ type: "question.rejected", requestId });
-          reject(new Error("Question timed out"));
-        }
-      },
-      5 * 60 * 1000,
-    );
+    // unref() so a pending question never keeps the process alive on its
+    // own (it also lets tests exit once resolved).
+    const timer = setTimeout(() => {
+      if (pendingQuestions.has(requestId)) {
+        pendingQuestions.delete(requestId);
+        // Publish a rejected broadcast so attached frontends can dismiss
+        // their modals. Same shape as the user-driven reject path.
+        bus.publish({ type: "question.rejected", requestId });
+        reject(new Error("Question timed out"));
+      }
+    }, PROMPT_TIMEOUT_MS);
     timer.unref?.();
   });
 }
@@ -381,7 +399,7 @@ const pendingPermissions = new Map<
 export async function askPermission(
   requestId: string,
   request: Omit<PermissionAskedEvent, "type" | "requestId">,
-  timeoutMs = 5 * 60 * 1000,
+  timeoutMs = PROMPT_TIMEOUT_MS,
 ): Promise<PermissionAnswer> {
   return new Promise((resolve, reject) => {
     // Headless: nobody is listening, so nobody could ever answer

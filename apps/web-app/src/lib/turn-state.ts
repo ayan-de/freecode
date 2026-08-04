@@ -10,7 +10,7 @@
 // when the agent parks on a permission prompt nothing streams, so any
 // "is a turn active" signal derived from output activity goes quiet at
 // exactly the moment a human is needed. A frozen WebView there doesn't
-// merely delay the answer — the prompt times out after 5 minutes and
+// merely delay the answer — the prompt times out (PROMPT_TIMEOUT_MS) and
 // `askPermission`'s callers treat that as **deny**.
 //
 // This module is a no-op outside the Android WebView, so the browser

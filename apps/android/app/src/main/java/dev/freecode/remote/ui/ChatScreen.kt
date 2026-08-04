@@ -92,7 +92,7 @@ fun ChatScreen(
 
     // API 33+ gates notifications behind a runtime grant. Without it the
     // blocked-state escalation never reaches the user and a tool call
-    // is silently denied after 5 minutes, so ask on first entry.
+    // is silently denied when the prompt times out, so ask on first entry.
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* Denial is survivable — the WebView still works in-app. */ }
