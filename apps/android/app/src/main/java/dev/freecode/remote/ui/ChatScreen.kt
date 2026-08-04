@@ -33,12 +33,15 @@ package dev.freecode.remote.ui
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -137,6 +140,29 @@ fun ChatScreen(
             settings.userAgentString = "${settings.userAgentString} Freecode/0.1"
             addJavascriptInterface(bridge, "FreecodeBridge")
 
+            // §5.4: remote debugging in debug builds only. Read the
+            // debuggable flag off applicationInfo rather than
+            // BuildConfig, which AGP 8 only generates when explicitly
+            // opted into via buildFeatures.
+            val debuggable =
+                (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            if (debuggable) WebView.setWebContentsDebuggingEnabled(true)
+
+            // Without a WebChromeClient a JS exception is indis-
+            // tinguishable from a working page: the WebView just shows
+            // blank and says nothing. Surface console output so a blank
+            // screen is diagnosable from logcat.
+            webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                    Log.d(
+                        TAG,
+                        "console[${msg.messageLevel()}] ${msg.message()}" +
+                            " @ ${msg.sourceId()}:${msg.lineNumber()}",
+                    )
+                    return true
+                }
+            }
+
             // The service is NOT started here. Attaching the WebView
             // means the user is looking at the app, not that a turn is
             // running; starting it now would hold a foreground service
@@ -159,8 +185,35 @@ fun ChatScreen(
                     request: WebResourceRequest,
                     error: WebResourceError,
                 ) {
-                    Log.w(TAG, "load error: ${error.errorCode} ${error.description}")
-                    lastError = "WebView error: ${error.description}"
+                    Log.w(
+                        TAG,
+                        "load error ${error.errorCode} ${error.description}" +
+                            " for ${request.url} (main=${request.isForMainFrame})",
+                    )
+                    // Only a main-frame failure means the page is dead. A
+                    // failed subresource must not replace a working UI
+                    // with an error banner.
+                    if (request.isForMainFrame) {
+                        lastError = "WebView error: ${error.description}"
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    errorResponse: android.webkit.WebResourceResponse,
+                ) {
+                    // A 401 on the document or its assets renders blank
+                    // with no network-level error at all, so log it
+                    // separately from onReceivedError.
+                    Log.w(
+                        TAG,
+                        "http ${errorResponse.statusCode} for ${request.url}" +
+                            " (main=${request.isForMainFrame})",
+                    )
+                    if (request.isForMainFrame) {
+                        lastError = "Daemon returned HTTP ${errorResponse.statusCode}"
+                    }
                 }
 
                 override fun shouldOverrideUrlLoading(
