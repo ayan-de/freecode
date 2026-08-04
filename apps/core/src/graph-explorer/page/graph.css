@@ -1,0 +1,307 @@
+/* Memory Graph Explorer — visuals.
+ * Kept deliberately small (no CSS framework, no bundler). The dark palette
+ * matches the freecode TUI so the page feels native when it pops open
+ * alongside the terminal.
+ */
+
+:root {
+  --bg: #14161b;
+  --bg-elev: #1c1f26;
+  --bg-elev2: #232730;
+  --fg: #e6e6e6;
+  --fg-dim: #9aa0a6;
+  --border: #2a2f3a;
+  --accent: #f5c71a;
+  --muted: #4a5060;
+  --memory: #f5c71a;
+  --tag: #6cc4ff;
+  --cluster: #c084fc;
+  --match: #f5c71a;
+  --dim: #353a47;
+  --path: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.stats {
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.badge {
+  background: var(--bg-elev2);
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.search {
+  flex: 1 1 auto;
+  display: flex;
+}
+
+.search input {
+  flex: 1 1 auto;
+  background: var(--bg-elev2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--fg);
+  font-size: 13px;
+  outline: none;
+}
+
+.search input:focus {
+  border-color: var(--accent);
+}
+
+main {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+#graph {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+
+#graph:active {
+  cursor: grabbing;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.empty[hidden] {
+  display: none;
+}
+
+.legend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(28, 31, 38, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  pointer-events: none;
+  max-width: 200px;
+}
+
+.legend h4 {
+  margin: 0 0 4px 0;
+  font-size: 11px;
+  color: var(--fg);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.legend h4:not(:first-child) {
+  margin-top: 8px;
+}
+
+.legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.dot.kind-Memory {
+  background: var(--memory);
+}
+
+.dot.kind-Tag {
+  background: var(--tag);
+}
+
+.dot.kind-Cluster {
+  background: var(--cluster);
+}
+
+.line {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid var(--muted);
+}
+
+.line.HasTag {
+  border-top-style: solid;
+  border-top-color: var(--tag);
+  opacity: 0.7;
+}
+
+.line.RelatesTo {
+  border-top-style: dashed;
+  border-top-color: var(--muted);
+}
+
+.line.Supersedes {
+  border-top-style: solid;
+  border-top-color: var(--path);
+  border-top-width: 3px;
+}
+
+.line.InCluster {
+  border-top-style: dotted;
+  border-top-color: var(--cluster);
+}
+
+/* SVG elements -------------------------------------------------- */
+
+.node {
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 1;
+  cursor: grab;
+}
+
+.node.dim {
+  opacity: 0.15;
+}
+
+.node.match {
+  stroke: var(--match);
+  stroke-width: 2.5;
+}
+
+.node-label {
+  fill: var(--fg);
+  font-size: 10px;
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.node-label.dim {
+  opacity: 0.15;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.edge.HasTag {
+  stroke: var(--tag);
+  opacity: 0.6;
+}
+
+.edge.RelatesTo {
+  stroke: var(--muted);
+  stroke-dasharray: 4 4;
+  opacity: 0.5;
+}
+
+.edge.Supersedes {
+  stroke: var(--path);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+.edge.InCluster {
+  stroke: var(--cluster);
+  stroke-dasharray: 2 3;
+  opacity: 0.5;
+}
+
+.edge.dim {
+  opacity: 0.05;
+}
+
+.edge.path {
+  stroke: var(--path);
+  stroke-width: 3;
+  opacity: 1;
+}
+
+.edge-label {
+  fill: var(--path);
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+  text-anchor: middle;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.edge-label.show {
+  opacity: 1;
+}
