@@ -18,6 +18,7 @@ import { mcpCommand } from "./commands/mcp/index.js";
 import { sessionCommand } from "./commands/session/index.js";
 import { memoryCommand } from "./commands/memory/index.js";
 import { webCommand } from "./commands/web.js";
+import { mobileCommand } from "./commands/mobile.js";
 import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
 import { uninstallCommand } from "./commands/uninstall.js";
@@ -84,6 +85,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(sessionCommand)
     .command(memoryCommand)
     .command(webCommand)
+    .command(mobileCommand)
     .command(serveCommand)
     .command(runCommand)
     .command(uninstallCommand)

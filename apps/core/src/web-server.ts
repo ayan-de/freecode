@@ -30,6 +30,7 @@ import {
   disposeSession,
   replayToSubscriber,
 } from "./web/stream-subscribers.js";
+import { renderPairQr } from "./web/pair-qr.js";
 import {
   compareTokens,
   extractToken,
@@ -56,6 +57,22 @@ export interface WebServerOptions {
   requireAuth?: boolean;
   /** Test hook — pass the token rather than reading/disk. */
   _token?: string;
+  /**
+   * Suppress the startup banner. `freecode mobile` lays out its own
+   * pairing instructions and doesn't want two sets of URLs interleaved.
+   */
+  quiet?: boolean;
+  /**
+   * Fired once, on the first request that presents a valid token. The
+   * pairing wizard uses it to report "phone paired" rather than leaving the
+   * user guessing whether the scan worked.
+   */
+  onFirstAuth?: (info: { userAgent: string; remote: string }) => void;
+}
+
+/** The `freecode://` URL encoded into the pairing QR. */
+export function pairUrl(host: string, port: number, token: string): string {
+  return `freecode://${host}:${port}/?token=${token}`;
 }
 
 export function startWebServer(
@@ -67,6 +84,8 @@ export function startWebServer(
   const requireAuth = options.requireAuth ?? false;
   const authOn = isAuthRequired(host, requireAuth);
   const token: string = options._token ?? loadOrCreateToken();
+  // One-shot latch for options.onFirstAuth.
+  let firstAuthSeen = false;
 
   // Barebones loopback check for CORS echo — anything on 127/::1/0.0.0.0
   // is treated as local, but a non-loopback bind echoes only its own host.
@@ -133,6 +152,13 @@ export function startWebServer(
       if (!compareTokens(presented, token)) {
         unauthorized(res);
         return;
+      }
+      if (!firstAuthSeen) {
+        firstAuthSeen = true;
+        options.onFirstAuth?.({
+          userAgent: String(req.headers["user-agent"] ?? ""),
+          remote: req.socket.remoteAddress ?? "",
+        });
       }
     }
 
@@ -251,43 +277,23 @@ export function startWebServer(
 
   server.listen(port, host, () => {
     const url = `http://${host}:${port}/`;
+    if (options.quiet) return;
     console.log(`[Server] Web interface running at ${url}`);
 
     // Only print the pairing QR + URL when auth is actually required —
     // loopback binds print nothing because there's no second device to
     // pair (and printing 43 base64 chars into every TTY run is noise).
     if (authOn) {
-      const pairUrl = `freecode://${host}:${port}/?token=${token}`;
-      console.log(`[Server] Pair URL: ${pairUrl}`);
+      console.log(`[Server] Pair URL: ${pairUrl(host, port, token)}`);
       console.log(`[Server] Web URL:  ${url}?token=${token}`);
-      // qrcode-terminal is ~1 dependency; failure here is non-fatal —
-      // the URL is still printed above. Dynamic import keeps the dep
-      // optional for environments where the printout is suppressed.
-      import("qrcode-terminal")
-        .then((mod) => {
-          // qrcode-terminal is CJS, so the ESM namespace puts the whole
-          // module object on .default — there is no top-level .generate.
-          // And generate() reads its error-correction level off `this`,
-          // so it has to stay attached to that object; pulling it out
-          // into a bare reference throws "bad rs block".
-          const qr = ((mod as { default?: unknown }).default ?? mod) as {
-            generate?: (
-              input: string,
-              opts: { small?: boolean },
-              cb: (art: string) => void,
-            ) => void;
-          };
-          if (typeof qr.generate !== "function") return;
-          // Signature is (input, opts, cb) — not (cb, opts).
-          qr.generate(pairUrl, { small: true }, (art: string) => {
-            console.log(
-              `\n[Server] Scan to pair (terminal must support UTF-8):\n${art}`,
-            );
-          });
-        })
-        .catch(() => {
-          // qrcode-terminal not available — URL above is the fallback.
-        });
+      // Non-fatal: the URL above is always the fallback.
+      void renderPairQr(pairUrl(host, port, token)).then((art) => {
+        if (art) {
+          console.log(
+            `\n[Server] Scan to pair (terminal must support UTF-8):\n${art}`,
+          );
+        }
+      });
     }
   });
 
