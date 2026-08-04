@@ -17,6 +17,37 @@ import { createCli } from "@thisisayande/freecode-core/cli/create-cli";
 import type { CommandModule } from "yargs";
 import * as fs from "fs";
 import * as path from "path";
+import { spawnSync } from "child_process";
+
+// `bun build --compile` embeds the memory graph's onnxruntime native addon
+// but not the shared library it dlopen()s at runtime (libonnxruntime.so.1 /
+// .dylib — see build-bun.mjs, which ships it as a loose file next to this
+// binary). The dynamic linker only reads LD_LIBRARY_PATH/DYLD_LIBRARY_PATH at
+// process start, so setting it lazily right before the embedder needs it is
+// too late — the whole process has to be re-exec'd with the variable already
+// set. Do that once, here, before any real work starts; a sentinel env var
+// stops this from looping. No-op on Windows (same-directory DLLs just work)
+// and outside the compiled binary (dev's real .node file finds its sibling
+// via its own RPATH, no help needed).
+if (
+  process.env.FREECODE_BUNDLED === "1" &&
+  process.platform !== "win32" &&
+  !process.env.__FREECODE_REEXECED
+) {
+  const libDir = path.dirname(process.execPath);
+  const key = process.platform === "darwin" ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
+  const existing = process.env[key];
+  const env = {
+    ...process.env,
+    [key]: existing ? `${libDir}${path.delimiter}${existing}` : libDir,
+    __FREECODE_REEXECED: "1",
+  };
+  const result = spawnSync(process.execPath, process.argv.slice(2), {
+    stdio: "inherit",
+    env,
+  });
+  process.exit(result.status ?? 1);
+}
 
 interface TuiArgs {
   project?: string;

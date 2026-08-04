@@ -8,6 +8,14 @@
 import * as os from "os";
 import * as path from "path";
 
+// `bun build --compile` embeds onnxruntime_binding.node but not the shared
+// library it dlopen()s at runtime (libonnxruntime.so.1 / .dylib) — the
+// addon's RPATH doesn't survive bundling. build-bun.mjs ships that library as
+// a loose file next to the compiled binary, and entry.ts re-execs the process
+// with LD_LIBRARY_PATH/DYLD_LIBRARY_PATH pointed at it *before* any code here
+// runs — the dynamic linker only reads that variable at process start, so
+// setting it from within an already-running process (here) is too late.
+
 // Pinned by the Phase 0 spike: fastembed's AllMiniLML6V2 → 384-dim Float32Array.
 // dims are NOT hard-coded downstream — vector-store reads them from the vectors.
 export const MODEL_ID = "fast-all-MiniLM-L6-v2";

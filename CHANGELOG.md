@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.17.1
+
+### Fixed
+- **Memory knowledge graph embeddings never actually worked in the distributed binary.** `bun build --compile` embeds the memory graph's onnxruntime native addon but not the shared library it `dlopen()`s at runtime (`libonnxruntime.so.1` / `.dylib`), so every released `freecode` binary silently fell back to keyword-only retrieval instead of real vector search — the graph's tags/wikilinks/clusters worked, but semantic similarity never did. `build-bun.mjs` now ships that shared library as a loose file next to the compiled binary, and the binary re-execs itself once at startup with `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH` pointed at it (the dynamic linker only reads that variable at process start, so it can't be set lazily once the embedder needs it). Windows and dev/tsx runs are unaffected and need no change.
+
 ## v0.17.0
 
 ### Fixed

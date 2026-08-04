@@ -7,12 +7,14 @@
 // =============================================================================
 
 import { execFileSync } from "child_process";
-import { readFileSync, statSync, existsSync } from "fs";
+import { readFileSync, statSync, existsSync, readdirSync, copyFileSync } from "fs";
+import { createRequire } from "module";
 import { fileURLToPath } from "url";
 import { dirname, resolve, join } from "path";
 import { homedir } from "os";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
 
 function findBun() {
   try {
@@ -65,3 +67,52 @@ execFileSync(findBun(), args, { stdio: "inherit", cwd: repoRoot });
 const sizeMb = (statSync(outfile).size / 1024 / 1024).toFixed(1);
 console.log(`[bun] done: ${outfile} (${sizeMb} MB)`);
 console.log("[bun] self-contained: TUI + core bundled; runs from anywhere.");
+
+// `bun build --compile` embeds onnxruntime_binding.node but not the shared
+// library it dlopen()s at runtime (libonnxruntime.so.1 / .dylib / .dll) —
+// the embedded addon's RPATH doesn't survive bundling, so the dlopen fails
+// and the embedder silently falls back to keyword search (spec D6). Ship
+// the real shared libs as loose files next to the binary instead: on Linux/
+// macOS the embedder points LD_LIBRARY_PATH/DYLD_LIBRARY_PATH at the exe's
+// own directory before importing fastembed; on Windows same-directory DLLs
+// are found by the default search order with no env var needed.
+copyOnnxSharedLibs(outfile, target);
+
+function targetPlatformArch(bunTarget) {
+  if (!bunTarget) return { platform: process.platform, arch: process.arch };
+  const map = {
+    "bun-linux-x64": ["linux", "x64"],
+    "bun-linux-arm64": ["linux", "arm64"],
+    "bun-darwin-x64": ["darwin", "x64"],
+    "bun-darwin-arm64": ["darwin", "arm64"],
+    "bun-windows-x64": ["win32", "x64"],
+  };
+  const hit = map[bunTarget];
+  if (!hit) throw new Error(`unknown bun target: ${bunTarget}`);
+  return { platform: hit[0], arch: hit[1] };
+}
+
+function copyOnnxSharedLibs(binOutfile, bunTarget) {
+  const { platform, arch } = targetPlatformArch(bunTarget);
+  // package.json exports blocks a direct package.json resolve; go through
+  // fastembed's own resolution of its onnxruntime-node dependency instead.
+  const fastembedMain = require.resolve("fastembed", {
+    paths: [resolve(repoRoot, "apps/core")],
+  });
+  const onnxMain = require.resolve("onnxruntime-node", {
+    paths: [dirname(fastembedMain)],
+  });
+  // onnxMain is .../onnxruntime-node/dist/index.js — walk up to the package root.
+  const onnxRoot = dirname(dirname(onnxMain));
+  const natDir = join(onnxRoot, "bin", "napi-v3", platform, arch);
+  if (!existsSync(natDir)) {
+    console.log(`[bun] no onnxruntime natives for ${platform}/${arch}, skipping`);
+    return;
+  }
+  const destDir = dirname(binOutfile);
+  const libs = readdirSync(natDir).filter((f) => !f.endsWith(".node"));
+  for (const lib of libs) {
+    copyFileSync(join(natDir, lib), join(destDir, lib));
+  }
+  console.log(`[bun] copied ${libs.length} onnxruntime shared lib(s) → ${destDir}`);
+}
