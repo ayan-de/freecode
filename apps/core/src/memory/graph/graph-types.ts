@@ -37,4 +37,9 @@ export const EDGE_WEIGHTS: Record<EdgeKind, number> = {
 export interface RetrievalResult {
   id: string;
   score: number;
+  // Which edge carried this result's score from a seed. `null` for the seed
+  // itself. Surfaced for the graph explorer's `/api/search` endpoint so the UI
+  // can highlight the walked path; the cascade scoring itself does not read it
+  // and is byte-for-byte identical whether or not it's populated.
+  via?: { from: string; edgeKind: EdgeKind } | null;
 }

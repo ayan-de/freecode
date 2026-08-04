@@ -75,6 +75,8 @@ import { busEventToClientEvent } from "./bus/bridge.js";
 import { readDailyUsage } from "./usage/tracker.js";
 import { appendHistory, readHistoryDisplays } from "./history/store.js";
 import { getSkillsManagerForProject } from "./skills/manager.js";
+import { startGraphExplorer } from "./graph-explorer/server.js";
+import { openBrowser } from "./utils/open-browser.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import {
@@ -665,6 +667,18 @@ const methodHandlers: Record<
     const { projectPath } = params as { projectPath?: string };
     const service = getMemoryGraphService(projectPath || process.cwd());
     return service.stats();
+  },
+
+  // Open the optional graph explorer in the browser. The addon is a
+  // separate download (see cli/commands/memory/ui.ts); if it's not
+  // installed, return { error: "not-installed" } so the TUI can print the
+  // install instructions instead of starting a server that has nothing to
+  // serve.
+  "graph.explore": async (): Promise<
+    { url: string } | { error: "not-installed" }
+  > => {
+    const service = getMemoryGraphService(process.cwd());
+    return startGraphExplorer(service, { openBrowser });
   },
 
   // Full (non-relevance) memory block. For relevance-ranked retrieval use

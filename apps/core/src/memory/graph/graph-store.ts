@@ -101,4 +101,16 @@ export class GraphStore {
   edgeCount(): number {
     return this.edges.length;
   }
+
+  // Read-only snapshots used by the graph explorer UI (`/api/graph`). These are
+  // intentionally not used by the cascade — the cascade walks neighbors one
+  // node at a time and would gain nothing from a bulk dump — so they live here
+  // (next to the rest of the read accessors) rather than in graph/index.ts.
+  allNodes(): GraphNode[] {
+    return [...this.nodes.values()];
+  }
+
+  allEdges(): GraphEdge[] {
+    return [...this.edges];
+  }
 }

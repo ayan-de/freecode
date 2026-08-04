@@ -274,3 +274,6 @@ Need a feature like this
                                                                               new task? /clear to save 128.2k tokens
 
 3) Unknown command: /apps/tui. Type /help for available commands
+
+
+4)One real gotcha worth knowing, not just for this feature but for the whole memory system: it's basename only, not the full path. Two unrelated repos both named freecode on your machine (e.g. a fork checked out elsewhere) would collide into the same memory namespace. That's pre-existing behavior from before this session, not something the graph explorer introduced — flagging it since you asked how project identity works, not proposing to change it unless you want that looked at separately.

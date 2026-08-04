@@ -76,6 +76,21 @@ jobs:
             fi
             echo "::endgroup::"
           done
+
+      # Optional graph explorer UI addon (~280 KB). Not bundled into the
+      # binary — users opt in via `freecode memory ui-install`, which fetches
+      # this asset and extracts it into ~/.freecode/addons/graph-ui/. Tared
+      # into `out/` so the existing `gh release upload out/*` workflow picks
+      # it up alongside the platform archives and the SHA256SUMS manifest.
+      - name: Bundle graph UI addon
+        run: |
+          set -euo pipefail
+          tar -czf out/graph-ui.tar.gz -C apps/core/src/graph-explorer page
+          ls -lh out
+
+      - name: Write SHA256SUMS
+        run: |
+          set -euo pipefail
           ( cd out && sha256sum * > SHA256SUMS )
           ls -lh out
 
