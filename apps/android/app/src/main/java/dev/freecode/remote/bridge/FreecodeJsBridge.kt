@@ -54,15 +54,19 @@ class FreecodeJsBridge(
      * SPA reports the current turn state. Forwards to the foreground
      * service which updates the notification and decides whether to
      * keep the service alive.
+     *
+     * `context` names what is being waited on (the tool name, for a
+     * permission prompt) so the blocked notification can say which
+     * call is parked rather than a generic "the agent".
      */
     @JavascriptInterface
-    fun setTurnState(state: String) {
+    fun setTurnState(state: String, context: String) {
         val parsed = when (state.lowercase()) {
             "working" -> TurnState.Working
             "blocked" -> TurnState.Blocked
             "idle" -> TurnState.Idle
             else -> return // ignore unknowns; the SPA may add new states
         }
-        TurnStateService.requestState(context, parsed)
+        TurnStateService.requestState(this.context, parsed, context)
     }
 }

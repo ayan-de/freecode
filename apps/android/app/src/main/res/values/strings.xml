@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">FreeCode Remote</string>
+    <string name="app_name">Freecode</string>
 
     <!-- PairingScreen -->
-    <string name="pairing_title">Pair with FreeCode</string>
+    <string name="pairing_title">Pair with Freecode</string>
     <string name="pairing_scan">Scan the QR code shown in the terminal</string>
     <string name="pairing_manual">Or enter the host, port, and token manually</string>
     <string name="pairing_host">Host</string>
@@ -19,15 +19,17 @@
     <string name="connection_repair">Re-pair</string>
 
     <!-- ChatScreen -->
-    <string name="chat_state_working">Agent is working</string>
+    <string name="chat_state_working">Freecode is working</string>
     <string name="chat_state_blocked">Waiting for your approval</string>
     <string name="chat_state_idle">Idle</string>
 
     <!-- Foreground service notifications -->
-    <string name="notif_channel_session">FreeCode session</string>
-    <string name="notif_channel_session_desc">Keeps the agent connected when the screen is off</string>
-    <string name="notif_working_title">FreeCode is working</string>
+    <string name="notif_channel_session">Freecode session</string>
+    <string name="notif_channel_session_desc">Keeps Freecode connected when the screen is off</string>
+    <string name="notif_working_title">Freecode is working</string>
     <string name="notif_working_text">A turn is in progress</string>
     <string name="notif_blocked_title">Waiting for your approval</string>
     <string name="notif_blocked_text">%1$s needs your answer</string>
+    <string name="notif_channel_approval">Approval needed</string>
+    <string name="notif_channel_approval_desc">Alerts when Freecode is blocked waiting for your answer. Muting this can let a tool call be denied automatically.</string>
 </resources>

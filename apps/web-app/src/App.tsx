@@ -16,6 +16,7 @@ import {
   stopSession,
   registerStreamListener,
   unregisterStreamListener,
+  reconnectStream,
   callTool,
   listSessions,
   resumeSession,
@@ -25,6 +26,7 @@ import {
   type SessionContext,
 } from "./ipc-stub";
 import { useFreeCodeConfig } from "./hooks/useFreeCodeConfig";
+import { markWorking, observeStreamEvent } from "./lib/turn-state";
 
 export const App: React.FC = () => {
   const status = useChatStore((s) => s.status);
@@ -105,8 +107,17 @@ export const App: React.FC = () => {
         setConnState("error");
       });
 
+    // Spec §5.2 surface 2 — the Android shell pushes ConnectivityManager
+    // changes in through this global. Reconnecting on the rising edge
+    // beats waiting for TCP to notice a cell↔wifi handover, which can
+    // take minutes.
+    (window as any).__freecodeOnNetworkChanged = (available: boolean) => {
+      if (available) reconnectStream();
+    };
+
     return () => {
       unregisterStreamListener();
+      delete (window as any).__freecodeOnNetworkChanged;
     };
   }, []);
 
@@ -137,6 +148,11 @@ export const App: React.FC = () => {
 // Handle stream events from CLI
   const handleStreamEvent = useCallback(
     (event: any) => {
+      // Spec §5.3 — keep the Android foreground service alive across
+      // `working` AND `blocked`. Runs before any rendering so a prompt
+      // escalates the notification even if rendering later throws.
+      observeStreamEvent(event);
+
       const currentMessages = useChatStore.getState().messages;
       const lastMsg = currentMessages[currentMessages.length - 1];
 
@@ -161,6 +177,21 @@ export const App: React.FC = () => {
           description: event.description,
           suggestedRule: event.suggestedRule,
           reason: event.reason,
+        });
+        return;
+      }
+      // Spec §4.2 — the server evicted events before we reconnected.
+      // Append a visible marker rather than letting the transcript close
+      // silently over the hole. Handled before the assistant-message
+      // bootstrap below so a gap that arrives first still lands.
+      if (event.type === "stream_gap") {
+        const msgs = useChatStore.getState().messages;
+        const tail = msgs[msgs.length - 1];
+        if (!tail || tail.role !== "assistant") addMessage("assistant", []);
+        addPartToLastMessage({
+          type: "gap",
+          from: Number(event.from) || 0,
+          to: Number(event.to) || 0,
         });
         return;
       }
@@ -389,6 +420,9 @@ export const App: React.FC = () => {
     addMessage("user", [{ type: "text", content: message }]);
     setStatus("streaming");
     setError(null);
+    // The turn is live from submit, before any event arrives — the
+    // first token can be many seconds away on a cold provider call.
+    markWorking();
 
     try {
       const result = (await sessionSend(

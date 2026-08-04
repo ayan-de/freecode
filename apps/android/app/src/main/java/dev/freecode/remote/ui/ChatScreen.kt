@@ -30,10 +30,13 @@
 
 package dev.freecode.remote.ui
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.WebResourceError
@@ -64,6 +67,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import dev.freecode.remote.bridge.FreecodeJsBridge
 import dev.freecode.remote.net.NetworkObserver
 import dev.freecode.remote.net.notifyNetworkChanged
@@ -83,6 +89,21 @@ fun ChatScreen(
     val webView = remember { WebView(ctx) }
     var isOnline by remember { mutableStateOf(true) }
     var lastError by remember { mutableStateOf<String?>(null) }
+
+    // API 33+ gates notifications behind a runtime grant. Without it the
+    // blocked-state escalation never reaches the user and a tool call
+    // is silently denied after 5 minutes, so ask on first entry.
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* Denial is survivable — the WebView still works in-app. */ }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     // Wire up the bridge once per credential change. The bridge holds
     // the credentials in memory; the WebView is responsible for using
@@ -113,14 +134,15 @@ fun ChatScreen(
             settings.mediaPlaybackRequiresUserGesture = true
             // Token goes through the bridge, not the URL.
             settings.saveFormData = false
-            settings.userAgentString = "${settings.userAgentString} FreeCodeRemote/0.1"
+            settings.userAgentString = "${settings.userAgentString} Freecode/0.1"
             addJavascriptInterface(bridge, "FreecodeBridge")
 
-            // Spin up the foreground service as soon as the WebView
-            // is attached — it stays alive across working/blocked.
-            TurnStateService.requestState(
-                ctx, TurnState.Working, context = "",
-            )
+            // The service is NOT started here. Attaching the WebView
+            // means the user is looking at the app, not that a turn is
+            // running; starting it now would hold a foreground service
+            // (and its notification) through every idle minute and let
+            // the watchdog reap it before the first real prompt. The
+            // SPA starts it on submit via setTurnState (spec §5.3).
 
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
@@ -178,7 +200,7 @@ fun ChatScreen(
         if (!isOnline || lastError != null) {
             ConnectivityBanner(
                 message = lastError
-                    ?: "No network. Reconnect to keep watching the agent.",
+                    ?: "No network. Reconnect to keep watching Freecode.",
                 onRepair = onForget,
             )
         }
