@@ -41,23 +41,39 @@ jobs:
           pnpm --filter @thisisayande/freecode-core build
 
       # One Linux runner cross-compiles every target thanks to `bun --target`.
+      # Each target builds into its own staging dir — build-bun.mjs copies the
+      # onnxruntime shared lib(s) the memory graph embedder needs next to the
+      # binary there, so a flat shared `out/` would let later targets clobber
+      # earlier ones' same-named libs (e.g. every Linux arch ships
+      # libonnxruntime.so.1). The staging dir is then archived as one download
+      # so installers get the binary and its sidecar libs together.
       - name: Compile binaries
         run: |
           set -euo pipefail
+          root="$PWD"
           mkdir -p out
           declare -A TARGETS=(
             [bun-linux-x64]=freecode-linux-x86_64
             [bun-linux-arm64]=freecode-linux-aarch64
             [bun-darwin-x64]=freecode-macos-x86_64
             [bun-darwin-arm64]=freecode-macos-aarch64
-            [bun-windows-x64]=freecode-windows-x86_64.exe
+            [bun-windows-x64]=freecode-windows-x86_64
           )
           for target in "${!TARGETS[@]}"; do
-            artifact="${TARGETS[$target]}"
-            echo "::group::$artifact ($target)"
+            name="${TARGETS[$target]}"
+            stage="$PWD/stage/$name"
+            mkdir -p "$stage"
+            bin="freecode"
+            [[ "$target" == *windows* ]] && bin="freecode.exe"
+            echo "::group::$name ($target)"
             FREECODE_BUN_TARGET="$target" \
-            FREECODE_BUN_OUTFILE="$PWD/out/$artifact" \
+            FREECODE_BUN_OUTFILE="$stage/$bin" \
               node scripts/build-bun.mjs
+            if [[ "$target" == *windows* ]]; then
+              ( cd "$stage" && zip -q -r "$root/out/$name.zip" . )
+            else
+              tar -czf "$root/out/$name.tar.gz" -C "$stage" .
+            fi
             echo "::endgroup::"
           done
           ( cd out && sha256sum * > SHA256SUMS )

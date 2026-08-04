@@ -21,6 +21,9 @@ cleanup() { [ -z "$tmpdir" ] || rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
 # ---- platform detection ----------------------------------------------------
+# ARTIFACT names a .tar.gz — the binary plus the onnxruntime shared lib(s)
+# the memory graph embedder dlopen()s at runtime (not embeddable by
+# `bun build --compile`, see build-bun.mjs) — not a bare binary.
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$OS" in
@@ -38,7 +41,7 @@ case "$OS" in
     esac ;;
   MINGW*|MSYS*|CYGWIN*)
     IS_WINDOWS=true
-    ARTIFACT="freecode-windows-x86_64.exe"
+    ARTIFACT="freecode-windows-x86_64"
     err "On Windows, install with PowerShell:
     irm https://freecode.ayande.xyz/install.ps1 | iex" ;;
   *) err "Unsupported OS: $OS" ;;
@@ -71,17 +74,17 @@ else
   info "Installing freecode $VERSION"
 fi
 
-# ---- download --------------------------------------------------------------
-URL="https://github.com/$REPO/releases/download/$VERSION/$ARTIFACT"
+# ---- download ---------------------------------------------------------------
+URL="https://github.com/$REPO/releases/download/$VERSION/$ARTIFACT.tar.gz"
 tmpdir=$(mktemp -d)
-info "  downloading $ARTIFACT"
-curl -fSL --progress-bar "$URL" -o "$tmpdir/freecode" \
+info "  downloading $ARTIFACT.tar.gz"
+curl -fSL --progress-bar "$URL" -o "$tmpdir/freecode.tar.gz" \
   || err "Download failed: $URL"
 
 # ---- install into versioned dir + link stable + launcher -------------------
 dest_version_dir="$version_dir/$version"
 mkdir -p "$INSTALL_DIR" "$stable_dir" "$dest_version_dir"
-mv "$tmpdir/freecode" "$dest_version_dir/freecode"
+tar -xzf "$tmpdir/freecode.tar.gz" -C "$dest_version_dir"
 chmod +x "$dest_version_dir/freecode"
 
 ln -sfn "$dest_version_dir/freecode" "$stable_dir/freecode"

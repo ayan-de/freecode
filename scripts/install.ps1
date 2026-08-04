@@ -23,8 +23,10 @@ $FreecodeHome = Join-Path $env:USERPROFILE ".freecode"
 $BuildsDir    = Join-Path $FreecodeHome "builds"
 
 # Only x86_64 Windows binaries are published today.
+# Artifact is a .zip — the exe plus the onnxruntime DLL(s) the memory graph
+# embedder needs at runtime (not embeddable by `bun build --compile`).
 $arch = (Get-CimInstance Win32_Processor).Architecture
-$Artifact = "freecode-windows-x86_64.exe"
+$Artifact = "freecode-windows-x86_64"
 
 if (-not $Version) {
     Write-Host "Resolving latest release..." -ForegroundColor Blue
@@ -40,11 +42,15 @@ $launcher = Join-Path $InstallDir "freecode.exe"
 Write-Host "Installing freecode $Version" -ForegroundColor Blue
 New-Item -ItemType Directory -Force -Path $InstallDir, $destVersionDir | Out-Null
 
-$url = "https://github.com/$Repo/releases/download/$Version/$Artifact"
-$dest = Join-Path $destVersionDir "freecode.exe"
-Write-Host "  downloading $Artifact"
-Invoke-WebRequest -Uri $url -OutFile $dest
+$url = "https://github.com/$Repo/releases/download/$Version/$Artifact.zip"
+$zipPath = Join-Path $env:TEMP "$Artifact-$ver.zip"
+Write-Host "  downloading $Artifact.zip"
+Invoke-WebRequest -Uri $url -OutFile $zipPath
 
+Expand-Archive -Force -Path $zipPath -DestinationPath $destVersionDir
+Remove-Item -Force $zipPath
+
+$dest = Join-Path $destVersionDir "freecode.exe"
 Copy-Item -Force $dest $launcher
 
 # Add InstallDir to the user PATH if missing.

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.17.2
+
+### Fixed
+- **v0.17.1's embedder fix was broken by the release pipeline itself.** All five cross-compiled targets built into one shared flat `out/` directory, so each target's same-named onnxruntime shared libs (e.g. every Linux arch producing `libonnxruntime.so.1`) silently overwrote the previous target's copy — only the last-built architecture's library actually made it into the release, and `install.sh`/`install.ps1` never downloaded those sidecar files at all regardless, since they only ever fetched the bare binary. Each release target now builds into its own staging directory and is packaged as a single `.tar.gz` (`.zip` on Windows) containing the binary and its onnxruntime libs together; the installers now download and extract that archive instead of a bare binary. Verified against the real archive → extract → run path.
+
 ## v0.17.1
 
 ### Fixed
