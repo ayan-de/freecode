@@ -91,9 +91,10 @@ ln -sfn "$dest_version_dir/freecode" "$stable_dir/freecode"
 printf '%s\n' "$version" > "$builds_dir/stable-version"
 ln -sfn "$stable_dir/freecode" "$launcher_path"
 
-# macOS: clear the quarantine flag so Gatekeeper doesn't block the binary.
+# macOS: clear the quarantine flag on everything extracted (the binary and
+# the onnxruntime .dylib it dlopen()s — Gatekeeper can block either).
 if [ "$OS" = "Darwin" ]; then
-  xattr -d com.apple.quarantine "$dest_version_dir/freecode" 2>/dev/null || true
+  xattr -dr com.apple.quarantine "$dest_version_dir" 2>/dev/null || true
 fi
 
 # ---- PATH setup ------------------------------------------------------------

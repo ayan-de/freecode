@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.17.3
+
+### Fixed
+- macOS: the installer only cleared the Gatekeeper quarantine flag on the `freecode` binary itself, not on the onnxruntime `.dylib` shipped alongside it since v0.17.2 — the memory graph embedder could still be blocked from loading its dependency. `install.sh` now clears quarantine recursively over the whole extracted install directory. (Not verified on real macOS hardware — this repo's dev/verification happened on Linux; flagging that honestly.)
+
 ## v0.17.2
 
 ### Fixed
