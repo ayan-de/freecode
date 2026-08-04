@@ -257,41 +257,37 @@ export function startWebServer(
     // loopback binds print nothing because there's no second device to
     // pair (and printing 43 base64 chars into every TTY run is noise).
     if (authOn) {
-      console.log(`[Server] Pair URL: freecode://${host}:${port}/?token=${token}`);
+      const pairUrl = `freecode://${host}:${port}/?token=${token}`;
+      console.log(`[Server] Pair URL: ${pairUrl}`);
       console.log(`[Server] Web URL:  ${url}?token=${token}`);
-      try {
-        // qrcode-terminal is ~1 dependency; failure here is non-fatal —
-        // the URL is still printed above.
-        // Dynamic import keeps the dep optional for environments where
-        // the printout is suppressed (tests, loopback).
-        import("qrcode-terminal").then((mod) => {
-          // qrcode-terminal exports a function under .generate in CJS, or
-          // .default in ESM. Both are runtime-checked here so the package's
-          // own types — which are surprisingly particular — don't surface
-          // errors. We treat the callback API as the contract.
-          const candidate: unknown = (mod as unknown as { generate?: unknown }).generate
-            ?? (mod as unknown as { default?: unknown }).default;
-          if (typeof candidate === "function") {
-            (
-              candidate as (
-                cb: (s: string) => void,
-                opts: object,
-              ) => void
-            )(
-              (qr: string) => {
-                console.log(
-                  `\n[Server] Scan to pair (terminal must support UTF-8):\n${qr}`,
-                );
-              },
-              { small: true },
+      // qrcode-terminal is ~1 dependency; failure here is non-fatal —
+      // the URL is still printed above. Dynamic import keeps the dep
+      // optional for environments where the printout is suppressed.
+      import("qrcode-terminal")
+        .then((mod) => {
+          // qrcode-terminal is CJS, so the ESM namespace puts the whole
+          // module object on .default — there is no top-level .generate.
+          // And generate() reads its error-correction level off `this`,
+          // so it has to stay attached to that object; pulling it out
+          // into a bare reference throws "bad rs block".
+          const qr = ((mod as { default?: unknown }).default ?? mod) as {
+            generate?: (
+              input: string,
+              opts: { small?: boolean },
+              cb: (art: string) => void,
+            ) => void;
+          };
+          if (typeof qr.generate !== "function") return;
+          // Signature is (input, opts, cb) — not (cb, opts).
+          qr.generate(pairUrl, { small: true }, (art: string) => {
+            console.log(
+              `\n[Server] Scan to pair (terminal must support UTF-8):\n${art}`,
             );
-          }
-        }).catch(() => {
+          });
+        })
+        .catch(() => {
           // qrcode-terminal not available — URL above is the fallback.
         });
-      } catch {
-        // Same.
-      }
     }
   });
 
