@@ -476,7 +476,7 @@ export const App: React.FC = () => {
   const isKeySaved = selectedProvider ? apiKeysStatus[selectedProvider] : false;
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-bg-primary overflow-hidden font-sans">
+    <div className="flex flex-col h-full w-full bg-bg-primary overflow-hidden font-sans">
       <Titlebar />
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left Toggle — visible on every screen size. On mobile the sidebar
