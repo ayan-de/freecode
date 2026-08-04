@@ -153,10 +153,7 @@
 
     nodesSel = nodeLayer
       .selectAll("circle.node")
-      .data(
-        nodes.map((n) => ({ ...n })),
-        (d) => d.id,
-      )
+      .data(nodes, (d) => d.id)
       .join("circle")
       .attr("class", (d) => `node kind-${d.kind}`)
       .attr("r", nodeRadius)
