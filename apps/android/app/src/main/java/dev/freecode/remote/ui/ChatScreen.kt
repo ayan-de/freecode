@@ -39,6 +39,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
@@ -243,7 +244,17 @@ fun ChatScreen(
                 }
             }
             // Initial load — token is fetched by the SPA via the bridge.
-            loadUrl(creds.baseUrl)
+            //
+            // Deferred until the view actually has a size. This effect
+            // runs before Compose measures the AndroidView, so loading
+            // here directly means the page lays out against a 0x0
+            // viewport — and Android WebView pins `vh` units to the
+            // initial containing block it saw at load time. They stay 0
+            // forever after, even once innerHeight reports the real
+            // height. The SPA's root is `h-screen` (100vh), so the whole
+            // app collapsed to zero height and only the body background
+            // painted.
+            loadWhenSized(creds.baseUrl)
         }
 
         onDispose {
@@ -296,4 +307,37 @@ private fun ConnectivityBanner(message: String, onRepair: () -> Unit) {
             Text("Re-pair")
         }
     }
+}
+/**
+ * Load [url] only once this WebView has a non-zero size.
+ *
+ * Android WebView resolves viewport-relative CSS units (`vh`, `dvh`)
+ * against the initial containing block established when the document
+ * first lays out. If that happens while the view is 0x0 — which is the
+ * normal case when a Compose DisposableEffect runs before the
+ * AndroidView is measured — every `100vh` resolves to 0 and stays there,
+ * even after the view is measured and `window.innerHeight` reports the
+ * real value. The page is then laid out inside a zero-height box: DOM,
+ * styles and accessibility tree all intact, nothing painted.
+ *
+ * Loading after the first non-zero layout avoids the whole problem.
+ */
+private fun WebView.loadWhenSized(url: String) {
+    if (width > 0 && height > 0) {
+        loadUrl(url)
+        return
+    }
+    addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+        override fun onLayoutChange(
+            v: View,
+            left: Int, top: Int, right: Int, bottom: Int,
+            oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int,
+        ) {
+            if (v.width <= 0 || v.height <= 0) return
+            // One-shot: a later re-layout must not reload and wipe the
+            // session transcript.
+            v.removeOnLayoutChangeListener(this)
+            (v as WebView).loadUrl(url)
+        }
+    })
 }
