@@ -78,12 +78,19 @@ async function install(version: string): Promise<void> {
 
   // Atomic install: extract into a tmpdir, then rename into place. Avoids
   // leaving the addon in a half-extracted state if tar fails mid-flight.
+  // The release tarball wraps everything in a top-level `page/` directory
+  // (the dir the workflow tared), so we strip one component to land the
+  // files at the addon root.
   const tmpExtract = fs.mkdtempSync(
     path.join(os.tmpdir(), "freecode-graph-ui-"),
   );
   try {
     fs.writeFileSync(path.join(tmpExtract, archiveName), archive);
-    execFileSync("tar", ["-xzf", archiveName], { cwd: tmpExtract });
+    execFileSync(
+      "tar",
+      ["-xzf", archiveName, "--strip-components=1"],
+      { cwd: tmpExtract },
+    );
     fs.rmSync(path.join(tmpExtract, archiveName), { force: true });
 
     fs.mkdirSync(path.dirname(ADDON_DIR), { recursive: true });
