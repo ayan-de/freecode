@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.18.0
+
+### Added
+- **`/graph` — a local browser UI for the memory knowledge graph.** Renders your project's memory graph (tags, wikilinks, clusters) as a force-directed diagram, with a live search box that runs the real cascade retrieval pipeline and highlights which memories it would surface for a prompt, with per-hop decayed scores — an educational, read-only view into the same retrieval every real turn already uses. Distributed as an optional addon rather than baked into the binary: `freecode memory ui-install` downloads it (~280 KB, sha256-verified against the release), `freecode memory ui-uninstall` removes it. See `docs/superpowers/specs/2026-08-04-memory-graph-explorer-design.md`.
+
 ## v0.17.3
 
 ### Fixed
