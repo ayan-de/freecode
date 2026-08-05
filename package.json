@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "analyze:session": "node scripts/analyze-session.mjs",
     "bench:output": "tsx scripts/bench_output_tokens.ts",
     "bench:compare": "tsx scripts/bench_tool_comparison.ts",
     "dev": "turbo run dev",
