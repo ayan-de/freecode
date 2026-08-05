@@ -37,6 +37,7 @@ import {
   sessionStart,
   sessionSendStreaming,
   sessionStop,
+  sessionDequeue,
   sessionCompact,
   sessionList,
   sessionResume,
@@ -65,6 +66,7 @@ import {
   createAssistantMessage,
   createSystemMessage,
   createInProgressMessage,
+  createQueuedUserMessage,
   removeMessageById,
   updateInProgressMessage,
   subscribeToMessages,
@@ -76,6 +78,7 @@ import {
   type MessageInstance,
   loadSessionMessages,
 } from "./components/index.js";
+import { getMessageByQueueId } from "./state/message-store.js";
 import {
   setLiveOutputTokens,
   resetLiveOutputTokens,
@@ -877,6 +880,28 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
+    // Spec 2026-08-05: a session.send landed while a turn was in progress.
+    // The server parked the prompt in the follow-up queue; render it as a
+    // user message with a dim "queued" badge so the user can see it's in
+    // line, and Ctrl+Backspace lets them pull it back out.
+    case "message_queued": {
+      createQueuedUserMessage(event.content, event.id);
+      tui.requestRender();
+      break;
+    }
+    // Pulled out of the queue (Ctrl+Backspace, or fall-through cleanup).
+    // If the row is still in the transcript with the queued badge, drop it;
+    // if it's already been promoted to an in-flight user message, leave it
+    // alone — the dequeue raced with the FIFO drain and the user keeps what
+    // they sent.
+    case "message_dequeued": {
+      const row = getMessageByQueueId(event.id);
+      if (row && row.type === "queued_user") {
+        removeMessageById(row.id);
+        tui.requestRender();
+      }
+      break;
+    }
   }
 }
 
@@ -903,8 +928,13 @@ async function submitPrompt(
   // A new prompt always returns the view to the live bottom of the history.
   messageList.scrollToBottom();
 
-  // Create messages through the store - VirtualMessageList handles rendering
-  createUserMessage(`**${chalk.red("You")}:** ${displayText ?? promptText}`);
+  // Optimistic local echo of the user message — instant visual feedback.
+  // If the server parks the prompt in the follow-up queue, we'll swap this
+  // for a queued_user row at the same position (see the result handling
+  // below) so the user sees one row, not two.
+  const userMsg = createUserMessage(
+    `**${chalk.red("You")}:** ${displayText ?? promptText}`,
+  );
   // Seed ↓ with a live input estimate so it isn't 0 while streaming: prior
   // accumulated context plus this prompt (~4 chars/token). Input is fixed at
   // send time (the provider only reports the exact value at turn end), so this
@@ -972,6 +1002,25 @@ async function submitPrompt(
         handleToolEvent(event);
       },
     );
+
+    // Spec 2026-08-05: server parked the prompt in the follow-up queue
+    // because a turn was already running. The session.send result resolves
+    // immediately with `{ queued, id }` — no turn actually started, so
+    // there is no in-progress message to update and no token usage to
+    // report. The server's `message_queued` stream event arrived during
+    // the await above and already created the canonical queued_user row.
+    // Collapse our optimistic local echo + the in-progress placeholder
+    // into that one row: drop our user message (the queued one shows the
+    // same content), drop the in-progress (no turn is running), and the
+    // queued_user the event handler added stays as the single visible
+    // transcript entry — keyed by `result.id` so Ctrl+Backspace targets
+    // it via session.dequeue.
+    if ("queued" in result) {
+      removeMessageById(inProgressMsg.id);
+      removeMessageById(userMsg.id);
+      tui.requestRender();
+      return;
+    }
 
     // Update in-progress message with token counts from result
     const contextLimit = await getModelContextLimit(
@@ -1640,6 +1689,52 @@ tui.addInputListener((data) => {
         // lines in the list have to go.
         messageList.invalidateMessage(msg.id);
         break;
+      }
+    }
+    return { consume: true };
+  }
+  // Spec 2026-08-05: Ctrl+Backspace on the most recently queued message
+  // pulls it out of the follow-up queue. Plain removal just drops it; the
+  // default UX here also restores the content to the editor so the user can
+  // revise — pi's "restore queued message to editor" affordance. To drop
+  // without restoring, the user can select-all + delete from the editor
+  // (the same way they handle any other unwanted queued text).
+  if (matchesKey(data, Key.ctrl("h"))) {
+    const messages = getMessages();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.type === "queued_user" && msg.queueId) {
+        if (!currentSession) return { consume: true };
+        const restored = msg.content;
+        const queueId = msg.queueId;
+        // Strip the "**You:** " label the row was rendered with so the
+        // restored text matches what the user originally typed.
+        const labelMatch = /^\*\*.+?:\*\*\s*/.exec(restored);
+        const restoredText = labelMatch
+          ? restored.slice(labelMatch[0].length)
+          : restored;
+        void (async () => {
+          try {
+            const { removed } = await sessionDequeue(
+              currentSession.sessionId,
+              queueId,
+            );
+            // Only restore if the server actually pulled it (it may have
+            // already started sending — in that case the message_dequeued
+            // event leaves the row in place and we shouldn't overwrite the
+            // editor with stale content).
+            if (removed) {
+              editor.setText(restoredText);
+              tui.setFocus(editor);
+            }
+            tui.requestRender();
+          } catch (err) {
+            showMessage(
+              `**Error:** ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        })();
+        return { consume: true };
       }
     }
     return { consume: true };

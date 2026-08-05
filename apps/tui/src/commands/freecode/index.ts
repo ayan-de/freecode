@@ -114,6 +114,15 @@ ${formatProviderList()}`);
           ctx.handleToolEvent?.(event),
       );
 
+      // Spec 2026-08-05: same as submitPrompt — a queued result means the
+      // turn is parked, not started. The message_queued event handler in
+      // index.ts renders the canonical queued_user row; we just drop our
+      // in-progress placeholder and bail.
+      if ("queued" in result) {
+        ctx.removeMessageById(inProgressId);
+        return;
+      }
+
       // Update in-progress message with token counts
       const contextLimit = await getModelContextLimit(
         `${currentProvider}/MiniMax-M2`,
