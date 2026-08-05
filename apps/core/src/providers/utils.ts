@@ -18,9 +18,14 @@ import { logger } from "../utils/logger.js";
  */
 export function buildToolsParam(
   tools: ToolDef[] | undefined,
-): Record<string, { description: string; inputSchema: unknown }> | undefined {
+):
+  | Record<
+      string,
+      { description: string; inputSchema: unknown; providerOptions?: unknown }
+    >
+  | undefined {
   if (!tools || tools.length === 0) return undefined;
-  return tools.reduce(
+  const result = tools.reduce(
     (acc, t) => {
       acc[t.name] = {
         description: t.description,
@@ -28,8 +33,23 @@ export function buildToolsParam(
       };
       return acc;
     },
-    {} as Record<string, { description: string; inputSchema: unknown }>,
+    {} as Record<
+      string,
+      { description: string; inputSchema: unknown; providerOptions?: unknown }
+    >,
   );
+  // Cache the entire tool schema block — otherwise it's billed as full-price
+  // input tokens on every turn instead of the ~10% cache-read rate, even
+  // though the system prompt right after it is cached. Anthropic caches
+  // everything up to and including the marked block, so tagging the last
+  // tool caches the whole tools array.
+  const lastTool = tools[tools.length - 1];
+  if (lastTool) {
+    result[lastTool.name].providerOptions = {
+      anthropic: { cacheControl: { type: "ephemeral" } },
+    };
+  }
+  return result;
 }
 
 /**
