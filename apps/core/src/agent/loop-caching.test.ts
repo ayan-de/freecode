@@ -34,8 +34,16 @@ test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correct
   );
 
   assert.equal(blocks.length, 2);
-  assert.equal(blocks[0].cache, true);
-  assert.equal(blocks[1].cache, true);
+  assert.equal(blocks[0].cache, true, "static block earns a breakpoint");
+  // Was true. The 4-breakpoint budget is spent on tools, this static block and
+  // the two message anchors; the dynamic block holds the file tree, session
+  // context and clock, so its boundary moves between turns and a check there
+  // buys nothing. Its content is still covered by the message anchors.
+  assert.equal(
+    blocks[1].cache,
+    false,
+    "dynamic block must not consume a breakpoint",
+  );
 
   // Static section has system prompts (tools are sent as native schemas)
   assert.ok(blocks[0].text.includes("BUILD mode"));

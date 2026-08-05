@@ -171,9 +171,20 @@ ${tree}`;
       .filter((s) => s.length > 0)
       .join("\n\n");
 
+    // Cache-breakpoint budget: providers allow at most 4, and the AI SDK drops
+    // the excess with a warning rather than erroring. The four that earn their
+    // slot are the tool schemas, this static block, and the two message anchors
+    // (providers/utils.ts applyMessageCaching) — the pair is what lets a
+    // request read a cache entry rather than only write one.
+    //
+    // The dynamic block deliberately gets no breakpoint. It holds the file tree,
+    // session context and clock, so it is the one part of the prefix that
+    // changes between turns; spending a slot to check a boundary that keeps
+    // moving buys nothing. Its content is still covered by the message anchors,
+    // whose prefixes include everything before them.
     return [
       { text: staticText, cache: true },
-      { text: dynamicText, cache: true },
+      { text: dynamicText, cache: false },
     ];
   }
 

@@ -134,3 +134,45 @@ test("applyMessageCaching preserves existing providerOptions on the part", () =>
   assert.equal(opts.foo, 1, "must merge, not clobber");
   assert.ok(opts.anthropic);
 });
+
+// Providers cap cache breakpoints at 4 and the AI SDK drops the excess with a
+// warning ("Maximum 4 cache breakpoints exceeded (found 5). This breakpoint
+// will be ignored"), so going over silently loses a breakpoint rather than
+// failing. Adding the second message anchor did exactly that until the dynamic
+// system block gave up its slot. This counts the whole request budget.
+test("the whole request stays within the 4 cache-breakpoint limit", () => {
+  const tools = buildToolsParam([
+    { name: "a", description: "", parameters: { type: "object" } },
+    { name: "b", description: "", parameters: { type: "object" } },
+  ] as never);
+  const toolBreakpoints = Object.values(tools ?? {}).filter(
+    (t: any) => t.providerOptions !== undefined,
+  ).length;
+
+  // What PromptCompiler.compileSystemBlocks emits: static cached, dynamic not.
+  const system = buildAnthropicSystemParam([
+    { text: "static", cache: true },
+    { text: "dynamic", cache: false },
+  ]);
+  const systemBreakpoints = (system as any[]).filter(
+    (b) => b.providerOptions !== undefined,
+  ).length;
+
+  const msgs: any[] = [
+    { role: "user", content: [{ type: "text", text: "1" }] },
+    { role: "assistant", content: [{ type: "text", text: "2" }] },
+    { role: "user", content: [{ type: "text", text: "3" }] },
+  ];
+  applyMessageCaching(msgs as never);
+  const messageBreakpoints = msgs.filter(
+    (m) => m.content[m.content.length - 1].providerOptions !== undefined,
+  ).length;
+
+  assert.equal(toolBreakpoints, 1, "tools array is marked once, on the last");
+  assert.equal(systemBreakpoints, 1, "only the static block earns a slot");
+  assert.equal(messageBreakpoints, 2, "read anchor + write anchor");
+  assert.ok(
+    toolBreakpoints + systemBreakpoints + messageBreakpoints <= 4,
+    "total request breakpoints must not exceed the provider limit of 4",
+  );
+});
