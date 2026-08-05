@@ -760,10 +760,14 @@ export class AgentLoop {
     }
   }
 
-  // Resolve the model's real context window from models.dev so compaction
-  // fires against the actual limit (200K/1M) rather than a conservative
-  // fallback. Returns undefined on lookup failure (offline / unknown model),
-  // which makes shouldCompact fall back to the local model table.
+  // Resolve the model's real context window from models.dev, so the fit
+  // constraint is judged against the actual limit (200K/1M) rather than a
+  // conservative fallback. Returns undefined on lookup failure (offline /
+  // unknown model), which makes shouldCompact fall back to the local table.
+  //
+  // This is only the *ceiling*. shouldCompact caps whatever it gets here at
+  // DEFAULT_COMPACT_TARGET_TOKENS, so on a large-window model the cost target
+  // is what actually fires compaction — not this number.
   private async resolveContextLimit(
     provider: string,
     model: string | undefined,

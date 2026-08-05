@@ -53,21 +53,38 @@ entirely).
 Largest single win, smallest diff. Ship alone.
 
 1. `compaction/tokens.ts` — add
-   `export const COMPACT_TARGET_TOKENS = envInt("FREECODE_COMPACT_TARGET_TOKENS", 120_000)`.
-   There is no config accessor in this codebase for this layer, so an env var with a
-   default matches the existing `output-store/config.ts` convention.
-2. `agent/loop.ts:767` `resolveContextLimit()` — return
-   `Math.min(usable, COMPACT_TARGET_TOKENS)`. Keep the existing models.dev lookup and
-   the `resolveMaxOutputTokens` subtraction — the target caps that result, it does not
-   replace it. The `catch` returning `undefined` stays as-is (falls back to
-   `FALLBACK_CONTEXT_LIMIT = 100_000`, already below the target).
-3. Update the comment block at `loop.ts:763-766` — it currently says compaction fires
-   "against the actual limit (200K/1M)", which stops being true here.
+   `DEFAULT_COMPACT_TARGET_TOKENS = 120_000` plus `getCompactTarget()`, which reads
+   `FREECODE_COMPACT_TARGET_TOKENS` **per call** and warns on an unusable value.
+2. `compaction/tokens.ts` `shouldCompact()` — cap the resolved window with
+   `Math.min(windowLimit, getCompactTarget())` before subtracting the buffer.
+3. `agent/loop.ts` — update the `resolveContextLimit` comment; it said compaction
+   fires "against the actual limit (200K/1M)", which stops being true here.
 
-**Verify:** unit test — `shouldCompact(130_000, "MiniMax-M3", buffer, 968_000)` is
-`true` (was `false`); MiniMax-M2 behaviour unchanged;
-`FREECODE_COMPACT_TARGET_TOKENS=500000` restores the old M3 behaviour. Then run a
-real session and confirm `compaction_start` is emitted.
+**Verify:** unit test — `shouldCompact(270_000, "MiniMax-M3", buffer, 968_000)` is
+`true` (was `false`); `FREECODE_COMPACT_TARGET_TOKENS=500000` restores the old M3
+behaviour; an unusable value falls back to the default;
+`FREECODE_AUTO_COMPACT_TOKENS` still takes precedence. Then run a real session and
+confirm `compaction_start` is emitted.
+
+**Deviations from the plan as originally written, and why:**
+
+- **The cap lives in `shouldCompact`, not `resolveContextLimit`.** `shouldCompact` is
+  the single chokepoint (`getAutoCompactThreshold` is test-only), so capping there
+  also covers the offline fallback path and is unit-testable without constructing a
+  loop. Nothing is applied in `resolveContextLimit` beyond a comment fix.
+- **`getCompactTarget()` reads the env per call** rather than `envInt` at module load.
+  That matches `getAutoCompactOverride()` directly above it in the same file, and a
+  module-load read cannot be overridden by a test or by a long-lived daemon.
+- **"MiniMax-M2 behaviour unchanged" was wrong.** M2's usable window is ~164K, so the
+  120K target binds there too — as it does on every model whose usable window exceeds
+  120K, including Anthropic's 200K. That is the intent (the cost of a 120K request
+  does not depend on how large the window is), but the plan and the spec both
+  described it as a large-window-only change. The spec's D1 wording was corrected.
+
+**Status: done (2026-08-05).** 12 tests in `tokens.test.ts`, 420 across core, all
+green. The pre-existing `shouldCompact prefers an explicit context limit` test
+asserted a 200K window → 187K threshold; it encoded the old fit-only rule and was
+rewritten to use a 100K window (below the target, so the window still binds).
 
 ---
 

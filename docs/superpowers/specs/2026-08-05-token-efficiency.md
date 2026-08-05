@@ -22,11 +22,11 @@ Replaying the recorded sessions in `~/.freecode/sessions/` via
 a ~12K system+tools block; assistant messages written within 1.5s of each other are
 one round trip, not two):
 
-| Session    | Model        | User msgs | Provider requests | Requests/msg | Final history | Σ input tokens |
-| ---------- | ------------ | --------- | ----------------- | ------------ | ------------- | -------------- |
-| `4ba54e41` | MiniMax-M3   | 7         | 229               | 33           | 270K          | **48.1M**      |
-| `65f171fa` | MiniMax-M3   | 8         | 300               | 38           | 201K          | **58.7M**      |
-| `08e19c43` | —            | 19        | 295               | 16           | 156K          | **33.5M**      |
+| Session    | Model      | User msgs | Provider requests | Requests/msg | Final history | Σ input tokens |
+| ---------- | ---------- | --------- | ----------------- | ------------ | ------------- | -------------- |
+| `4ba54e41` | MiniMax-M3 | 7         | 229               | 33           | 270K          | **48.1M**      |
+| `65f171fa` | MiniMax-M3 | 8         | 300               | 38           | 201K          | **58.7M**      |
+| `08e19c43` | —          | 19        | 295               | 16           | 156K          | **33.5M**      |
 
 48.1M input tokens for seven user messages. One session is most of a day's quota.
 
@@ -37,7 +37,7 @@ Two structural facts drive the number:
 2. **Every request carries the whole thing.** 229 requests × a mean context in the
    150K range.
 
-Cost is therefore *quadratic in turn count*, and turn count is inflated because the
+Cost is therefore _quadratic in turn count_, and turn count is inflated because the
 model emits exactly one tool call per request.
 
 ## Root causes
@@ -116,7 +116,7 @@ most expensive region of the prompt out of the cache on every single turn.
 claude-code solves exactly this in `partitionByPriorDecision()`
 (`utils/toolResultStorage.ts:648`), which splits candidates three ways:
 
-- `mustReapply` — already replaced once → re-apply the *identical* replacement, for
+- `mustReapply` — already replaced once → re-apply the _identical_ replacement, for
   prefix stability
 - `frozen` — already sent unreplaced → **off-limits**, replacing now would change a
   prefix that was already cached
@@ -150,7 +150,7 @@ unreliable in whichever direction hurts.
 ### RC7 — No spend circuit breaker, no live cost display
 
 `MAX_OVERFLOW_COMPACTIONS = 3` (`loop.ts:128`) caps compaction retries after a
-context-overflow rejection. Nothing caps *spend*. A loop that oscillates — which
+context-overflow rejection. Nothing caps _spend_. A loop that oscillates — which
 `effect/loop-health.ts` detects but only warns about — can consume a plan silently.
 
 `usage.json` is written after the fact and read by nobody during a turn. claude-code
@@ -165,12 +165,12 @@ model can see when it actually needs to see it.
 
 Modelled against the real `4ba54e41` trace, applying the fixes cumulatively:
 
-| Configuration                    | Requests | Billed input |
-| -------------------------------- | -------- | ------------ |
-| Actual (measured)                | 229      | **48.1M**    |
-| + prompt cache prefix held       | 229      | 5.1M         |
-| + compaction at 120K             | 229      | 3.6M         |
-| + 2.5 tool calls per request     | ~91      | **~1.4M**    |
+| Configuration                | Requests | Billed input |
+| ---------------------------- | -------- | ------------ |
+| Actual (measured)            | 229      | **48.1M**    |
+| + prompt cache prefix held   | 229      | 5.1M         |
+| + compaction at 120K         | 229      | 3.6M         |
+| + 2.5 tool calls per request | ~91      | **~1.4M**    |
 
 The cache row assumes a 0.1× read / 1.25× write split and a prefix that is not
 invalidated mid-session — i.e. RC3 and RC4 fixed. The final row is the target band
@@ -187,13 +187,19 @@ doing separately (see RC7 — there is no eval harness to run it in).
 Introduce an explicit compaction target that is independent of the window:
 
 ```
-COMPACT_TARGET_TOKENS = 120_000   // env: FREECODE_COMPACT_TARGET_TOKENS
+DEFAULT_COMPACT_TARGET_TOKENS = 120_000   // env: FREECODE_COMPACT_TARGET_TOKENS
 ```
 
-`resolveContextLimit()` returns `min(windowLimit - maxOutput, COMPACT_TARGET_TOKENS)`.
-On MiniMax-M2 (196K) behaviour is unchanged — `164K` vs `120K`, the target now binds
-slightly earlier. On MiniMax-M3 and other ≥1M-window models the target binds instead
-of never firing.
+`shouldCompact()` caps whatever window it was given: `min(windowLimit, target)`, then
+subtracts the existing 13K buffer — so the trigger lands at **107K**. Capping there
+rather than in `resolveContextLimit()` covers the offline fallback path too, and
+keeps the rule in one testable place.
+
+The target binds on **every** model whose usable window exceeds 120K — MiniMax-M2
+(~164K usable) and Anthropic's 200K included, not just ≥1M-window models. That is
+deliberate: the cost of sending a 120K context is the same regardless of how much
+larger the window happens to be. Models with a smaller usable window (or the 100K
+offline fallback) are unaffected, since their own limit still binds first.
 
 120K is chosen as the knee of the cost curve rather than a capability limit: below it
 a full-context request is affordable at cache-read rates, above it the quadratic term
@@ -211,7 +217,7 @@ Two edits to `session/prompt/system.md`:
   the final paragraph. It must state the concrete behaviour: when several independent
   reads/greps/globs are needed, emit them in **one** assistant message.
 - Narrow the preamble rule at `:23` so it does not fire per tool call. A preamble
-  before a *group* of work is useful; one before each single call is 130 wasted
+  before a _group_ of work is useful; one before each single call is 130 wasted
   round trips per session.
 
 No code change. `planToolBatches` already handles the result correctly.
@@ -229,7 +235,7 @@ nothing about whether a result is still needed, and the 5-minute threshold makes
 normal human pauses expensive. Size and age-in-turns are the right signals, and D4
 already acts on both.
 
-Where clearing *is* warranted, the replacement must be retrievable: the full output is
+Where clearing _is_ warranted, the replacement must be retrievable: the full output is
 already in the session's `OutputStore` (`tools/output-store/`), so the substituted
 text names the `toolCallId` and the `output` tool, exactly as `adaptiveTruncate` does
 at `output-store/truncate.ts:22`. The model can page it back instead of re-reading.
@@ -241,8 +247,8 @@ claude-code's `ContentReplacementState`:
 
 ```typescript
 interface PruneState {
-  replaced: Map<string, string>;  // toolCallId → the exact replacement text
-  seen: Set<string>;              // toolCallId sent to the provider at full size
+  replaced: Map<string, string>; // toolCallId → the exact replacement text
+  seen: Set<string>; // toolCallId sent to the provider at full size
 }
 ```
 
@@ -260,7 +266,7 @@ Select from `fresh` largest-first until the model-visible total is under budget.
 Record every decision into `PruneState` before sending. Replacements point at the
 `OutputStore` handle (D3).
 
-The consequence: a result is only ever truncated on the *first* request that
+The consequence: a result is only ever truncated on the _first_ request that
 includes it, so the prefix is byte-stable from turn to turn and the cache prefix
 grows monotonically. Both maps are keyed by `toolCallId` and cleared with the session.
 
@@ -315,13 +321,13 @@ Two independent pieces:
 ## Out of scope
 
 - A per-model tokenizer (see D6).
-- An eval/benchmark harness for head-to-head agent comparison. Needed to *verify* the
+- An eval/benchmark harness for head-to-head agent comparison. Needed to _verify_ the
   target band in "Goal", and the reason the numbers there are simulated rather than
   measured — but it is its own spec.
 - `cache_edits`-style server-side tool-result deletion (claude-code's "cached
   microcompact"). It is Anthropic-API-specific and FreeCode is multi-provider; D4
   gets most of the benefit portably.
-- Changes to the caching *breakpoint* placement itself. The current scheme — tools
+- Changes to the caching _breakpoint_ placement itself. The current scheme — tools
   (`providers/utils.ts:46`), two system blocks (`context/compiler.ts:174`), last
   message (`providers/minimax.ts:76`) — is exactly at Anthropic's 4-breakpoint limit
   and is not the problem; the problem is that D3 and D4 keep invalidating what it
