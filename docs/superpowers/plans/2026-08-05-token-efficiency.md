@@ -146,6 +146,20 @@ following a >5m gap leaves `this.history` byte-identical. Cache-read tokens are
 non-zero on the first request after an idle gap — this is the RC3 signal, observable
 through the existing `emitCacheWarm` events.
 
+**Status: done (2026-08-05).** Method, call site and the bare `console.log` all gone;
+production references are zero (the two remaining hits are in the test, deliberately).
+420 tests green, typecheck clean.
+
+On the test: the plan said "remove" the old coverage, and the replacement
+(`history is untouched by an idle gap, however long`) is weaker than it looks. The
+clearing ran inside `run()`, not `loadHistory()`, and exercising `run()` needs a live
+provider — so the history-integrity half would have passed *before* the deletion too.
+What actually holds the change in place is the structural assertion that
+`loop.maybeTimeBasedMicrocompact === undefined`, which fails the moment anyone
+reintroduces it. Both halves are kept, with the limitation stated in the test.
+
+The RC3 cache-read signal remains unverified — it needs a real session.
+
 ---
 
 ## Phase 4 — Prefix-stable pruning (D4)

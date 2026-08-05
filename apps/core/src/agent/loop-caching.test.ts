@@ -103,59 +103,66 @@ test("AgentLoop.loadHistory reconstructs the message list correctly", async () =
   await rm(testDir, { recursive: true, force: true });
 });
 
-test("AgentLoop.maybeTimeBasedMicrocompact prunes old tool results after idle gap", () => {
-  const loop = createAgentLoop("test-session");
+// Replaces the old "maybeTimeBasedMicrocompact prunes old tool results after
+// idle gap" test. That method cleared every tool result over 200 chars across
+// the whole history — including the newest turn — whenever the user paused for
+// five minutes, with no handle to retrieve what was dropped. It missed the
+// prompt cache 100% on the next request and forced the model to re-read
+// everything (spec 2026-08-05-token-efficiency, RC3). An idle gap says nothing
+// about whether a result is still needed; size and age-in-turns do, and
+// pruneHistoryToolResults already acts on those.
+test("history is untouched by an idle gap, however long", async () => {
+  const testDir = "/tmp/freecode-test-loop-idle-gap";
+  await rm(testDir, { recursive: true, force: true });
+  const store: SessionStore = await createSessionStore(testDir);
 
-  const oldTimestamp = Date.now() - 6 * 60_000; // 6 minutes ago
-  const messages: Message[] = [
+  const sessionId = await store.createSession({
+    title: "Idle gap",
+    projectPath: "/tmp/test",
+    provider: "mock",
+  });
+
+  const hourAgo = Date.now() - 60 * 60_000;
+  const bigResult = "x".repeat(5_000);
+  await store.appendMessage(
+    sessionId,
     {
-      id: "1",
-      role: "user",
-      parts: [{ type: "text", content: "run command" }],
-      timestamp: oldTimestamp,
-    },
-    {
-      id: "2",
+      id: "assistant-1",
       role: "assistant",
       parts: [
-        { type: "text", content: "Output:" },
         {
           type: "tool",
-          tool: { id: "t-1", tool: "bash", args: {}, execution: "sequential" },
-          result:
-            "A very long tool output content that exceeds 200 characters..." +
-            "x".repeat(300),
+          tool: { name: "bash", args: { command: "ls" } },
+          result: bigResult,
         },
       ],
-      timestamp: oldTimestamp,
+      timestamp: hourAgo,
     },
-  ];
+    "/tmp/test",
+  );
 
-  // Gap is 6 minutes, so it should compact
-  const compacted = (loop as any).maybeTimeBasedMicrocompact(messages, 5);
+  const loop = createAgentLoop(sessionId, { sessionStore: store });
+  (loop as any).state.projectPath = "/tmp/test";
+  await (loop as any).loadHistory();
 
-  assert.equal(compacted.length, 2);
-  assert.equal(compacted[1].role, "assistant");
-  assert.equal(compacted[1].parts[0].type, "text");
-  assert.equal(compacted[1].parts[1].type, "tool");
+  // The clearing ran inside run(), not loadHistory(), so this half alone would
+  // have passed before the deletion too — exercising run() needs a live
+  // provider. The assertion below is what actually holds the change in place.
+  const history: Message[] = (loop as any).history;
+  assert.equal((history[0].parts[0] as any).result, bigResult);
+  assert.ok(
+    !JSON.stringify(history).includes("Old tool result content cleared"),
+  );
+
+  // Guards against the method being reintroduced: there is no time-based
+  // history mutation on the loop at all.
   assert.equal(
-    (compacted[1].parts[1] as any).result,
-    "[Old tool result content cleared]",
+    (loop as any).maybeTimeBasedMicrocompact,
+    undefined,
+    "time-based tool-result clearing must not come back — see RC3",
   );
 
-  // Gap is small (1 minute), should not compact
-  const recentMessages: Message[] = messages.map((m) => ({
-    ...m,
-    timestamp: Date.now(),
-  }));
-  const notCompacted = (loop as any).maybeTimeBasedMicrocompact(
-    recentMessages,
-    5,
-  );
-  assert.notEqual(
-    (notCompacted[1].parts[1] as any).result,
-    "[Old tool result content cleared]",
-  );
+  await rm(testDir, { recursive: true, force: true });
 });
 
 test("AgentLoop.pruneHistoryToolResults caps old tool results but preserves recent turns", () => {

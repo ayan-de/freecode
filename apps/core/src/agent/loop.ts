@@ -294,38 +294,6 @@ export class AgentLoop {
     }
   }
 
-  private maybeTimeBasedMicrocompact(
-    messages: Message[],
-    gapThresholdMinutes = 5,
-  ): Message[] {
-    if (messages.length === 0) return messages;
-
-    const lastMessage = messages[messages.length - 1];
-    const gapMinutes = (Date.now() - lastMessage.timestamp) / 60_000;
-    if (gapMinutes < gapThresholdMinutes) return messages;
-
-    console.log(
-      `[AgentLoop] Idle gap of ${gapMinutes.toFixed(1)}m detected. Performing time-based compaction of old tool results to reduce token count on cold start.`,
-    );
-
-    return messages.map((msg) => {
-      if (msg.role !== "assistant") return msg;
-
-      return {
-        ...msg,
-        parts: msg.parts.map((part) => {
-          if (part.type === "tool" && part.result && part.result.length > 200) {
-            return {
-              ...part,
-              result: "[Old tool result content cleared]",
-            };
-          }
-          return part;
-        }),
-      };
-    });
-  }
-
   // Build a copy of messages where tool results in old turns are capped to
   // OLD_TOOL_RESULT_CAP chars. This avoids re-sending large file reads or bash
   // outputs from many turns ago on every subsequent request.
@@ -465,9 +433,6 @@ export class AgentLoop {
 
       // Load session history from persistent storage
       await this.loadHistory();
-
-      // Prune/compact history using idle-time gap detection
-      this.history = this.maybeTimeBasedMicrocompact(this.history);
 
       // Construct and push the new user message to history and store.
       // Attached images ride along as image parts, but only where the model can
