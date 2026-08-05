@@ -233,12 +233,20 @@ function analyze(session, opts) {
   // The number that decides whether prompt caching is working. Cache reads bill
   // at ~0.1x and writes at ~1.25x, so a session can send far more tokens than
   // another and still cost a fraction of it. Claude Code runs ~99% on real work.
-  const billedInput = reported.input + reported.cacheRead + reported.cacheWrite;
+  // `inputTokens` is the AI SDK's TOTAL input, cached tokens included --
+  // `inputTokenDetails.noCacheTokens` is the uncached part. (Raw Anthropic is
+  // the other way round: its `input_tokens` excludes the cached ones, which is
+  // why a claude-code transcript shows a tiny input beside a huge cache_read.)
+  // Adding cacheRead on top of inputTokens therefore double-counts every
+  // cached token and roughly halves the apparent hit rate -- it reported 38%
+  // on a session that was really running at ~99% on most turns.
+  const billedInput = reported.input + reported.cacheWrite;
+  const uncachedInput = Math.max(0, reported.input - reported.cacheRead);
   const cacheReadRatio =
-    billedInput > 0 ? reported.cacheRead / billedInput : null;
+    reported.input > 0 ? reported.cacheRead / reported.input : null;
   // Anthropic-style multipliers; approximate for other providers.
   const billedEquivalent =
-    reported.input + reported.cacheRead * 0.1 + reported.cacheWrite * 1.25;
+    uncachedInput + reported.cacheRead * 0.1 + reported.cacheWrite * 1.25;
 
   return {
     id: session.id,
@@ -274,6 +282,7 @@ function analyze(session, opts) {
     reported,
     cacheReadRatio,
     billedInput,
+    uncachedInput,
     billedEquivalent,
   };
 }
@@ -349,9 +358,10 @@ function report(a) {
     console.log(`    or the provider returns no usage metadata at all`);
   } else {
     console.log(`    responses with usage   ${num(a.reported.responses)}`);
+    console.log(`    total input            ${num(a.reported.input)}`);
     console.log(`    cache read             ${num(a.reported.cacheRead)}`);
     console.log(`    cache write            ${num(a.reported.cacheWrite)}`);
-    console.log(`    uncached input         ${num(a.reported.input)}`);
+    console.log(`    uncached input         ${num(a.uncachedInput)}`);
     console.log(`    output                 ${num(a.reported.output)}`);
     if (a.cacheReadRatio === null) {
       console.log(`    cache read ratio       n/a (no input billed)`);
