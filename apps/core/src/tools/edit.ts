@@ -9,6 +9,7 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { editToolUI } from "./edit/ui.js";
 import { generateDiffString } from "./diff-format.js";
+import { getReadState } from "./read-state.js";
 
 interface EditParams {
   filePath: string;
@@ -619,7 +620,29 @@ async function executeEdit(
       };
     }
 
+    // Did the file change since the model last looked at it? A mismatch means
+    // it is editing against content it has not seen — an external edit, another
+    // agent, or a build step. Warn rather than block: the edit itself already
+    // matched `oldString`, so it is not blind, just possibly out of date.
+    const readState = ctx.sessionId ? getReadState(ctx.sessionId) : undefined;
+    const previous = readState?.get(filepath);
+    const staleWarning =
+      previous && previous.mtimeMs !== stat.mtimeMs
+        ? "\n\n[warning: this file changed on disk since you last read it — " +
+          "re-read it if the edit below looks wrong]"
+        : "";
+
     fs.writeFileSync(filepath, newContent, "utf-8");
+
+    // Record the post-edit state so the next edit compares against it. No
+    // offset/limit: the model has not been *shown* this content, so it must
+    // never be deduped against (see ReadRecord.offset).
+    const after = fs.statSync(filepath);
+    readState?.set(filepath, {
+      mtimeMs: after.mtimeMs,
+      size: after.size,
+      inContext: false,
+    });
 
     const diff = generateDiffString(content, newContent);
 
@@ -627,7 +650,7 @@ async function executeEdit(
       success: true,
       result: {
         title: path.basename(filepath),
-        output: diff || "Edit applied successfully.",
+        output: (diff || "Edit applied successfully.") + staleWarning,
         metadata: { filepath },
       },
     };

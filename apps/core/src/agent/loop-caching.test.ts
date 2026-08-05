@@ -8,6 +8,11 @@ import {
   type SerializedMessage,
 } from "../session/store.js";
 import { PromptCompiler } from "../context/compiler.js";
+import {
+  getReadState,
+  canDedup,
+  disposeReadState,
+} from "../tools/read-state.js";
 import type { Message, ToolCall } from "./types.js";
 
 test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correctly", async () => {
@@ -303,4 +308,50 @@ test("history under budget is passed through untouched, by reference", () => {
   assert.equal(pruned, messages, "no copy when nothing is replaced");
   assert.equal((pruned[0].parts[0] as any).result.length, 500);
   assert.equal((pruned[1].parts[0] as any).result.length, 1_500);
+});
+
+// The interaction between RC4 and RC5: read dedup answers a repeat read with
+// "it's already above". If pruning replaced that copy with a marker, the model
+// would be pointed at nothing. Pruning a read must therefore retract its
+// dedup entry.
+test("pruning a read result retracts its dedup entry", () => {
+  const sessionId = "test-prune-readstate";
+  const loop = createAgentLoop(sessionId);
+
+  const readMsg = (id: string, filePath: string, size: number): Message => ({
+    id,
+    role: "assistant",
+    timestamp: Date.now(),
+    parts: [
+      {
+        type: "tool",
+        tool: {
+          id: `t-${id}`,
+          tool: "read",
+          args: { filePath },
+          execution: "sequential",
+        },
+        result: "x".repeat(size),
+      },
+    ],
+  });
+
+  const state = getReadState(sessionId);
+  const probe = { mtimeMs: 1, size: 1, offset: 1, limit: 2000 };
+  state.set("/big.ts", { ...probe, inContext: true });
+  assert.equal(canDedup(state.get("/big.ts"), probe), true);
+
+  // Over budget, and not the newest turn, so /big.ts gets replaced.
+  (loop as any).pruneHistoryToolResults([
+    readMsg("big", "/big.ts", 150_000),
+    readMsg("other", "/other.ts", 150_000),
+    assistantWithResult("newest", 10),
+  ]);
+
+  assert.equal(
+    canDedup(state.get("/big.ts"), probe),
+    false,
+    "a read whose content was pruned must not be deduped against",
+  );
+  disposeReadState(sessionId);
 });

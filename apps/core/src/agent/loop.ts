@@ -64,6 +64,7 @@ import {
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
+import { markReadPruned } from "../tools/read-state.js";
 import { PruneState, type PruneCandidate } from "./prune-state.js";
 import {
   getProjectContext,
@@ -413,6 +414,16 @@ export class AgentLoop {
       const replacement = renderPrunedToolResult(c.id, c.size);
       replacements.set(c.id, replacement);
       this.pruneState.recordReplaced(c.id, replacement);
+      // Read dedup answers a repeat read with "it's already above". Once the
+      // content above has been replaced with a marker that is false, and the
+      // model would be left with nothing — so forget we ever showed it (RC5).
+      const part = messages[c.messageIndex]?.parts[c.partIndex];
+      if (part?.type === "tool" && part.tool.tool === "read") {
+        const filePath = (part.tool.args as { filePath?: unknown })?.filePath;
+        if (typeof filePath === "string") {
+          markReadPruned(this.state.sessionId, filePath);
+        }
+      }
     }
     // Everything going out whole this turn is frozen from here on.
     for (const c of candidates) {

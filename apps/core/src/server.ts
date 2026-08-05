@@ -49,6 +49,7 @@ import {
 } from "./memory/index.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { disposeOutputStore } from "./tools/output-store/index.js";
+import { disposeReadState } from "./tools/read-state.js";
 import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
@@ -961,6 +962,7 @@ const methodHandlers: Record<
     await manager.delete(sessionId);
     disposeSessionMemory(sessionId);
     disposeOutputStore(sessionId);
+    disposeReadState(sessionId);
     disposeCacheAwareness(sessionId);
     // Drop the in-memory follow-up queue — the session is gone, so any
     // pending prompts would otherwise leak and (worse) be drained into a

@@ -311,6 +311,37 @@ form. `touch` the file between reads — second returns the body. Edit after an
 external change — warning present. Confirm the short form never fires on a file the
 model has not actually read this session.
 
+**Status: done (2026-08-06).** 442 tests green, typecheck clean.
+
+**Deviations:**
+
+- **`packages/shared` is not touched.** The `ToolContext` tools actually use is
+  `apps/core/src/tools/types.ts`, not the one in `packages/shared`, and it already
+  carries `sessionId`. So the state lives in a per-session module registry keyed by
+  that id — the same pattern as `output-store` — and nothing new is threaded. The
+  "goes last because it touches shared" framing was wrong; it touches only core.
+- **Three conditions gate dedup, not one.** The plan said "mtimeMs and size
+  unchanged". That is necessary and not sufficient:
+  1. **Same line window.** A record from `read(offset=1)` cannot answer
+     `read(offset=500)`. claude-code matches `offset` and `limit` exactly.
+  2. **Not written by `edit`/`write`.** Those record a file they _mutated_, whose new
+     content the model has never been shown; deduping against one would claim the
+     model has content the transcript does not hold. They store no `offset`, which
+     keeps them out of dedup while still feeding the staleness check. claude-code
+     calls this out explicitly at `FileReadTool.ts:545`.
+  3. **Still in context.** This is the one no reference agent needs and freecode does.
+     claude-code's dedup rests on "the earlier Read tool_result is still in context" —
+     but Phase 4's pruner can replace exactly that with a marker. Left uncoupled, a
+     large read would be pruned, re-read, and answered with "it's already above" while
+     the model holds nothing. `pruneHistoryToolResults` therefore calls
+     `markReadPruned` when it replaces a `read` result.
+- **Killswitch added:** `FREECODE_READ_DEDUP=0`. This is the only change in the whole
+  series that alters what the model _sees_ rather than what it is billed, so it is the
+  only one that can confuse a model rather than merely cost more. claude-code ships
+  the same switch (`tengu_read_dedup_killswitch`).
+
+Interaction 3 is the reason this phase had to come after Phase 4 rather than before.
+
 ---
 
 ## Phase 6 — Estimation and guardrails (D6, D7)
