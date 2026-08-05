@@ -80,25 +80,63 @@ test("resolveModel falls back to the provider default when none is requested", (
 // session showed 6.4% hits -- the system blocks (stable breakpoints) and not a
 // single conversation message, at 86K input. The second-to-last message is the
 // read anchor: it was the final message last turn, so an entry exists there.
-test("applyMessageCaching marks the last two non-system messages", () => {
+const marked = (m: any) =>
+  m.content[m.content.length - 1].providerOptions !== undefined;
+
+// The load-bearing case, and the one a plain .slice(-2) gets wrong: a turn
+// that used tools expands into TWO wire messages, so the last two are both new
+// and the read anchor would never match a stored prefix.
+test("applyMessageCaching anchors on where the previous request ended", () => {
   const msgs: any[] = [
     { role: "system", content: "sys" },
-    { role: "user", content: [{ type: "text", text: "one" }] },
-    { role: "assistant", content: [{ type: "text", text: "two" }] },
-    { role: "user", content: [{ type: "text", text: "three" }] },
+    { role: "user", content: [{ type: "text", text: "go" }] },
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "1" }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "1" }] },
+    // ^ the previous request ended here
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "2" }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "2" }] },
   ];
   applyMessageCaching(msgs as never);
 
-  const marked = (m: any) =>
-    m.content[m.content.length - 1].providerOptions !== undefined;
+  assert.equal(marked(msgs[5]), true, "write anchor: the tail");
+  assert.equal(
+    marked(msgs[3]),
+    true,
+    "read anchor: the previous request's final message",
+  );
+  assert.equal(
+    marked(msgs[4]),
+    false,
+    "the new assistant message is not a hit",
+  );
   assert.equal(marked(msgs[1]), false, "older messages stay unmarked");
-  assert.equal(marked(msgs[2]), true, "read anchor");
-  assert.equal(marked(msgs[3]), true, "write anchor");
   assert.equal(
     (msgs[0] as any).providerOptions,
     undefined,
     "system blocks carry their own breakpoints and must not be double-marked",
   );
+});
+
+test("applyMessageCaching handles a text-only turn (one wire message)", () => {
+  const msgs: any[] = [
+    { role: "user", content: [{ type: "text", text: "one" }] },
+    { role: "assistant", content: [{ type: "text", text: "two" }] },
+    { role: "user", content: [{ type: "text", text: "three" }] },
+    { role: "assistant", content: [{ type: "text", text: "four" }] },
+  ];
+  applyMessageCaching(msgs as never);
+  assert.equal(marked(msgs[3]), true, "write anchor");
+  assert.equal(marked(msgs[2]), true, "read anchor: previous request's end");
+  assert.equal(marked(msgs[1]), false);
+});
+
+test("applyMessageCaching marks only the tail on the first request", () => {
+  // Nothing has been cached yet, so there is no read anchor to place.
+  const msgs: any[] = [
+    { role: "user", content: [{ type: "text", text: "hi" }] },
+  ];
+  applyMessageCaching(msgs as never);
+  assert.equal(marked(msgs[0]), true);
 });
 
 test("applyMessageCaching sets every provider flavor's key", () => {

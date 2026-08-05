@@ -65,7 +65,8 @@ export function buildAnthropicSystemParam(
   | string
   | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
   if (typeof system === "string") return system;
-  return system.map((block) => {
+  return system.map((block, i) => {
+    debugSegment(`system[${i}]${block.cache ? " (cached)" : ""}`, block.text);
     const part: {
       role: "system";
       content: string;
@@ -78,6 +79,26 @@ export function buildAnthropicSystemParam(
     }
     return part;
   });
+}
+
+/**
+ * `FREECODE_DEBUG_CACHE=1` logs a fingerprint of each cacheable prompt segment.
+ *
+ * A cache read only happens when the whole prefix up to a breakpoint is
+ * byte-identical to a stored one, so when the hit rate is low the question is
+ * always "which segment moved?" — and counters cannot answer it. Comparing
+ * these lines across two consecutive turns does: whichever hash changes is the
+ * one breaking the prefix.
+ */
+function debugSegment(label: string, text: string): void {
+  if (process.env.FREECODE_DEBUG_CACHE !== "1") return;
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (Math.imul(hash, 31) + text.charCodeAt(i)) | 0;
+  }
+  logger.warn(
+    `[cache-debug] ${label} len=${text.length} hash=${(hash >>> 0).toString(16)}`,
+  );
 }
 
 /**
@@ -96,28 +117,60 @@ const CACHE_PROVIDER_OPTIONS = {
 } as const;
 
 /**
- * Marks the last TWO non-system messages as cache breakpoints.
+ * Marks two cache breakpoints: a read anchor and a write anchor.
  *
- * The count is the whole point. Providers check for a cache hit *at each
- * breakpoint*, so a single marker on the final message describes a prefix that
- * always ends in content the model has never seen — it can only ever write a
- * new entry, never read one. The second-to-last message is the read anchor: it
- * was the final message on the previous turn, so an entry exists at exactly
- * that prefix.
+ * Providers check for a cache hit *at each breakpoint*, so a marker on the
+ * final message alone describes a prefix ending in content the model has never
+ * seen — it can only ever write an entry, never read one. A second marker has
+ * to sit exactly where the previous request ended, because that is the only
+ * prefix an entry was written for.
  *
- * With one marker, a MiniMax-M3 session read ~7-10K tokens per request (the
- * system blocks, which do have stable breakpoints) and never cached a single
- * conversation message, even at 86K input — a 6.4% hit rate that looked like
- * the provider ignoring cache_control. It was this instead.
+ * "Two back" is not that position here. `convertToCoreMessages` expands one
+ * turn into an `assistant` message carrying the tool calls plus a `tool`
+ * message carrying the results, so a plain `.slice(-2)` — opencode's rule,
+ * written for a one-message-per-turn shape — lands on two messages that are
+ * *both new*. Measured on MiniMax-M3: reads pinned at ~7K (the system prefix)
+ * while input grew to 81K, never scaling with history.
  *
- * jcode calls the same arrangement a sliding two-marker window; opencode takes
- * `.slice(-2)` of the non-system messages for it.
+ * The previous request ended immediately before the newest assistant message,
+ * whether or not that turn used tools, so that is where the read anchor goes.
+ * jcode arrives at the same place from the other direction: a READ marker on
+ * the second-to-last assistant message.
  *
  * Mutates in place, matching the AI SDK message objects the callers just built.
  */
 export function applyMessageCaching(messages: ModelMessage[]): void {
-  const anchors = messages.filter((m) => m.role !== "system").slice(-2);
+  const anchors: ModelMessage[] = [];
+
+  // Write anchor: the tail, so this request's full prefix is stored for next
+  // time. Skipped for system-only input, which has no conversation to cache.
+  const last = messages[messages.length - 1];
+  if (last && last.role !== "system") anchors.push(last);
+
+  // Read anchor: the message immediately before the newest assistant message,
+  // i.e. the write anchor of the previous request.
+  let lastAssistant = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistant = i;
+      break;
+    }
+  }
+  const readAnchor = messages[lastAssistant - 1];
+  if (
+    lastAssistant > 0 &&
+    readAnchor.role !== "system" &&
+    readAnchor !== last
+  ) {
+    anchors.push(readAnchor);
+  }
+
   for (const msg of anchors) {
+    const idx = messages.indexOf(msg);
+    debugSegment(
+      `messages[0..${idx}] ${msg === last ? "write-anchor" : "read-anchor"}`,
+      JSON.stringify(messages.slice(0, idx + 1)),
+    );
     if (typeof msg.content === "string") {
       // A bare string carries nowhere to hang providerOptions; promote it to a
       // single text part so the marker has somewhere to live.
