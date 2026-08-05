@@ -64,6 +64,7 @@ import {
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
+import { PruneState, type PruneCandidate } from "./prune-state.js";
 import {
   getProjectContext,
   invalidateProjectContext,
@@ -126,6 +127,35 @@ import {
 // unbounded retry loop is expensive and, when compaction cannot free enough,
 // never converges.
 const MAX_OVERFLOW_COMPACTIONS = 3;
+
+// Total chars of tool-result content the model may see across the whole
+// history before the largest fresh results start being replaced with a marker.
+//
+// Scope note: claude-code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS is the same
+// 200K but applies *per message* — it guards one turn's parallel batch, not the
+// conversation. This is history-wide, because compaction here is what bounds
+// the conversation and it now fires on a cost target (~107K tokens ≈ 428K
+// chars). A 200K-char (~50K token) share for tool results leaves room for the
+// rest of the context under that target.
+const TOOL_RESULT_BUDGET_CHARS = Number.isFinite(
+  Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS),
+)
+  ? Math.max(0, Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS))
+  : 200_000;
+
+// The marker that stands in for a replaced tool result. Deterministic in
+// (id, size) so re-deriving it always yields the same bytes — though the
+// recorded copy in PruneState is what is actually re-applied.
+//
+// The `output` handle only resolves while the session that produced the result
+// is live; the store is in-memory and empty after a resume, where it degrades
+// to the tool's unknown-id message. Hence "or re-run" rather than a promise.
+function renderPrunedToolResult(id: string, size: number): string {
+  return (
+    `[tool result omitted to save context — ${size} chars. ` +
+    `Retrieve with the \`output\` tool (id="${id}"), or re-run the tool.]`
+  );
+}
 
 export interface AgentLoopConfig {
   maxIterations?: number;
@@ -218,6 +248,9 @@ export class AgentLoop {
   // hasn't changed (back-to-back tool turns triggered by one message).
   private lastMemoryQueryText: string = "";
   private lastMemoryBlock: string | undefined = undefined;
+  // Which tool results have gone to the provider, and how, so the cached
+  // prompt prefix stays byte-stable across the turns of this run.
+  private readonly pruneState = new PruneState();
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -251,7 +284,7 @@ export class AgentLoop {
           id: msg.id,
           role: msg.role,
           timestamp: msg.timestamp,
-          parts: msg.parts.map((part): MessagePart => {
+          parts: msg.parts.map((part, partIndex): MessagePart => {
             if (part.type === "text") {
               return { type: "text", content: part.content || "" };
             } else if (part.type === "code") {
@@ -269,7 +302,13 @@ export class AgentLoop {
               };
             } else {
               const toolCall: ToolCall = {
-                id: `tool-${msg.id}`,
+                // The provider's original tool_use id is not persisted, so it
+                // is re-derived. It must include the part index: a single
+                // assistant message can carry several tool calls, and keying
+                // them all `tool-<msgId>` made those ids collide — which
+                // pruning (below) reads as one result, applying one decision
+                // to all of them. Deterministic, so it is stable across loads.
+                id: `tool-${msg.id}-${partIndex}`,
                 tool: part.tool?.name || "",
                 // A string here is truthy, so `|| {}` let malformed args from
                 // an older session survive the round-trip back to the provider.
@@ -294,60 +333,107 @@ export class AgentLoop {
     }
   }
 
-  // Build a copy of messages where tool results in old turns are capped to
-  // OLD_TOOL_RESULT_CAP chars. This avoids re-sending large file reads or bash
-  // outputs from many turns ago on every subsequent request.
+  // Build a copy of messages where oversized tool results are replaced with a
+  // short marker, keeping the total the model sees under TOOL_RESULT_BUDGET.
   //
   // Only the view sent to the provider is pruned — this.history is untouched so
-  // the session store always has the full content and compaction works normally.
+  // the session store keeps full content and compaction works normally.
   //
-  // Strategy: find the last PRESERVE_RECENT_TURNS assistant turns and keep their
-  // results at full size; earlier turns get capped.
+  // Every decision is recorded in this.pruneState and re-applied verbatim on
+  // later turns, and any result already sent whole is frozen at full size. That
+  // is the whole point: the bytes at a given position never change once sent, so
+  // the provider's cached prefix stays valid and grows instead of being
+  // invalidated two turns back on every turn (RC4). The previous sliding-window
+  // version optimised the wrong thing — it saved ~250 tokens per old result and
+  // paid a partial cache invalidation per turn for it.
+  //
+  // When frozen results alone exceed the budget, the overage is accepted.
+  // Compaction (which now fires on a cost target, not window fit) is what
+  // reclaims that, and it rebuilds history wholesale so the prefix is expected
+  // to change there anyway.
   private pruneHistoryToolResults(messages: Message[]): Message[] {
-    const PRESERVE_RECENT_TURNS = 2;
-    const OLD_TOOL_RESULT_CAP = 1_000; // chars (≈250 tokens)
+    interface Candidate extends PruneCandidate {
+      messageIndex: number;
+      partIndex: number;
+    }
 
-    // Count assistant turns from the end to find the cutoff index.
-    let assistantTurnsSeen = 0;
-    let cutoffIndex = messages.length; // default: preserve everything
+    // The final assistant message holds results the model has not reasoned over
+    // yet; replacing those before it reads them just forces a re-read. It is
+    // still recorded as seen below, so it freezes rather than becoming eligible
+    // again next turn — which would be the sliding window all over again.
+    let lastAssistantIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "assistant") {
-        assistantTurnsSeen++;
-        if (assistantTurnsSeen >= PRESERVE_RECENT_TURNS) {
-          cutoffIndex = i;
-          break;
-        }
+        lastAssistantIndex = i;
+        break;
       }
     }
 
-    if (cutoffIndex === 0) return messages; // nothing old enough to prune
+    const candidates: Candidate[] = [];
+    const protectedIds = new Set<string>();
+    messages.forEach((msg, messageIndex) => {
+      if (msg.role !== "assistant") return;
+      msg.parts.forEach((part, partIndex) => {
+        if (part.type !== "tool" || !part.result) return;
+        const candidate: Candidate = {
+          id: part.tool.id,
+          size: part.result.length,
+          messageIndex,
+          partIndex,
+        };
+        candidates.push(candidate);
+        if (messageIndex === lastAssistantIndex) protectedIds.add(part.tool.id);
+      });
+    });
+    if (candidates.length === 0) return messages;
 
-    return messages.map((msg, idx) => {
-      // Recent turns (at or after cutoffIndex) are passed through unchanged.
-      if (idx >= cutoffIndex) return msg;
-      if (msg.role !== "assistant") return msg;
+    const { mustReapply, frozen, fresh } =
+      this.pruneState.partition(candidates);
 
-      const hasLargeResult = msg.parts.some(
-        (p) => p.type === "tool" && p.result && p.result.length > OLD_TOOL_RESULT_CAP,
-      );
-      if (!hasLargeResult) return msg;
+    const frozenSize =
+      frozen.reduce((sum, c) => sum + c.size, 0) +
+      mustReapply.reduce((sum, c) => sum + c.replacement.length, 0);
+    const selectable = fresh.filter((c) => !protectedIds.has(c.id));
+    const protectedSize = fresh
+      .filter((c) => protectedIds.has(c.id))
+      .reduce((sum, c) => sum + c.size, 0);
+    const selected = PruneState.selectFreshToReplace(
+      selectable,
+      frozenSize + protectedSize,
+      TOOL_RESULT_BUDGET_CHARS,
+    );
 
+    const replacements = new Map<string, string>();
+    for (const c of mustReapply) replacements.set(c.id, c.replacement);
+    for (const c of selected) {
+      const replacement = renderPrunedToolResult(c.id, c.size);
+      replacements.set(c.id, replacement);
+      this.pruneState.recordReplaced(c.id, replacement);
+    }
+    // Everything going out whole this turn is frozen from here on.
+    for (const c of candidates) {
+      if (!replacements.has(c.id)) this.pruneState.recordSeen(c.id);
+    }
+
+    if (replacements.size === 0) return messages;
+
+    // Rebuild only the messages that actually change; the rest pass through by
+    // reference so untouched objects stay identical.
+    const changed = new Set(
+      candidates
+        .filter((c) => replacements.has(c.id))
+        .map((c) => c.messageIndex),
+    );
+    return messages.map((msg, messageIndex) => {
+      if (!changed.has(messageIndex)) return msg;
       return {
         ...msg,
         parts: msg.parts.map((part) => {
-          if (
-            part.type === "tool" &&
-            part.result &&
-            part.result.length > OLD_TOOL_RESULT_CAP
-          ) {
-            return {
-              ...part,
-              result:
-                part.result.slice(0, OLD_TOOL_RESULT_CAP) +
-                "\n[... result truncated in history; re-read if needed ...]",
-            };
-          }
-          return part;
+          if (part.type !== "tool") return part;
+          const replacement = replacements.get(part.tool.id);
+          return replacement === undefined
+            ? part
+            : { ...part, result: replacement };
         }),
       };
     });
@@ -391,6 +477,9 @@ export class AgentLoop {
     this.lastVerifierReport = undefined;
     this.lastMemoryQueryText = "";
     this.lastMemoryBlock = undefined;
+    // History is reloaded below, and the ids are only meaningful against that
+    // load — so decisions from a previous run cannot be carried over.
+    this.pruneState.reset();
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.

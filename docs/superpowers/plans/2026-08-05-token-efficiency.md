@@ -153,7 +153,7 @@ production references are zero (the two remaining hits are in the test, delibera
 On the test: the plan said "remove" the old coverage, and the replacement
 (`history is untouched by an idle gap, however long`) is weaker than it looks. The
 clearing ran inside `run()`, not `loadHistory()`, and exercising `run()` needs a live
-provider — so the history-integrity half would have passed *before* the deletion too.
+provider — so the history-integrity half would have passed _before_ the deletion too.
 What actually holds the change in place is the structural assertion that
 `loop.maybeTimeBasedMicrocompact === undefined`, which fails the moment anyone
 reintroduces it. Both halves are kept, with the limitation stated in the test.
@@ -201,6 +201,48 @@ assertions encode the sliding-window semantics being removed.
 
 Then re-run Phase 0 against a live session: cache-read tokens should dominate
 cache-creation tokens on every request after the first.
+
+**Status: done (2026-08-05).** 432 tests green, typecheck clean.
+
+The byte-stability test was checked against the old implementation before being
+trusted: a replica of the sliding-window pruner fails it (`startsWith` → false), the
+new one passes. A stability assertion that cannot fail is worth nothing.
+
+**Prerequisite found mid-implementation — colliding tool ids.** `loadHistory` derived
+`id: \`tool-${msg.id}\`` *inside* `parts.map()`, so every tool part in one assistant
+message got the **same** id. `PruneState` is keyed by that id, so one decision would
+have applied to every result in the message. Phase 2 makes multi-tool messages the
+norm, so this was about to become the common case rather than an edge case. Fixed to
+`tool-${msg.id}-${partIndex}` — deterministic, so still stable across loads. Nothing
+depended on the old format.
+
+**Deviations:**
+
+- **A per-turn guard the plan did not have.** Dropping `PRESERVE_RECENT_TURNS`
+  entirely means a huge result can be replaced on the very send that first carries it,
+  so the model never sees what it just asked for and re-reads — a loop. Results in the
+  newest assistant message are therefore excluded from _selection_. They are still
+  recorded as seen, so they freeze on the next turn rather than becoming eligible
+  again; without that they would be fresh next turn and the sliding window would be
+  back by another name.
+- **Budget is history-wide, not per-message.** claude-code's
+  `MAX_TOOL_RESULTS_PER_MESSAGE_CHARS = 200_000` is explicitly per message. The same
+  number is used here for the whole conversation, because compaction is what bounds
+  the conversation and it now fires at ~107K tokens (≈428K chars) — a 200K-char share
+  for tool results leaves room for the rest. Env: `FREECODE_TOOL_RESULT_BUDGET_CHARS`.
+- **The `output` retrieval hint is honest about its limits.** The plan said the
+  replacement should name the `output` tool. It does, but the store is in-memory and
+  per-session, so after a resume the id resolves to nothing and the tool returns its
+  unknown-id message. The marker says "or re-run the tool" rather than promising
+  retrieval works.
+
+**Consequence worth tracking:** once frozen results alone exceed the budget, the
+overage is accepted — nothing can shrink them without breaking the prefix. Compaction
+is the only thing that reclaims it, which is why Phase 1 matters more now than it did
+in isolation. claude-code accepts the same trade for the same reason.
+
+Unverified without quota: that cache-read tokens actually dominate cache-creation on a
+live session. That is the real proof and it needs a run.
 
 ---
 
