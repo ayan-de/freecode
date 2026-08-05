@@ -96,8 +96,12 @@ function debugSegment(label: string, text: string): void {
   for (let i = 0; i < text.length; i++) {
     hash = (Math.imul(hash, 31) + text.charCodeAt(i)) | 0;
   }
-  logger.warn(
-    `[cache-debug] ${label} len=${text.length} hash=${(hash >>> 0).toString(16)}`,
+  // Straight to stderr, not through `logger`: core speaks JSON-RPC over
+  // stdout, so anything console.log'd there is swallowed by the frontend's
+  // protocol reader and never reaches the user. stderr is the channel the TUI
+  // actually surfaces.
+  process.stderr.write(
+    `[cache-debug] ${label} len=${text.length} hash=${(hash >>> 0).toString(16)}\n`,
   );
 }
 
