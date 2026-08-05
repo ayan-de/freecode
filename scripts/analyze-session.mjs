@@ -152,6 +152,7 @@ function analyze(session, opts) {
   // message of each response, so a usage-bearing message opens a group.
   const callsPerResponse = [];
   let currentResponse = null;
+  const hasUsageAnywhere = messages.some((m) => m.usage);
 
   for (const msg of messages) {
     const partsChars = JSON.stringify(msg.parts ?? []).length;
@@ -176,8 +177,15 @@ function analyze(session, opts) {
       assistantTimestamps.push(msg.timestamp ?? 0);
 
       // Cost of the request that produced this message: everything before it.
+      //
+      // Charged once per *response*, not per message. One response is
+      // persisted as several messages, so summing per message inflated the
+      // estimate ~2x (169 messages against 76 real responses on the session
+      // that exposed this). When usage is recorded, response starts are known
+      // exactly; otherwise fall back to per-message and accept the error.
       const requestTokens = historyTokens + opts.systemTokens;
-      sumInputTokens += requestTokens;
+      const chargeable = hasUsageAnywhere ? msg.usage !== undefined : true;
+      if (chargeable) sumInputTokens += requestTokens;
       peakRequestTokens = Math.max(peakRequestTokens, requestTokens);
 
       let calls = 0;
@@ -322,9 +330,18 @@ function report(a) {
   console.log(`\n  Context`);
   console.log(`    final history           ${K(a.finalHistoryTokens)} tokens`);
   console.log(`    peak request            ${K(a.peakRequestTokens)} tokens`);
-  console.log(
-    `    SUM input tokens        ${M(a.sumInputTokens)}   <- headline`,
-  );
+  if (a.reported.responses > 0) {
+    // The provider's own count beats any reconstruction; keep the estimate
+    // visible so a large gap flags a modelling error rather than hiding one.
+    console.log(
+      `    SUM input (reported)    ${M(a.billedInput)}   <- headline`,
+    );
+    console.log(`    SUM input (estimated)   ${M(a.sumInputTokens)}`);
+  } else {
+    console.log(
+      `    SUM input (estimated)   ${M(a.sumInputTokens)}   <- headline`,
+    );
+  }
 
   console.log(`\n  Prompt cache (provider-reported)`);
   if (a.reported.responses === 0) {
