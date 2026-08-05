@@ -16,6 +16,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import { logger } from "../utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,7 +37,10 @@ export async function loadSystemPrompt(): Promise<string> {
 
   // dev / on-disk: read the live file.
   try {
-    cached = fs.readFileSync(path.join(__dirname, "prompt", PROMPT_FILE), "utf-8");
+    cached = fs.readFileSync(
+      path.join(__dirname, "prompt", PROMPT_FILE),
+      "utf-8",
+    );
     return cached;
   } catch {
     // Not on disk — expected inside the compiled single-file binary.
@@ -54,6 +58,16 @@ export async function loadSystemPrompt(): Promise<string> {
     // Fall through to the embedded minimal prompt.
   }
 
+  // Reaching here means the agent runs with a one-line prompt: no tool
+  // guidance, no coding standards, no mode behaviour. It degrades quality
+  // invisibly instead of failing, so it stayed unnoticed until a session
+  // showed the model ignoring instructions that were never sent. Say so.
+  logger.warn(
+    `[prompt] ${PROMPT_FILE} not found on disk or embedded — falling back to a ` +
+      `minimal ${EMBEDDED_FALLBACK.length}-character system prompt. The agent ` +
+      `will behave noticeably worse. In the monorepo this means dist is stale ` +
+      `or missing assets: run \`pnpm --filter @thisisayande/freecode-core build\`.`,
+  );
   cached = EMBEDDED_FALLBACK;
   return cached;
 }

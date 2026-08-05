@@ -145,6 +145,14 @@ function analyze(session, opts) {
     responses: 0,
   };
 
+  // Tool calls per *response*, which is the only sound way to measure
+  // parallelism: appendToolMessage writes one message per tool call, so a
+  // per-message count is capped at 1 by construction and would report "no
+  // parallelism" no matter what the model did. Usage rides on the first
+  // message of each response, so a usage-bearing message opens a group.
+  const callsPerResponse = [];
+  let currentResponse = null;
+
   for (const msg of messages) {
     const partsChars = JSON.stringify(msg.parts ?? []).length;
 
@@ -154,6 +162,13 @@ function analyze(session, opts) {
       reported.output += msg.usage.outputTokens ?? 0;
       reported.cacheRead += msg.usage.cacheReadInputTokens ?? 0;
       reported.cacheWrite += msg.usage.cacheCreationInputTokens ?? 0;
+      currentResponse = { calls: 0 };
+      callsPerResponse.push(currentResponse);
+    }
+    if (currentResponse) {
+      currentResponse.calls += (msg.parts ?? []).filter(
+        (p) => p.type === "tool",
+      ).length;
     }
 
     if (msg.role === "assistant") {
@@ -195,10 +210,17 @@ function analyze(session, opts) {
   }
 
   const resultChars = resultSizes.reduce((a, b) => a + b, 0);
-  const multiCallMessages = [...toolCallHistogram.entries()]
-    .filter(([calls]) => calls >= 2)
-    .reduce((sum, [, count]) => sum + count, 0);
   const totalCalls = [...toolNames.values()].reduce((a, b) => a + b, 0);
+
+  // Exact when usage is recorded; absent on sessions predating that.
+  const responseHistogram = new Map();
+  for (const r of callsPerResponse) {
+    responseHistogram.set(r.calls, (responseHistogram.get(r.calls) ?? 0) + 1);
+  }
+  const multiCallResponses = callsPerResponse.filter(
+    (r) => r.calls >= 2,
+  ).length;
+  const parallelismMeasurable = callsPerResponse.length > 0;
 
   // The number that decides whether prompt caching is working. Cache reads bill
   // at ~0.1x and writes at ~1.25x, so a session can send far more tokens than
@@ -225,7 +247,12 @@ function analyze(session, opts) {
     ),
     totalCalls,
     callsPerRequest: requests > 0 ? totalCalls / requests : 0,
-    multiCallMessages,
+    parallelismMeasurable,
+    responseHistogram: Object.fromEntries(
+      [...responseHistogram].sort((a, b) => a[0] - b[0]),
+    ),
+    multiCallResponses,
+    responseCount: callsPerResponse.length,
     topTools: [...toolNames.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8),
     finalHistoryTokens: historyTokens,
     peakRequestTokens,
@@ -265,15 +292,27 @@ function report(a) {
     `    requests / user message ${a.requestsPerUserMessage.toFixed(1)}`,
   );
 
-  console.log(`\n  Tool calls per assistant message   [RC2 signal]`);
-  console.log(
-    `    histogram               ${JSON.stringify(a.toolCallHistogram)}`,
-  );
+  console.log(`\n  Parallelism   [RC2 signal]`);
+  if (a.parallelismMeasurable) {
+    const pct =
+      a.responseCount > 0
+        ? ((a.multiCallResponses / a.responseCount) * 100).toFixed(0)
+        : "0";
+    console.log(
+      `    calls per response      ${JSON.stringify(a.responseHistogram)}`,
+    );
+    console.log(
+      `    responses with >= 2     ${num(a.multiCallResponses)} of ${num(a.responseCount)}  (${pct}%)` +
+        (a.multiCallResponses === 0 ? "   <- no parallelism" : ""),
+    );
+  } else {
+    // Per-message counts cannot exceed 1: appendToolMessage persists one
+    // message per tool call. Only calls/request carries any signal here, and
+    // it inherits the timestamp-clustering heuristic's error bars.
+    console.log(`    exact measure unavailable — session predates usage`);
+    console.log(`    recording; calls/request below is approximate`);
+  }
   console.log(`    calls / request         ${a.callsPerRequest.toFixed(2)}`);
-  console.log(
-    `    messages with >= 2      ${num(a.multiCallMessages)}` +
-      (a.multiCallMessages === 0 ? "   <- no parallelism at all" : ""),
-  );
   if (a.topTools.length > 0) {
     console.log(
       `    top tools               ${a.topTools.map(([n, c]) => `${n}:${c}`).join("  ")}`,
