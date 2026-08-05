@@ -4,6 +4,7 @@ import {
   buildAnthropicSystemParam,
   buildToolsParam,
   resolveModel,
+  applyMessageCaching,
 } from "./utils.js";
 
 test("buildAnthropicSystemParam passes a string through unchanged", () => {
@@ -61,11 +62,75 @@ test("buildToolsParam wraps inputSchema so it is not a bare plain object", () =>
 });
 
 test("resolveModel returns the requested model unchanged", () => {
-  assert.equal(resolveModel("MiniMax-M3", "minimax", "MiniMax-M2"), "MiniMax-M3");
+  assert.equal(
+    resolveModel("MiniMax-M3", "minimax", "MiniMax-M2"),
+    "MiniMax-M3",
+  );
 });
 
 test("resolveModel falls back to the provider default when none is requested", () => {
   assert.equal(resolveModel(undefined, "minimax", "MiniMax-M2"), "MiniMax-M2");
   // Empty string is "no model" too — it must not reach the provider as-is.
   assert.equal(resolveModel("", "minimax", "MiniMax-M2"), "MiniMax-M2");
+});
+
+// The bug this pins: marking only the final message means every breakpoint
+// describes a prefix ending in content the model has never seen, so the
+// request can only ever WRITE a cache entry, never read one. A MiniMax-M3
+// session showed 6.4% hits -- the system blocks (stable breakpoints) and not a
+// single conversation message, at 86K input. The second-to-last message is the
+// read anchor: it was the final message last turn, so an entry exists there.
+test("applyMessageCaching marks the last two non-system messages", () => {
+  const msgs: any[] = [
+    { role: "system", content: "sys" },
+    { role: "user", content: [{ type: "text", text: "one" }] },
+    { role: "assistant", content: [{ type: "text", text: "two" }] },
+    { role: "user", content: [{ type: "text", text: "three" }] },
+  ];
+  applyMessageCaching(msgs as never);
+
+  const marked = (m: any) =>
+    m.content[m.content.length - 1].providerOptions !== undefined;
+  assert.equal(marked(msgs[1]), false, "older messages stay unmarked");
+  assert.equal(marked(msgs[2]), true, "read anchor");
+  assert.equal(marked(msgs[3]), true, "write anchor");
+  assert.equal(
+    (msgs[0] as any).providerOptions,
+    undefined,
+    "system blocks carry their own breakpoints and must not be double-marked",
+  );
+});
+
+test("applyMessageCaching sets every provider flavor's key", () => {
+  const msgs: any[] = [
+    { role: "user", content: [{ type: "text", text: "hi" }] },
+  ];
+  applyMessageCaching(msgs as never);
+  const opts = msgs[0].content[0].providerOptions;
+  // Anthropic-shaped endpoints read `anthropic`; a gateway reads its own key.
+  assert.ok(opts.anthropic.cacheControl);
+  assert.ok(opts.openrouter.cacheControl);
+  assert.ok(opts.openaiCompatible.cache_control);
+  assert.ok(opts.bedrock.cachePoint);
+});
+
+test("applyMessageCaching promotes string content so a marker can attach", () => {
+  const msgs: any[] = [{ role: "user", content: "plain string" }];
+  applyMessageCaching(msgs as never);
+  assert.ok(Array.isArray(msgs[0].content));
+  assert.equal(msgs[0].content[0].text, "plain string");
+  assert.ok(msgs[0].content[0].providerOptions.anthropic);
+});
+
+test("applyMessageCaching preserves existing providerOptions on the part", () => {
+  const msgs: any[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "hi", providerOptions: { foo: 1 } }],
+    },
+  ];
+  applyMessageCaching(msgs as never);
+  const opts = msgs[0].content[0].providerOptions;
+  assert.equal(opts.foo, 1, "must merge, not clobber");
+  assert.ok(opts.anthropic);
 });

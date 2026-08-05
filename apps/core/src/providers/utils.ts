@@ -80,6 +80,67 @@ export function buildAnthropicSystemParam(
   });
 }
 
+/**
+ * Cache-breakpoint markers, keyed by every provider flavor that understands
+ * one. The AI SDK routes `providerOptions` by key and ignores the rest, so
+ * setting them all costs nothing and means a model reached through OpenRouter
+ * or an OpenAI-compatible gateway caches as well as a direct Anthropic one.
+ * Same approach as opencode's `applyCaching` (provider/transform.ts:335).
+ */
+const CACHE_PROVIDER_OPTIONS = {
+  anthropic: { cacheControl: { type: "ephemeral" } },
+  openrouter: { cacheControl: { type: "ephemeral" } },
+  openaiCompatible: { cache_control: { type: "ephemeral" } },
+  alibaba: { cacheControl: { type: "ephemeral" } },
+  bedrock: { cachePoint: { type: "default" } },
+} as const;
+
+/**
+ * Marks the last TWO non-system messages as cache breakpoints.
+ *
+ * The count is the whole point. Providers check for a cache hit *at each
+ * breakpoint*, so a single marker on the final message describes a prefix that
+ * always ends in content the model has never seen — it can only ever write a
+ * new entry, never read one. The second-to-last message is the read anchor: it
+ * was the final message on the previous turn, so an entry exists at exactly
+ * that prefix.
+ *
+ * With one marker, a MiniMax-M3 session read ~7-10K tokens per request (the
+ * system blocks, which do have stable breakpoints) and never cached a single
+ * conversation message, even at 86K input — a 6.4% hit rate that looked like
+ * the provider ignoring cache_control. It was this instead.
+ *
+ * jcode calls the same arrangement a sliding two-marker window; opencode takes
+ * `.slice(-2)` of the non-system messages for it.
+ *
+ * Mutates in place, matching the AI SDK message objects the callers just built.
+ */
+export function applyMessageCaching(messages: ModelMessage[]): void {
+  const anchors = messages.filter((m) => m.role !== "system").slice(-2);
+  for (const msg of anchors) {
+    if (typeof msg.content === "string") {
+      // A bare string carries nowhere to hang providerOptions; promote it to a
+      // single text part so the marker has somewhere to live.
+      msg.content = [
+        {
+          type: "text",
+          text: msg.content,
+          providerOptions: { ...CACHE_PROVIDER_OPTIONS },
+        },
+      ] as unknown as typeof msg.content;
+      continue;
+    }
+    if (!Array.isArray(msg.content) || msg.content.length === 0) continue;
+    const lastPart = msg.content[msg.content.length - 1];
+    if (lastPart && typeof lastPart === "object") {
+      (lastPart as { providerOptions?: unknown }).providerOptions = {
+        ...((lastPart as { providerOptions?: object }).providerOptions ?? {}),
+        ...CACHE_PROVIDER_OPTIONS,
+      };
+    }
+  }
+}
+
 /** True only for a JSON object — the shape providers accept as tool_use.input. */
 export function isPlainObject(
   value: unknown,
