@@ -28,6 +28,7 @@ class MessageStoreImpl {
     type: MessageType,
     content: string,
     component: Component,
+    queueId?: string,
   ): MessageInstance {
     const message: MessageInstance = {
       id: this.generateId(),
@@ -35,6 +36,7 @@ class MessageStoreImpl {
       content,
       component,
       timestamp: Date.now(),
+      queueId,
     };
 
     this.messages.push(message);
@@ -157,8 +159,9 @@ export function addMessage(
   type: MessageType,
   content: string,
   component: Component,
+  queueId?: string,
 ): MessageInstance {
-  return messageStore.add(type, content, component);
+  return messageStore.add(type, content, component, queueId);
 }
 
 export function removeMessage(id: number): MessageInstance | undefined {
@@ -200,4 +203,13 @@ export function getMessage(id: number): MessageInstance | undefined {
 
 export function getMessagesByType(type: MessageType): MessageInstance[] {
   return messageStore.getByType(type);
+}
+
+/**
+ * Look up a queued message by its server-assigned id (spec 2026-08-05).
+ * Used by the message_dequeued handler to drop the right transcript row,
+ * and by Ctrl+Backspace to find the target before calling session.dequeue.
+ */
+export function getMessageByQueueId(queueId: string): MessageInstance | undefined {
+  return messageStore.getMessages().find((m) => m.queueId === queueId);
 }

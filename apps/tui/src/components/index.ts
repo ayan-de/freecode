@@ -8,6 +8,7 @@ import {
   clearMessages,
   updateMessage,
   getMessages,
+  getMessageByQueueId,
 } from "../state/message-store.js";
 import { createMessageComponent, ThinkingMessage } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
@@ -20,6 +21,33 @@ import { ToolResultMessage } from "./tool-result-message.js";
 export function createUserMessage(content: string): MessageInstance {
   const component = createMessageComponent("user", content);
   return addMessage("user", content, component);
+}
+
+/**
+ * Add a queued user message to the store (spec 2026-08-05). `queueId` is the
+ * server-assigned id from the `message_queued` stream event; the TUI keeps it
+ * on the message so `session.dequeue` and Ctrl+Backspace can target the right
+ * row even after the local store id has rotated.
+ */
+export function createQueuedUserMessage(
+  content: string,
+  queueId: string,
+): MessageInstance {
+  const component = createMessageComponent("queued_user", content);
+  return addMessage("queued_user", content, component, queueId);
+}
+
+/**
+ * Promote a queued_user row to a normal user message in place — used when
+ * the queued prompt transitions from "waiting" to "in flight". The local
+ * store id stays the same so the virtual list does not reflow, and the
+ * component swap is what the renderer picks up on the next paint.
+ */
+export function promoteQueuedToUser(queueId: string): MessageInstance | undefined {
+  const existing = getMessageByQueueId(queueId);
+  if (!existing || existing.type !== "queued_user") return existing;
+  const component = createMessageComponent("user", existing.content);
+  return updateMessage(existing.id, existing.content, component);
 }
 
 /**

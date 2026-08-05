@@ -416,6 +416,26 @@ export async function sessionStop(sessionId: string): Promise<void> {
   await sendRequest("session.stop", { sessionId });
 }
 
+/**
+ * Pull a queued follow-up message out of the per-session FIFO (spec
+ * 2026-08-05). The TUI calls this for two distinct UX paths:
+ *   1. plain removal — the user changes their mind on a queued message
+ *   2. "restore to editor" — the queued message is re-parked in the input
+ *      box so the user can revise and resubmit
+ *
+ * Returns `{ removed: false }` when the id already started sending; the UI
+ * uses that to keep the message in the chat instead of dropping it from the
+ * transcript.
+ */
+export async function sessionDequeue(
+  sessionId: string,
+  id: string,
+): Promise<{ removed: boolean }> {
+  return (await sendRequest("session.dequeue", { sessionId, id })) as {
+    removed: boolean;
+  };
+}
+
 export interface CompactResult {
   compacted: boolean;
   tokensBefore: number;
@@ -443,6 +463,17 @@ export interface SessionSendResult {
   };
 }
 
+/**
+ * Result variant when the session was busy and the prompt was parked in the
+ * follow-up queue (spec 2026-08-05). The TUI uses this to skip the
+ * "in-progress" bookkeeping — there's no turn running yet, and `id` is the
+ * stable handle for `session.dequeue` / "restore to editor".
+ */
+export interface SessionQueuedResult {
+  queued: true;
+  id: string;
+}
+
 export async function sessionSend(
   sessionId: string,
   message: string,
@@ -466,7 +497,7 @@ export async function sessionSendStreaming(
     | Array<{ data: string; mediaType: string; altText?: string }>
     | undefined,
   onEvent: (event: StreamEvent) => void,
-): Promise<SessionSendResult> {
+): Promise<SessionSendResult | SessionQueuedResult> {
   return new Promise((resolve, reject) => {
     if (!cliProcess || !cliProcess.stdin) {
       reject(new Error("CLI not running"));
@@ -488,7 +519,7 @@ export async function sessionSendStreaming(
     registerPending(id, "session.send", STREAM_IDLE_TIMEOUT_MS, {
       resolve: (value) => {
         activeStreamId = null;
-        resolve(value as SessionSendResult);
+        resolve(value as SessionSendResult | SessionQueuedResult);
       },
       reject: (err) => {
         activeStreamId = null;

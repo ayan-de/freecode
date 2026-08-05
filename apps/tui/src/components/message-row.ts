@@ -216,6 +216,54 @@ export function createUserMessageComponent(content: string): Component {
 }
 
 /**
+ * Queued user message — looks like a normal user message but carries a dim
+ * "(queued)" badge above the content (spec 2026-08-05). The badge is rendered
+ * inline so the layout matches the normal user message; on Ctrl+Backspace
+ * the TUI calls session.dequeue and either drops this row or restores the
+ * content to the editor.
+ *
+ * Once the turn actually starts, index.ts replaces this component with a
+ * normal user message + an in-progress line — no special upgrade logic here.
+ */
+export function createQueuedUserMessageComponent(content: string): Component {
+  const displayContent = stripPrefix(content);
+
+  let prefixPending = true;
+  const box = new Box(0, 0, (text: string) => {
+    return text
+      .split("\n")
+      .map((line) => {
+        if (prefixPending && line.startsWith("  ")) {
+          prefixPending = false;
+          return chalk.dim("❯") + line.slice(1);
+        }
+        return line;
+      })
+      .map((line) => chalk.bgRgb(50, 50, 50)(line))
+      .join("\n");
+  });
+  const markdown = new Markdown(displayContent, 2, 0, defaultMarkdownTheme);
+  box.addChild(markdown);
+
+  const boundedBox = new WidthBounded(box);
+
+  return {
+    render(width: number): string[] {
+      prefixPending = true;
+      // Badge first (sits on its own line, dim, narrow), then the regular
+      // user-message block below. The trailing blank matches createUserMessageComponent.
+      const badge = chalk.dim("(queued — Ctrl+Backspace to remove or edit)");
+      return [badge, ...boundedBox.render(width), ""];
+    },
+    invalidate() {
+      if (typeof boundedBox.invalidate === "function") boundedBox.invalidate();
+    },
+    addChild() {},
+    destroy() {},
+  } as Component;
+}
+
+/**
  * Create an assistant message component — markdown with colored output
  */
 export function createAssistantMessageComponent(content: string): Component {
@@ -362,6 +410,9 @@ export function createMessageComponent(
   switch (type) {
     case "user":
       return createUserMessageComponent(content);
+    case "queued_user":
+      // Spec 2026-08-05: same body as a user message, but with a "queued" badge.
+      return createQueuedUserMessageComponent(content);
     case "assistant":
       return createAssistantMessageComponent(content);
     case "system":
