@@ -71,10 +71,7 @@ import {
   invalidateProjectContext,
 } from "../context/tree-cache.js";
 import { ensureWatching } from "../context/tree-watcher.js";
-import {
-  MemoryService,
-  renderPromptMemoryContext,
-} from "../compaction/index.js";
+import { MemoryService } from "../compaction/index.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
@@ -1058,13 +1055,18 @@ export class AgentLoop {
   }> {
     try {
       // Build system prompt blocks using compiler
-      const memoryContext = renderPromptMemoryContext(
-        this.memory.getPromptContext(),
-      );
       const systemBlocks = await this.compiler.compileSystemBlocks(
         provider,
         model,
       );
+
+      // The compaction summary — how the model knows what happened before a
+      // compaction trimmed the history. Deliberately NOT
+      // renderPromptMemoryContext(), which also renders `recentMessages`: those
+      // grow every turn and are already present in the history verbatim, so
+      // including them both duplicates content and rewrites the prefix on every
+      // request. The summary alone changes only when compaction runs.
+      const compactionSummary = this.memory.getPromptContext().summary;
 
       // Dynamic context (file tree + clock + memory) is inlined as the
       // first user message below, NOT as a system block — see the prepend in
@@ -1105,6 +1107,14 @@ export class AgentLoop {
       // anchors that actually drive cache reads are downstream — so even a
       // full rewrite here does not touch the cached static prefix.
       const sessionBlocks = [
+        ...(compactionSummary
+          ? [
+              {
+                text: `Compacted session summary:\n${compactionSummary}`,
+                cache: false,
+              },
+            ]
+          : []),
         ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
         ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
         ...(reminderText ? [{ text: reminderText, cache: false }] : []),
@@ -1430,29 +1440,41 @@ export class AgentLoop {
     // new; re-sending 30K-char file reads from 10 turns ago is pure waste.
     // Last 2 turns are always preserved at full fidelity — the model may still
     // be acting on them. (jcode-style history pruning, spec D6)
-    // Dynamic context (file tree, memory summary, clock) is inlined as the
-    // conversation's first user message. Putting it in the system blocks
-    // invalidates the static-prefix cache marker on every turn; Claude Code
-    // uses the same architecture (utils/api.ts:321, SYSTEM_PROMPT_DYNAMIC_BOUNDARY).
+    // Dynamic context (file tree + git head + clock) is inlined as the
+    // conversation's FIRST user message, so the static system block above it
+    // stays a stable cacheable prefix. Claude Code uses the same architecture
+    // (utils/api.ts:321, SYSTEM_PROMPT_DYNAMIC_BOUNDARY).
+    //
+    // Position 0 is the most cache-sensitive slot in the whole request: every
+    // byte after it depends on it. So it must contain ONLY things that are
+    // stable across a session.
+    //
+    // In particular it must NOT carry the memory context. renderPromptMemoryContext
+    // renders `recentMessages`, which grows every turn — putting that here
+    // rewrote position 0 on every request and invalidated the entire
+    // conversation prefix, which is exactly what the anchors are trying to
+    // reuse. It is also redundant: those same messages are already in the
+    // history immediately below. The memory *summary* still reaches the model
+    // through the session system block built in executeTurn.
     const dynamicUserMessage: Message = {
-      id: `dynamic-${Date.now()}`,
+      id: "dynamic-context",
       role: "user",
       parts: [
         {
           type: "text",
           content:
-            "Current project context (refreshed each turn — file tree, " +
-            "session memory, clock):\n\n" +
+            "Project context:\n\n" +
             this.compiler.compileDynamicContext(
               context.tree,
               context.gitHead,
               "",
-              renderPromptMemoryContext(this.memory.getPromptContext()) ||
-                undefined,
             ),
         },
       ],
-      timestamp: Date.now(),
+      // Fixed, not Date.now(): the id and timestamp are part of what the
+      // pruner and any future serializer hash over, and a value that moves
+      // every turn is the same prefix-invalidation bug in another guise.
+      timestamp: 0,
     };
     const prunedMessages = this.pruneHistoryToolResults([
       dynamicUserMessage,
