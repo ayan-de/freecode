@@ -454,7 +454,6 @@ export class AgentLoop {
     });
   }
 
-
   // ===========================================================================
   // PUBLIC: run()
   // Main execution entry point - runs the continuous loop until completion
@@ -870,6 +869,7 @@ export class AgentLoop {
     system: SystemBlock[],
     provider: string,
     model: string | undefined,
+    context: { tree: string; gitHead: string },
   ): Promise<Awaited<ReturnType<typeof this.sendToProvider>>> {
     if (!isContextOverflowError(error)) throw error;
 
@@ -898,7 +898,13 @@ export class AgentLoop {
     if (!outcome.compacted) throw error;
 
     // this.history was reloaded from the trimmed store inside runCompaction.
-    return await this.sendToProvider(this.history, system, provider, model);
+    return await this.sendToProvider(
+      this.history,
+      system,
+      provider,
+      model,
+      context,
+    );
   }
 
   // Build compaction options that summarize via the active provider/model.
@@ -1056,13 +1062,14 @@ export class AgentLoop {
         this.memory.getPromptContext(),
       );
       const systemBlocks = await this.compiler.compileSystemBlocks(
-        context.tree,
-        context.gitHead,
-        "", // ignorePatterns - empty for now
         provider,
         model,
-        memoryContext || undefined,
       );
+
+      // Dynamic context (file tree + clock + memory) is inlined as the
+      // first user message below, NOT as a system block — see the prepend in
+      // callProviderOnce. Same shape as Claude Code's
+      // SYSTEM_PROMPT_DYNAMIC_BOUNDARY (utils/api.ts:321).
 
       // Persistent-memory block: top-k memories relevant to the last user
       // message, surfaced by the graph service (spec D5). Per-session and
@@ -1093,12 +1100,16 @@ export class AgentLoop {
       // gate) into this turn's prompt. Transient — never persisted to history.
       const reminderText = this.pendingReminders.join("\n\n");
       this.pendingReminders = [];
-      const blocks = [
-        ...systemBlocks,
+      // Session-only system blocks: todo state and transient reminders. They
+      // change, but they sit at the tail of the system array and the message
+      // anchors that actually drive cache reads are downstream — so even a
+      // full rewrite here does not touch the cached static prefix.
+      const sessionBlocks = [
         ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
         ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
         ...(reminderText ? [{ text: reminderText, cache: false }] : []),
       ];
+      const blocks = [...systemBlocks, ...sessionBlocks];
 
       // UserPromptSubmit Hook — can modify prompt before sending to model
       const joinedSystem = blocks.map((b) => b.text).join("\n\n");
@@ -1126,6 +1137,7 @@ export class AgentLoop {
           finalSystemBlocks,
           provider,
           model,
+          context,
         );
         this.overflowCompactions = 0;
       } catch (error) {
@@ -1134,6 +1146,7 @@ export class AgentLoop {
           finalSystemBlocks,
           provider,
           model,
+          context,
         );
       }
 
@@ -1347,6 +1360,12 @@ export class AgentLoop {
     system: SystemBlock[],
     provider: string,
     model: string | undefined,
+    // Context for the dynamic user-message prepend. Required so the
+    // conversation's first user message stays accurate (file tree + clock).
+    context: {
+      tree: string;
+      gitHead: string;
+    },
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1373,6 +1392,7 @@ export class AgentLoop {
           messages,
           system,
           p === provider ? model : undefined,
+          context,
         ),
       { sessionId: this.state.sessionId, signal: this.abort.signal },
     );
@@ -1384,6 +1404,8 @@ export class AgentLoop {
     messages: Message[],
     system: SystemBlock[],
     model: string | undefined,
+    // Required so the dynamic user-message prepend has the file tree + clock.
+    context: { tree: string; gitHead: string },
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1408,7 +1430,34 @@ export class AgentLoop {
     // new; re-sending 30K-char file reads from 10 turns ago is pure waste.
     // Last 2 turns are always preserved at full fidelity — the model may still
     // be acting on them. (jcode-style history pruning, spec D6)
-    const prunedMessages = this.pruneHistoryToolResults(messages);
+    // Dynamic context (file tree, memory summary, clock) is inlined as the
+    // conversation's first user message. Putting it in the system blocks
+    // invalidates the static-prefix cache marker on every turn; Claude Code
+    // uses the same architecture (utils/api.ts:321, SYSTEM_PROMPT_DYNAMIC_BOUNDARY).
+    const dynamicUserMessage: Message = {
+      id: `dynamic-${Date.now()}`,
+      role: "user",
+      parts: [
+        {
+          type: "text",
+          content:
+            "Current project context (refreshed each turn — file tree, " +
+            "session memory, clock):\n\n" +
+            this.compiler.compileDynamicContext(
+              context.tree,
+              context.gitHead,
+              "",
+              renderPromptMemoryContext(this.memory.getPromptContext()) ||
+                undefined,
+            ),
+        },
+      ],
+      timestamp: Date.now(),
+    };
+    const prunedMessages = this.pruneHistoryToolResults([
+      dynamicUserMessage,
+      ...messages,
+    ]);
     // Prompt-cache awareness (jcode #9): warn before a send that will likely
     // miss a cold cache. Informational only — never blocks the send.
     const coldWarning = noteSendAndCheckCold(this.state.sessionId, provider);

@@ -15,46 +15,48 @@ import {
 } from "../tools/read-state.js";
 import type { Message, ToolCall } from "./types.js";
 
-test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correctly", async () => {
+test("PromptCompiler.compileSystemBlocks returns only the static block", async () => {
   const compiler = new PromptCompiler(
     "/path/to/project",
     "my-project",
     "build",
   );
-  const tree = "📄 index.js";
-  const gitHead = "abc12345";
 
   const blocks = await compiler.compileSystemBlocks(
-    tree,
-    gitHead,
-    "",
     "anthropic",
     "claude-sonnet-4-5",
-    "Some memory summary",
   );
 
-  assert.equal(blocks.length, 2);
+  // Dynamic content (file tree, memory, clock) was deliberately moved out of
+  // the system blocks and is now inlined as the first user message — see
+  // compileDynamicContext. Putting it in the system blocks invalidates the
+  // static-prefix cache marker on every turn. Claude Code uses the same
+  // architecture (utils/api.ts:321, SYSTEM_PROMPT_DYNAMIC_BOUNDARY).
+  assert.equal(blocks.length, 1);
   assert.equal(blocks[0].cache, true, "static block earns a breakpoint");
-  // Was true. The 4-breakpoint budget is spent on tools, this static block and
-  // the two message anchors; the dynamic block holds the file tree, session
-  // context and clock, so its boundary moves between turns and a check there
-  // buys nothing. Its content is still covered by the message anchors.
-  assert.equal(
-    blocks[1].cache,
-    false,
-    "dynamic block must not consume a breakpoint",
-  );
 
   // Static section has system prompts (tools are sent as native schemas)
   assert.ok(blocks[0].text.includes("BUILD mode"));
   assert.ok(!blocks[0].text.includes("Available tools"));
+});
 
-  // Dynamic section has tree, git head, path, and memory
-  assert.ok(blocks[1].text.includes("my-project"));
-  assert.ok(blocks[1].text.includes("/path/to/project"));
-  assert.ok(blocks[1].text.includes("📄 index.js"));
-  assert.ok(blocks[1].text.includes("Some memory summary"));
-  assert.ok(blocks[1].text.includes("Current Time"));
+test("PromptCompiler.compileDynamicContext carries file tree and clock", () => {
+  const compiler = new PromptCompiler(
+    "/path/to/project",
+    "my-project",
+    "build",
+  );
+  const text = compiler.compileDynamicContext(
+    "📄 index.js",
+    "abc12345",
+    "",
+    "Some memory summary",
+  );
+  assert.ok(text.includes("my-project"));
+  assert.ok(text.includes("/path/to/project"));
+  assert.ok(text.includes("📄 index.js"));
+  assert.ok(text.includes("Some memory summary"));
+  assert.ok(text.includes("Current Time"));
 });
 
 test("AgentLoop.loadHistory reconstructs the message list correctly", async () => {
