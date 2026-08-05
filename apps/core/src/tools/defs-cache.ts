@@ -30,17 +30,19 @@ function ensureSubscribed(): void {
 export function getToolDefs(): ProviderToolDef[] {
   ensureSubscribed();
   if (!cached) {
-    cached = listTools().map((t) => {
-      const toolDef = getTool(t.id);
-      return {
-        name: t.id,
-        description: t.description,
-        parameters: (toolDef?.schemas.parameters ?? {
-          type: "object",
-          properties: {},
-        }) as unknown as Record<string, unknown>,
-      };
-    });
+    cached = listTools()
+      .map((t) => {
+        const toolDef = getTool(t.id);
+        return {
+          name: t.id,
+          description: t.description,
+          parameters: (toolDef?.schemas.parameters ?? {
+            type: "object",
+            properties: {},
+          }) as unknown as Record<string, unknown>,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
   return cached;
 }

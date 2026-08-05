@@ -161,18 +161,19 @@ ${tree}`;
       .filter((s) => s.length > 0)
       .join("\n\n");
 
+    const roundedTime = new Date().toISOString().slice(0, 13) + ":00:00Z";
     const dynamicText = [
       this.compileProjectSummary(tree, gitHead, ignorePatterns),
       "",
       memoryContext ? `Session context:\n${memoryContext}` : "",
-      `Current Time: ${new Date().toISOString()}`,
+      `Current Time: ${roundedTime}`,
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
 
     return [
       { text: staticText, cache: true },
-      { text: dynamicText, cache: false },
+      { text: dynamicText, cache: true },
     ];
   }
 

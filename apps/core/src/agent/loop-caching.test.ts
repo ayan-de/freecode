@@ -30,7 +30,7 @@ test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correct
 
   assert.equal(blocks.length, 2);
   assert.equal(blocks[0].cache, true);
-  assert.equal(blocks[1].cache, false);
+  assert.equal(blocks[1].cache, true);
 
   // Static section has system prompts (tools are sent as native schemas)
   assert.ok(blocks[0].text.includes("BUILD mode"));
