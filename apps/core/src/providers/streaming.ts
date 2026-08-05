@@ -9,9 +9,7 @@ import type { ProviderChunk, ExecuteResult } from "./types.js";
 
 type SdkChunk = { type: string } & Record<string, unknown>;
 
-function finishReasonToStop(
-  reason: unknown,
-): ExecuteResult["stopReason"] {
+function finishReasonToStop(reason: unknown): ExecuteResult["stopReason"] {
   if (reason === "tool-calls") return "tool_use";
   if (reason === "length") return "max_tokens";
   if (reason === "stop") return "stop";
@@ -77,22 +75,43 @@ export async function* normalizeAiSdkStream(
         // `usage` (that field only exists on the per-step "finish-step"
         // part) — reading chunk.usage here was always undefined, so no
         // usage chunk was ever emitted and callers saw 0 tokens on completion.
+        // Cache counters live on `inputTokenDetails` in AI SDK v6, not as
+        // top-level `cache*InputTokens` — those names are the Anthropic wire
+        // format and only ever appear under providerMetadata. Reading them off
+        // usage silently yielded undefined on every turn, so cache activity
+        // recorded as 0 and looked exactly like "this provider does not cache".
+        // `cachedInputTokens` is the deprecated v5 spelling of cacheReadTokens,
+        // kept as a fallback for providers still emitting it.
         const u = chunk.totalUsage as
           | {
               inputTokens?: number;
               outputTokens?: number;
-              cacheCreationInputTokens?: number;
-              cacheReadInputTokens?: number;
+              inputTokenDetails?: {
+                cacheReadTokens?: number;
+                cacheWriteTokens?: number;
+              };
+              cachedInputTokens?: number;
             }
           | undefined;
+        const meta = (
+          chunk.providerMetadata as
+            | { anthropic?: { cacheCreationInputTokens?: number | null } }
+            | undefined
+        )?.anthropic;
         if (u) {
           yield {
             type: "usage",
             usage: {
               inputTokens: u.inputTokens ?? 0,
               outputTokens: u.outputTokens ?? 0,
-              cacheCreationInputTokens: u.cacheCreationInputTokens,
-              cacheReadInputTokens: u.cacheReadInputTokens,
+              cacheCreationInputTokens:
+                u.inputTokenDetails?.cacheWriteTokens ??
+                meta?.cacheCreationInputTokens ??
+                undefined,
+              cacheReadInputTokens:
+                u.inputTokenDetails?.cacheReadTokens ??
+                u.cachedInputTokens ??
+                undefined,
             },
           };
           usageEmitted = true;
@@ -101,7 +120,10 @@ export async function* normalizeAiSdkStream(
       }
       case "error": {
         const err = chunk.error;
-        yield { type: "error", error: err instanceof Error ? err.message : String(err) };
+        yield {
+          type: "error",
+          error: err instanceof Error ? err.message : String(err),
+        };
         break;
       }
       // Ignored chunk types: tool-input-start / tool-input-delta / tool-input-end
