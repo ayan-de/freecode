@@ -246,6 +246,50 @@ live session. That is the real proof and it needs a run.
 
 ---
 
+## Phase 4b — Persist per-message usage (measurement, unplanned)
+
+Pulled forward out of Phase 6 because it blocks verifying Phases 1–4 at all.
+
+Nothing persisted the provider's per-request usage: `messages.jsonl` had no usage
+field and `usage.json` holds only a daily total. The number that decides whether
+prompt caching works is a **per-request ratio** — cache reads bill at ~0.1x and writes
+at ~1.25x — and a daily total cannot express it. Without this, verifying Phase 4 meant
+reading "Prompt cache hit" lines off the TUI by eye.
+
+For scale, one Claude Code session (`~/.claude/projects/*.jsonl`, which does record
+`message.usage`):
+
+```
+cache_read_input_tokens      136,093,322
+cache_creation_input_tokens    1,589,000
+input_tokens                       1,223
+```
+
+98.8% cache reads. Note it sent nearly 3x more raw input than the leaking freecode
+session (48.1M) while paying a tenth of the rate on almost all of it. **Total tokens
+is the wrong metric; the cache-read ratio is the right one** — optimising the former
+is what the old sliding-window pruning did.
+
+1. `session/store.ts` — `MessageUsage` on `SerializedMessage`. The store
+   `JSON.stringify`s whole messages, so nothing else changes.
+2. `agent/loop.ts` — attach usage to the **first** message written for a response and
+   clear it. One response is persisted as several messages (text, then one per tool
+   call), so attaching it to each would multiply the totals.
+3. `scripts/analyze-session.mjs` — report cache read/write/uncached, the ratio with a
+   verdict band (>=90% healthy, >=50% partial, else broken), and a billed-equivalent
+   at `read x0.1 + write x1.25`. Sessions without usage say so rather than showing 0%.
+4. `--compare` gains the ratio (in **percentage points** — a relative change from a 0%
+   baseline is undefined, and 0% -> 99% is the most important thing the table can say)
+   and billed-equivalent.
+
+**Verify:** synthetic sessions at 99% and 0% cache reads produce the right ratio,
+verdict and billed-equivalent (the same 500K tokens cost 6x more at 0%); `+99pp` shows
+as `better`; a pre-existing session reports "no usage recorded" instead of 0%.
+
+**Status: done (2026-08-05).** 433 tests green, typecheck clean.
+
+---
+
 ## Phase 5 — File-read state (D5)
 
 Touches `packages/shared`, so it goes last among the token phases.

@@ -30,6 +30,25 @@ export interface SessionMeta {
   aggregatedTokenCount?: number;
 }
 
+/**
+ * Provider-reported token usage for the request that produced this message.
+ *
+ * Persisted so cost can be reconstructed after the fact. The daily total in
+ * `usage.json` cannot answer the question that actually matters — what share of
+ * input was served from the prompt cache — because that is a per-request ratio
+ * (spec 2026-08-05-token-efficiency).
+ *
+ * Present on at most one message per provider response: the loop persists one
+ * response as several messages (text, then one per tool call), so summing this
+ * across a session gives the true total rather than a multiple of it.
+ */
+export interface MessageUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+}
+
 export interface SerializedMessage {
   id: string;
   role: "user" | "assistant";
@@ -47,6 +66,7 @@ export interface SerializedMessage {
   }>;
   timestamp: number;
   interrupted?: boolean;
+  usage?: MessageUsage;
 }
 
 export interface CreateSessionOptions {

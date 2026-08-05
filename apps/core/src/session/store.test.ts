@@ -135,4 +135,50 @@ describe("SessionStore", () => {
     const meta = await store.getMeta(sessionId);
     assert.equal(meta?.status, "deleted");
   });
+
+  it("round-trips per-message usage", async () => {
+    // Needed to reconstruct the cache-read ratio after the fact; the daily
+    // total in usage.json cannot express a per-request ratio.
+    const sessionId = await store.createSession({
+      title: "Usage",
+      projectPath: "/tmp/test",
+      provider: "minimax",
+    });
+    await store.appendMessage(
+      sessionId,
+      {
+        id: "a-1",
+        role: "assistant",
+        parts: [{ type: "text", content: "hi" }],
+        timestamp: Date.now(),
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          cacheReadInputTokens: 30,
+          cacheCreationInputTokens: 40,
+        },
+      },
+      "/tmp/test",
+    );
+    // A second message from the same response carries no usage.
+    await store.appendMessage(
+      sessionId,
+      {
+        id: "a-2",
+        role: "assistant",
+        parts: [{ type: "text", content: "there" }],
+        timestamp: Date.now(),
+      },
+      "/tmp/test",
+    );
+
+    const messages = await store.getMessages(sessionId, "/tmp/test");
+    assert.equal(messages[0].usage?.cacheReadInputTokens, 30);
+    assert.equal(messages[0].usage?.cacheCreationInputTokens, 40);
+    assert.equal(
+      messages[1].usage,
+      undefined,
+      "usage must not be duplicated across the messages of one response",
+    );
+  });
 });

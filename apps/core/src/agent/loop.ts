@@ -97,7 +97,11 @@ import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
 import { bus, BusEvents } from "../bus/index.js";
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js";
-import { type SessionStore, type SerializedMessage } from "../session/store.js";
+import {
+  type SessionStore,
+  type SerializedMessage,
+  type MessageUsage,
+} from "../session/store.js";
 import { getInterruptHandler } from "../session/interrupt.js";
 import { recordDailyUsage } from "../usage/tracker.js";
 import { PromptCompiler } from "../context/compiler.js";
@@ -1188,10 +1192,16 @@ export class AgentLoop {
       };
       this.history.push(assistantMessage);
 
+      // Usage belongs to the provider response, but the response is persisted
+      // as several messages (text, then one per tool call). Attach it to the
+      // first one written and clear it, so summing the field over a session
+      // yields the real total instead of a multiple of it.
+      let pendingUsage: MessageUsage | undefined = providerResult.usage;
+
       // No tools? Return early
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
-        await this.appendAssistantMessage(providerResult.content);
+        await this.appendAssistantMessage(providerResult.content, pendingUsage);
         await this.maybeCompact(provider, model);
         return {
           success: true,
@@ -1204,7 +1214,8 @@ export class AgentLoop {
 
       // If there are tool calls, append assistant text (if present) to session store
       if (providerResult.content) {
-        await this.appendAssistantMessage(providerResult.content);
+        await this.appendAssistantMessage(providerResult.content, pendingUsage);
+        pendingUsage = undefined;
       }
 
       // Execute tools with parallel-safe batching. Concurrency-safe tools
@@ -1248,7 +1259,10 @@ export class AgentLoop {
             // is what overflowed provider context windows.
             part.result = result.modelOutput || result.error || "";
           }
-          await this.appendToolMessage(tc, result);
+          // Carries the response's usage only when there was no assistant text
+          // to hang it on (a tool-only response).
+          await this.appendToolMessage(tc, result, pendingUsage);
+          pendingUsage = undefined;
 
           const image = extractToolImage(result);
           if (image) {
@@ -2108,7 +2122,10 @@ export class AgentLoop {
     );
   }
 
-  private async appendAssistantMessage(content: string): Promise<string> {
+  private async appendAssistantMessage(
+    content: string,
+    usage?: MessageUsage,
+  ): Promise<string> {
     if (!this.sessionStore) return "";
     await this.ensureProjectPath();
     const id = randomUUID();
@@ -2117,6 +2134,7 @@ export class AgentLoop {
       role: "assistant",
       parts: [{ type: "text", content }],
       timestamp: Date.now(),
+      ...(usage ? { usage } : {}),
     };
     await this.sessionStore.appendMessage(
       this.state.sessionId,
@@ -2131,6 +2149,7 @@ export class AgentLoop {
   private async appendToolMessage(
     toolCall: ToolCall,
     result: ToolResult,
+    usage?: MessageUsage,
   ): Promise<void> {
     if (!this.sessionStore) return;
     await this.ensureProjectPath();
@@ -2150,6 +2169,7 @@ export class AgentLoop {
         },
       ],
       timestamp: Date.now(),
+      ...(usage ? { usage } : {}),
     };
     await this.sessionStore.appendMessage(
       this.state.sessionId,

@@ -136,8 +136,25 @@ function analyze(session, opts) {
   let peakRequestTokens = 0;
   const assistantTimestamps = [];
 
+  // Provider-reported usage, present on at most one message per response.
+  const reported = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    responses: 0,
+  };
+
   for (const msg of messages) {
     const partsChars = JSON.stringify(msg.parts ?? []).length;
+
+    if (msg.usage) {
+      reported.responses++;
+      reported.input += msg.usage.inputTokens ?? 0;
+      reported.output += msg.usage.outputTokens ?? 0;
+      reported.cacheRead += msg.usage.cacheReadInputTokens ?? 0;
+      reported.cacheWrite += msg.usage.cacheCreationInputTokens ?? 0;
+    }
 
     if (msg.role === "assistant") {
       assistantMessages++;
@@ -183,6 +200,16 @@ function analyze(session, opts) {
     .reduce((sum, [, count]) => sum + count, 0);
   const totalCalls = [...toolNames.values()].reduce((a, b) => a + b, 0);
 
+  // The number that decides whether prompt caching is working. Cache reads bill
+  // at ~0.1x and writes at ~1.25x, so a session can send far more tokens than
+  // another and still cost a fraction of it. Claude Code runs ~99% on real work.
+  const billedInput = reported.input + reported.cacheRead + reported.cacheWrite;
+  const cacheReadRatio =
+    billedInput > 0 ? reported.cacheRead / billedInput : null;
+  // Anthropic-style multipliers; approximate for other providers.
+  const billedEquivalent =
+    reported.input + reported.cacheRead * 0.1 + reported.cacheWrite * 1.25;
+
   return {
     id: session.id,
     title: meta.title ?? "",
@@ -209,6 +236,10 @@ function analyze(session, opts) {
       .length,
     largestResults: [...resultSizes].sort((a, b) => b - a).slice(0, 5),
     imageParts,
+    reported,
+    cacheReadRatio,
+    billedInput,
+    billedEquivalent,
   };
 }
 
@@ -256,6 +287,33 @@ function report(a) {
     `    SUM input tokens        ${M(a.sumInputTokens)}   <- headline`,
   );
 
+  console.log(`\n  Prompt cache (provider-reported)`);
+  if (a.reported.responses === 0) {
+    console.log(`    no usage recorded — session predates usage persistence,`);
+    console.log(`    or the provider returns no usage metadata at all`);
+  } else {
+    console.log(`    responses with usage   ${num(a.reported.responses)}`);
+    console.log(`    cache read             ${num(a.reported.cacheRead)}`);
+    console.log(`    cache write            ${num(a.reported.cacheWrite)}`);
+    console.log(`    uncached input         ${num(a.reported.input)}`);
+    console.log(`    output                 ${num(a.reported.output)}`);
+    if (a.cacheReadRatio === null) {
+      console.log(`    cache read ratio       n/a (no input billed)`);
+    } else {
+      const pct = (a.cacheReadRatio * 100).toFixed(1);
+      const verdict =
+        a.cacheReadRatio >= 0.9
+          ? "healthy"
+          : a.cacheReadRatio >= 0.5
+            ? "partial — prefix is being invalidated"
+            : "BROKEN — almost nothing is being reused";
+      console.log(`    cache read ratio       ${pct}%   ${verdict}`);
+    }
+    console.log(
+      `    billed-equivalent      ${M(a.billedEquivalent)}   (read x0.1 + write x1.25)`,
+    );
+  }
+
   console.log(`\n  Tool results`);
   console.log(
     `    total                   ${num(a.toolResultChars)} chars (${K(a.toolResultTokens)} tokens)`,
@@ -292,6 +350,22 @@ function compare(before, after) {
       false,
     ],
     ["SUM input tokens", before.sumInputTokens, after.sumInputTokens, false],
+    // Already a percentage, so the change is reported in percentage points —
+    // a relative change from a 0% baseline is undefined, and 0% -> 99% is the
+    // single most important result this table can show.
+    [
+      "cache read ratio %",
+      (before.cacheReadRatio ?? 0) * 100,
+      (after.cacheReadRatio ?? 0) * 100,
+      true,
+      "pp",
+    ],
+    [
+      "billed-equivalent",
+      before.billedEquivalent,
+      after.billedEquivalent,
+      false,
+    ],
   ];
 
   console.log(
@@ -301,12 +375,15 @@ function compare(before, after) {
     `  ${"metric".padEnd(22)}${"before".padStart(14)}${"after".padStart(14)}${"change".padStart(12)}`,
   );
   console.log(`  ${"-".repeat(60)}`);
-  for (const [name, b, a, higherIsBetter] of rows) {
+  for (const [name, b, a, higherIsBetter, unit] of rows) {
     const fmt = (v) => (Number.isInteger(v) ? num(v) : v.toFixed(2));
-    // Guard the ratio: an empty baseline would print Infinity and read as a win.
-    const pct = b === 0 ? null : ((a - b) / b) * 100;
+    // Percentage-point metrics subtract; everything else is a relative change,
+    // guarded because an empty baseline would print Infinity and read as a win.
+    const pct = unit === "pp" ? a - b : b === 0 ? null : ((a - b) / b) * 100;
     const delta =
-      pct === null ? "n/a" : `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}%`;
+      pct === null
+        ? "n/a"
+        : `${pct >= 0 ? "+" : ""}${pct.toFixed(0)}${unit === "pp" ? "pp" : "%"}`;
     // Under half a percent is noise, not a result — don't award it a verdict.
     const flat = pct !== null && Math.abs(pct) < 0.5;
     const verdict =
