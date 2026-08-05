@@ -109,6 +109,24 @@ progress; target is a mean ≥ 2.0.
 Note this is a prompt change against one model family. Re-check the histogram when
 switching provider — the fix is advisory, not enforced.
 
+**Status: done (2026-08-05).** The parallel-call instruction now opens `## Tools` as
+three paragraphs (capability, safe-to-batch tool list + two worked examples,
+sequential caveat); the trailing clause at `:92` is gone; the preamble rule no longer
+mentions batches of tool calls.
+
+Wording follows opencode, which carries this instruction in every per-model prompt
+file — `kimi.txt` (open-weights model, closest analog to MiniMax) supplied the
+emphatic capability-assertion framing, `default.txt` the `git status` + `git diff`
+example.
+
+Correction carried into the spec: the 130 preambles are **not** wasted round trips.
+Text and tool call arrive in one response and the loop splits them into two history
+entries — which is exactly why 363 assistant messages cluster into 229 requests. The
+preamble edit saves output tokens and context growth, not re-sends; the parallel-call
+edit is the whole of the request-count win.
+
+Cannot be verified without spending quota — the histogram check needs a real session.
+
 ---
 
 ## Phase 3 — Delete time-based microcompact (D3)

@@ -209,6 +209,29 @@ high by users who would rather pay than compact.
 The overflow path (`compactAndRetry`, `MAX_OVERFLOW_COMPACTIONS`) is unchanged — it
 remains the hard-constraint backstop.
 
+**This one is not copied from anywhere.** Every other item in this spec has a direct
+precedent in the reference agents; D1 does not. Both compact purely relative to the
+window:
+
+- claude-code: `getEffectiveContextWindowSize(model) - AUTOCOMPACT_BUFFER_TOKENS`
+  (`utils/analyzeContext.ts:1003`)
+- opencode: `model.limit.input - reserved`, `reserved = min(20_000, maxOutputTokens)`
+  (`session/overflow.ts:14`)
+
+Neither has an absolute cost ceiling, so on a 1M-window model both would compact near
+980K — exactly the behaviour this section calls a leak. Their cost control comes from
+elsewhere: claude-code budgets tool results per message
+(`MAX_TOOL_RESULTS_PER_MESSAGE_CHARS = 200_000`, and explicitly _per message_ — "a
+150K result in one turn and a 150K result in the next are both untouched"), plus
+microcompact and `cache_edits`. That is D3/D4 territory, not D1.
+
+D1 is therefore a deliberate divergence, justified by a regime those agents do not
+target: a very large window (1M) combined with a fixed prepaid quota, where the
+binding constraint is the plan balance rather than the context window. The trade is
+real — compacting at 107K on a 1M model gives up context the model could have held.
+If D3 and D4 alone bring the measured cost into range, raising or removing this target
+is the first thing to reconsider.
+
 ### D2 — Promote parallel tool calls in the system prompt (RC2)
 
 Two edits to `session/prompt/system.md`:
@@ -216,11 +239,27 @@ Two edits to `session/prompt/system.md`:
 - Give parallelism its own line, early, in the imperative — not a trailing clause of
   the final paragraph. It must state the concrete behaviour: when several independent
   reads/greps/globs are needed, emit them in **one** assistant message.
-- Narrow the preamble rule at `:23` so it does not fire per tool call. A preamble
-  before a _group_ of work is useful; one before each single call is 130 wasted
-  round trips per session.
+- Narrow the preamble rule at `:23` so it does not fire per tool call.
+
+  Correction to an earlier draft of this spec: those 130 preambles are **not** extra
+  round trips. The model emits the text and the tool call in one response; the loop
+  merely splits them into two history entries, which is why the clustered request
+  count (229) is well below the assistant-message count (363). A per-call preamble
+  costs output tokens and permanent context growth, not a re-send.
+
+  It is still worth narrowing, for a second-order reason: a rule that pairs one
+  preamble with one "batch of related tool calls" reinforces the one-call-per-message
+  rhythm this section is trying to break. The direct saving is small.
 
 No code change. `planToolBatches` already handles the result correctly.
+
+Wording is modelled on opencode, which carries an explicit parallel-call instruction
+in **every** per-model prompt file (`session/prompt/{anthropic,default,kimi,gemini,
+codex,meta,copilot-gpt-5}.txt`). `kimi.txt` is the closest analog to MiniMax — an
+open-weights model that needs the capability asserted outright ("You have the
+capability to output any number of tool calls in a single response… HIGHLY
+RECOMMENDED… This is very important to your performance"), and the concrete
+two-`bash`-calls example comes from `default.txt`.
 
 Verification is behavioural, not a unit test: after the change, the tool-calls-per-
 assistant-message distribution in a fresh session must show a non-trivial share of
