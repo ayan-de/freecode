@@ -214,6 +214,10 @@ export class AgentLoop {
   private mutatedFiles = new Set<string>();
   private verifierAttempts = 0;
   private lastVerifierReport: string | undefined;
+  // Memory graph cache: skip expensive graph re-query when the user text
+  // hasn't changed (back-to-back tool turns triggered by one message).
+  private lastMemoryQueryText: string = "";
+  private lastMemoryBlock: string | undefined = undefined;
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -322,6 +326,66 @@ export class AgentLoop {
     });
   }
 
+  // Build a copy of messages where tool results in old turns are capped to
+  // OLD_TOOL_RESULT_CAP chars. This avoids re-sending large file reads or bash
+  // outputs from many turns ago on every subsequent request.
+  //
+  // Only the view sent to the provider is pruned — this.history is untouched so
+  // the session store always has the full content and compaction works normally.
+  //
+  // Strategy: find the last PRESERVE_RECENT_TURNS assistant turns and keep their
+  // results at full size; earlier turns get capped.
+  private pruneHistoryToolResults(messages: Message[]): Message[] {
+    const PRESERVE_RECENT_TURNS = 2;
+    const OLD_TOOL_RESULT_CAP = 1_000; // chars (≈250 tokens)
+
+    // Count assistant turns from the end to find the cutoff index.
+    let assistantTurnsSeen = 0;
+    let cutoffIndex = messages.length; // default: preserve everything
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") {
+        assistantTurnsSeen++;
+        if (assistantTurnsSeen >= PRESERVE_RECENT_TURNS) {
+          cutoffIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (cutoffIndex === 0) return messages; // nothing old enough to prune
+
+    return messages.map((msg, idx) => {
+      // Recent turns (at or after cutoffIndex) are passed through unchanged.
+      if (idx >= cutoffIndex) return msg;
+      if (msg.role !== "assistant") return msg;
+
+      const hasLargeResult = msg.parts.some(
+        (p) => p.type === "tool" && p.result && p.result.length > OLD_TOOL_RESULT_CAP,
+      );
+      if (!hasLargeResult) return msg;
+
+      return {
+        ...msg,
+        parts: msg.parts.map((part) => {
+          if (
+            part.type === "tool" &&
+            part.result &&
+            part.result.length > OLD_TOOL_RESULT_CAP
+          ) {
+            return {
+              ...part,
+              result:
+                part.result.slice(0, OLD_TOOL_RESULT_CAP) +
+                "\n[... result truncated in history; re-read if needed ...]",
+            };
+          }
+          return part;
+        }),
+      };
+    });
+  }
+
+
   // ===========================================================================
   // PUBLIC: run()
   // Main execution entry point - runs the continuous loop until completion
@@ -357,6 +421,8 @@ export class AgentLoop {
     this.mutatedFiles = new Set<string>();
     this.verifierAttempts = 0;
     this.lastVerifierReport = undefined;
+    this.lastMemoryQueryText = "";
+    this.lastMemoryBlock = undefined;
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
@@ -364,13 +430,6 @@ export class AgentLoop {
 
     try {
       this.state = { ...this.state, status: "running" };
-
-      // Initialize compiler with project info and mode
-      this.compiler = new PromptCompiler(
-        input.projectPath,
-        "",
-        this.state.agentMode,
-      );
 
       // Load permission rules for this project (project + user scopes)
       if (this.permissionSettings === undefined) {
@@ -386,7 +445,9 @@ export class AgentLoop {
         return this.fail("Context collection failed", contextResult.error);
       }
 
-      // Update compiler with project name from context
+      // Initialize compiler once with the real project name (after context is
+      // resolved). Previously this was done twice — the first instance with an
+      // empty name was immediately discarded, wasting the allocation.
       this.compiler = new PromptCompiler(
         input.projectPath,
         contextResult.value.name,
@@ -936,13 +997,21 @@ export class AgentLoop {
       // in the background; a cold turn (session's first message, or right after
       // a topic change) waits a small budget for the fresh retrieval. Never
       // throws, never injects off-topic memories.
-      const memGraph = getMemoryGraphService(context.projectPath);
-      const memoryBlock = renderRetrievedMemories(
-        await memGraph.prepareMemories(
-          this.state.sessionId,
-          this.getLastUserText(),
-        ),
-      );
+      //
+      // Cache optimisation: within a single user request, the agent may loop
+      // many times (tool call → result → tool call → …), but the user text
+      // doesn't change between those inner turns. Re-querying the graph on
+      // every inner turn wastes time and doesn't change the result. We cache the
+      // last query text and skip the round-trip when nothing changed.
+      const currentUserText = this.getLastUserText();
+      if (currentUserText !== this.lastMemoryQueryText) {
+        const memGraph = getMemoryGraphService(context.projectPath);
+        this.lastMemoryBlock = renderRetrievedMemories(
+          await memGraph.prepareMemories(this.state.sessionId, currentUserText),
+        );
+        this.lastMemoryQueryText = currentUserText;
+      }
+      const memoryBlock = this.lastMemoryBlock;
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and the model
       // never loses track of remaining work on long tasks.
@@ -1251,6 +1320,12 @@ export class AgentLoop {
     const aiProvider = getProvider(provider as any);
     const tools = getToolDefs();
 
+    // Cap tool results in old history turns to prevent token explosion on long
+    // sessions. The model already processed those results fully when they were
+    // new; re-sending 30K-char file reads from 10 turns ago is pure waste.
+    // Last 2 turns are always preserved at full fidelity — the model may still
+    // be acting on them. (jcode-style history pruning, spec D6)
+    const prunedMessages = this.pruneHistoryToolResults(messages);
     // Prompt-cache awareness (jcode #9): warn before a send that will likely
     // miss a cold cache. Informational only — never blocks the send.
     const coldWarning = noteSendAndCheckCold(this.state.sessionId, provider);
@@ -1286,7 +1361,7 @@ export class AgentLoop {
         | undefined;
 
       for await (const chunk of aiProvider.stream({
-        messages,
+        messages: prunedMessages,
         system,
         tools,
         model,
@@ -1342,7 +1417,7 @@ export class AgentLoop {
     }
 
     const result = await aiProvider.execute({
-      messages,
+      messages: prunedMessages,
       system,
       tools,
       model,

@@ -157,3 +157,61 @@ test("AgentLoop.maybeTimeBasedMicrocompact prunes old tool results after idle ga
     "[Old tool result content cleared]",
   );
 });
+
+test("AgentLoop.pruneHistoryToolResults caps old tool results but preserves recent turns", () => {
+  const loop = createAgentLoop("test-session");
+
+  const buildAssistantMsg = (id: string, resultLength: number): Message => ({
+    id,
+    role: "assistant",
+    timestamp: Date.now(),
+    parts: [
+      {
+        type: "tool",
+        tool: { id: `t-${id}`, tool: "read", args: {}, execution: "sequential" },
+        result: "x".repeat(resultLength),
+      },
+    ],
+  });
+
+  const messages: Message[] = [
+    // Turn 1 (Oldest, assistant): should be pruned if result is large
+    buildAssistantMsg("ast-1", 1500),
+    // Turn 2 (Old, assistant): should be pruned if result is large
+    buildAssistantMsg("ast-2", 1200),
+    // User message in between
+    { id: "usr-1", role: "user", parts: [{ type: "text", content: "ok" }], timestamp: Date.now() },
+    // Turn 3 (Recent, assistant): should be preserved
+    buildAssistantMsg("ast-3", 1500),
+    // Turn 4 (Most recent assistant): should be preserved
+    buildAssistantMsg("ast-4", 2000),
+  ];
+
+  const pruned = (loop as any).pruneHistoryToolResults(messages);
+
+  assert.equal(pruned.length, 5);
+
+  // Turn 4 (most recent assistant) -> preserved
+  assert.equal((pruned[4].parts[0] as any).result.length, 2000);
+
+  // Turn 3 (second most recent assistant) -> preserved
+  assert.equal((pruned[3].parts[0] as any).result.length, 1500);
+
+  // Turn 2 (older assistant) -> pruned
+  assert.ok((pruned[1].parts[0] as any).result.includes("[... result truncated in history; re-read if needed ...]"));
+  assert.equal((pruned[1].parts[0] as any).result.slice(0, 1000), "x".repeat(1000));
+
+  // Turn 1 (oldest assistant) -> pruned
+  assert.ok((pruned[0].parts[0] as any).result.includes("[... result truncated in history; re-read if needed ...]"));
+  assert.equal((pruned[0].parts[0] as any).result.slice(0, 1000), "x".repeat(1000));
+
+  // Small outputs should not be pruned even in old turns
+  const messagesWithSmall: Message[] = [
+    buildAssistantMsg("ast-old-small", 500),
+    buildAssistantMsg("ast-rec-1", 1000),
+    buildAssistantMsg("ast-rec-2", 1000),
+  ];
+  const prunedSmall = (loop as any).pruneHistoryToolResults(messagesWithSmall);
+  assert.equal((prunedSmall[0].parts[0] as any).result, "x".repeat(500)); // intact
+});
+
