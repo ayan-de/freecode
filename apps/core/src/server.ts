@@ -8,6 +8,7 @@ import { listCommandInfos, resolveCommand } from "./commands/registry.js";
 import { createAgentLoopEffect, type AgentLoop } from "./agent/loop.js";
 import { getAppRuntime } from "./effect/runtime.js";
 import { SessionStoreTag } from "./effect/context.js";
+import { createMessageQueue, type MessageQueue } from "./queue-store.js";
 import {
   initProviders,
   listProviders,
@@ -113,6 +114,21 @@ class JsonRpcError extends Error {
 // SIGINT handler use this to abort provider/tool calls immediately.
 const activeLoops = new Map<string, AgentLoop>();
 
+// Per-session follow-up queues (spec 2026-08-05-queued-messages-design).
+// When session.send lands while `activeLoops` already has an entry for this
+// session, the new prompt is parked here instead of racing the in-flight turn.
+// The loop's finally block drains the FIFO; session.dequeue removes an item
+// by id for "drop" / "restore to editor" UX.
+const messageQueues = new Map<string, MessageQueue>();
+function getOrCreateQueue(sessionId: string): MessageQueue {
+  let q = messageQueues.get(sessionId);
+  if (!q) {
+    q = createMessageQueue();
+    messageQueues.set(sessionId, q);
+  }
+  return q;
+}
+
 interface ToolListItem {
   id: string;
   description: string;
@@ -136,6 +152,110 @@ interface SessionInfo {
 }
 
 export const sessions: Map<string, SessionInfo> = new Map();
+
+// Resolved inputs to a single turn — the same shape the AgentLoop.runEffect()
+// expects. The session.send handler and the FIFO-drain path both fill this in
+// from their own sources (an inbound request vs. a QueuedMessage on the queue).
+interface TurnInput {
+  prompt: string;
+  images?: Array<{ data: string; mediaType: string; altText?: string }>;
+  provider: string;
+  model?: string;
+  agentMode?:
+    | "plan"
+    | "build"
+    | "review"
+    | "explore"
+    | "danger";
+}
+
+/**
+ * Build, run, and clean up a single AgentLoop turn. The finally block drains
+ * the session's follow-up queue (spec 2026-08-05): when the in-flight turn
+ * finishes, the oldest queued message — if any — becomes the next turn, and
+ * the loop stays "busy" through the recursive re-entry. Recursion bottoms out
+ * when the queue is empty, at which point activeLoops is cleared.
+ *
+ * Re-entry intentionally goes through this helper rather than JSON-RPC
+ * session.send: going back through the RPC layer would re-parse the queued
+ * message, redo model/provider resolution, and acquire a new session-store
+ * handle per turn — none of which is free, and none of which changes between
+ * consecutive turns of the same session.
+ */
+async function runSessionTurn(
+  session: SessionInfo,
+  input: TurnInput,
+): Promise<unknown> {
+  const sessionId = session.id;
+  // Construct the loop through the Effect runtime — memory, hooks, recorder,
+  // orchestrator and session store are all DI-provided (v3 spec).
+  const loop = await getAppRuntime().runPromise(
+    createAgentLoopEffect(sessionId, { maxIterations: 250 }),
+  );
+  activeLoops.set(sessionId, loop);
+
+  // Per-turn store handle for title-pinning below. Cheap (effect runtime
+  // memoizes the underlying service) but doing it once per turn is clearer
+  // than reaching for it from the finally handler too.
+  const store = await getSessionStore();
+
+  let result;
+  try {
+    result = await getAppRuntime().runPromise(
+      loop.runEffect({
+        prompt: input.prompt,
+        sessionId,
+        provider: input.provider,
+        model: input.model,
+        projectPath: session.projectPath,
+        agentMode: input.agentMode,
+        images: input.images,
+      }),
+    );
+
+    // Emit done event through the single bus egress.
+    BusEvents.stream(sessionId, {
+      type: "done",
+      content: result.message || "Done",
+    });
+
+    // Extract session title from first response (no extra API call).
+    if (result.success && result.turnCount > 0 && result.content) {
+      const titleMatch = result.content.match(/SESSION_TITLE:\s*(.+)/i);
+      const title = titleMatch
+        ? titleMatch[1].trim()
+        : generateTitleFromPrompt(input.prompt);
+      await store.updateMeta(sessionId, { title }, session.projectPath);
+    }
+  } finally {
+    // Drain the queue *before* clearing busy state: if a queued message exists,
+    // we re-enter runSessionTurn synchronously and activeLoops is overwritten
+    // with the new loop. The pending recursive Promise keeps the activeLoops
+    // map populated the whole time — there's no window where a session.send
+    // could race the drain and miss the "busy" check.
+    const queue = messageQueues.get(sessionId);
+    const next = queue?.shiftNext();
+    if (next) {
+      // Fire-and-forget: the outer JSON-RPC promise for the *current* turn
+      // resolves with `result` (or undefined on error); the next turn's
+      // promise belongs to its own RPC call, not this one. Unhandled rejections
+      // land in the same logger.error path the handler would take.
+      runSessionTurn(session, {
+        prompt: next.content,
+        provider: input.provider,
+        model: input.model,
+        agentMode: input.agentMode,
+      }).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error("Queued session turn failed", { sessionId, message });
+      });
+    } else {
+      activeLoops.delete(sessionId);
+    }
+  }
+
+  return result;
+}
 // Per-session SSE subscriber fan-out lives in web/stream-subscribers.ts —
 // each session owns a Set<Subscriber> rather than a single callback, and
 // the module also runs the heartbeat/idle-reaper that prunes dead sockets.
@@ -268,6 +388,28 @@ const methodHandlers: Record<
       throw new Error(`Session not found: ${sessionId}`);
     }
 
+    // A turn is already in progress for this session — park the prompt in the
+    // follow-up queue instead of racing a second loop on the same sessionId
+    // (which used to corrupt the message history). See queue-store.ts.
+    //
+    // Images are out of scope for v1: dropping them silently is data loss, so
+    // the rejection forces the user to wait until the in-flight turn ends.
+    if (activeLoops.has(sessionId)) {
+      if (images && images.length > 0) {
+        throw new Error(
+          "Cannot queue a message with images while a turn is in progress. " +
+            "Wait for the current turn to finish, then resubmit.",
+        );
+      }
+      const id = getOrCreateQueue(sessionId).enqueue(message);
+      BusEvents.stream(sessionId, {
+        type: "message_queued",
+        id,
+        content: message,
+      });
+      return { queued: true, id } as const;
+    }
+
     // Provider and model resolve through the same precedence: an explicit
     // per-call override first, then config.json, then whatever the session was
     // pinned to at start. These used to disagree — provider preferred config
@@ -313,48 +455,17 @@ const methodHandlers: Record<
       agentMode,
     });
 
-    // Get session store for persisting messages
-    const store = await getSessionStore();
-
-    // Construct the loop through the Effect runtime — memory, hooks, recorder,
-    // orchestrator and session store are all DI-provided (v3 spec).
-    const loop = await getAppRuntime().runPromise(
-      createAgentLoopEffect(sessionId, { maxIterations: 250 }),
-    );
-    activeLoops.set(sessionId, loop);
-    let result;
-    try {
-      result = await getAppRuntime().runPromise(
-        loop.runEffect({
-          prompt: message,
-          sessionId,
-          provider: currentProvider,
-          model: currentModel,
-          projectPath: session.projectPath,
-          agentMode,
-          images,
-        }),
-      );
-    } finally {
-      activeLoops.delete(sessionId);
-    }
-
-    // Emit done event through the single bus egress
-    BusEvents.stream(sessionId, {
-      type: "done",
-      content: result.message || "Done",
+    // First turn for this prompt — the loop's finally drains the queue when
+    // this run finishes, so the FIFO drain re-enters through runSessionTurn
+    // rather than recursively calling session.send (which would re-enter the
+    // JSON-RPC layer).
+    return runSessionTurn(session, {
+      prompt: message,
+      images,
+      provider: currentProvider,
+      model: currentModel,
+      agentMode,
     });
-
-    // Extract session title from first response (no extra API call)
-    if (result.success && result.turnCount > 0 && result.content) {
-      const titleMatch = result.content.match(/SESSION_TITLE:\s*(.+)/i);
-      const title = titleMatch
-        ? titleMatch[1].trim()
-        : generateTitleFromPrompt(message);
-      await store.updateMeta(sessionId, { title }, session.projectPath);
-    }
-
-    return result;
   },
 
   "session.stop": async (params: Record<string, unknown>): Promise<void> => {
@@ -367,6 +478,24 @@ const methodHandlers: Record<
     if (getSession(sessionId)) {
       logger.info("Session turn interrupted", { sessionId });
     }
+  },
+
+  // Remove a queued follow-up message by id. Used by the TUI for "drop" and
+  // "restore to editor" affordances (spec 2026-08-05). No-op when the id has
+  // already started sending — the resulting `message_dequeued` event lets the
+  // UI distinguish "drop the indicator" from "ignore, message already in flight".
+  // We always emit the event either way so web/SSE listeners stay in lockstep
+  // with the TUI's response.
+  "session.dequeue": async (
+    params: Record<string, unknown>,
+  ): Promise<{ removed: boolean }> => {
+    const { sessionId, id } = params as { sessionId: string; id: string };
+    const removed = messageQueues.get(sessionId)?.removeById(id) ?? false;
+    BusEvents.stream(sessionId, {
+      type: "message_dequeued",
+      id,
+    });
+    return { removed };
   },
 
   // Manual /compact: summarize older turns now (between turns), trimming the
@@ -833,6 +962,10 @@ const methodHandlers: Record<
     disposeSessionMemory(sessionId);
     disposeOutputStore(sessionId);
     disposeCacheAwareness(sessionId);
+    // Drop the in-memory follow-up queue — the session is gone, so any
+    // pending prompts would otherwise leak and (worse) be drained into a
+    // turn for a session that no longer exists.
+    messageQueues.delete(sessionId);
   },
 
   "session.getInterrupted": async (): Promise<{
