@@ -95,6 +95,14 @@ export type StreamEvent =
   | { type: "thinking_delta"; delta: string } // incremental reasoning chunk (streaming path)
   | { type: "done"; content: string }
   | { type: "error"; content: string }
+  // Follow-up queue (spec 2026-08-05-queued-messages-design): a session.send
+  // arrived while a turn was already in progress and was parked instead of
+  // racing. `id` matches the `QueuedMessage`; `content` is the original prompt
+  // so the UI can echo it back. `message_dequeued` fires when the same id is
+  // pulled out via session.dequeue (or, implicitly, when the queue finally
+  // starts its turn — the UI treats that as a state change to "in-flight").
+  | { type: "message_queued"; id: string; content: string }
+  | { type: "message_dequeued"; id: string }
   | {
       // Prompt-cache awareness (jcode #9). "cold" is emitted before a send that
       // will likely miss Anthropic's ~5-min cache; "warm" carries post-turn
@@ -162,7 +170,22 @@ export const METHODS = {
       message: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
     },
-    result: {} as StreamResponse,
+    // The LoopResult shape when the turn ran normally. When the session was
+    // already busy, the call parks the prompt in the follow-up queue and
+    // resolves immediately with { queued: true, id } — the UI uses the
+    // `message_queued` stream event for the same data so web/SSE subscribes
+    // stay in sync.
+    result: {} as
+      | StreamResponse
+      | { queued: true; id: string },
+  },
+  "session.dequeue": {
+    // Removes a previously-queued message by id (no-op if it already started
+    // sending). The result tells the caller whether something was actually
+    // removed, so the UI can decide between "drop the indicator" and "ignore
+    // — the message is already in flight".
+    params: { sessionId: "" as string, id: "" as string },
+    result: { removed: false as boolean },
   },
   "session.stop": {
     params: { sessionId: "" },
