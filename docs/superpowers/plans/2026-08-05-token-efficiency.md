@@ -361,6 +361,34 @@ Independent of the above; can be done in any order relative to Phase 5.
 aborts cleanly with the count in the message; unset means never trips. The TUI
 counter matches `usage.json` at session end.
 
+**Status: done (2026-08-06).** Core 458 tests, TUI 96, both typecheck.
+
+Steps 1–3 landed in `ba2b38f`. Step 4 (the renderer) did not, so `usage_totals`
+was a dead event for a day: `loop.ts:700` emitted it, `protocol.ts:123` declared
+it, and no frontend had a case for it.
+
+**What step 4 actually fixes.** The framing "render the counter" undersold it —
+the TUI already rendered `↓in ↑out` run totals. The problem was *where they came
+from*: mid-run they are a ~4 chars/token guess (`streamedChars / 4` for output,
+tool-result lengths for input), because the authoritative `result.usage` only
+arrives when the whole run ends. So on a long multi-turn run — exactly the runs
+whose cost matters — the counter showed an estimate for the entire time anyone
+was watching it. `usage_totals` carries the provider's own per-turn running
+totals, so the row now shows measured numbers, with the estimate resuming on top
+of the reported baseline for the turn currently in flight. That also drags the
+frontend back onside with "core computes; frontends only display" — it had been
+quietly computing its own token arithmetic.
+
+**Deviation:** `setLiveUsageTotals` clears the estimate accumulators itself
+rather than leaving that to the caller. Both are run-cumulative, so a caller who
+sets totals without clearing double-counts every turn so far — and the first
+draft of the test did exactly that, which is how the sharp edge surfaced.
+Enforcing it in the setter makes the mistake unavailable. `streamedChars` stays
+in `index.ts` because it feeds `setLiveOutputTokens` and belongs to that module.
+
+Both send paths (`submitPrompt` and `commands/freecode`) route through
+`handleToolEvent` (`index.ts:1218`), so one case covers both.
+
 ---
 
 ## Phase 7 — Cache TTL (unplanned)

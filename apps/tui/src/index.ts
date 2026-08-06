@@ -84,6 +84,8 @@ import {
   resetLiveOutputTokens,
   bumpLiveInputTokens,
   resetLiveInputTokens,
+  setLiveUsageTotals,
+  resetLiveUsageTotals,
   ThinkingMessage,
 } from "./components/message-row.js";
 import { getMessages } from "./state/message-store.js";
@@ -880,6 +882,24 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
+    // Provider-reported run totals, once per completed internal turn (D7).
+    // Until these arrive the ↓/↑ counters are a ~4 chars/token guess, because
+    // the authoritative `result.usage` only lands when the whole run ends — so
+    // a long multi-turn run showed estimates the entire time it mattered.
+    //
+    // setLiveUsageTotals clears its own run-cumulative estimates (leaving them
+    // would add every turn so far on top of a figure that already counts it);
+    // streamedChars is ours, and feeds setLiveOutputTokens, so it resets here.
+    case "usage_totals": {
+      setLiveUsageTotals({
+        inputTokens: event.totalInputTokens,
+        outputTokens: event.totalOutputTokens,
+        cacheReadTokens: event.totalCacheReadTokens,
+      });
+      streamedChars = 0;
+      tui.requestRender();
+      break;
+    }
     // Spec 2026-08-05: a session.send landed while a turn was in progress.
     // The server parked the prompt in the follow-up queue; render it as a
     // user message with a dim "queued" badge so the user can see it's in
@@ -920,6 +940,7 @@ async function submitPrompt(
   streamedChars = 0;
   resetLiveOutputTokens();
   resetLiveInputTokens();
+  resetLiveUsageTotals();
 
   // A fresh prompt starts a fresh view: clear the pinned todo panel so a prior
   // task's plan doesn't linger. It reappears if the agent calls todowrite again.

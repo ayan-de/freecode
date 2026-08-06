@@ -6,6 +6,10 @@ import {
   createUserMessageComponent,
   resetLiveOutputTokens,
   setLiveOutputTokens,
+  bumpLiveInputTokens,
+  resetLiveInputTokens,
+  setLiveUsageTotals,
+  resetLiveUsageTotals,
 } from "./message-row.js";
 
 function renderRow(
@@ -98,4 +102,77 @@ test("user message keeps a single ❯ across re-renders and width changes", () =
   assert.equal(count(60), 1);
   assert.equal(count(60), 1); // cache hit
   assert.equal(count(40), 1); // re-wrap at a new width
+});
+
+// --- Provider-reported run totals (usage_totals / D7) ------------------------
+
+function resetAllLiveState(): void {
+  resetLiveOutputTokens();
+  resetLiveInputTokens();
+  resetLiveUsageTotals();
+}
+
+test("reported run totals outrank the local estimate", () => {
+  resetAllLiveState();
+  // The estimate said 100k in / 30k out; the provider says 250k / 12k. Before
+  // usage_totals existed the row showed the guess for the whole run.
+  setLiveOutputTokens(30_000);
+  bumpLiveInputTokens(8_000);
+  // Adopting the totals discards both stale estimates — they cover the same
+  // turns the reported figure already counts, so keeping them double-bills.
+  setLiveUsageTotals({
+    inputTokens: 250_000,
+    outputTokens: 12_000,
+    cacheReadTokens: 900_000,
+  });
+  const line = renderRow("Simmering", Date.now(), 100_000, 0, 200_000, 3);
+
+  assert.match(line, /↓250\.0k/); // not 258.0k
+  assert.match(line, /↑12\.0k/);
+  assert.match(line, /cached: 900\.0k/);
+  resetAllLiveState();
+});
+
+test("estimates resume on top of the reported baseline, not beside it", () => {
+  resetAllLiveState();
+  setLiveUsageTotals({
+    inputTokens: 250_000,
+    outputTokens: 12_000,
+    cacheReadTokens: 0,
+  });
+  // A tool result lands after the last reported turn: ↓ must keep moving.
+  bumpLiveInputTokens(5_000);
+  setLiveOutputTokens(1_000);
+  const line = renderRow("Simmering", Date.now(), 100_000, 0, 200_000, 3);
+
+  // 250k + 5k, NOT 100k + 5k (estimate baseline) and NOT 350k (double count).
+  assert.match(line, /↓255\.0k/);
+  assert.match(line, /↑13\.0k/);
+  resetAllLiveState();
+});
+
+test("the final usage still wins over the reported running totals", () => {
+  resetAllLiveState();
+  setLiveUsageTotals({
+    inputTokens: 250_000,
+    outputTokens: 12_000,
+    cacheReadTokens: 900_000,
+  });
+  // outputTokens > 0 marks the end-of-run value; it is the last word.
+  const line = renderRow("Done", Date.now(), 0, 44_000, 200_000, 3, 7_000);
+
+  assert.match(line, /↑44\.0k/);
+  assert.match(line, /cached: 7\.0k/);
+  resetAllLiveState();
+});
+
+test("with no reported totals the estimate is still used", () => {
+  resetAllLiveState();
+  setLiveOutputTokens(30_000);
+  bumpLiveInputTokens(2_000);
+  const line = renderRow("Simmering", Date.now(), 100_000, 0, 200_000, 1);
+
+  assert.match(line, /↓102\.0k/);
+  assert.match(line, /↑30\.0k/);
+  resetAllLiveState();
 });
