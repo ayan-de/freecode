@@ -1543,6 +1543,7 @@ export class AgentLoop {
         model,
         maxTokens,
         abortSignal: this.abort.signal,
+        sessionId: this.state.sessionId,
       })) {
         if (this.abort.signal.aborted) break;
         switch (chunk.type) {
@@ -1598,6 +1599,7 @@ export class AgentLoop {
       tools,
       model,
       abortSignal: this.abort.signal,
+      sessionId: this.state.sessionId,
     });
     this.emitCacheWarm(result.usage);
     return {
