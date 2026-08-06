@@ -363,6 +363,47 @@ counter matches `usage.json` at session end.
 
 ---
 
+## Phase 7 — Cache TTL (unplanned)
+
+Not in the original spec. Added because the branch's own measurements kept
+running into it: `cache-awareness.ts` warns that a >5m gap goes cold, and
+nothing could act on the warning.
+
+1. `providers/utils.ts` — `getCacheTtl()` reads `FREECODE_CACHE_TTL` per call
+   (`5m` default, `1h` opt-in), applied to all three Anthropic-shaped breakpoint
+   kinds at once: messages, the tools array, and the cached system block. Each
+   previously hardcoded its own marker, so a partial change would have left them
+   on mixed TTLs, expiring the prefix piecemeal.
+2. `providers/cache-awareness.ts` — the cold line follows `getCacheTtl()`
+   instead of a hardcoded 5 minutes, and the `5m` message names the knob.
+
+**Verify:** at `5m` the `ttl` field is absent from the wire entirely (5m is
+already the server-side default, so the default path stays byte-identical and
+upgrading cannot invalidate a live cache); at `1h` it reaches `anthropic` and
+`openrouter` only; an unusable value falls back to `5m`; a 10-minute gap warns
+at `5m` and stays quiet at `1h`.
+
+**Status: done (2026-08-06).** 6 tests in `utils.test.ts`, 2 in
+`cache-awareness.test.ts`.
+
+**Scope limit worth stating plainly:** `ttl` rides only on the two provider keys
+whose acceptance is verified — the AI SDK's zod schema for `anthropic`
+(`@ai-sdk/anthropic` `dist/index.d.ts:195`, `"5m" | "1h"`) and OpenRouter's
+documented `cache_control` passthrough. `openaiCompatible` is a raw passthrough
+to whatever gateway sits behind it, so an unrecognised field there risks a 400
+on the primary path to buy nothing. **MiniMax's cache lifetime is therefore not
+controllable from here, and MiniMax is the provider these measurements were
+taken on.** This phase does nothing for that path.
+
+**Default stays `5m`.** 1h moves writes from 1.25x to 2x base. Per-turn writes
+are small (Anthropic bills the delta once the prefix head hits); what dominates
+is how often the whole context is re-written cold. One >5m gap per hour already
+pays for it — 2x once beats 1.25x twice — but a fast unattended run with no gaps
+pays 2x for durability it never uses. That is session-shaped, not
+codebase-shaped, so it is a knob rather than a new default.
+
+---
+
 ## Expected outcome
 
 Modelled against the `4ba54e41` trace (spec, "Goal"):

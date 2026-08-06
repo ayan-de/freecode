@@ -50,3 +50,33 @@ test("summarizeCache handles missing usage", () => {
   const s = summarizeCache(undefined);
   assert.deepEqual([s.readTokens, s.writeTokens, s.hitRatio], [0, 0, 0]);
 });
+
+test("the cold line follows FREECODE_CACHE_TTL", () => {
+  const prev = process.env.FREECODE_CACHE_TTL;
+  process.env.FREECODE_CACHE_TTL = "1h";
+  try {
+    // A 10-minute gap is cold at the 5m default but warm at 1h. Warning here
+    // would send the user chasing a miss that never happened.
+    disposeCacheAwareness("ttl1");
+    noteSendAndCheckCold("ttl1", "anthropic", 0);
+    assert.equal(noteSendAndCheckCold("ttl1", "anthropic", 10 * FIVE_MIN), null);
+
+    disposeCacheAwareness("ttl2");
+    noteSendAndCheckCold("ttl2", "anthropic", 0);
+    const warn = noteSendAndCheckCold("ttl2", "anthropic", 70 * 60 * 1000);
+    assert.match(warn ?? "", /cold/i);
+    assert.match(warn ?? "", /1h TTL/);
+    // Already on the long TTL — nothing left to suggest.
+    assert.doesNotMatch(warn ?? "", /FREECODE_CACHE_TTL=1h/);
+  } finally {
+    if (prev === undefined) delete process.env.FREECODE_CACHE_TTL;
+    else process.env.FREECODE_CACHE_TTL = prev;
+  }
+});
+
+test("the 5m warning points at the 1h knob", () => {
+  disposeCacheAwareness("ttl3");
+  noteSendAndCheckCold("ttl3", "anthropic", 0);
+  const warn = noteSendAndCheckCold("ttl3", "anthropic", 10 * FIVE_MIN);
+  assert.match(warn ?? "", /FREECODE_CACHE_TTL=1h/);
+});

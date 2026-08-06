@@ -1,6 +1,7 @@
 // =============================================================================
-// Prompt-cache awareness (jcode #9). Anthropic's prompt cache has a ~5-minute
-// TTL: if more than that elapses between turns, the next request re-reads the
+// Prompt-cache awareness (jcode #9). Anthropic's prompt cache defaults to a
+// ~5-minute TTL (1h under FREECODE_CACHE_TTL — see providers/utils.ts): if more
+// than that elapses between turns, the next request re-reads the
 // full context as fresh input (cache MISS) — real money on long contexts. We
 // track the last send per session and warn before a send that will miss, and
 // surface hit/write token numbers after (see loop wiring + `cache_status` event).
@@ -8,8 +9,15 @@
 // Pure bookkeeping, no provider calls. Non-caching providers are ignored.
 // =============================================================================
 
-// Anthropic documents a 5-minute cache lifetime; treat that as the cold line.
-const PROMPT_CACHE_TTL_MS = 5 * 60 * 1000;
+import { getCacheTtl, type CacheTtl } from "./utils.js";
+
+// The cold line follows whatever TTL the request actually asked for, so the
+// warning stays true under FREECODE_CACHE_TTL=1h instead of firing at six
+// minutes on an entry with another fifty-four to live.
+const TTL_MS: Record<CacheTtl, number> = {
+  "5m": 5 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+};
 
 // Providers whose prompt cache is time-limited (so a gap causes a miss).
 // OpenAI/Gemini caching is either automatic-without-TTL-signal or absent here.
@@ -32,9 +40,14 @@ export function noteSendAndCheckCold(
   lastSend.set(sessionId, now);
   if (prev === undefined) return null;
   const elapsed = now - prev;
-  if (elapsed <= PROMPT_CACHE_TTL_MS) return null;
+  const ttl = getCacheTtl();
+  if (elapsed <= TTL_MS[ttl]) return null;
   const mins = Math.round(elapsed / 60_000);
-  return `Prompt cache likely cold (~${mins} min since last turn > 5 min TTL) — this request re-reads the full context as fresh input and will cost more.`;
+  const hint =
+    ttl === "5m"
+      ? " Set FREECODE_CACHE_TTL=1h if gaps like this are normal for you."
+      : "";
+  return `Prompt cache likely cold (~${mins} min since last turn > ${ttl} TTL) — this request re-reads the full context as fresh input and will cost more.${hint}`;
 }
 
 export interface CacheSummary {

@@ -5,6 +5,7 @@ import {
   buildToolsParam,
   resolveModel,
   applyMessageCaching,
+  getCacheTtl,
 } from "./utils.js";
 
 test("buildAnthropicSystemParam passes a string through unchanged", () => {
@@ -213,4 +214,106 @@ test("the whole request stays within the 4 cache-breakpoint limit", () => {
     toolBreakpoints + systemBreakpoints + messageBreakpoints <= 4,
     "total request breakpoints must not exceed the provider limit of 4",
   );
+});
+
+// --- Cache TTL (FREECODE_CACHE_TTL) ------------------------------------------
+
+/** Runs `fn` with FREECODE_CACHE_TTL set to `value` (or unset), then restores. */
+function withCacheTtl(value: string | undefined, fn: () => void): void {
+  const prev = process.env.FREECODE_CACHE_TTL;
+  if (value === undefined) delete process.env.FREECODE_CACHE_TTL;
+  else process.env.FREECODE_CACHE_TTL = value;
+  try {
+    fn();
+  } finally {
+    if (prev === undefined) delete process.env.FREECODE_CACHE_TTL;
+    else process.env.FREECODE_CACHE_TTL = prev;
+  }
+}
+
+test("getCacheTtl defaults to 5m and rejects unusable values", () => {
+  withCacheTtl(undefined, () => assert.equal(getCacheTtl(), "5m"));
+  withCacheTtl("", () => assert.equal(getCacheTtl(), "5m"));
+  withCacheTtl("1h", () => assert.equal(getCacheTtl(), "1h"));
+  withCacheTtl("5m", () => assert.equal(getCacheTtl(), "5m"));
+  // An unusable value must not reach the wire as a literal.
+  withCacheTtl("60m", () => assert.equal(getCacheTtl(), "5m"));
+  withCacheTtl("1hour", () => assert.equal(getCacheTtl(), "5m"));
+});
+
+test("the default path sends no ttl field at all", () => {
+  withCacheTtl(undefined, () => {
+    // 5m is already the server-side default, so omitting it keeps the request
+    // bytes identical to what shipped before the knob existed. If this starts
+    // failing, the default path has changed and existing caches will miss.
+    const msgs: any[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ];
+    applyMessageCaching(msgs as never);
+    const opts = msgs[0].content[0].providerOptions;
+    assert.deepEqual(opts.anthropic.cacheControl, { type: "ephemeral" });
+    assert.deepEqual(opts.openrouter.cacheControl, { type: "ephemeral" });
+
+    const tools = buildToolsParam([
+      { name: "read", description: "d", parameters: {} },
+    ] as never);
+    assert.deepEqual(
+      (tools!.read.providerOptions as any).anthropic.cacheControl,
+      { type: "ephemeral" },
+    );
+
+    const system = buildAnthropicSystemParam([{ text: "s", cache: true }]);
+    assert.deepEqual(
+      ((system as any[])[0].providerOptions as any).anthropic.cacheControl,
+      { type: "ephemeral" },
+    );
+  });
+});
+
+test("FREECODE_CACHE_TTL=1h reaches all three breakpoint kinds", () => {
+  withCacheTtl("1h", () => {
+    // Messages, tools and the system block must agree — a mixed set would
+    // expire the prefix piecemeal, which is worse than either TTL alone.
+    const msgs: any[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ];
+    applyMessageCaching(msgs as never);
+    assert.deepEqual(msgs[0].content[0].providerOptions.anthropic.cacheControl, {
+      type: "ephemeral",
+      ttl: "1h",
+    });
+
+    const tools = buildToolsParam([
+      { name: "read", description: "d", parameters: {} },
+    ] as never);
+    assert.deepEqual(
+      (tools!.read.providerOptions as any).anthropic.cacheControl,
+      { type: "ephemeral", ttl: "1h" },
+    );
+
+    const system = buildAnthropicSystemParam([{ text: "s", cache: true }]);
+    assert.deepEqual(
+      ((system as any[])[0].providerOptions as any).anthropic.cacheControl,
+      { type: "ephemeral", ttl: "1h" },
+    );
+  });
+});
+
+test("ttl rides only on the provider keys verified to accept it", () => {
+  withCacheTtl("1h", () => {
+    const msgs: any[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+    ];
+    applyMessageCaching(msgs as never);
+    const opts = msgs[0].content[0].providerOptions;
+
+    assert.equal(opts.anthropic.cacheControl.ttl, "1h");
+    assert.equal(opts.openrouter.cacheControl.ttl, "1h");
+    // openaiCompatible is a raw passthrough to MiniMax/Z.ai and bedrock's
+    // cachePoint has no TTL concept — an unrecognised field on the primary
+    // path risks a 400 to buy nothing.
+    assert.equal(opts.openaiCompatible.cache_control.ttl, undefined);
+    assert.equal(opts.bedrock.cachePoint.ttl, undefined);
+    assert.equal(opts.alibaba.cacheControl.ttl, undefined);
+  });
 });

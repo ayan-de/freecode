@@ -107,9 +107,11 @@ blocks qualify.
 
 ### 1.5 Cold-cache warning — `providers/cache-awareness.ts`
 
-Anthropic's prompt cache has a ~5-minute TTL. If more than that elapses
-between turns, the next request re-reads the full context as fresh
-input — real money on long contexts.
+Anthropic's prompt cache has a ~5-minute TTL by default. If more than
+that elapses between turns, the next request re-reads the full context
+as fresh input — real money on long contexts. The cold line tracks
+`getCacheTtl()` (see 1.7), so under `FREECODE_CACHE_TTL=1h` the warning
+fires at 60 minutes rather than 5; at `5m` the message names the knob.
 
 - `noteSendAndCheckCold(sessionId, provider, now?)` — returns a
   warning string when this send will likely miss, `null` otherwise.
@@ -137,12 +139,37 @@ so anything `console.log`'d there is swallowed by the frontend's
 protocol reader and never reaches the user. stderr is the channel the
 TUI actually surfaces.
 
-### 1.7 TTL — upstream-controlled
+### 1.7 TTL — `FREECODE_CACHE_TTL`
 
-Not surfaced in core. Defaults to provider's `ephemeral` (5m for
-Anthropic). If a future task needs a longer horizon, the marker shapes
-above accept `ttl` directly; the AI SDK ignores it on providers that
-don't understand it.
+`utils.ts getCacheTtl()` resolves `5m` (default) or `1h`, read per call
+and applied to all three Anthropic-shaped breakpoint kinds at once —
+messages, the tools array, and the cached system block. A mixed set
+would expire the prefix piecemeal, which is worse than either TTL alone.
+
+At `5m` the `ttl` field is **omitted entirely** rather than sent as
+`"5m"`. That is already the server-side default, so the default path
+stays byte-identical to what shipped before the knob existed: existing
+caches cannot be invalidated by upgrading, and there is no new field for
+a gateway to reject.
+
+**When `1h` wins.** The write rate goes 1.25x → 2x base, but per-turn
+writes are small — Anthropic bills cache creation for the *delta* once
+the head of the prefix hits. What dominates is how often the whole
+context is re-written from cold, and at `5m` that is every pause longer
+than a coffee refill. One such gap per hour already pays for it (2x once
+beats 1.25x twice), and a session with a human reading diffs in the loop
+has many. The reverse case is equally real: a fast unattended run with
+no gaps pays 2x for durability it never uses. Hence a knob, not a new
+default.
+
+**Provider coverage.** `ttl` rides only on the `anthropic` and
+`openrouter` keys — the AI SDK's own zod schema for the former
+(`@ai-sdk/anthropic` `dist/index.d.ts:195`, `"5m" | "1h"`), OpenRouter's
+documented Anthropic `cache_control` passthrough for the latter.
+`openaiCompatible` is a raw passthrough to whatever gateway sits behind
+it (MiniMax, Z.ai), so an unrecognised field there risks a 400 on the
+primary path to buy nothing; `bedrock`'s `cachePoint` has no TTL concept.
+**MiniMax's cache lifetime is therefore not controllable from here.**
 
 ---
 
