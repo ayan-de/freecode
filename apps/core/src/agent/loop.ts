@@ -69,6 +69,7 @@ import { PruneState, type PruneCandidate } from "./prune-state.js";
 import { getProjectContext } from "../context/tree-cache.js";
 import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService } from "../compaction/index.js";
+import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
@@ -694,6 +695,30 @@ export class AgentLoop {
               (turnResult.usage.cacheReadInputTokens ?? 0) +
               (turnResult.usage.cacheCreationInputTokens ?? 0),
           );
+
+          BusEvents.stream(this.state.sessionId, {
+            type: "usage_totals",
+            totalInputTokens,
+            totalOutputTokens,
+            totalCacheReadTokens,
+          });
+
+          // Spend circuit breaker (RC7/D7): loop-health only warns on a stuck
+          // pattern, nothing previously capped actual spend, so an oscillating
+          // loop could burn a plan's quota silently. Off unless configured.
+          const maxTurnTokens = getMaxTurnTokens();
+          if (
+            maxTurnTokens !== undefined &&
+            totalInputTokens + totalOutputTokens > maxTurnTokens
+          ) {
+            await this.stop("spend_budget_exceeded");
+            return this.complete(
+              `Stopped: turn spend budget exceeded (${totalInputTokens + totalOutputTokens} tokens billed, limit ${maxTurnTokens}). Set FREECODE_MAX_TURN_TOKENS to change.`,
+              undefined,
+              undefined,
+              usageSoFar(),
+            );
+          }
         }
 
         // No tool calls means the model wants to stop. Before completing, run

@@ -96,6 +96,25 @@ export function getAutoCompactOverride(): number | undefined {
   return parsed;
 }
 
+/**
+ * Per-run spend circuit breaker, in billed tokens (input + output). Off by
+ * default — this is a backstop for a runaway oscillation that loop-health
+ * detects but only warns about (spec 2026-08-05-token-efficiency, RC7/D7),
+ * not a normal operating limit, so it needs an explicit opt-in.
+ */
+export function getMaxTurnTokens(): number | undefined {
+  const raw = process.env.FREECODE_MAX_TURN_TOKENS;
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    logger.warn(
+      `[compaction] Ignoring FREECODE_MAX_TURN_TOKENS="${raw}" — expected a positive integer.`,
+    );
+    return undefined;
+  }
+  return parsed;
+}
+
 export function shouldCompact(
   tokenCount: number,
   model: string,
