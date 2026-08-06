@@ -66,10 +66,7 @@ import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
 import { markReadPruned } from "../tools/read-state.js";
 import { PruneState, type PruneCandidate } from "./prune-state.js";
-import {
-  getProjectContext,
-  invalidateProjectContext,
-} from "../context/tree-cache.js";
+import { getProjectContext } from "../context/tree-cache.js";
 import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService } from "../compaction/index.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
@@ -1854,16 +1851,10 @@ export class AgentLoop {
       abort: this.abort.signal,
     };
 
-    // Mutating tools invalidate the cached project file tree — even on
-    // failure, since a crashed bash/edit may have already changed files.
-    const isMutating = getTool(toolCall.tool)?.behavior?.isDestructive === true;
-
     let result: ToolResult;
     try {
       result = await this.orchestrator.execute(toolCall, context);
-      if (isMutating) invalidateProjectContext(this.state.projectPath);
     } catch (error) {
-      if (isMutating) invalidateProjectContext(this.state.projectPath);
       // PostToolUseFailure Hook — handle tool execution error
       const failureResult = await this.hooks.runPostToolUseFailure(
         toolCall,
