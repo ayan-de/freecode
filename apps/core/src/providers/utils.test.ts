@@ -7,6 +7,7 @@ import {
   applyMessageCaching,
   getCacheTtl,
 } from "./utils.js";
+import { PromptCompiler } from "../context/compiler.js";
 
 test("buildAnthropicSystemParam passes a string through unchanged", () => {
   assert.equal(buildAnthropicSystemParam("be helpful"), "be helpful");
@@ -179,7 +180,7 @@ test("applyMessageCaching preserves existing providerOptions on the part", () =>
 // will be ignored"), so going over silently loses a breakpoint rather than
 // failing. Adding the second message anchor did exactly that until the dynamic
 // system block gave up its slot. This counts the whole request budget.
-test("the whole request stays within the 4 cache-breakpoint limit", () => {
+test("the whole request stays within the 4 cache-breakpoint limit", async () => {
   const tools = buildToolsParam([
     { name: "a", description: "", parameters: { type: "object" } },
     { name: "b", description: "", parameters: { type: "object" } },
@@ -188,11 +189,16 @@ test("the whole request stays within the 4 cache-breakpoint limit", () => {
     (t: any) => t.providerOptions !== undefined,
   ).length;
 
-  // What PromptCompiler.compileSystemBlocks emits: static cached, dynamic not.
-  const system = buildAnthropicSystemParam([
-    { text: "static", cache: true },
-    { text: "dynamic", cache: false },
-  ]);
+  // Deliberately the REAL compiler output, not a hand-built stand-in. The
+  // budget has exactly one variable in it — how many system blocks carry
+  // `cache: true` — and a literal array here would keep passing while
+  // compiler.ts grew a second cached block and pushed the live request to 5.
+  // Wiring it to the source of that number is what makes this test load-bearing
+  // rather than a restatement of its own inputs.
+  const compiler = new PromptCompiler("/path/to/project", "my-project", "build");
+  const system = buildAnthropicSystemParam(
+    await compiler.compileSystemBlocks("anthropic", "claude-sonnet-4-5"),
+  );
   const systemBreakpoints = (system as any[]).filter(
     (b) => b.providerOptions !== undefined,
   ).length;

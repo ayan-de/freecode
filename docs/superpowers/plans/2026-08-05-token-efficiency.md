@@ -109,6 +109,22 @@ progress; target is a mean ≥ 2.0.
 Note this is a prompt change against one model family. Re-check the histogram when
 switching provider — the fix is advisory, not enforced.
 
+**Measured on MiniMax-M3 after the change (2026-08-07), oldest run first:**
+
+| session  | tool calls | responses with >= 2 |
+| -------- | ---------- | ------------------- |
+| 1d6c35a2 | 12         | 71%                 |
+| 6f646588 | 46         | 37%                 |
+| d27e6f64 | 31         | **0%**              |
+| 2c8e602f | 5          | too few to judge    |
+
+No trend — the same prompt gets 71%, then 37%, then nothing. The instruction is
+advisory and M3 follows it inconsistently, so the request-count win is real but
+not bankable. Nothing in core disables parallel tool use (no
+`disableParallelToolUse` / `parallelToolCalls` anywhere; opencode sets neither
+either), so this is model adherence, not a harness blocker. Left as-is rather
+than "fixed" with an enforcement mechanism neither reference agent has.
+
 **Status: done (2026-08-05).** The parallel-call instruction now opens `## Tools` as
 three paragraphs (capability, safe-to-batch tool list + two worked examples,
 sequential caveat); the trailing clause at `:92` is gone; the preamble rule no longer

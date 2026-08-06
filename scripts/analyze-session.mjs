@@ -47,6 +47,13 @@ const DEFAULT_CLUSTER_MS = 1500;
 // messages.jsonl. Order-of-magnitude constant; override when it matters.
 const DEFAULT_SYSTEM_TOKENS = 12_000;
 
+// Below this many tool calls, "zero batched responses" carries no information:
+// a session that made four calls may have had four genuinely dependent steps,
+// and batching them would have been wrong. Flagging that as a failure sends
+// someone off to fix a healthy session — the measurement equivalent of a false
+// positive, and worse than staying quiet, because Phase 0 exists to be trusted.
+const PARALLELISM_MIN_CALLS = 10;
+
 const tokens = (chars) => Math.ceil(chars / CHARS_PER_TOKEN);
 
 // ---------------------------------------------------------------------------
@@ -318,9 +325,17 @@ function report(a) {
     console.log(
       `    calls per response      ${JSON.stringify(a.responseHistogram)}`,
     );
+    // Only call it a failure when the absence is evidence. See
+    // PARALLELISM_MIN_CALLS.
+    const verdict =
+      a.multiCallResponses > 0
+        ? ""
+        : a.totalCalls >= PARALLELISM_MIN_CALLS
+          ? "   <- no parallelism"
+          : `   (${a.totalCalls} calls — too few to judge)`;
     console.log(
       `    responses with >= 2     ${num(a.multiCallResponses)} of ${num(a.responseCount)}  (${pct}%)` +
-        (a.multiCallResponses === 0 ? "   <- no parallelism" : ""),
+        verdict,
     );
   } else {
     // Per-message counts cannot exceed 1: appendToolMessage persists one
