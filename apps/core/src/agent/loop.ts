@@ -66,6 +66,7 @@ import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
 import { markReadPruned } from "../tools/read-state.js";
 import { PruneState, type PruneCandidate } from "./prune-state.js";
+import { applySystemPromptHookRewrite } from "./apply-system-hook.js";
 import { getFrozenSessionContext } from "../context/session-context.js";
 import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService } from "../compaction/index.js";
@@ -1144,19 +1145,20 @@ export class AgentLoop {
       ];
       const blocks = [...systemBlocks, ...sessionBlocks];
 
-      // UserPromptSubmit Hook — can modify prompt before sending to model
+      // UserPromptSubmit Hook — can modify the joined system before send.
+      // Must not collapse static + session into one cache:true blob (that
+      // puts todos/memory/reminders under the breakpoint). See
+      // apply-system-hook.ts.
       const joinedSystem = blocks.map((b) => b.text).join("\n\n");
       const hookResult = await this.hooks.runUserPromptSubmit(joinedSystem, {
         sessionId: this.state.sessionId,
         turnCount: this.state.turnCount,
       });
-      let finalSystemBlocks = blocks;
-      if (
-        hookResult.modifiedPrompt &&
-        hookResult.modifiedPrompt !== joinedSystem
-      ) {
-        finalSystemBlocks = [{ text: hookResult.modifiedPrompt, cache: true }];
-      }
+      const finalSystemBlocks = applySystemPromptHookRewrite(
+        systemBlocks,
+        sessionBlocks,
+        hookResult.modifiedPrompt,
+      );
 
       // The threshold check is a prediction, and predictions miss: one turn can
       // add more than the buffer covers, or the session may have been resumed
