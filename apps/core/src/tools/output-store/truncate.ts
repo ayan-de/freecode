@@ -17,8 +17,16 @@ export function adaptiveTruncate(
   if (output.length <= MAX_MODEL_OUTPUT_CHARS) {
     return { modelOutput: output, truncated: false };
   }
-  const head = output.slice(0, HEAD_CHARS);
-  const tail = output.slice(output.length - TAIL_CHARS);
+  // Snap both cuts to line boundaries. A raw character index lands mid-line and
+  // mid-token, so the model reads a half-identifier as though it were whole —
+  // and grep/build output is line-structured, which the marker then breaks.
+  // Falls back to the exact index when a line spans the whole budget.
+  const headEnd = output.lastIndexOf("\n", HEAD_CHARS);
+  const head = output.slice(0, headEnd > 0 ? headEnd : HEAD_CHARS);
+  const tailStart = output.indexOf("\n", output.length - TAIL_CHARS);
+  const tail = output.slice(
+    tailStart >= 0 ? tailStart + 1 : output.length - TAIL_CHARS,
+  );
   const marker =
     `\n\n... [truncated ${output.length} chars total — ` +
     `use the \`output\` tool with id="${toolCallId}" (offset, limit, or pattern) ` +

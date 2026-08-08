@@ -19,8 +19,14 @@ interface ReadParams {
 
 const DEFAULT_LIMIT = 2000;
 const MAX_LINE_LENGTH = 2000;
+const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`;
 const MAX_BYTES = 50 * 1024;
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`;
+// OOM backstop for the whole-file reads below (the binary sniff and readLines
+// both load the file). Matches the image branch's limit. Deliberately far above
+// any real source file: the 50 KB byte cap is what controls output size, this
+// only stops `read` on a multi-gigabyte log from taking the daemon down.
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 function isBinaryFile(bytes: Uint8Array): boolean {
   if (bytes.length === 0) return false;
@@ -34,19 +40,41 @@ function isBinaryFile(bytes: Uint8Array): boolean {
   return nonPrintableCount / bytes.length > 0.3;
 }
 
+// Both caps are enforced here rather than reported after the fact: a single
+// minified line can be larger than the whole byte budget, and slicing it later
+// (adaptiveTruncate cuts on a character index) lands mid-line and mid-token.
+//
+// `cut` means the byte cap stopped the read — it is what the "capped at 50 KB"
+// notice is keyed off, so it must not also mean "you asked for `limit` lines and
+// got them", which is the ordinary case for any file of 2000+ lines.
 function readLines(
   filepath: string,
   opts: { limit: number; offset: number },
 ): { raw: string[]; count: number; cut: boolean; more: boolean } {
-  const content = fs.readFileSync(filepath, "utf-8");
-  const allLines = content.split("\n");
-  const start = opts.offset - 1;
-  const raw = allLines.slice(start, start + opts.limit);
+  const allLines = fs.readFileSync(filepath, "utf-8").split("\n");
   const count = allLines.length;
-  const more = start + opts.limit < count;
-  const cut = raw.join("\n").length > MAX_BYTES || raw.length >= opts.limit;
+  const start = opts.offset - 1;
 
-  return { raw, count, cut, more };
+  const raw: string[] = [];
+  let bytes = 0;
+  let cut = false;
+
+  for (let i = start; i < count && raw.length < opts.limit; i++) {
+    const line =
+      allLines[i].length > MAX_LINE_LENGTH
+        ? allLines[i].slice(0, MAX_LINE_LENGTH) + MAX_LINE_SUFFIX
+        : allLines[i];
+    // +1 for the newline this line will be joined with, except the first.
+    const size = Buffer.byteLength(line, "utf-8") + (raw.length > 0 ? 1 : 0);
+    if (bytes + size > MAX_BYTES) {
+      cut = true;
+      break;
+    }
+    raw.push(line);
+    bytes += size;
+  }
+
+  return { raw, count, cut, more: cut || start + raw.length < count };
 }
 
 // =============================================================================
@@ -62,11 +90,17 @@ const readSchema: JsonSchema = {
     },
     offset: {
       type: "number",
-      description: "The line number to start reading from (1-indexed)",
+      description:
+        "The line number to start reading from (1-indexed). Provide this whenever " +
+        "you already know roughly where to look — from a grep hit, a stack trace, " +
+        "or an earlier read. Reading 60 lines around a known line costs a fraction " +
+        "of the whole file.",
     },
     limit: {
       type: "number",
-      description: "The maximum number of lines to read (defaults to 2000)",
+      description:
+        "The maximum number of lines to read (defaults to 2000, which is the whole " +
+        "file for most sources). Pair with offset to read one region.",
     },
     asImage: {
       type: "boolean",
@@ -87,6 +121,14 @@ export function coerceNumber(value: unknown): number | undefined {
     if (Number.isFinite(n)) return n;
   }
   return undefined;
+}
+
+// A 1-based line number or count: whole, and at least 1. Accepts the numeric
+// strings coerceNumber does, so a provider that stringifies args is not punished
+// for it.
+export function isPositiveInt(value: unknown): boolean {
+  const n = coerceNumber(value);
+  return n !== undefined && Number.isInteger(n) && n >= 1;
 }
 
 // Same story for booleans: "true"/"false" arrive as strings from the same
@@ -115,11 +157,20 @@ function validateReadInput(
   if (typeof p.filePath !== "string" || p.filePath.length === 0) {
     return { valid: false, error: "filePath is required and must be a string" };
   }
-  if (p.offset !== undefined && coerceNumber(p.offset) === undefined) {
-    return { valid: false, error: "offset must be a number" };
+  // Both are 1-based counts, so 0, negatives and fractions are always a mistake.
+  // Rejecting with the reason beats silently clamping: the model that sent
+  // offset=0 believed it was reading from the top and would not notice.
+  if (p.offset !== undefined && !isPositiveInt(p.offset)) {
+    return {
+      valid: false,
+      error: "offset must be a whole number >= 1 (the first line is line 1)",
+    };
   }
-  if (p.limit !== undefined && coerceNumber(p.limit) === undefined) {
-    return { valid: false, error: "limit must be a number" };
+  if (p.limit !== undefined && !isPositiveInt(p.limit)) {
+    return {
+      valid: false,
+      error: "limit must be a whole number >= 1",
+    };
   }
   if (p.asImage !== undefined && coerceBoolean(p.asImage) === undefined) {
     return { valid: false, error: "asImage must be a boolean" };
@@ -244,6 +295,13 @@ async function executeRead(
       };
     }
 
+    if (stat.size > MAX_FILE_BYTES) {
+      return {
+        success: false,
+        error: `Error: File is too large (${(stat.size / 1024 / 1024).toFixed(1)}MB). Maximum size is ${MAX_FILE_BYTES / 1024 / 1024}MB. Use grep to search it instead.`,
+      };
+    }
+
     const sample = fs.readFileSync(filepath);
     if (isBinaryFile(sample)) {
       return {
@@ -252,8 +310,11 @@ async function executeRead(
       };
     }
 
-    const limit = coerceNumber(params.limit) ?? DEFAULT_LIMIT;
-    const offset = coerceNumber(params.offset) ?? 1;
+    // Clamped as well as validated: execute is reachable without validateReadInput
+    // (direct tool calls, tests), and a start line below 1 would index off the
+    // front of the line array.
+    const limit = Math.max(1, Math.trunc(coerceNumber(params.limit) ?? DEFAULT_LIMIT));
+    const offset = Math.max(1, Math.trunc(coerceNumber(params.offset) ?? 1));
 
     // Re-reading a file the model was already shown, unchanged, costs the whole
     // file again on this turn and on every turn after it. Answer with a pointer
@@ -294,7 +355,11 @@ async function executeRead(
     const last = offset + lines.raw.length - 1;
     const next = last + 1;
 
-    if (lines.cut) {
+    if (lines.raw.length === 0) {
+      // An empty window is otherwise indistinguishable from an empty file, and
+      // the footer below would claim "end of file" for a read that never started.
+      output += `(No lines: offset ${offset} is past the end of this file, which has ${lines.count} lines.)`;
+    } else if (lines.cut) {
       output += `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset}-${last}. Use offset=${next} to continue.)`;
     } else if (lines.more) {
       output += `\n\n(Showing lines ${offset}-${last} of ${lines.count}. Use offset=${next} to continue.)`;
@@ -329,7 +394,11 @@ async function executeRead(
 
 export const ReadTool: Tool<ReadParams> = buildTool({
   id: "read",
-  description: "Read file contents",
+  description:
+    "Read a file's contents. Defaults to the whole file, which is the expensive " +
+    "option: the content stays in the conversation and is re-sent to the model on " +
+    "every later request. When you already know the region you need, pass " +
+    "offset/limit and read only that.",
   schemas: {
     parameters: readSchema,
   },

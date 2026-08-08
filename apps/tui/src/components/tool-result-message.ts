@@ -25,6 +25,26 @@ const TOOL_COLORS: Record<string, (text: string) => string> = {
   Agent: (t) => chalk.whiteBright(t),
 };
 
+/**
+ * The `:start-end` suffix on a ranged read, so a partial read is visibly
+ * different from one that pulled the whole file. Empty when neither bound was
+ * given — the common whole-file case stays as it was.
+ */
+function formatLineRange(args: Record<string, unknown> | undefined): string {
+  const num = (v: unknown): number | undefined => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return typeof n === "number" && Number.isFinite(n) ? n : undefined;
+  };
+  const offset = num(args?.offset);
+  const limit = num(args?.limit);
+  if (offset === undefined && limit === undefined) return "";
+
+  const start = offset ?? 1;
+  return limit === undefined
+    ? chalk.dim(`:${start}+`)
+    : chalk.dim(`:${start}-${start + limit - 1}`);
+}
+
 
 
 export class ToolResultMessage implements Component {
@@ -81,7 +101,7 @@ export class ToolResultMessage implements Component {
       headerAction = isFileUpdate ? "Update" : "Read";
       const cwd = process.cwd();
       const displayFile = filename.startsWith(cwd) ? filename.slice(cwd.length + 1) : filename;
-      headerTarget = `(${displayFile})`;
+      headerTarget = `(${displayFile}${formatLineRange(this.args)})`;
     } else if (isRun && this.args) {
       const cmdArg = (this.args.CommandLine || this.args.command || "") as string;
       if (cmdArg) {

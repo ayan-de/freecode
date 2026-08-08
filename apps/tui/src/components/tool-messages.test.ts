@@ -72,3 +72,32 @@ test("multi-line string args are flattened in the header", () => {
     assert.ok(!line.includes("\n"), `embedded newline in: ${line}`);
   }
 });
+
+test("a ranged read shows the line window in the header", () => {
+  const header = (args: Record<string, unknown>) =>
+    new ToolResultMessage({
+      toolCallId: "call-range",
+      toolName: "read",
+      args: { filePath: "/tmp/auth.ts", ...args },
+      result: "ok",
+      success: true,
+    })
+      .render(120)
+      .join("\n")
+      // The range is dim-styled, so the reset codes sit between the path and
+      // the colon. Compare on the plain text.
+      .replace(/\x1b\[[0-9;]*m/g, "");
+
+  // offset + limit → an explicit closed range.
+  assert.match(header({ offset: 340, limit: 60 }), /auth\.ts:340-399/);
+  // offset alone runs to the default limit, so the end is open.
+  assert.match(header({ offset: 340 }), /auth\.ts:340\+/);
+  // limit alone starts at line 1.
+  assert.match(header({ limit: 60 }), /auth\.ts:1-60/);
+  // Providers that stringify numeric args get the same treatment.
+  assert.match(header({ offset: "10", limit: "5" }), /auth\.ts:10-14/);
+  // A whole-file read is unchanged.
+  const plain = header({});
+  assert.match(plain, /auth\.ts\)/);
+  assert.equal(/auth\.ts:/.test(plain), false);
+});
