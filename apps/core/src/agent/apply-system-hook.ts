@@ -17,9 +17,10 @@
 //      cheaper than poisoning the prefix every turn.
 // =============================================================================
 
+/** Structurally the provider layer's `SystemBlock`: an absent `cache` is uncached. */
 export interface CacheableBlock {
   text: string;
-  cache: boolean;
+  cache?: boolean;
 }
 
 export function applySystemPromptHookRewrite(
