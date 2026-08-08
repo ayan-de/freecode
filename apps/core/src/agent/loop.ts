@@ -66,7 +66,7 @@ import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
 import { markReadPruned } from "../tools/read-state.js";
 import { PruneState, type PruneCandidate } from "./prune-state.js";
-import { getProjectContext } from "../context/tree-cache.js";
+import { getFrozenSessionContext } from "../context/session-context.js";
 import { ensureWatching } from "../context/tree-watcher.js";
 import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
@@ -888,7 +888,7 @@ export class AgentLoop {
     system: SystemBlock[],
     provider: string,
     model: string | undefined,
-    context: { tree: string; gitHead: string },
+    context: { tree: string; gitHead: string; clock: string },
   ): Promise<Awaited<ReturnType<typeof this.sendToProvider>>> {
     if (!isContextOverflowError(error)) throw error;
 
@@ -1059,6 +1059,7 @@ export class AgentLoop {
       projectPath: string;
       tree: string;
       gitHead: string;
+      clock: string;
     },
   ): Promise<{
     success: boolean;
@@ -1397,6 +1398,7 @@ export class AgentLoop {
     context: {
       tree: string;
       gitHead: string;
+      clock: string;
     },
   ): Promise<{
     content: string;
@@ -1437,7 +1439,7 @@ export class AgentLoop {
     system: SystemBlock[],
     model: string | undefined,
     // Required so the dynamic user-message prepend has the file tree + clock.
-    context: { tree: string; gitHead: string },
+    context: { tree: string; gitHead: string; clock: string },
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1490,6 +1492,8 @@ export class AgentLoop {
               context.tree,
               context.gitHead,
               "",
+              undefined,
+              context.clock,
             ),
         },
       ],
@@ -1963,9 +1967,10 @@ export class AgentLoop {
 
   // ===========================================================================
   // PRIVATE: collectContext()
-  // Gather project context (name, path, file tree, git head) — served from
-  // the per-project cache (context/tree-cache.ts); the loop invalidates it
-  // after any mutating tool completes.
+  // Gather project context (name, path, file tree, git head) — frozen per
+  // session so position 0 of the prompt stays byte-stable across user turns
+  // (context/session-context.ts). tree-cache still refreshes for the process;
+  // the prompt does not follow mid-session invalidations.
   // ===========================================================================
   private async collectContext(projectPath: string): Promise<{
     success: boolean;
@@ -1974,11 +1979,16 @@ export class AgentLoop {
       projectPath: string;
       tree: string;
       gitHead: string;
+      clock: string;
     };
     error?: string;
   }> {
     try {
-      return { success: true, value: getProjectContext(projectPath) };
+      const { ctx, clock } = getFrozenSessionContext(
+        this.state.sessionId,
+        projectPath,
+      );
+      return { success: true, value: { ...ctx, clock } };
     } catch (error) {
       return { success: false, error: String(error) };
     }

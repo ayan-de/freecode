@@ -228,7 +228,6 @@ Practical rules this produced:
   (`c9ed4b76`) and 36% (`9b0e6fb9`) earlier. Small sample, different task shape,
   but worth watching — it is a separate lever from caching and it drives request
   count directly.
-- **The file tree still sits at position 0** and is recomputed after every
-  mutating tool. It is stable within the 5-minute tree-cache TTL, but freezing it
-  per session (as Claude Code does with its directory listing) would remove the
-  last known source of churn ahead of the conversation.
+- **File tree at position 0** — frozen per session via `context/session-context.ts`
+  (tree + git head + clock). Process-level tree-cache may still refresh; the
+  prompt does not follow mid-session invalidations.

@@ -166,11 +166,13 @@ ${tree}`;
   }
 
   /**
-   * The dynamic half: project summary (file tree + git head), session memory,
-   * and a coarse-grained clock. Returned as a single text block so the loop
-   * can inline it as the conversation's first user message. Cached as an
-   * ordinary content part by the message anchors; sitting inside the system
-   * blocks instead would invalidate the static prefix on every turn.
+   * The dynamic half: project summary (file tree + git head), optional session
+   * memory, and a coarse-grained clock. Returned as a single text block so the
+   * loop can inline it as the conversation's first user message.
+   *
+   * The loop freezes tree/gitHead/clock per session (session-context.ts) so
+   * this block stays byte-stable across turns — sitting inside the system
+   * blocks instead would invalidate the static prefix on every change.
    *
    * Claude Code splits at SYSTEM_PROMPT_DYNAMIC_BOUNDARY for the same reason
    * (utils/api.ts:321, splitSysPromptPrefix) and moves dynamic content out
@@ -181,8 +183,14 @@ ${tree}`;
     gitHead: string,
     ignorePatterns: string,
     memoryContext?: string,
+    /**
+     * When set (session freeze), reuse this clock instead of wall time so
+     * position 0 does not rewrite itself on the hour boundary.
+     */
+    clock?: string,
   ): string {
-    const roundedTime = new Date().toISOString().slice(0, 13) + ":00:00Z";
+    const roundedTime =
+      clock ?? new Date().toISOString().slice(0, 13) + ":00:00Z";
     return [
       this.compileProjectSummary(tree, gitHead, ignorePatterns),
       "",

@@ -2,9 +2,10 @@
 // Project Context Cache — file tree + git HEAD per project (Phase 5)
 // PRIMARY: Avoids re-reading the project dir and shelling out to
 //          `git rev-parse` on every user message
-// INVALIDATION: event-driven — the agent loop invalidates after any mutating
-//          (isDestructive) tool completes. A short TTL is kept as a safety net
-//          for edits made outside the agent (editor saves, git pulls, ...).
+// INVALIDATION: TTL + tree-watcher (external add/unlink / .git/HEAD). The
+//          prompt path does NOT follow these invalidations mid-session —
+//          see context/session-context.ts, which freezes the snapshot the
+//          model sees so position 0 stays cache-stable.
 // =============================================================================
 
 import * as fs from "fs";
@@ -58,8 +59,8 @@ export function getProjectContext(projectPath: string): ProjectContext {
   return ctx;
 }
 
-// Called by the agent loop after any mutating tool (write/edit/bash/agent)
-// completes. Without an argument, drops everything.
+// Called when the process-level cache should drop (watcher / tests). Does not
+// clear session freezes — see disposeFrozenSessionContext.
 export function invalidateProjectContext(projectPath?: string): void {
   if (projectPath) {
     cache.delete(projectPath);

@@ -1,13 +1,15 @@
 // =============================================================================
-// Tree watcher (grok #4) — invalidate the project-context cache on EXTERNAL
-// file changes. tree-cache.ts is only invalidated after our own mutating tools,
-// so edits from an editor, a `git checkout`, or a subprocess left it stale (a
-// real correctness bug). A chokidar watcher closes that gap.
+// Tree watcher (grok #4) — invalidate the process-level project-context cache
+// on EXTERNAL file changes. Content edits to existing files don't change the
+// top-level listing or git HEAD, so they're ignored.
+//
+// Prompt injection does not follow these invalidations mid-session: the loop
+// freezes the snapshot via session-context.ts so position 0 stays byte-stable.
+// The next session (or disposeFrozenSessionContext) picks up a fresh tree.
 //
 // Scope kept tight to match what getProjectContext actually caches:
 //   - the TOP-LEVEL dir listing (`tree`) → watch depth 0
 //   - the git HEAD (`gitHead`) → watch `.git/HEAD` (branch switch / commit)
-// Content edits to existing files don't change either, so they're ignored.
 // Best-effort: if chokidar is unavailable, we simply don't watch (the TTL in
 // tree-cache is the safety net) — never throws into the loop.
 // =============================================================================
