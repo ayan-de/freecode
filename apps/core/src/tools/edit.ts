@@ -6,8 +6,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { editToolUI } from "./edit/ui.js";
+import { buildTool } from "./factory.js";
 import { generateDiffString } from "./diff-format.js";
 import { getReadState } from "./read-state.js";
 
@@ -679,10 +678,6 @@ export const EditTool: Tool<EditParams> = buildTool({
     isConcurrencySafe: false,
     isDestructive: true,
     userFacingName: "Edit File",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...editToolUI,
   },
   execute: executeEdit,
   validateInput: validateEditInput,

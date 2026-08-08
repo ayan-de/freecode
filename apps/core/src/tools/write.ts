@@ -6,8 +6,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { writeToolUI } from "./write/ui.js";
+import { buildTool } from "./factory.js";
 import { generateDiffString } from "./diff-format.js";
 import { getReadState } from "./read-state.js";
 
@@ -153,10 +152,6 @@ export const WriteTool: Tool<WriteParams> = buildTool({
     isConcurrencySafe: false,
     isDestructive: true,
     userFacingName: "Write File",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...writeToolUI,
   },
   execute: executeWrite,
   validateInput: validateWriteInput,

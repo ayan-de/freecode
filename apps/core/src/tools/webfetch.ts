@@ -5,8 +5,7 @@
 
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { webfetchToolUI } from "./webfetch/ui.js";
+import { buildTool } from "./factory.js";
 import { htmlToMarkdown, htmlToText } from "./webfetch/html.js";
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -153,7 +152,6 @@ export const WebFetchTool: Tool<WebFetchParams> = buildTool({
     isDestructive: false,
     userFacingName: "WebFetch",
   },
-  ui: { ...defaultToolUI, ...webfetchToolUI },
   execute: executeWebFetch,
   validateInput: validateWebFetchInput,
   isSearchOrReadCommand: () => ({ isSearch: false, isRead: true }),

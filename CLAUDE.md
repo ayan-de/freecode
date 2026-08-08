@@ -133,19 +133,18 @@ freecode/
 ### Tools
 
 Built-in tools live in `apps/core/src/tools/` and are registered in `tools/index.ts`:
-`read`, `ls`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`/`ui`; execution and batching go through `orchestrator.ts` + `batching.ts`, and rendering through `renderer.ts`.
+`read`, `ls`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`; execution and batching go through `orchestrator.ts` + `batching.ts`. Tools do **not** render — core emits `StreamEvent` data and each frontend draws it (TUI: `apps/tui/src/components/tool-result-message.ts`).
 
 #### Adding a tool — registration checklist
 
 `buildTool` + `index.ts` alone is **not enough**. Several permission/UI tables key off the tool *name*; miss one and the tool fails closed (blocked in read-only modes, or prompts for permission every call). When adding a tool, update:
 
 1. **`tools/<name>.ts`** — the tool via `buildTool`. Declare a `type` on every schema property (providers like MiniMax send numbers/booleans as strings; a missing `type` yields "must be a number" reject-loops — coerce in `execute` too).
-2. **`tools/<name>/ui.ts`** — its `ToolUI` renderer.
-3. **`tools/index.ts`** — import + add to the `tools` map.
-4. **`permission/mode-policy.ts`** — add to `READONLY_TOOLS` **if** the tool only reads (unlisted ⇒ treated as mutating ⇒ blocked in plan/review/explore).
-5. **`permission/rules.ts`** — add to `PATH_TOOLS` (path arg) or `URL_TOOLS` (url arg) so path/url-scoped allow/deny rules match.
-6. **`permission/suggest.ts`** — add to `DISPLAY_NAMES` for the capitalized rule label in permission prompts.
-7. **Frontends (only for a custom icon; optional):** `apps/tui-rs/src/ui/tool.rs` `tool_icon()`. The TS TUI needs no change unless the tool wants Read/Bash-style content rendering (`apps/tui/src/components/tool-result-message.ts`). Both have catch-all fallbacks, so a tool works without touching them.
+2. **`tools/index.ts`** — import + add to the `tools` map.
+3. **`permission/mode-policy.ts`** — add to `READONLY_TOOLS` **if** the tool only reads (unlisted ⇒ treated as mutating ⇒ blocked in plan/review/explore).
+4. **`permission/rules.ts`** — add to `PATH_TOOLS` (path arg) or `URL_TOOLS` (url arg) so path/url-scoped allow/deny rules match.
+5. **`permission/suggest.ts`** — add to `DISPLAY_NAMES` for the capitalized rule label in permission prompts.
+6. **Frontends (only for a custom icon; optional):** `apps/tui-rs/src/ui/tool.rs` `tool_icon()`. The TS TUI needs no change unless the tool wants Read/Bash-style content rendering (`apps/tui/src/components/tool-result-message.ts`). Both have catch-all fallbacks, so a tool works without touching them.
 
 ---
 

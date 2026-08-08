@@ -27,8 +27,6 @@ import type {
 } from "./types.js";
 import type {
   Tool,
-  ToolUseMessage,
-  ToolUI,
   ToolBehavior,
   ToolPermissions,
   ToolExecutionResult,
@@ -37,16 +35,9 @@ import type {
 } from "./tool.types.js";
 import {
   buildTool,
-  defaultToolUI,
   defaultBehavior,
   executeTool,
 } from "./factory.js";
-import {
-  createToolRenderer,
-  type ToolRenderer,
-  formatToolUseMessage,
-  formatToolUseTag,
-} from "./renderer.js";
 
 export type {
   ToolContext,
@@ -58,8 +49,6 @@ export type {
 };
 export type {
   Tool,
-  ToolUseMessage,
-  ToolUI,
   ToolBehavior,
   ToolPermissions,
   ToolExecutionResult,
@@ -67,7 +56,6 @@ export type {
   PermissionCheckResult,
 };
 export type { ToolOrchestrator };
-export type { ToolRenderer };
 
 const mcpTools: Record<string, Tool> = {};
 
@@ -133,5 +121,4 @@ export function listTools(): {
 }
 
 export { createToolOrchestrator };
-export { buildTool, defaultToolUI, defaultBehavior, executeTool };
-export { createToolRenderer, formatToolUseMessage, formatToolUseTag };
+export { buildTool, defaultBehavior, executeTool };

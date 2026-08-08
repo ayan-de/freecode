@@ -6,8 +6,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { readToolUI } from "./read/ui.js";
+import { buildTool } from "./factory.js";
 import { getReadState, canDedup } from "./read-state.js";
 
 interface ReadParams {
@@ -409,10 +408,6 @@ export const ReadTool: Tool<ReadParams> = buildTool({
     isConcurrencySafe: true,
     isDestructive: false,
     userFacingName: "Read File",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...readToolUI,
   },
   execute: executeRead,
   validateInput: validateReadInput,

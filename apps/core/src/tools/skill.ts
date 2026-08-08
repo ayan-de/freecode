@@ -7,8 +7,7 @@ import * as path from "path";
 import fg from "fast-glob";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { skillToolUI } from "./skill/ui.js";
+import { buildTool } from "./factory.js";
 import type { SkillsManager } from "../skills/manager.js";
 import { getSkillsManagerForProject } from "../skills/manager.js";
 import { renderSkillForPrompt } from "../skills/index.js";
@@ -191,10 +190,6 @@ export const SkillTool: Tool<SkillParams> = buildTool({
     isConcurrencySafe: true,
     isDestructive: false,
     userFacingName: "Skill",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...skillToolUI,
   },
   execute: executeSkill,
   validateInput: validateSkillInput,

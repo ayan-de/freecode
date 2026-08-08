@@ -6,89 +6,14 @@
 
 import type {
   Tool,
-  ToolUI,
   ToolBehavior,
   ToolPermissions,
   ToolExecutionResult,
   ValidationResult,
   PermissionCheckResult,
   JsonSchema,
-  TOOL_COLORS,
 } from "./tool.types.js";
 import type { ToolContext } from "./types.js";
-
-// =============================================================================
-// Default ToolUI - Console/TUI based rendering
-// Returns structured messages that TUI can render
-// =============================================================================
-
-export const defaultToolUI: ToolUI = {
-  renderToolUseMessage(toolId, args) {
-    return {
-      type: "tool_use",
-      toolId,
-      args,
-      status: "pending",
-    };
-  },
-
-  renderToolResultMessage(toolId, result) {
-    return {
-      type: "tool_result",
-      toolId,
-      result,
-      status: result.error ? "error" : "success",
-    };
-  },
-
-  renderToolUseTag(toolId) {
-    const colors: Record<string, string> = {
-      read: "cyan",
-      write: "green",
-      edit: "yellow",
-      bash: "magenta",
-      glob: "blue",
-      grep: "blue",
-      skill: "white",
-      agent: "red",
-      question: "gray",
-      webfetch: "cyan",
-      websearch: "blue",
-      todowrite: "green",
-      lsp: "magenta",
-      output: "blue",
-    };
-    return {
-      label: toolId,
-      color: colors[toolId] || "white",
-    };
-  },
-
-  renderToolUseProgressMessage(toolId, message, percent) {
-    return {
-      type: "tool_progress",
-      toolId,
-      message,
-      percent,
-    };
-  },
-
-  renderToolUseErrorMessage(toolId, error) {
-    return {
-      type: "tool_error",
-      toolId,
-      error,
-    };
-  },
-
-  renderToolUseRejectedMessage(toolId, reason) {
-    return {
-      type: "tool_rejected",
-      toolId,
-      reason,
-    };
-  },
-};
 
 // =============================================================================
 // Default Behavior
@@ -121,7 +46,6 @@ export function buildTool<P, R>(config: {
   schemas: { parameters: JsonSchema; result?: JsonSchema };
   permissions?: Partial<ToolPermissions>;
   behavior?: Partial<ToolBehavior>;
-  ui?: Partial<ToolUI>;
   execute: (params: P, ctx: ToolContext) => Promise<ToolExecutionResult<R>>;
   validateInput?: (params: unknown) => ValidationResult;
   checkPermissions?: (
@@ -142,16 +66,10 @@ export function buildTool<P, R>(config: {
     userFacingName: config.behavior?.userFacingName || config.id,
   };
 
-  const fullUI: ToolUI = {
-    ...defaultToolUI,
-    ...config.ui,
-  };
-
   return {
     id: config.id,
     description: config.description,
     schemas: config.schemas as Tool<P, R>["schemas"],
-    ui: fullUI,
     behavior: fullBehavior,
     permissions: fullPermissions,
     execute: config.execute as Tool<P, R>["execute"],

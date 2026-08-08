@@ -7,8 +7,7 @@ import * as path from "path";
 import fg from "fast-glob";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { globToolUI } from "./glob/ui.js";
+import { buildTool } from "./factory.js";
 
 interface GlobParams {
   pattern: string;
@@ -155,10 +154,6 @@ export const GlobTool: Tool<GlobParams> = buildTool({
     isConcurrencySafe: true,
     isDestructive: false,
     userFacingName: "Glob",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...globToolUI,
   },
   execute: executeGlob,
   validateInput: validateGlobInput,

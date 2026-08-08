@@ -6,8 +6,7 @@ import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { bashToolUI } from "./bash/ui.js";
+import { buildTool } from "./factory.js";
 
 interface BashParams {
   command: string;
@@ -293,10 +292,6 @@ export const BashTool: Tool<BashParams> = buildTool({
     isDestructive: false,
     interruptBehavior: "await",
     userFacingName: "Bash",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...bashToolUI,
   },
   execute: executeBash,
   validateInput: validateBashInput,

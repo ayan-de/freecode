@@ -32,36 +32,6 @@ export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
     schemas: {
       parameters: convertJsonSchema(mcpTool.inputSchema),
     },
-    ui: {
-      renderToolUseMessage: () => ({
-        type: "tool_use",
-        toolId: prefixedName,
-        args: {},
-        status: "pending",
-      }),
-      renderToolResultMessage: () => ({
-        type: "tool_result",
-        toolId: prefixedName,
-        result: { title: "", output: "" },
-        status: "success",
-      }),
-      renderToolUseTag: () => ({ label: serverName, color: "cyan" }),
-      renderToolUseProgressMessage: () => ({
-        type: "tool_progress",
-        toolId: prefixedName,
-        message: "",
-      }),
-      renderToolUseErrorMessage: () => ({
-        type: "tool_error",
-        toolId: prefixedName,
-        error: "",
-      }),
-      renderToolUseRejectedMessage: () => ({
-        type: "tool_rejected",
-        toolId: prefixedName,
-        reason: "",
-      }),
-    },
     behavior: {
       isConcurrencySafe: true,
       // Both retry paths (tools/orchestrator.ts, agent/recovery/manager.ts)

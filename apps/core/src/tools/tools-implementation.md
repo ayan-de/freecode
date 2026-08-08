@@ -1,8 +1,18 @@
 # Tool System Implementation
 
 > **Date:** 2026-05-31
-> **Status:** Implemented
+> **Status:** Implemented, except the UI layer — see below
 > **Inspired by:** Claude Code's tool system + opencode's architecture
+
+> **Superseded (2026-08-09): the per-tool UI layer is gone.** `ToolUI`,
+> `ToolUseMessage`, `defaultToolUI`, `renderer.ts` and all 15 `tools/<name>/ui.ts`
+> files were deleted. They were modelled on Claude Code, which renders tools with
+> Ink inside the same process; FreeCode's core is a separate JSON-RPC server that
+> emits `StreamEvent` data and cannot draw. Nothing ever called those render
+> methods. Tool rendering lives in the frontends — TUI:
+> `apps/tui/src/components/tool-result-message.ts`. Sections 2.2, 3.x and the file
+> tree below describe the removed layer and are kept as a record of the original
+> design.
 
 ---
 

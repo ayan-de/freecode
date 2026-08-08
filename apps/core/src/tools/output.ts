@@ -12,11 +12,10 @@
 
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
+import { buildTool } from "./factory.js";
 import { coerceNumber } from "./read.js";
 import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
 import { DEFAULT_LINES } from "./output-store/config.js";
-import { outputToolUI } from "./output/ui.js";
 
 interface OutputParams {
   id: string;
@@ -136,10 +135,6 @@ export const OutputTool: Tool<OutputParams> = buildTool({
     isConcurrencySafe: true,
     isDestructive: false,
     userFacingName: "Output",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...outputToolUI,
   },
   execute: executeOutput,
   validateInput: validateOutputInput,

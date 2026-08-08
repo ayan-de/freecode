@@ -10,8 +10,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { lspToolUI } from "./lsp/ui.js";
+import { buildTool } from "./factory.js";
 import {
   hasServerFor,
   getDiagnostics,
@@ -288,7 +287,6 @@ export const LspTool: Tool<LspParams> = buildTool({
     isDestructive: false,
     userFacingName: "LSP",
   },
-  ui: { ...defaultToolUI, ...lspToolUI },
   execute: executeLsp,
   validateInput: validateLspInput,
   getPath: (params) => params.filePath ?? "",

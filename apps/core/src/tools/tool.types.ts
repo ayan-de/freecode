@@ -8,63 +8,6 @@
 import type { ToolContext } from "./types.js";
 
 // =============================================================================
-// ToolUseMessage - Discriminated union for UI rendering
-// These messages are produced by tool UI methods and consumed by the TUI renderer
-// =============================================================================
-
-export type ToolUseMessage =
-  | {
-      type: "tool_use";
-      toolId: string;
-      args: Record<string, unknown>;
-      status: "pending" | "running";
-    }
-  | {
-      type: "tool_result";
-      toolId: string;
-      result: ToolResult;
-      status: "success" | "error";
-    }
-  | { type: "tool_progress"; toolId: string; message: string; percent?: number }
-  | { type: "tool_error"; toolId: string; error: string }
-  | { type: "tool_rejected"; toolId: string; reason: string };
-
-// =============================================================================
-// ToolUI - UI rendering interface
-// Each tool implements these methods to provide rich UI rendering
-// =============================================================================
-
-export interface ToolUI {
-  // Render the tool invocation message (what shows when tool is called)
-  renderToolUseMessage(
-    toolId: string,
-    args: Record<string, unknown>,
-  ): ToolUseMessage;
-
-  // Render the result of tool execution
-  renderToolResultMessage(toolId: string, result: ToolResult): ToolUseMessage;
-
-  // Render a short tag shown after tool name (e.g., "Read" or file count)
-  renderToolUseTag(
-    toolId: string,
-    args?: Record<string, unknown>,
-  ): { label: string; color: string };
-
-  // Render progress during long-running operations
-  renderToolUseProgressMessage(
-    toolId: string,
-    message: string,
-    percent?: number,
-  ): ToolUseMessage;
-
-  // Render error state
-  renderToolUseErrorMessage(toolId: string, error: string): ToolUseMessage;
-
-  // Render rejection (permission denied, etc.)
-  renderToolUseRejectedMessage(toolId: string, reason: string): ToolUseMessage;
-}
-
-// =============================================================================
 // ToolBehavior - Metadata about tool behavior
 // =============================================================================
 
@@ -147,9 +90,6 @@ export interface Tool<P = unknown, R = unknown> {
     result?: JsonSchema;
   };
 
-  // UI rendering
-  ui: ToolUI;
-
   // Behavior metadata
   behavior: ToolBehavior;
 
@@ -209,22 +149,3 @@ export interface ToolResult {
   error?: string;
 }
 
-// =============================================================================
-// Color palette for tool tags
-// =============================================================================
-
-export const TOOL_COLORS: Record<string, string> = {
-  read: "cyan",
-  write: "green",
-  edit: "yellow",
-  bash: "magenta",
-  glob: "blue",
-  grep: "blue",
-  skill: "white",
-  agent: "red",
-  question: "gray",
-  webfetch: "cyan",
-  websearch: "blue",
-  todowrite: "green",
-  lsp: "magenta",
-};

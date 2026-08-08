@@ -5,8 +5,7 @@
 import { randomUUID } from "crypto";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { questionToolUI } from "./question/ui.js";
+import { buildTool } from "./factory.js";
 import { askQuestion } from "../bus/index.js";
 
 interface QuestionOption {
@@ -273,10 +272,6 @@ export const QuestionTool: Tool<QuestionParams> = buildTool({
     isDestructive: false,
     interruptBehavior: "await",
     userFacingName: "Ask Question",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...questionToolUI,
   },
   execute: executeQuestion,
   validateInput: validateQuestionInput,

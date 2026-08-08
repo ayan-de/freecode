@@ -6,8 +6,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { lsToolUI } from "./ls/ui.js";
+import { buildTool } from "./factory.js";
 
 interface LsParams {
   path?: string;
@@ -247,10 +246,6 @@ export const LsTool: Tool<LsParams> = buildTool({
     isConcurrencySafe: true,
     isDestructive: false,
     userFacingName: "List Directory",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...lsToolUI,
   },
   execute: executeLs,
   validateInput: validateLsInput,

@@ -6,8 +6,7 @@ import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { grepToolUI } from "./grep/ui.js";
+import { buildTool } from "./factory.js";
 
 interface GrepParams {
   pattern: string;
@@ -237,10 +236,6 @@ export const GrepTool: Tool<GrepParams> = buildTool({
     isConcurrencySafe: true,
     isDestructive: false,
     userFacingName: "Grep",
-  },
-  ui: {
-    ...defaultToolUI,
-    ...grepToolUI,
   },
   execute: executeGrep,
   validateInput: validateGrepInput,

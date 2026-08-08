@@ -6,8 +6,7 @@
 
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { websearchToolUI } from "./websearch/ui.js";
+import { buildTool } from "./factory.js";
 import { searchBrave, searchDuckDuckGo, type SearchResult } from "./websearch/providers.js";
 
 const DEFAULT_COUNT = 8;
@@ -102,7 +101,6 @@ export const WebSearchTool: Tool<WebSearchParams> = buildTool({
     isDestructive: false,
     userFacingName: "WebSearch",
   },
-  ui: { ...defaultToolUI, ...websearchToolUI },
   execute: executeWebSearch,
   validateInput: validateWebSearchInput,
   isSearchOrReadCommand: () => ({ isSearch: true, isRead: false }),

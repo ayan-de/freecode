@@ -5,8 +5,7 @@
 
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
-import { buildTool, defaultToolUI } from "./factory.js";
-import { todoToolUI } from "./todo/ui.js";
+import { buildTool } from "./factory.js";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 
@@ -188,7 +187,6 @@ export const TodoWriteTool: Tool<TodoWriteParams> = buildTool({
     isDestructive: false,
     userFacingName: "TodoWrite",
   },
-  ui: { ...defaultToolUI, ...todoToolUI },
   execute: executeTodoWrite,
   validateInput: validateTodoInput,
   isSearchOrReadCommand: () => ({ isSearch: false, isRead: false }),
