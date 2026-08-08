@@ -1198,6 +1198,9 @@ editor.onSubmit = async (value: string) => {
           showMessage,
           showModelSelector: showProviderSelector,
           showResumePicker: showResumePicker,
+          // Undefined until a run completes, so /cost omits the Session row
+          // rather than printing a 0% that looks like a cache failure.
+          getSessionUsage: () => (sessionRuns > 0 ? sessionUsage : undefined),
           compactSession: async () => {
             if (!currentSession) {
               showMessage("*No active session to compact.*");

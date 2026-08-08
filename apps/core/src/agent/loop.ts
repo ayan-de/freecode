@@ -697,12 +697,12 @@ export class AgentLoop {
 
           // Persist this turn's total tokens into the daily usage heatmap
           // (~/.freecode/usage.json), consumed by the TUI `/usage` command.
-          recordDailyUsage(
-            (turnResult.usage.inputTokens ?? 0) +
-              (turnResult.usage.outputTokens ?? 0) +
-              (turnResult.usage.cacheReadInputTokens ?? 0) +
-              (turnResult.usage.cacheCreationInputTokens ?? 0),
-          );
+          recordDailyUsage({
+            inputTokens: turnResult.usage.inputTokens ?? 0,
+            outputTokens: turnResult.usage.outputTokens ?? 0,
+            cacheReadTokens: turnResult.usage.cacheReadInputTokens ?? 0,
+            cacheWriteTokens: turnResult.usage.cacheCreationInputTokens ?? 0,
+          });
 
           BusEvents.stream(this.state.sessionId, {
             type: "usage_totals",

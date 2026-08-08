@@ -1,7 +1,14 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
 import { AVAILABLE_MODELS } from "../models.js";
 import { restoreScreen } from "../terminal-screen.js";
-import { getUsage, graphExplore, listSkills, type SkillInfo } from "../ipc/client.js";
+import {
+  getUsage,
+  graphExplore,
+  listSkills,
+  type DailyUsage,
+  type SkillInfo,
+} from "../ipc/client.js";
+import { renderCostReport } from "../utils/cost-report.js";
 
 const helpCommand: Command = {
   name: "help",
@@ -15,6 +22,7 @@ const helpCommand: Command = {
 - **/resume** - Resume a previous session
 - **/compact** - Summarize older turns to free up context
 - **/usage** - Show daily token usage heatmap
+- **/cost** - Show token spend and prompt-cache hit rate
 - **/skills** - List available skills (global + project)
 - **/graph** - Open the memory knowledge graph in your browser
 - **/exit** - Exit FreeCode
@@ -63,6 +71,21 @@ const compactCommand: Command = {
   description: "Summarize older turns to free up context",
   execute: (_args, ctx) => {
     void ctx.compactSession?.();
+  },
+};
+
+const costCommand: Command = {
+  name: "cost",
+  description: "Show token spend and prompt-cache hit rate",
+  execute: async (_args, ctx) => {
+    let data: DailyUsage[] = [];
+    try {
+      data = await getUsage();
+    } catch (err) {
+      ctx.showMessage(`*Error fetching usage: ${err}*`);
+      return;
+    }
+    ctx.showMessage(renderCostReport(data, ctx.getSessionUsage?.()));
   },
 };
 
@@ -201,6 +224,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(resumeCommand);
   registerCommand(compactCommand);
   registerCommand(usageCommand);
+  registerCommand(costCommand);
   registerCommand(skillsCommand);
   registerCommand(graphCommand);
 }
