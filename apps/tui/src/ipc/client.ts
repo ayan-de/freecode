@@ -456,9 +456,12 @@ export interface SessionSendResult {
   turnCount?: number;
   iterationCount?: number;
   usage?: {
+    // Includes cache writes (billed input); cacheCreationInputTokens repeats
+    // them for the hit-rate breakdown rather than adding to them.
     inputTokens: number;
     outputTokens: number;
     cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
     contextTokens?: number;
   };
 }

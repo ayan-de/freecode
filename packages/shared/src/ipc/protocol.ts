@@ -121,9 +121,13 @@ export type StreamEvent =
   // 2026-08-05-token-efficiency, D7). Core computes; frontends only display.
   | {
       type: "usage_totals";
+      // Already includes cache writes — they are billed as input. The separate
+      // totalCacheWriteTokens below is the same tokens broken out for the cache
+      // hit rate, so summing the two double-counts them.
       totalInputTokens: number;
       totalOutputTokens: number;
       totalCacheReadTokens: number;
+      totalCacheWriteTokens?: number;
     }
   | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
   | {

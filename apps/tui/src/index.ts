@@ -24,7 +24,11 @@ import {
   getRandomInProgressPhrase,
 } from "./utils/elapsed-phrases.js";
 import { getModelContextLimit } from "./utils/model-limits.js";
-import { formatTokenCount } from "./utils/format-tokens.js";
+import {
+  formatTokenCount,
+  cacheHitRate,
+  type UsageTotals,
+} from "./utils/format-tokens.js";
 import { formatDuration } from "./utils/format-duration.js";
 import { resolveFdPath } from "./utils/fd-path.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
@@ -140,6 +144,27 @@ let isReadingClipboard = false;
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
+// Cache totals across every prompt in this session. A single run can look fine
+// while the session average is poor — the first prompt after a compaction pays
+// full price for the whole rebuilt prefix, and that only shows up in the sum.
+// Reset by resetSessionCacheTotals() whenever the active session changes.
+let sessionUsage: UsageTotals = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+};
+let sessionRuns = 0;
+
+function resetSessionCacheTotals(): void {
+  sessionUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  };
+  sessionRuns = 0;
+}
 // Running length of streamed assistant text for the active turn, converted to a
 // live output-token estimate (~4 chars/token) for the in-progress line.
 let streamedChars = 0;
@@ -638,6 +663,7 @@ async function showResumePicker(): Promise<void> {
         try {
           const result = await sessionResume(sessionId);
           currentSession = { sessionId: result.sessionId };
+          resetSessionCacheTotals();
           hideTodoPanel(); // clear any prior session's pinned todos
           if (result.messages && result.messages.length > 0) {
             loadSessionMessages(result.messages);
@@ -1086,12 +1112,37 @@ async function submitPrompt(
       contextTokens = contextTokensUsed;
       contextLimitTokens = contextLimit;
       let tokenInfo = `↓${formatTokenCount(inTokens)} ↑${formatTokenCount(outTokens)}`;
-      if (cachedTokens > 0) {
-        tokenInfo += ` cached: ${formatTokenCount(cachedTokens)}`;
+      // The rate, not the raw count: "cached: 89.2k" is only meaningful next to
+      // the input it was measured against, which meant doing the division by
+      // eye every turn. claude-code and opencode both stop at the raw number.
+      const hitRate = cacheHitRate(inTokens, cachedTokens);
+      if (cachedTokens > 0 && hitRate !== undefined) {
+        const writeTokens = result.usage?.cacheCreationInputTokens ?? 0;
+        tokenInfo += ` cache ${hitRate}% (${formatTokenCount(cachedTokens)} read`;
+        // Writes bill at ~1.25x, so a high read rate bought by constant
+        // rewriting is not the win it looks like. Only shown when non-zero.
+        tokenInfo += writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
       }
       if (contextLimit > 0) {
         tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
       }
+
+      sessionUsage.inputTokens += inTokens;
+      sessionUsage.outputTokens += outTokens;
+      sessionUsage.cacheReadTokens += cachedTokens;
+      sessionUsage.cacheWriteTokens +=
+        result.usage?.cacheCreationInputTokens ?? 0;
+      sessionRuns += 1;
+      const sessionRate = cacheHitRate(
+        sessionUsage.inputTokens,
+        sessionUsage.cacheReadTokens,
+      );
+      // Only from the second prompt on: before that it is the same number as
+      // the run figure directly to its left.
+      if (sessionRuns > 1 && sessionRate !== undefined) {
+        tokenInfo += ` · session ${sessionRate}%`;
+      }
+
       createSystemMessage(
         `${getRandomElapsedPhrase()} for ${timeStr} ${tokenInfo} (x${result.turnCount || 1})`,
       );
@@ -1829,6 +1880,7 @@ async function resumeFromArgs(id: string): Promise<void> {
   try {
     const result = await sessionResume(id);
     currentSession = { sessionId: result.sessionId };
+    resetSessionCacheTotals();
     hideTodoPanel(); // clear any prior session's pinned todos
     if (result.messages && result.messages.length > 0) {
       loadSessionMessages(result.messages);

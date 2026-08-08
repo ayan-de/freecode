@@ -581,6 +581,10 @@ export class AgentLoop {
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
       let totalCacheReadTokens = 0;
+      // Reported separately for the hit rate only. These tokens are ALSO in
+      // totalInputTokens (cache writes are billed input) — never add both into
+      // a denominator or the writes count twice.
+      let totalCacheWriteTokens = 0;
       // Occupancy of the model's window = last call's full input (each call
       // resends the whole conversation, so summing would double-count).
       let lastTurnContextTokens = 0;
@@ -592,6 +596,7 @@ export class AgentLoop {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
         cacheReadInputTokens: totalCacheReadTokens,
+        cacheCreationInputTokens: totalCacheWriteTokens,
         contextTokens: lastTurnContextTokens,
       });
 
@@ -683,6 +688,8 @@ export class AgentLoop {
             (turnResult.usage.cacheCreationInputTokens ?? 0);
           totalOutputTokens += turnResult.usage.outputTokens ?? 0;
           totalCacheReadTokens += turnResult.usage.cacheReadInputTokens ?? 0;
+          totalCacheWriteTokens +=
+            turnResult.usage.cacheCreationInputTokens ?? 0;
           lastTurnContextTokens =
             (turnResult.usage.inputTokens ?? 0) +
             (turnResult.usage.cacheReadInputTokens ?? 0) +
@@ -702,6 +709,7 @@ export class AgentLoop {
             totalInputTokens,
             totalOutputTokens,
             totalCacheReadTokens,
+            totalCacheWriteTokens,
           });
 
           // Spend circuit breaker (RC7/D7): loop-health only warns on a stuck
