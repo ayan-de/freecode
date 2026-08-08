@@ -87,6 +87,15 @@ import {
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import {
+  recordInvalidation,
+} from "../providers/cache-invalidation.js";
+import {
+  checkCacheUsage,
+  describeCacheProblem,
+  isCacheMissNoticesEnabled,
+  bumpCacheGeneration,
+} from "../providers/cache-miss.js";
+import {
   noteSendAndCheckCold,
   summarizeCache,
 } from "../providers/cache-awareness.js";
@@ -1020,6 +1029,15 @@ export class AgentLoop {
     }
 
     if (outcome.compacted) {
+      // Compaction rebuilds the provider-facing history, so the next request
+      // MUST miss. Documented + generation bump so D2 reports it as expected
+      // rather than as a harness bust.
+      recordInvalidation(
+        this.state.sessionId,
+        "compaction",
+        `${trigger} compaction: ${outcome.tokensBefore} → ${outcome.tokensAfter} tokens`,
+      );
+      bumpCacheGeneration(this.state.sessionId);
       this.recorder.recordCompactOccurred(
         outcome.tokensBefore,
         outcome.tokensAfter,
@@ -1167,6 +1185,16 @@ export class AgentLoop {
         sessionBlocks,
         hookResult.modifiedPrompt,
       );
+      // A hook that rewrites the system prompt changes the first cache
+      // breakpoint, so everything after it is re-written. Legitimate, but only
+      // if it says so — otherwise D2 reports it as an unexplained bust.
+      if (hookResult.modifiedPrompt) {
+        recordInvalidation(
+          this.state.sessionId,
+          "system prompt hook",
+          "a UserPromptSubmit hook rewrote the system prompt",
+        );
+      }
 
       // The threshold check is a prediction, and predictions miss: one turn can
       // add more than the buffer covers, or the session may have been resumed
@@ -1638,6 +1666,41 @@ export class AgentLoop {
       state: "warm",
       cacheReadTokens: readTokens,
       cacheWriteTokens: writeTokens,
+    });
+    this.checkCacheHealth(usage, readTokens, writeTokens);
+  }
+
+  // Spec 2026-08-09 D2: a hit rate says money was lost; this says which turn
+  // lost it. A miss the invalidation journal explains is normal and stays at
+  // debug — an unexplained one means something mutated an already-sent message,
+  // which is the bug RC3/RC4 were and which nothing currently catches.
+  private checkCacheHealth(
+    usage: { inputTokens?: number } | undefined,
+    readTokens: number,
+    writeTokens: number,
+  ): void {
+    if (!isCacheMissNoticesEnabled()) return;
+    const problem = checkCacheUsage(this.state.sessionId, {
+      cacheReadTokens: readTokens,
+      cacheWriteTokens: writeTokens,
+      inputTokens: usage?.inputTokens ?? 0,
+    });
+    if (!problem) return;
+
+    if (problem.documentedCause) {
+      logger.debug(
+        `[cache] miss attributed to ${problem.documentedCause} ` +
+          `(${problem.affectedTokens} tokens)`,
+      );
+      return;
+    }
+    logger.warn(`[cache] ${describeCacheProblem(problem)}`);
+    BusEvents.stream(this.state.sessionId, {
+      type: "cache_status",
+      state: "miss",
+      cacheReadTokens: readTokens,
+      cacheWriteTokens: writeTokens,
+      message: describeCacheProblem(problem),
     });
   }
 

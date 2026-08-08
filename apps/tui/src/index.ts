@@ -29,6 +29,7 @@ import {
   cacheHitRate,
   type UsageTotals,
 } from "./utils/format-tokens.js";
+import { idleNudgeMessage, getCacheTtlMs } from "./utils/idle-nudge.js";
 import { formatDuration } from "./utils/format-duration.js";
 import { resolveFdPath } from "./utils/fd-path.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
@@ -92,7 +93,7 @@ import {
   resetLiveUsageTotals,
   ThinkingMessage,
 } from "./components/message-row.js";
-import { getMessages } from "./state/message-store.js";
+import { getMessages, clearMessages } from "./state/message-store.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
 import {
   PromptEditor,
@@ -155,6 +156,48 @@ let sessionUsage: UsageTotals = {
   cacheWriteTokens: 0,
 };
 let sessionRuns = 0;
+// Idle-return nudge (spec 2026-08-09, D1). `lastTurnCompletedAt` is the clock
+// the cache TTL is measured against; `idleNudgeShownAt` keeps the hint to once
+// per idle period rather than once per keystroke-to-send.
+let lastTurnCompletedAt: number | null = null;
+let idleNudgeShownAt: number | null = null;
+
+/**
+ * Drop the conversation and start over (the /clear command).
+ *
+ * The core session is what matters: every request re-sends the whole history,
+ * so clearing only the rendered transcript would leave the cost exactly where
+ * it was while making it look like it had gone. Mirrors the resume reset path.
+ */
+async function clearSession(): Promise<void> {
+  try {
+    const fresh = (await sessionStart({
+      projectPath: process.cwd(),
+      provider: currentProvider || undefined,
+      model: currentModel || undefined,
+      agentMode: currentAgentMode,
+    })) as SessionInfo;
+    currentSession = fresh;
+  } catch (error) {
+    // Keep the old session rather than leaving the UI pointing at nothing.
+    showMessage(
+      `**Error starting a new session:** ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return;
+  }
+
+  clearMessages();
+  hideTodoPanel();
+  resetSessionCacheTotals();
+  resetLiveUsageTotals();
+  contextTokens = 0;
+  hasFirstMessage = false;
+  messageCount = 0;
+  idleNudgeShownAt = null;
+
+  showMessage("*Context cleared — new session started.*");
+  tui.requestRender();
+}
 
 function resetSessionCacheTotals(): void {
   sessionUsage = {
@@ -897,6 +940,10 @@ function handleToolEvent(event: StreamEvent) {
     case "cache_status": {
       if (event.state === "cold" && event.message) {
         showMessage(`⚠ *${event.message}*`);
+      } else if (event.state === "miss" && event.message) {
+        // Louder than "cold": a cold cache is the clock running out, this is
+        // the harness having broken its own prefix (spec 2026-08-09 D2).
+        showMessage(`⚠ **${event.message}**`);
       } else if (event.state === "warm" && (event.cacheReadTokens ?? 0) > 0) {
         showMessage(
           `*Prompt cache hit: ${event.cacheReadTokens!.toLocaleString()} tokens read${
@@ -959,6 +1006,20 @@ async function submitPrompt(
   displayText?: string,
   images?: Array<{ data: string; mediaType: string; altText?: string }>,
 ): Promise<void> {
+  // Before anything is sent: if the cache has expired and the context is large,
+  // this request pays full price for the whole conversation. Only the user
+  // knows whether they still need it, so say what it costs and carry on.
+  const nudge = idleNudgeMessage({
+    contextTokens,
+    idleMs: lastTurnCompletedAt ? Date.now() - lastTurnCompletedAt : undefined,
+    ttlMs: getCacheTtlMs(),
+    alreadyShown: idleNudgeShownAt !== null,
+  });
+  if (nudge) {
+    idleNudgeShownAt = Date.now();
+    showMessage(nudge);
+  }
+
   messageCount++;
   // First prompt reveals the top-right context-usage overlay.
   hasFirstMessage = true;
@@ -1127,6 +1188,10 @@ async function submitPrompt(
         tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
       }
 
+      // Restart the idle clock, and re-arm the nudge for the next quiet gap.
+      lastTurnCompletedAt = Date.now();
+      idleNudgeShownAt = null;
+
       sessionUsage.inputTokens += inTokens;
       sessionUsage.outputTokens += outTokens;
       sessionUsage.cacheReadTokens += cachedTokens;
@@ -1201,6 +1266,7 @@ editor.onSubmit = async (value: string) => {
           // Undefined until a run completes, so /cost omits the Session row
           // rather than printing a 0% that looks like a cache failure.
           getSessionUsage: () => (sessionRuns > 0 ? sessionUsage : undefined),
+          clearSession: clearSession,
           compactSession: async () => {
             if (!currentSession) {
               showMessage("*No active session to compact.*");

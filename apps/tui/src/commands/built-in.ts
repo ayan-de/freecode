@@ -34,9 +34,12 @@ Just type your prompt to start chatting!`);
 
 const clearCommand: Command = {
   name: "clear",
-  description: "Clear all messages",
-  execute: (_args, ctx) => {
-    ctx.showMessage("*Messages cleared*");
+  description: "Clear the transcript and start a fresh session",
+  execute: async (_args, ctx) => {
+    // This used to print "*Messages cleared*" and do nothing else — neither the
+    // transcript nor the session was touched, so the whole conversation kept
+    // being re-sent on every later request. The reset in core is the point.
+    await ctx.clearSession?.();
   },
 };
 
