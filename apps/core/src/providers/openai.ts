@@ -29,37 +29,11 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
   const openai = createOpenAI({ apiKey: getApiKey("openai") });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
-    const model = resolveModel(
-      opts.model,
-      PROVIDER_INFO.id,
-      PROVIDER_INFO.defaultModel,
-    );
-
-    const tools = buildToolsParam(opts.tools);
-
-    // Cast to any to satisfy AI SDK's ToolSet type which expects FlexibleSchema<never>
-    // The underlying implementation accepts plain JSON schema objects
-    const systemPrompt =
-      typeof opts.system === "string"
-        ? opts.system
-        : opts.system?.map((b) => b.text).join("\n\n");
-
-    const generateOptions: any = {
-      model: openai(model),
-      system: systemPrompt,
-      temperature: opts.temperature,
-      maxOutputTokens: opts.maxTokens || PROVIDER_INFO.maxOutputTokens,
-      tools: tools as any,
-      abortSignal: opts.abortSignal,
-      maxRetries: PROVIDER_MAX_RETRIES,
-    };
-
-    if (opts.messages) {
-      generateOptions.messages = convertToCoreMessages(opts.messages);
-    } else {
-      generateOptions.prompt = opts.prompt;
-    }
-
+    // Shares buildOptions with stream() rather than assembling its own copy:
+    // the two were already identical, and a per-request cache key that only
+    // reaches one of the two paths is worse than none at all — half a session's
+    // turns would route on the key and half on the prefix hash.
+    const { generateOptions, model } = buildOptions(opts);
     const result = await generateText(generateOptions);
 
     const toolCalls = result.toolCalls?.map(
@@ -115,16 +89,30 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       abortSignal: opts.abortSignal,
       maxRetries: PROVIDER_MAX_RETRIES,
     };
+    // OpenAI caches prompt prefixes automatically — there are no breakpoints to
+    // mark, which is why applyMessageCaching (an Anthropic-shaped concept) is
+    // not called here. What is tunable is *routing*: the cache is sharded per
+    // machine, and without a key OpenAI routes on a hash of the prefix. A
+    // stable per-session key keeps a conversation's turns landing where its own
+    // prefix is already warm. Same lever opencode pulls (transform.ts:1163).
+    if (opts.sessionId) {
+      generateOptions.providerOptions = {
+        openai: { promptCacheKey: opts.sessionId },
+      };
+    }
     if (opts.messages) {
       generateOptions.messages = convertToCoreMessages(opts.messages);
     } else {
       generateOptions.prompt = opts.prompt;
     }
-    return generateOptions;
+    // Hands back the resolved model as well as the options: execute() needs it
+    // for the result, and resolving it a second time there would emit
+    // resolveModel's no-model-configured warning twice per request.
+    return { generateOptions, model };
   }
 
   async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
-    const result = streamText(buildOptions(opts));
+    const result = streamText(buildOptions(opts).generateOptions);
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<
         { type: string } & Record<string, unknown>

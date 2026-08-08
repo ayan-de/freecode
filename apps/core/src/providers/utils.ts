@@ -46,7 +46,7 @@ export function buildToolsParam(
   const lastTool = tools[tools.length - 1];
   if (lastTool) {
     result[lastTool.name].providerOptions = {
-      anthropic: { cacheControl: { type: "ephemeral" } },
+      anthropic: { cacheControl: anthropicCacheControl() },
     };
   }
   return result;
@@ -65,7 +65,8 @@ export function buildAnthropicSystemParam(
   | string
   | Array<{ role: "system"; content: string; providerOptions?: unknown }> {
   if (typeof system === "string") return system;
-  return system.map((block) => {
+  return system.map((block, i) => {
+    debugSegment(`system[${i}]${block.cache ? " (cached)" : ""}`, block.text);
     const part: {
       role: "system";
       content: string;
@@ -73,11 +74,187 @@ export function buildAnthropicSystemParam(
     } = { role: "system", content: block.text };
     if (block.cache) {
       part.providerOptions = {
-        anthropic: { cacheControl: { type: "ephemeral" } },
+        anthropic: { cacheControl: anthropicCacheControl() },
       };
     }
     return part;
   });
+}
+
+/**
+ * `FREECODE_DEBUG_CACHE=1` logs a fingerprint of each cacheable prompt segment.
+ *
+ * A cache read only happens when the whole prefix up to a breakpoint is
+ * byte-identical to a stored one, so when the hit rate is low the question is
+ * always "which segment moved?" — and counters cannot answer it. Comparing
+ * these lines across two consecutive turns does: whichever hash changes is the
+ * one breaking the prefix.
+ */
+function debugSegment(label: string, text: string): void {
+  if (process.env.FREECODE_DEBUG_CACHE !== "1") return;
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (Math.imul(hash, 31) + text.charCodeAt(i)) | 0;
+  }
+  // Straight to stderr, not through `logger`: core speaks JSON-RPC over
+  // stdout, so anything console.log'd there is swallowed by the frontend's
+  // protocol reader and never reaches the user. stderr is the channel the TUI
+  // actually surfaces.
+  process.stderr.write(
+    `[cache-debug] ${label} len=${text.length} hash=${(hash >>> 0).toString(16)}\n`,
+  );
+}
+
+export type CacheTtl = "5m" | "1h";
+
+/**
+ * How long a cache entry survives between turns. `FREECODE_CACHE_TTL=1h`
+ * opts into Anthropic's extended cache; anything else keeps the 5m default.
+ *
+ * The trade is a write-rate increase (1.25x -> 2x base) against far fewer cold
+ * writes. Per-turn writes are small — Anthropic bills cache creation for the
+ * *delta* once the head of the prefix hits — so the number that dominates is
+ * how often the whole context gets re-written from cold. At 5m that is every
+ * pause longer than a coffee refill; one such gap per hour already makes 1h
+ * cheaper (2x once beats 1.25x twice), and an interactive session with a human
+ * reading diffs in the loop has many.
+ *
+ * Left off by default because the reverse case is real: a fast unattended run
+ * with no gaps pays the 2x write rate for a durability it never uses. Sessions
+ * differ too much to guess, so this is a knob rather than a new default.
+ *
+ * Read per call — matching `getCompactTarget()` in compaction/tokens.ts — so a
+ * long-lived daemon and the tests can both change it without a module reload.
+ */
+export function getCacheTtl(): CacheTtl {
+  const raw = process.env.FREECODE_CACHE_TTL;
+  if (raw === undefined || raw === "") return "5m";
+  if (raw === "5m" || raw === "1h") return raw;
+  logger.warn(
+    `FREECODE_CACHE_TTL="${raw}" is not a supported value (expected "5m" or ` +
+      `"1h"); falling back to "5m".`,
+  );
+  return "5m";
+}
+
+/**
+ * The `cacheControl` value for Anthropic-shaped providers.
+ *
+ * `ttl` is omitted entirely at 5m rather than sent explicitly. 5m is already
+ * the server-side default, so omitting it keeps the request bytes identical to
+ * what shipped before this knob existed — the default path cannot regress, and
+ * there is no new field for a gateway to choke on.
+ */
+function anthropicCacheControl(): { type: "ephemeral"; ttl?: CacheTtl } {
+  const ttl = getCacheTtl();
+  return ttl === "1h" ? { type: "ephemeral", ttl } : { type: "ephemeral" };
+}
+
+/**
+ * Cache-breakpoint markers, keyed by every provider flavor that understands
+ * one. The AI SDK routes `providerOptions` by key and ignores the rest, so
+ * setting them all costs nothing and means a model reached through OpenRouter
+ * or an OpenAI-compatible gateway caches as well as a direct Anthropic one.
+ * Same approach as opencode's `applyCaching` (provider/transform.ts:335).
+ *
+ * `ttl` rides along only on `anthropic` and `openrouter`. Those are the two
+ * whose acceptance of the field is verified — the AI SDK's own zod schema for
+ * the former (`@ai-sdk/anthropic` dist/index.d.ts:195, `"5m" | "1h"`), and
+ * OpenRouter's documented Anthropic `cache_control` passthrough for the
+ * latter. The rest are left at the bare marker: `openaiCompatible` is a raw
+ * passthrough to whatever gateway is behind it (MiniMax, Z.ai), so an
+ * unrecognised field there risks a 400 on the primary path to buy nothing,
+ * and `bedrock`'s `cachePoint` has no TTL concept at all.
+ */
+function cacheProviderOptions(): Record<string, unknown> {
+  return {
+    anthropic: { cacheControl: anthropicCacheControl() },
+    openrouter: { cacheControl: anthropicCacheControl() },
+    openaiCompatible: { cache_control: { type: "ephemeral" } },
+    alibaba: { cacheControl: { type: "ephemeral" } },
+    bedrock: { cachePoint: { type: "default" } },
+  };
+}
+
+/**
+ * Marks two cache breakpoints: a read anchor and a write anchor.
+ *
+ * Providers check for a cache hit *at each breakpoint*, so a marker on the
+ * final message alone describes a prefix ending in content the model has never
+ * seen — it can only ever write an entry, never read one. A second marker has
+ * to sit exactly where the previous request ended, because that is the only
+ * prefix an entry was written for.
+ *
+ * "Two back" is not that position here. `convertToCoreMessages` expands one
+ * turn into an `assistant` message carrying the tool calls plus a `tool`
+ * message carrying the results, so a plain `.slice(-2)` — opencode's rule,
+ * written for a one-message-per-turn shape — lands on two messages that are
+ * *both new*. Measured on MiniMax-M3: reads pinned at ~7K (the system prefix)
+ * while input grew to 81K, never scaling with history.
+ *
+ * The previous request ended immediately before the newest assistant message,
+ * whether or not that turn used tools, so that is where the read anchor goes.
+ * jcode arrives at the same place from the other direction: a READ marker on
+ * the second-to-last assistant message.
+ *
+ * Mutates in place, matching the AI SDK message objects the callers just built.
+ */
+export function applyMessageCaching(messages: ModelMessage[]): void {
+  const anchors: ModelMessage[] = [];
+
+  // Write anchor: the tail, so this request's full prefix is stored for next
+  // time. Skipped for system-only input, which has no conversation to cache.
+  const last = messages[messages.length - 1];
+  if (last && last.role !== "system") anchors.push(last);
+
+  // Read anchor: the message immediately before the newest assistant message,
+  // i.e. the write anchor of the previous request.
+  let lastAssistant = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistant = i;
+      break;
+    }
+  }
+  const readAnchor = messages[lastAssistant - 1];
+  if (
+    lastAssistant > 0 &&
+    readAnchor.role !== "system" &&
+    readAnchor !== last
+  ) {
+    anchors.push(readAnchor);
+  }
+
+  // Resolved once so both anchors carry the same TTL, whatever the env says.
+  const providerOptions = cacheProviderOptions();
+
+  for (const msg of anchors) {
+    const idx = messages.indexOf(msg);
+    debugSegment(
+      `messages[0..${idx}] ${msg === last ? "write-anchor" : "read-anchor"}`,
+      JSON.stringify(messages.slice(0, idx + 1)),
+    );
+    if (typeof msg.content === "string") {
+      // A bare string carries nowhere to hang providerOptions; promote it to a
+      // single text part so the marker has somewhere to live.
+      msg.content = [
+        {
+          type: "text",
+          text: msg.content,
+          providerOptions: { ...providerOptions },
+        },
+      ] as unknown as typeof msg.content;
+      continue;
+    }
+    if (!Array.isArray(msg.content) || msg.content.length === 0) continue;
+    const lastPart = msg.content[msg.content.length - 1];
+    if (lastPart && typeof lastPart === "object") {
+      (lastPart as { providerOptions?: unknown }).providerOptions = {
+        ...((lastPart as { providerOptions?: object }).providerOptions ?? {}),
+        ...providerOptions,
+      };
+    }
+  }
 }
 
 /** True only for a JSON object — the shape providers accept as tool_use.input. */

@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeAiSdkStream } from "./streaming.js";
 
-async function* fakeStream(chunks: Array<{ type: string } & Record<string, unknown>>) {
+async function* fakeStream(
+  chunks: Array<{ type: string } & Record<string, unknown>>,
+) {
   for (const c of chunks) yield c;
 }
 
@@ -31,12 +33,83 @@ test("normalizeAiSdkStream emits usage from the finish part's totalUsage", async
     ),
   );
   const usage = chunks.find(
-    (c): c is { type: "usage"; usage: { inputTokens: number; outputTokens: number } } =>
-      (c as { type: string }).type === "usage",
+    (
+      c,
+    ): c is {
+      type: "usage";
+      usage: { inputTokens: number; outputTokens: number };
+    } => (c as { type: string }).type === "usage",
   );
   assert.ok(usage, "expected a usage chunk");
   assert.equal(usage.usage.inputTokens, 42);
   assert.equal(usage.usage.outputTokens, 7);
+});
+
+// Regression: cache counters live on usage.inputTokenDetails in AI SDK v6.
+// The code read top-level `cacheCreationInputTokens`/`cacheReadInputTokens` --
+// the Anthropic *wire* names, which only appear under providerMetadata -- so
+// every turn recorded 0 cache activity. That is indistinguishable from a
+// provider that does not support caching, and it made the prompt-cache work
+// (spec 2026-08-05-token-efficiency, RC4) unmeasurable in practice.
+test("normalizeAiSdkStream reads cache counters from inputTokenDetails", async () => {
+  const chunks = await collect(
+    normalizeAiSdkStream(
+      fakeStream([
+        {
+          type: "finish",
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 100,
+            outputTokens: 5,
+            inputTokenDetails: { cacheReadTokens: 900, cacheWriteTokens: 50 },
+          },
+        },
+      ]),
+    ),
+  );
+  const usage = chunks.find(
+    (c) => (c as { type: string }).type === "usage",
+  ) as {
+    usage: {
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+    };
+  };
+  assert.equal(usage.usage.cacheReadInputTokens, 900);
+  assert.equal(usage.usage.cacheCreationInputTokens, 50);
+});
+
+test("normalizeAiSdkStream falls back to the deprecated cachedInputTokens", async () => {
+  const chunks = await collect(
+    normalizeAiSdkStream(
+      fakeStream([
+        {
+          type: "finish",
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 100,
+            outputTokens: 5,
+            cachedInputTokens: 700,
+          },
+          providerMetadata: { anthropic: { cacheCreationInputTokens: 20 } },
+        },
+      ]),
+    ),
+  );
+  const usage = chunks.find(
+    (c) => (c as { type: string }).type === "usage",
+  ) as {
+    usage: {
+      cacheReadInputTokens?: number;
+      cacheCreationInputTokens?: number;
+    };
+  };
+  assert.equal(usage.usage.cacheReadInputTokens, 700, "v5 spelling");
+  assert.equal(
+    usage.usage.cacheCreationInputTokens,
+    20,
+    "anthropic wire field under providerMetadata",
+  );
 });
 
 // Regression: a tool call truncated by the output-token cap comes back from
@@ -86,8 +159,14 @@ test("normalizeAiSdkStream passes through a well-formed tool call", async () => 
     ),
   );
   const call = chunks.find(
-    (c): c is { type: "tool_call"; id: string; name: string; args: Record<string, unknown> } =>
-      (c as { type: string }).type === "tool_call",
+    (
+      c,
+    ): c is {
+      type: "tool_call";
+      id: string;
+      name: string;
+      args: Record<string, unknown>;
+    } => (c as { type: string }).type === "tool_call",
   );
   assert.ok(call, "expected a tool_call chunk");
   assert.equal(call.name, "read");

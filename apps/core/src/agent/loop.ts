@@ -64,15 +64,13 @@ import {
 import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
-import {
-  getProjectContext,
-  invalidateProjectContext,
-} from "../context/tree-cache.js";
+import { markReadPruned } from "../tools/read-state.js";
+import { PruneState, type PruneCandidate } from "./prune-state.js";
+import { applySystemPromptHookRewrite } from "./apply-system-hook.js";
+import { getFrozenSessionContext } from "../context/session-context.js";
 import { ensureWatching } from "../context/tree-watcher.js";
-import {
-  MemoryService,
-  renderPromptMemoryContext,
-} from "../compaction/index.js";
+import { MemoryService } from "../compaction/index.js";
+import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
@@ -96,7 +94,11 @@ import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
 import { bus, BusEvents } from "../bus/index.js";
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js";
-import { type SessionStore, type SerializedMessage } from "../session/store.js";
+import {
+  type SessionStore,
+  type SerializedMessage,
+  type MessageUsage,
+} from "../session/store.js";
 import { getInterruptHandler } from "../session/interrupt.js";
 import { recordDailyUsage } from "../usage/tracker.js";
 import { PromptCompiler } from "../context/compiler.js";
@@ -126,6 +128,35 @@ import {
 // unbounded retry loop is expensive and, when compaction cannot free enough,
 // never converges.
 const MAX_OVERFLOW_COMPACTIONS = 3;
+
+// Total chars of tool-result content the model may see across the whole
+// history before the largest fresh results start being replaced with a marker.
+//
+// Scope note: claude-code's MAX_TOOL_RESULTS_PER_MESSAGE_CHARS is the same
+// 200K but applies *per message* — it guards one turn's parallel batch, not the
+// conversation. This is history-wide, because compaction here is what bounds
+// the conversation and it now fires on a cost target (~107K tokens ≈ 428K
+// chars). A 200K-char (~50K token) share for tool results leaves room for the
+// rest of the context under that target.
+const TOOL_RESULT_BUDGET_CHARS = Number.isFinite(
+  Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS),
+)
+  ? Math.max(0, Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS))
+  : 200_000;
+
+// The marker that stands in for a replaced tool result. Deterministic in
+// (id, size) so re-deriving it always yields the same bytes — though the
+// recorded copy in PruneState is what is actually re-applied.
+//
+// The `output` handle only resolves while the session that produced the result
+// is live; the store is in-memory and empty after a resume, where it degrades
+// to the tool's unknown-id message. Hence "or re-run" rather than a promise.
+function renderPrunedToolResult(id: string, size: number): string {
+  return (
+    `[tool result omitted to save context — ${size} chars. ` +
+    `Retrieve with the \`output\` tool (id="${id}"), or re-run the tool.]`
+  );
+}
 
 export interface AgentLoopConfig {
   maxIterations?: number;
@@ -218,6 +249,9 @@ export class AgentLoop {
   // hasn't changed (back-to-back tool turns triggered by one message).
   private lastMemoryQueryText: string = "";
   private lastMemoryBlock: string | undefined = undefined;
+  // Which tool results have gone to the provider, and how, so the cached
+  // prompt prefix stays byte-stable across the turns of this run.
+  private readonly pruneState = new PruneState();
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -251,7 +285,7 @@ export class AgentLoop {
           id: msg.id,
           role: msg.role,
           timestamp: msg.timestamp,
-          parts: msg.parts.map((part): MessagePart => {
+          parts: msg.parts.map((part, partIndex): MessagePart => {
             if (part.type === "text") {
               return { type: "text", content: part.content || "" };
             } else if (part.type === "code") {
@@ -269,7 +303,13 @@ export class AgentLoop {
               };
             } else {
               const toolCall: ToolCall = {
-                id: `tool-${msg.id}`,
+                // The provider's original tool_use id is not persisted, so it
+                // is re-derived. It must include the part index: a single
+                // assistant message can carry several tool calls, and keying
+                // them all `tool-<msgId>` made those ids collide — which
+                // pruning (below) reads as one result, applying one decision
+                // to all of them. Deterministic, so it is stable across loads.
+                id: `tool-${msg.id}-${partIndex}`,
                 tool: part.tool?.name || "",
                 // A string here is truthy, so `|| {}` let malformed args from
                 // an older session survive the round-trip back to the provider.
@@ -294,97 +334,121 @@ export class AgentLoop {
     }
   }
 
-  private maybeTimeBasedMicrocompact(
-    messages: Message[],
-    gapThresholdMinutes = 5,
-  ): Message[] {
-    if (messages.length === 0) return messages;
-
-    const lastMessage = messages[messages.length - 1];
-    const gapMinutes = (Date.now() - lastMessage.timestamp) / 60_000;
-    if (gapMinutes < gapThresholdMinutes) return messages;
-
-    console.log(
-      `[AgentLoop] Idle gap of ${gapMinutes.toFixed(1)}m detected. Performing time-based compaction of old tool results to reduce token count on cold start.`,
-    );
-
-    return messages.map((msg) => {
-      if (msg.role !== "assistant") return msg;
-
-      return {
-        ...msg,
-        parts: msg.parts.map((part) => {
-          if (part.type === "tool" && part.result && part.result.length > 200) {
-            return {
-              ...part,
-              result: "[Old tool result content cleared]",
-            };
-          }
-          return part;
-        }),
-      };
-    });
-  }
-
-  // Build a copy of messages where tool results in old turns are capped to
-  // OLD_TOOL_RESULT_CAP chars. This avoids re-sending large file reads or bash
-  // outputs from many turns ago on every subsequent request.
+  // Build a copy of messages where oversized tool results are replaced with a
+  // short marker, keeping the total the model sees under TOOL_RESULT_BUDGET.
   //
   // Only the view sent to the provider is pruned — this.history is untouched so
-  // the session store always has the full content and compaction works normally.
+  // the session store keeps full content and compaction works normally.
   //
-  // Strategy: find the last PRESERVE_RECENT_TURNS assistant turns and keep their
-  // results at full size; earlier turns get capped.
+  // Every decision is recorded in this.pruneState and re-applied verbatim on
+  // later turns, and any result already sent whole is frozen at full size. That
+  // is the whole point: the bytes at a given position never change once sent, so
+  // the provider's cached prefix stays valid and grows instead of being
+  // invalidated two turns back on every turn (RC4). The previous sliding-window
+  // version optimised the wrong thing — it saved ~250 tokens per old result and
+  // paid a partial cache invalidation per turn for it.
+  //
+  // When frozen results alone exceed the budget, the overage is accepted.
+  // Compaction (which now fires on a cost target, not window fit) is what
+  // reclaims that, and it rebuilds history wholesale so the prefix is expected
+  // to change there anyway.
   private pruneHistoryToolResults(messages: Message[]): Message[] {
-    const PRESERVE_RECENT_TURNS = 2;
-    const OLD_TOOL_RESULT_CAP = 1_000; // chars (≈250 tokens)
+    interface Candidate extends PruneCandidate {
+      messageIndex: number;
+      partIndex: number;
+    }
 
-    // Count assistant turns from the end to find the cutoff index.
-    let assistantTurnsSeen = 0;
-    let cutoffIndex = messages.length; // default: preserve everything
+    // The final assistant message holds results the model has not reasoned over
+    // yet; replacing those before it reads them just forces a re-read. It is
+    // still recorded as seen below, so it freezes rather than becoming eligible
+    // again next turn — which would be the sliding window all over again.
+    let lastAssistantIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === "assistant") {
-        assistantTurnsSeen++;
-        if (assistantTurnsSeen >= PRESERVE_RECENT_TURNS) {
-          cutoffIndex = i;
-          break;
-        }
+        lastAssistantIndex = i;
+        break;
       }
     }
 
-    if (cutoffIndex === 0) return messages; // nothing old enough to prune
+    const candidates: Candidate[] = [];
+    const protectedIds = new Set<string>();
+    messages.forEach((msg, messageIndex) => {
+      if (msg.role !== "assistant") return;
+      msg.parts.forEach((part, partIndex) => {
+        if (part.type !== "tool" || !part.result) return;
+        const candidate: Candidate = {
+          id: part.tool.id,
+          size: part.result.length,
+          messageIndex,
+          partIndex,
+        };
+        candidates.push(candidate);
+        if (messageIndex === lastAssistantIndex) protectedIds.add(part.tool.id);
+      });
+    });
+    if (candidates.length === 0) return messages;
 
-    return messages.map((msg, idx) => {
-      // Recent turns (at or after cutoffIndex) are passed through unchanged.
-      if (idx >= cutoffIndex) return msg;
-      if (msg.role !== "assistant") return msg;
+    const { mustReapply, frozen, fresh } =
+      this.pruneState.partition(candidates);
 
-      const hasLargeResult = msg.parts.some(
-        (p) => p.type === "tool" && p.result && p.result.length > OLD_TOOL_RESULT_CAP,
-      );
-      if (!hasLargeResult) return msg;
+    const frozenSize =
+      frozen.reduce((sum, c) => sum + c.size, 0) +
+      mustReapply.reduce((sum, c) => sum + c.replacement.length, 0);
+    const selectable = fresh.filter((c) => !protectedIds.has(c.id));
+    const protectedSize = fresh
+      .filter((c) => protectedIds.has(c.id))
+      .reduce((sum, c) => sum + c.size, 0);
+    const selected = PruneState.selectFreshToReplace(
+      selectable,
+      frozenSize + protectedSize,
+      TOOL_RESULT_BUDGET_CHARS,
+    );
 
+    const replacements = new Map<string, string>();
+    for (const c of mustReapply) replacements.set(c.id, c.replacement);
+    for (const c of selected) {
+      const replacement = renderPrunedToolResult(c.id, c.size);
+      replacements.set(c.id, replacement);
+      this.pruneState.recordReplaced(c.id, replacement);
+      // Read dedup answers a repeat read with "it's already above". Once the
+      // content above has been replaced with a marker that is false, and the
+      // model would be left with nothing — so forget we ever showed it (RC5).
+      const part = messages[c.messageIndex]?.parts[c.partIndex];
+      if (part?.type === "tool" && part.tool.tool === "read") {
+        const filePath = (part.tool.args as { filePath?: unknown })?.filePath;
+        if (typeof filePath === "string") {
+          markReadPruned(this.state.sessionId, filePath);
+        }
+      }
+    }
+    // Everything going out whole this turn is frozen from here on.
+    for (const c of candidates) {
+      if (!replacements.has(c.id)) this.pruneState.recordSeen(c.id);
+    }
+
+    if (replacements.size === 0) return messages;
+
+    // Rebuild only the messages that actually change; the rest pass through by
+    // reference so untouched objects stay identical.
+    const changed = new Set(
+      candidates
+        .filter((c) => replacements.has(c.id))
+        .map((c) => c.messageIndex),
+    );
+    return messages.map((msg, messageIndex) => {
+      if (!changed.has(messageIndex)) return msg;
       return {
         ...msg,
         parts: msg.parts.map((part) => {
-          if (
-            part.type === "tool" &&
-            part.result &&
-            part.result.length > OLD_TOOL_RESULT_CAP
-          ) {
-            return {
-              ...part,
-              result:
-                part.result.slice(0, OLD_TOOL_RESULT_CAP) +
-                "\n[... result truncated in history; re-read if needed ...]",
-            };
-          }
-          return part;
+          if (part.type !== "tool") return part;
+          const replacement = replacements.get(part.tool.id);
+          return replacement === undefined
+            ? part
+            : { ...part, result: replacement };
         }),
       };
     });
   }
-
 
   // ===========================================================================
   // PUBLIC: run()
@@ -423,6 +487,9 @@ export class AgentLoop {
     this.lastVerifierReport = undefined;
     this.lastMemoryQueryText = "";
     this.lastMemoryBlock = undefined;
+    // History is reloaded below, and the ids are only meaningful against that
+    // load — so decisions from a previous run cannot be carried over.
+    this.pruneState.reset();
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
@@ -465,9 +532,6 @@ export class AgentLoop {
 
       // Load session history from persistent storage
       await this.loadHistory();
-
-      // Prune/compact history using idle-time gap detection
-      this.history = this.maybeTimeBasedMicrocompact(this.history);
 
       // Construct and push the new user message to history and store.
       // Attached images ride along as image parts, but only where the model can
@@ -632,6 +696,30 @@ export class AgentLoop {
               (turnResult.usage.cacheReadInputTokens ?? 0) +
               (turnResult.usage.cacheCreationInputTokens ?? 0),
           );
+
+          BusEvents.stream(this.state.sessionId, {
+            type: "usage_totals",
+            totalInputTokens,
+            totalOutputTokens,
+            totalCacheReadTokens,
+          });
+
+          // Spend circuit breaker (RC7/D7): loop-health only warns on a stuck
+          // pattern, nothing previously capped actual spend, so an oscillating
+          // loop could burn a plan's quota silently. Off unless configured.
+          const maxTurnTokens = getMaxTurnTokens();
+          if (
+            maxTurnTokens !== undefined &&
+            totalInputTokens + totalOutputTokens > maxTurnTokens
+          ) {
+            await this.stop("spend_budget_exceeded");
+            return this.complete(
+              `Stopped: turn spend budget exceeded (${totalInputTokens + totalOutputTokens} tokens billed, limit ${maxTurnTokens}). Set FREECODE_MAX_TURN_TOKENS to change.`,
+              undefined,
+              undefined,
+              usageSoFar(),
+            );
+          }
         }
 
         // No tool calls means the model wants to stop. Before completing, run
@@ -760,10 +848,14 @@ export class AgentLoop {
     }
   }
 
-  // Resolve the model's real context window from models.dev so compaction
-  // fires against the actual limit (200K/1M) rather than a conservative
-  // fallback. Returns undefined on lookup failure (offline / unknown model),
-  // which makes shouldCompact fall back to the local model table.
+  // Resolve the model's real context window from models.dev, so the fit
+  // constraint is judged against the actual limit (200K/1M) rather than a
+  // conservative fallback. Returns undefined on lookup failure (offline /
+  // unknown model), which makes shouldCompact fall back to the local table.
+  //
+  // This is only the *ceiling*. shouldCompact caps whatever it gets here at
+  // DEFAULT_COMPACT_TARGET_TOKENS, so on a large-window model the cost target
+  // is what actually fires compaction — not this number.
   private async resolveContextLimit(
     provider: string,
     model: string | undefined,
@@ -797,6 +889,7 @@ export class AgentLoop {
     system: SystemBlock[],
     provider: string,
     model: string | undefined,
+    context: { tree: string; gitHead: string; clock: string },
   ): Promise<Awaited<ReturnType<typeof this.sendToProvider>>> {
     if (!isContextOverflowError(error)) throw error;
 
@@ -825,7 +918,13 @@ export class AgentLoop {
     if (!outcome.compacted) throw error;
 
     // this.history was reloaded from the trimmed store inside runCompaction.
-    return await this.sendToProvider(this.history, system, provider, model);
+    return await this.sendToProvider(
+      this.history,
+      system,
+      provider,
+      model,
+      context,
+    );
   }
 
   // Build compaction options that summarize via the active provider/model.
@@ -961,6 +1060,7 @@ export class AgentLoop {
       projectPath: string;
       tree: string;
       gitHead: string;
+      clock: string;
     },
   ): Promise<{
     success: boolean;
@@ -979,17 +1079,23 @@ export class AgentLoop {
   }> {
     try {
       // Build system prompt blocks using compiler
-      const memoryContext = renderPromptMemoryContext(
-        this.memory.getPromptContext(),
-      );
       const systemBlocks = await this.compiler.compileSystemBlocks(
-        context.tree,
-        context.gitHead,
-        "", // ignorePatterns - empty for now
         provider,
         model,
-        memoryContext || undefined,
       );
+
+      // The compaction summary — how the model knows what happened before a
+      // compaction trimmed the history. Deliberately NOT
+      // renderPromptMemoryContext(), which also renders `recentMessages`: those
+      // grow every turn and are already present in the history verbatim, so
+      // including them both duplicates content and rewrites the prefix on every
+      // request. The summary alone changes only when compaction runs.
+      const compactionSummary = this.memory.getPromptContext().summary;
+
+      // Dynamic context (file tree + clock + memory) is inlined as the
+      // first user message below, NOT as a system block — see the prepend in
+      // callProviderOnce. Same shape as Claude Code's
+      // SYSTEM_PROMPT_DYNAMIC_BOUNDARY (utils/api.ts:321).
 
       // Persistent-memory block: top-k memories relevant to the last user
       // message, surfaced by the graph service (spec D5). Per-session and
@@ -1020,26 +1126,39 @@ export class AgentLoop {
       // gate) into this turn's prompt. Transient — never persisted to history.
       const reminderText = this.pendingReminders.join("\n\n");
       this.pendingReminders = [];
-      const blocks = [
-        ...systemBlocks,
+      // Session-only system blocks: todo state and transient reminders. They
+      // change, but they sit at the tail of the system array and the message
+      // anchors that actually drive cache reads are downstream — so even a
+      // full rewrite here does not touch the cached static prefix.
+      const sessionBlocks = [
+        ...(compactionSummary
+          ? [
+              {
+                text: `Compacted session summary:\n${compactionSummary}`,
+                cache: false,
+              },
+            ]
+          : []),
         ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
         ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
         ...(reminderText ? [{ text: reminderText, cache: false }] : []),
       ];
+      const blocks = [...systemBlocks, ...sessionBlocks];
 
-      // UserPromptSubmit Hook — can modify prompt before sending to model
+      // UserPromptSubmit Hook — can modify the joined system before send.
+      // Must not collapse static + session into one cache:true blob (that
+      // puts todos/memory/reminders under the breakpoint). See
+      // apply-system-hook.ts.
       const joinedSystem = blocks.map((b) => b.text).join("\n\n");
       const hookResult = await this.hooks.runUserPromptSubmit(joinedSystem, {
         sessionId: this.state.sessionId,
         turnCount: this.state.turnCount,
       });
-      let finalSystemBlocks = blocks;
-      if (
-        hookResult.modifiedPrompt &&
-        hookResult.modifiedPrompt !== joinedSystem
-      ) {
-        finalSystemBlocks = [{ text: hookResult.modifiedPrompt, cache: true }];
-      }
+      const finalSystemBlocks = applySystemPromptHookRewrite(
+        systemBlocks,
+        sessionBlocks,
+        hookResult.modifiedPrompt,
+      );
 
       // The threshold check is a prediction, and predictions miss: one turn can
       // add more than the buffer covers, or the session may have been resumed
@@ -1053,6 +1172,7 @@ export class AgentLoop {
           finalSystemBlocks,
           provider,
           model,
+          context,
         );
         this.overflowCompactions = 0;
       } catch (error) {
@@ -1061,6 +1181,7 @@ export class AgentLoop {
           finalSystemBlocks,
           provider,
           model,
+          context,
         );
       }
 
@@ -1130,10 +1251,16 @@ export class AgentLoop {
       };
       this.history.push(assistantMessage);
 
+      // Usage belongs to the provider response, but the response is persisted
+      // as several messages (text, then one per tool call). Attach it to the
+      // first one written and clear it, so summing the field over a session
+      // yields the real total instead of a multiple of it.
+      let pendingUsage: MessageUsage | undefined = providerResult.usage;
+
       // No tools? Return early
       if (toolCalls.length === 0) {
         this.memory.addMessage("assistant", providerResult.content);
-        await this.appendAssistantMessage(providerResult.content);
+        await this.appendAssistantMessage(providerResult.content, pendingUsage);
         await this.maybeCompact(provider, model);
         return {
           success: true,
@@ -1146,7 +1273,8 @@ export class AgentLoop {
 
       // If there are tool calls, append assistant text (if present) to session store
       if (providerResult.content) {
-        await this.appendAssistantMessage(providerResult.content);
+        await this.appendAssistantMessage(providerResult.content, pendingUsage);
+        pendingUsage = undefined;
       }
 
       // Execute tools with parallel-safe batching. Concurrency-safe tools
@@ -1190,7 +1318,10 @@ export class AgentLoop {
             // is what overflowed provider context windows.
             part.result = result.modelOutput || result.error || "";
           }
-          await this.appendToolMessage(tc, result);
+          // Carries the response's usage only when there was no assistant text
+          // to hang it on (a tool-only response).
+          await this.appendToolMessage(tc, result, pendingUsage);
+          pendingUsage = undefined;
 
           const image = extractToolImage(result);
           if (image) {
@@ -1264,6 +1395,13 @@ export class AgentLoop {
     system: SystemBlock[],
     provider: string,
     model: string | undefined,
+    // Context for the dynamic user-message prepend. Required so the
+    // conversation's first user message stays accurate (file tree + clock).
+    context: {
+      tree: string;
+      gitHead: string;
+      clock: string;
+    },
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1290,6 +1428,7 @@ export class AgentLoop {
           messages,
           system,
           p === provider ? model : undefined,
+          context,
         ),
       { sessionId: this.state.sessionId, signal: this.abort.signal },
     );
@@ -1301,6 +1440,8 @@ export class AgentLoop {
     messages: Message[],
     system: SystemBlock[],
     model: string | undefined,
+    // Required so the dynamic user-message prepend has the file tree + clock.
+    context: { tree: string; gitHead: string; clock: string },
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1325,7 +1466,48 @@ export class AgentLoop {
     // new; re-sending 30K-char file reads from 10 turns ago is pure waste.
     // Last 2 turns are always preserved at full fidelity — the model may still
     // be acting on them. (jcode-style history pruning, spec D6)
-    const prunedMessages = this.pruneHistoryToolResults(messages);
+    // Dynamic context (file tree + git head + clock) is inlined as the
+    // conversation's FIRST user message, so the static system block above it
+    // stays a stable cacheable prefix. Claude Code uses the same architecture
+    // (utils/api.ts:321, SYSTEM_PROMPT_DYNAMIC_BOUNDARY).
+    //
+    // Position 0 is the most cache-sensitive slot in the whole request: every
+    // byte after it depends on it. So it must contain ONLY things that are
+    // stable across a session.
+    //
+    // In particular it must NOT carry the memory context. renderPromptMemoryContext
+    // renders `recentMessages`, which grows every turn — putting that here
+    // rewrote position 0 on every request and invalidated the entire
+    // conversation prefix, which is exactly what the anchors are trying to
+    // reuse. It is also redundant: those same messages are already in the
+    // history immediately below. The memory *summary* still reaches the model
+    // through the session system block built in executeTurn.
+    const dynamicUserMessage: Message = {
+      id: "dynamic-context",
+      role: "user",
+      parts: [
+        {
+          type: "text",
+          content:
+            "Project context:\n\n" +
+            this.compiler.compileDynamicContext(
+              context.tree,
+              context.gitHead,
+              "",
+              undefined,
+              context.clock,
+            ),
+        },
+      ],
+      // Fixed, not Date.now(): the id and timestamp are part of what the
+      // pruner and any future serializer hash over, and a value that moves
+      // every turn is the same prefix-invalidation bug in another guise.
+      timestamp: 0,
+    };
+    const prunedMessages = this.pruneHistoryToolResults([
+      dynamicUserMessage,
+      ...messages,
+    ]);
     // Prompt-cache awareness (jcode #9): warn before a send that will likely
     // miss a cold cache. Informational only — never blocks the send.
     const coldWarning = noteSendAndCheckCold(this.state.sessionId, provider);
@@ -1367,6 +1549,7 @@ export class AgentLoop {
         model,
         maxTokens,
         abortSignal: this.abort.signal,
+        sessionId: this.state.sessionId,
       })) {
         if (this.abort.signal.aborted) break;
         switch (chunk.type) {
@@ -1422,6 +1605,7 @@ export class AgentLoop {
       tools,
       model,
       abortSignal: this.abort.signal,
+      sessionId: this.state.sessionId,
     });
     this.emitCacheWarm(result.usage);
     return {
@@ -1700,16 +1884,10 @@ export class AgentLoop {
       abort: this.abort.signal,
     };
 
-    // Mutating tools invalidate the cached project file tree — even on
-    // failure, since a crashed bash/edit may have already changed files.
-    const isMutating = getTool(toolCall.tool)?.behavior?.isDestructive === true;
-
     let result: ToolResult;
     try {
       result = await this.orchestrator.execute(toolCall, context);
-      if (isMutating) invalidateProjectContext(this.state.projectPath);
     } catch (error) {
-      if (isMutating) invalidateProjectContext(this.state.projectPath);
       // PostToolUseFailure Hook — handle tool execution error
       const failureResult = await this.hooks.runPostToolUseFailure(
         toolCall,
@@ -1791,9 +1969,10 @@ export class AgentLoop {
 
   // ===========================================================================
   // PRIVATE: collectContext()
-  // Gather project context (name, path, file tree, git head) — served from
-  // the per-project cache (context/tree-cache.ts); the loop invalidates it
-  // after any mutating tool completes.
+  // Gather project context (name, path, file tree, git head) — frozen per
+  // session so position 0 of the prompt stays byte-stable across user turns
+  // (context/session-context.ts). tree-cache still refreshes for the process;
+  // the prompt does not follow mid-session invalidations.
   // ===========================================================================
   private async collectContext(projectPath: string): Promise<{
     success: boolean;
@@ -1802,11 +1981,16 @@ export class AgentLoop {
       projectPath: string;
       tree: string;
       gitHead: string;
+      clock: string;
     };
     error?: string;
   }> {
     try {
-      return { success: true, value: getProjectContext(projectPath) };
+      const { ctx, clock } = getFrozenSessionContext(
+        this.state.sessionId,
+        projectPath,
+      );
+      return { success: true, value: { ...ctx, clock } };
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -2050,7 +2234,10 @@ export class AgentLoop {
     );
   }
 
-  private async appendAssistantMessage(content: string): Promise<string> {
+  private async appendAssistantMessage(
+    content: string,
+    usage?: MessageUsage,
+  ): Promise<string> {
     if (!this.sessionStore) return "";
     await this.ensureProjectPath();
     const id = randomUUID();
@@ -2059,6 +2246,7 @@ export class AgentLoop {
       role: "assistant",
       parts: [{ type: "text", content }],
       timestamp: Date.now(),
+      ...(usage ? { usage } : {}),
     };
     await this.sessionStore.appendMessage(
       this.state.sessionId,
@@ -2073,6 +2261,7 @@ export class AgentLoop {
   private async appendToolMessage(
     toolCall: ToolCall,
     result: ToolResult,
+    usage?: MessageUsage,
   ): Promise<void> {
     if (!this.sessionStore) return;
     await this.ensureProjectPath();
@@ -2092,6 +2281,7 @@ export class AgentLoop {
         },
       ],
       timestamp: Date.now(),
+      ...(usage ? { usage } : {}),
     };
     await this.sessionStore.appendMessage(
       this.state.sessionId,

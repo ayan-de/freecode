@@ -9,6 +9,7 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { writeToolUI } from "./write/ui.js";
 import { generateDiffString } from "./diff-format.js";
+import { getReadState } from "./read-state.js";
 
 interface WriteParams {
   content: string;
@@ -101,16 +102,29 @@ async function executeWrite(
     const oldContent = exists ? fs.readFileSync(filepath, "utf-8") : "";
     fs.writeFileSync(filepath, params.content, "utf-8");
 
-    const diff = exists
-      ? generateDiffString(oldContent, params.content)
-      : "";
+    // Record the post-write state so `edit` does not later report the model's
+    // own write as an external change. No offset/limit — this content was
+    // never shown as a read, so it must not be deduped against.
+    if (ctx.sessionId) {
+      const after = fs.statSync(filepath);
+      getReadState(ctx.sessionId).set(filepath, {
+        mtimeMs: after.mtimeMs,
+        size: after.size,
+        inContext: false,
+      });
+    }
+
+    const diff = exists ? generateDiffString(oldContent, params.content) : "";
 
     return {
       success: true,
       result: {
         title: path.basename(filepath),
         output:
-          diff || (exists ? "File updated successfully." : "File created successfully."),
+          diff ||
+          (exists
+            ? "File updated successfully."
+            : "File created successfully."),
         metadata: { filepath, exists },
       },
     };

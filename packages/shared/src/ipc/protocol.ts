@@ -116,6 +116,15 @@ export type StreamEvent =
   // Turn-level advisory the user needs to see (e.g. an attachment dropped
   // because the model can't accept it). Does not fail the turn.
   | { type: "notice"; level: "info" | "warn"; content: string }
+  // Running spend for the current run() — emitted once per completed turn so
+  // the frontend can render a live per-session counter (spec
+  // 2026-08-05-token-efficiency, D7). Core computes; frontends only display.
+  | {
+      type: "usage_totals";
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalCacheReadTokens: number;
+    }
   | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
   | {
       type: "compaction_complete";

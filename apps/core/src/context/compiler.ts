@@ -128,15 +128,15 @@ ${tree}`;
   }
 
   /**
-   * Compile system prompt blocks for caching
+   * Compile the **static** system prompt block. Cached; its content never
+   * changes within a session, so a breakpoint here is what makes the prefix
+   * re-readable. Anything that changes between turns (file tree, memory, clock)
+   * belongs in compileDynamicContext, inlined as a normal user message.
    */
   async compileSystemBlocks(
-    tree: string,
-    gitHead: string,
-    ignorePatterns: string,
     provider: string,
     model?: string,
-    memoryContext?: string,
+    skillsSection?: string,
   ): Promise<SystemBlock[]> {
     // Ground the model's identity so it never confuses itself with the vendor
     // whose model powers it (e.g. reporting itself as "Claude Code").
@@ -148,7 +148,8 @@ ${tree}`;
 
     // Advertise available skills (name + description only) so the model knows
     // which skills exist and can load one on demand via the `skill` tool.
-    const skillsSection = await renderAvailableSkillsSection(this.projectPath);
+    const skills =
+      skillsSection ?? (await renderAvailableSkillsSection(this.projectPath));
 
     // Tools are sent as native schemas by the providers; no text list needed.
     const staticText = [
@@ -156,13 +157,41 @@ ${tree}`;
       modelIdentity,
       this.compileSystemPrompt(),
       compileInstructionsSection(this.projectPath),
-      skillsSection,
+      skills,
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
 
-    const roundedTime = new Date().toISOString().slice(0, 13) + ":00:00Z";
-    const dynamicText = [
+    return [{ text: staticText, cache: true }];
+  }
+
+  /**
+   * The dynamic half: project summary (file tree + git head), optional session
+   * memory, and a coarse-grained clock. Returned as a single text block so the
+   * loop can inline it as the conversation's first user message.
+   *
+   * The loop freezes tree/gitHead/clock per session (session-context.ts) so
+   * this block stays byte-stable across turns — sitting inside the system
+   * blocks instead would invalidate the static prefix on every change.
+   *
+   * Claude Code splits at SYSTEM_PROMPT_DYNAMIC_BOUNDARY for the same reason
+   * (utils/api.ts:321, splitSysPromptPrefix) and moves dynamic content out
+   * when MCP tools are present. Our equivalent is just to never merge the two.
+   */
+  compileDynamicContext(
+    tree: string,
+    gitHead: string,
+    ignorePatterns: string,
+    memoryContext?: string,
+    /**
+     * When set (session freeze), reuse this clock instead of wall time so
+     * position 0 does not rewrite itself on the hour boundary.
+     */
+    clock?: string,
+  ): string {
+    const roundedTime =
+      clock ?? new Date().toISOString().slice(0, 13) + ":00:00Z";
+    return [
       this.compileProjectSummary(tree, gitHead, ignorePatterns),
       "",
       memoryContext ? `Session context:\n${memoryContext}` : "",
@@ -170,11 +199,6 @@ ${tree}`;
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
-
-    return [
-      { text: staticText, cache: true },
-      { text: dynamicText, cache: true },
-    ];
   }
 
   /**

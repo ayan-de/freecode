@@ -8,6 +8,7 @@ import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool, defaultToolUI } from "./factory.js";
 import { readToolUI } from "./read/ui.js";
+import { getReadState, canDedup } from "./read-state.js";
 
 interface ReadParams {
   filePath: string;
@@ -253,6 +254,34 @@ async function executeRead(
 
     const limit = coerceNumber(params.limit) ?? DEFAULT_LIMIT;
     const offset = coerceNumber(params.offset) ?? 1;
+
+    // Re-reading a file the model was already shown, unchanged, costs the whole
+    // file again on this turn and on every turn after it. Answer with a pointer
+    // instead — but only when the earlier copy is genuinely still in the
+    // request; see canDedup (RC5).
+    const readState = ctx.sessionId ? getReadState(ctx.sessionId) : undefined;
+    const current = {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      offset,
+      limit,
+    };
+    if (readState && canDedup(readState.get(filepath), current)) {
+      return {
+        success: true,
+        result: {
+          title: path.basename(filepath),
+          output:
+            `<path>${filepath}</path>\n<type>file</type>\n` +
+            `<unchanged>This file is byte-for-byte identical to the copy ` +
+            `already shown earlier in this conversation — scroll up rather ` +
+            `than re-reading. Edit it directly if that is what you need.` +
+            `</unchanged>`,
+          metadata: { deduped: true },
+        },
+      };
+    }
+
     const lines = readLines(filepath, { limit, offset });
 
     let output = [
@@ -273,6 +302,10 @@ async function executeRead(
       output += `\n\n(End of file - total ${lines.count} lines)`;
     }
     output += "\n</content>";
+
+    // Record what was shown, so an identical re-read can be deduped and so
+    // `edit` can tell whether the file changed underneath the model.
+    readState?.set(filepath, { ...current, inContext: true });
 
     return {
       success: true,

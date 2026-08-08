@@ -53,6 +53,13 @@ export interface ExecuteOptions {
   // Cancellation: callers (agent loop) pass an AbortSignal so in-flight
   // provider requests can be interrupted (Ctrl+C, session.stop).
   abortSignal?: AbortSignal;
+  // Cache-routing hint. OpenAI shards its prompt cache across machines and
+  // routes on this key, so sending a stable one per conversation keeps a
+  // session's turns landing where its own prefix is already warm. Providers
+  // that cache without a routing key (Anthropic, Gemini, DeepSeek) ignore it.
+  // Subagents pass their own id deliberately — a different context should not
+  // be routed to the parent's cache.
+  sessionId?: string;
 }
 
 export interface ExecuteResult {

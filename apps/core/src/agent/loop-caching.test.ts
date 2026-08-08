@@ -8,40 +8,55 @@ import {
   type SerializedMessage,
 } from "../session/store.js";
 import { PromptCompiler } from "../context/compiler.js";
+import {
+  getReadState,
+  canDedup,
+  disposeReadState,
+} from "../tools/read-state.js";
 import type { Message, ToolCall } from "./types.js";
 
-test("PromptCompiler.compileSystemBlocks splits static and dynamic parts correctly", async () => {
+test("PromptCompiler.compileSystemBlocks returns only the static block", async () => {
   const compiler = new PromptCompiler(
     "/path/to/project",
     "my-project",
     "build",
   );
-  const tree = "📄 index.js";
-  const gitHead = "abc12345";
 
   const blocks = await compiler.compileSystemBlocks(
-    tree,
-    gitHead,
-    "",
     "anthropic",
     "claude-sonnet-4-5",
-    "Some memory summary",
   );
 
-  assert.equal(blocks.length, 2);
-  assert.equal(blocks[0].cache, true);
-  assert.equal(blocks[1].cache, true);
+  // Dynamic content (file tree, memory, clock) was deliberately moved out of
+  // the system blocks and is now inlined as the first user message — see
+  // compileDynamicContext. Putting it in the system blocks invalidates the
+  // static-prefix cache marker on every turn. Claude Code uses the same
+  // architecture (utils/api.ts:321, SYSTEM_PROMPT_DYNAMIC_BOUNDARY).
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].cache, true, "static block earns a breakpoint");
 
   // Static section has system prompts (tools are sent as native schemas)
   assert.ok(blocks[0].text.includes("BUILD mode"));
   assert.ok(!blocks[0].text.includes("Available tools"));
+});
 
-  // Dynamic section has tree, git head, path, and memory
-  assert.ok(blocks[1].text.includes("my-project"));
-  assert.ok(blocks[1].text.includes("/path/to/project"));
-  assert.ok(blocks[1].text.includes("📄 index.js"));
-  assert.ok(blocks[1].text.includes("Some memory summary"));
-  assert.ok(blocks[1].text.includes("Current Time"));
+test("PromptCompiler.compileDynamicContext carries file tree and clock", () => {
+  const compiler = new PromptCompiler(
+    "/path/to/project",
+    "my-project",
+    "build",
+  );
+  const text = compiler.compileDynamicContext(
+    "📄 index.js",
+    "abc12345",
+    "",
+    "Some memory summary",
+  );
+  assert.ok(text.includes("my-project"));
+  assert.ok(text.includes("/path/to/project"));
+  assert.ok(text.includes("📄 index.js"));
+  assert.ok(text.includes("Some memory summary"));
+  assert.ok(text.includes("Current Time"));
 });
 
 test("AgentLoop.loadHistory reconstructs the message list correctly", async () => {
@@ -103,115 +118,250 @@ test("AgentLoop.loadHistory reconstructs the message list correctly", async () =
   await rm(testDir, { recursive: true, force: true });
 });
 
-test("AgentLoop.maybeTimeBasedMicrocompact prunes old tool results after idle gap", () => {
-  const loop = createAgentLoop("test-session");
+// Replaces the old "maybeTimeBasedMicrocompact prunes old tool results after
+// idle gap" test. That method cleared every tool result over 200 chars across
+// the whole history — including the newest turn — whenever the user paused for
+// five minutes, with no handle to retrieve what was dropped. It missed the
+// prompt cache 100% on the next request and forced the model to re-read
+// everything (spec 2026-08-05-token-efficiency, RC3). An idle gap says nothing
+// about whether a result is still needed; size and age-in-turns do, and
+// pruneHistoryToolResults already acts on those.
+test("history is untouched by an idle gap, however long", async () => {
+  const testDir = "/tmp/freecode-test-loop-idle-gap";
+  await rm(testDir, { recursive: true, force: true });
+  const store: SessionStore = await createSessionStore(testDir);
 
-  const oldTimestamp = Date.now() - 6 * 60_000; // 6 minutes ago
-  const messages: Message[] = [
+  const sessionId = await store.createSession({
+    title: "Idle gap",
+    projectPath: "/tmp/test",
+    provider: "mock",
+  });
+
+  const hourAgo = Date.now() - 60 * 60_000;
+  const bigResult = "x".repeat(5_000);
+  await store.appendMessage(
+    sessionId,
     {
-      id: "1",
-      role: "user",
-      parts: [{ type: "text", content: "run command" }],
-      timestamp: oldTimestamp,
-    },
-    {
-      id: "2",
+      id: "assistant-1",
       role: "assistant",
       parts: [
-        { type: "text", content: "Output:" },
         {
           type: "tool",
-          tool: { id: "t-1", tool: "bash", args: {}, execution: "sequential" },
-          result:
-            "A very long tool output content that exceeds 200 characters..." +
-            "x".repeat(300),
+          tool: { name: "bash", args: { command: "ls" } },
+          result: bigResult,
         },
       ],
-      timestamp: oldTimestamp,
+      timestamp: hourAgo,
     },
-  ];
+    "/tmp/test",
+  );
 
-  // Gap is 6 minutes, so it should compact
-  const compacted = (loop as any).maybeTimeBasedMicrocompact(messages, 5);
+  const loop = createAgentLoop(sessionId, { sessionStore: store });
+  (loop as any).state.projectPath = "/tmp/test";
+  await (loop as any).loadHistory();
 
-  assert.equal(compacted.length, 2);
-  assert.equal(compacted[1].role, "assistant");
-  assert.equal(compacted[1].parts[0].type, "text");
-  assert.equal(compacted[1].parts[1].type, "tool");
+  // The clearing ran inside run(), not loadHistory(), so this half alone would
+  // have passed before the deletion too — exercising run() needs a live
+  // provider. The assertion below is what actually holds the change in place.
+  const history: Message[] = (loop as any).history;
+  assert.equal((history[0].parts[0] as any).result, bigResult);
+  assert.ok(
+    !JSON.stringify(history).includes("Old tool result content cleared"),
+  );
+
+  // Guards against the method being reintroduced: there is no time-based
+  // history mutation on the loop at all.
   assert.equal(
-    (compacted[1].parts[1] as any).result,
-    "[Old tool result content cleared]",
+    (loop as any).maybeTimeBasedMicrocompact,
+    undefined,
+    "time-based tool-result clearing must not come back — see RC3",
   );
 
-  // Gap is small (1 minute), should not compact
-  const recentMessages: Message[] = messages.map((m) => ({
-    ...m,
-    timestamp: Date.now(),
-  }));
-  const notCompacted = (loop as any).maybeTimeBasedMicrocompact(
-    recentMessages,
-    5,
-  );
-  assert.notEqual(
-    (notCompacted[1].parts[1] as any).result,
-    "[Old tool result content cleared]",
-  );
+  await rm(testDir, { recursive: true, force: true });
 });
 
-test("AgentLoop.pruneHistoryToolResults caps old tool results but preserves recent turns", () => {
-  const loop = createAgentLoop("test-session");
+// Rewritten for RC4. The previous version asserted the sliding-window rule
+// ("last 2 assistant turns full size, everything older capped at 1000 chars"),
+// which is the behaviour being removed — that window is what mutated the prompt
+// prefix two turns back on every turn.
+const bigResult = (n: number) => "x".repeat(n);
 
-  const buildAssistantMsg = (id: string, resultLength: number): Message => ({
+function assistantWithResult(id: string, resultLength: number): Message {
+  return {
     id,
     role: "assistant",
     timestamp: Date.now(),
     parts: [
       {
         type: "tool",
-        tool: { id: `t-${id}`, tool: "read", args: {}, execution: "sequential" },
-        result: "x".repeat(resultLength),
+        tool: {
+          id: `t-${id}`,
+          tool: "read",
+          args: {},
+          execution: "sequential",
+        },
+        result: bigResult(resultLength),
+      },
+    ],
+  };
+}
+
+// The load-bearing test: whatever the pruner does, the bytes it already sent
+// must not change when the conversation grows. A cached prefix that mutates is
+// re-billed as a write; that is the entire cost RC4 describes.
+test("pruneHistoryToolResults keeps the sent prefix byte-identical as history grows", () => {
+  const loop = createAgentLoop("test-session");
+
+  // Well over the 200K-char budget, so replacement definitely engages.
+  const messages: Message[] = [
+    assistantWithResult("a", 90_000),
+    assistantWithResult("b", 90_000),
+    assistantWithResult("c", 90_000),
+  ];
+
+  const first = (loop as any).pruneHistoryToolResults(messages);
+  const prefixA = JSON.stringify(first);
+
+  // Next turn: same history plus a new assistant turn.
+  const grown = [...messages, assistantWithResult("d", 90_000)];
+  const second = (loop as any).pruneHistoryToolResults(grown);
+  const prefixB = JSON.stringify(second);
+
+  assert.ok(
+    prefixB.startsWith(prefixA.slice(0, prefixA.length - 1)),
+    "everything sent on the first turn must be byte-identical on the second",
+  );
+
+  // And again, to catch a decision that only stabilises after two rounds.
+  const grownAgain = [...grown, assistantWithResult("e", 90_000)];
+  const third = JSON.stringify(
+    (loop as any).pruneHistoryToolResults(grownAgain),
+  );
+  assert.ok(third.startsWith(prefixB.slice(0, prefixB.length - 1)));
+});
+
+test("a result sent at full size is frozen, even once it is old", () => {
+  const loop = createAgentLoop("test-session");
+
+  // Under budget: nothing is replaced, so this goes out whole and freezes.
+  const messages: Message[] = [assistantWithResult("a", 50_000)];
+  const first = (loop as any).pruneHistoryToolResults(messages);
+  assert.equal((first[0].parts[0] as any).result.length, 50_000);
+
+  // Now blow past the budget. The frozen result must stay full size — it is in
+  // the cached prefix, and shrinking it would cost more than it saves.
+  const grown: Message[] = [
+    ...messages,
+    assistantWithResult("b", 150_000),
+    assistantWithResult("c", 150_000),
+  ];
+  const second = (loop as any).pruneHistoryToolResults(grown);
+  assert.equal(
+    (second[0].parts[0] as any).result.length,
+    50_000,
+    "frozen result must not be replaced after aging",
+  );
+});
+
+test("a replaced result is re-applied with the identical string", () => {
+  const loop = createAgentLoop("test-session");
+
+  const messages: Message[] = [
+    assistantWithResult("a", 150_000),
+    assistantWithResult("b", 150_000),
+    assistantWithResult("c", 10),
+  ];
+
+  const first = (loop as any).pruneHistoryToolResults(messages);
+  const replacedOnce = (first[0].parts[0] as any).result;
+  assert.ok(replacedOnce.includes("tool result omitted"));
+  assert.ok(replacedOnce.includes('id="t-a"'));
+
+  const second = (loop as any).pruneHistoryToolResults([
+    ...messages,
+    assistantWithResult("d", 10),
+  ]);
+  assert.equal(
+    (second[0].parts[0] as any).result,
+    replacedOnce,
+    "re-derived replacements must be byte-identical, not merely equivalent",
+  );
+});
+
+test("the newest assistant turn is never replaced before the model reads it", () => {
+  const loop = createAgentLoop("test-session");
+
+  const messages: Message[] = [
+    assistantWithResult("a", 150_000),
+    assistantWithResult("b", 150_000),
+    // Newest: huge, but the model has not reasoned over it yet.
+    assistantWithResult("newest", 150_000),
+  ];
+
+  const pruned = (loop as any).pruneHistoryToolResults(messages);
+  assert.equal(
+    (pruned[2].parts[0] as any).result.length,
+    150_000,
+    "replacing the current turn's result just forces an immediate re-read",
+  );
+});
+
+test("history under budget is passed through untouched, by reference", () => {
+  const loop = createAgentLoop("test-session");
+
+  const messages: Message[] = [
+    assistantWithResult("a", 500),
+    assistantWithResult("b", 1_500),
+  ];
+  const pruned = (loop as any).pruneHistoryToolResults(messages);
+
+  assert.equal(pruned, messages, "no copy when nothing is replaced");
+  assert.equal((pruned[0].parts[0] as any).result.length, 500);
+  assert.equal((pruned[1].parts[0] as any).result.length, 1_500);
+});
+
+// The interaction between RC4 and RC5: read dedup answers a repeat read with
+// "it's already above". If pruning replaced that copy with a marker, the model
+// would be pointed at nothing. Pruning a read must therefore retract its
+// dedup entry.
+test("pruning a read result retracts its dedup entry", () => {
+  const sessionId = "test-prune-readstate";
+  const loop = createAgentLoop(sessionId);
+
+  const readMsg = (id: string, filePath: string, size: number): Message => ({
+    id,
+    role: "assistant",
+    timestamp: Date.now(),
+    parts: [
+      {
+        type: "tool",
+        tool: {
+          id: `t-${id}`,
+          tool: "read",
+          args: { filePath },
+          execution: "sequential",
+        },
+        result: "x".repeat(size),
       },
     ],
   });
 
-  const messages: Message[] = [
-    // Turn 1 (Oldest, assistant): should be pruned if result is large
-    buildAssistantMsg("ast-1", 1500),
-    // Turn 2 (Old, assistant): should be pruned if result is large
-    buildAssistantMsg("ast-2", 1200),
-    // User message in between
-    { id: "usr-1", role: "user", parts: [{ type: "text", content: "ok" }], timestamp: Date.now() },
-    // Turn 3 (Recent, assistant): should be preserved
-    buildAssistantMsg("ast-3", 1500),
-    // Turn 4 (Most recent assistant): should be preserved
-    buildAssistantMsg("ast-4", 2000),
-  ];
+  const state = getReadState(sessionId);
+  const probe = { mtimeMs: 1, size: 1, offset: 1, limit: 2000 };
+  state.set("/big.ts", { ...probe, inContext: true });
+  assert.equal(canDedup(state.get("/big.ts"), probe), true);
 
-  const pruned = (loop as any).pruneHistoryToolResults(messages);
+  // Over budget, and not the newest turn, so /big.ts gets replaced.
+  (loop as any).pruneHistoryToolResults([
+    readMsg("big", "/big.ts", 150_000),
+    readMsg("other", "/other.ts", 150_000),
+    assistantWithResult("newest", 10),
+  ]);
 
-  assert.equal(pruned.length, 5);
-
-  // Turn 4 (most recent assistant) -> preserved
-  assert.equal((pruned[4].parts[0] as any).result.length, 2000);
-
-  // Turn 3 (second most recent assistant) -> preserved
-  assert.equal((pruned[3].parts[0] as any).result.length, 1500);
-
-  // Turn 2 (older assistant) -> pruned
-  assert.ok((pruned[1].parts[0] as any).result.includes("[... result truncated in history; re-read if needed ...]"));
-  assert.equal((pruned[1].parts[0] as any).result.slice(0, 1000), "x".repeat(1000));
-
-  // Turn 1 (oldest assistant) -> pruned
-  assert.ok((pruned[0].parts[0] as any).result.includes("[... result truncated in history; re-read if needed ...]"));
-  assert.equal((pruned[0].parts[0] as any).result.slice(0, 1000), "x".repeat(1000));
-
-  // Small outputs should not be pruned even in old turns
-  const messagesWithSmall: Message[] = [
-    buildAssistantMsg("ast-old-small", 500),
-    buildAssistantMsg("ast-rec-1", 1000),
-    buildAssistantMsg("ast-rec-2", 1000),
-  ];
-  const prunedSmall = (loop as any).pruneHistoryToolResults(messagesWithSmall);
-  assert.equal((prunedSmall[0].parts[0] as any).result, "x".repeat(500)); // intact
+  assert.equal(
+    canDedup(state.get("/big.ts"), probe),
+    false,
+    "a read whose content was pruned must not be deduped against",
+  );
+  disposeReadState(sessionId);
 });
-

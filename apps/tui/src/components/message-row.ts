@@ -44,6 +44,44 @@ export function resetLiveInputTokens(): void {
   liveInputGrowth = 0;
 }
 
+// Provider-reported run totals, delivered by core's `usage_totals` stream event
+// once per completed internal turn (spec 2026-08-05-token-efficiency, D7).
+//
+// Everything above this line is a ~4 chars/token guess, which is all the TUI had
+// mid-run: the final `result.usage` only lands when the whole run ends, so a
+// long multi-turn run showed estimates for minutes. These are the real numbers,
+// so they win as the baseline the moment they arrive, and the estimates resume
+// on top of them for the turn currently in flight.
+let liveUsageTotals: {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+} | null = null;
+
+/**
+ * Adopt provider-reported run totals as the new baseline.
+ *
+ * Clears this module's estimate accumulators as part of the same step. Both
+ * they and the reported figure are run-cumulative, so leaving them standing
+ * would count every turn up to this point twice; making that the caller's job
+ * is a contract nobody can see from the call site. `streamedChars` in index.ts
+ * feeds `setLiveOutputTokens` and belongs to that module, so it resets there.
+ */
+export function setLiveUsageTotals(totals: {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}): void {
+  liveUsageTotals = totals;
+  liveOutputTokens = 0;
+  liveInputGrowth = 0;
+}
+
+/** Drop the reported totals at the start/end of a run. */
+export function resetLiveUsageTotals(): void {
+  liveUsageTotals = null;
+}
+
 /**
  * In-progress message component with live timer and token counts.
  * Renders "phrase (Xs) ↓inputTokens ↑outputTokens [████░░░░░ 50k/200k]"
@@ -88,15 +126,25 @@ class InProgressMessage implements Component {
   render(width: number): string[] {
     const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
     const duration = formatDurationSeconds(elapsed);
-    // Output tracks the live streamed-text estimate until the final usage
-    // lands (this.outputTokens > 0), at which point the real count wins.
+    // Three sources per number, in descending order of truth: the final usage
+    // for the whole run, the provider's per-turn running totals, then the
+    // local estimate. Estimates ride on top of a reported baseline rather than
+    // replacing it, so ↓/↑ keep moving between turns instead of freezing.
     const outputTokens =
-      this.outputTokens > 0 ? this.outputTokens : liveOutputTokens;
-    const inStr = formatTokenCount(this.baseInputTokens + liveInputGrowth);
+      this.outputTokens > 0
+        ? this.outputTokens
+        : (liveUsageTotals?.outputTokens ?? 0) + liveOutputTokens;
+    const inputTokens =
+      (liveUsageTotals?.inputTokens ?? this.baseInputTokens) + liveInputGrowth;
+    const cachedTokens =
+      this.cachedTokens > 0
+        ? this.cachedTokens
+        : (liveUsageTotals?.cacheReadTokens ?? 0);
+    const inStr = formatTokenCount(inputTokens);
     const outStr = formatTokenCount(outputTokens);
     let display = `${chalk.yellow(this.phrase)}${chalk.dim(` (${duration})`)} ${chalk.dim(`↓${inStr}`)} ${chalk.dim(`↑${outStr}`)}`;
-    if (this.cachedTokens > 0) {
-      display += ` ${chalk.dim(`cached: ${formatTokenCount(this.cachedTokens)}`)}`;
+    if (cachedTokens > 0) {
+      display += ` ${chalk.dim(`cached: ${formatTokenCount(cachedTokens)}`)}`;
     }
     display += ` ${chalk.dim(`(x${this.turns})`)}`;
 

@@ -25,7 +25,7 @@ test("caches the tree and only recomputes after invalidation", () => {
   assert.equal(cached, first, "same cached object served");
   assert.doesNotMatch(cached.tree, /b\.txt/);
 
-  // Invalidate (what the loop does after a mutating tool) → fresh tree
+  // Invalidate (process-level cache drop) → fresh tree
   invalidateProjectContext(dir);
   const fresh = getProjectContext(dir);
   assert.notEqual(fresh, first);

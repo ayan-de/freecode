@@ -12,6 +12,7 @@ import {
   convertToCoreMessages,
   buildAnthropicSystemParam,
   buildToolsParam,
+  applyMessageCaching,
   resolveModel,
   PROVIDER_MAX_RETRIES,
 } from "./utils.js";
@@ -61,29 +62,7 @@ function createZaiProvider(_apiKey: string): AIProvider {
 
     if (opts.messages) {
       const coreMessages = convertToCoreMessages(opts.messages);
-      if (coreMessages.length > 0) {
-        const lastMsg = coreMessages[coreMessages.length - 1];
-        if (lastMsg) {
-          if (typeof lastMsg.content === "string") {
-            lastMsg.content = [
-              {
-                type: "text",
-                text: lastMsg.content,
-                providerOptions: {
-                  anthropic: { cacheControl: { type: "ephemeral" } },
-                },
-              } as any,
-            ];
-          } else if (Array.isArray(lastMsg.content)) {
-            const lastPart = lastMsg.content[lastMsg.content.length - 1];
-            if (lastPart && typeof lastPart === "object") {
-              (lastPart as any).providerOptions = {
-                anthropic: { cacheControl: { type: "ephemeral" } },
-              };
-            }
-          }
-        }
-      }
+      applyMessageCaching(coreMessages);
       generateOptions.messages = coreMessages;
     } else {
       generateOptions.prompt = opts.prompt;
