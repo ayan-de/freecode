@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.21.0
+
+The observability follow-up to v0.20.0. That release made prompt caching work; this one makes it legible — the hit rate is reported rather than left as a division you do per turn, the daily record keeps enough detail to see a regression, and a detector names the turn that broke the prefix instead of leaving it to be found by hand months later. Design in `docs/superpowers/specs/2026-08-09-cache-observability.md`.
+
+### Added
+- **The prompt-cache hit rate, per run and per session.** The TUI already showed `cached: 89.2k` next to `↓12.3k` — an 88% hit rate, if you did the arithmetic every turn and never across the session. The run footer now reports `cache 88% (89.2k read, 4.1k write) · session 84%`. Writes are shown alongside because they bill at ~1.25x: a rate bought by constant rewriting is not a win, and the raw read count hides that. Session totals reset on resume rather than inheriting the previous session's numbers.
+- **`/cost`.** The rate was visible only for the run in front of you; `usage.json` stored one `tokencount` per day, so there was no way to see whether the rate regressed or when. The daily record now splits into input/output/cacheRead/cacheWrite, and `/cost` reads it back as session, today, last 7 days and all time. Session leads because it is the number you can act on, and is omitted before the first run completes rather than printing a 0% that reads as a cache failure. Days recorded before this have no breakdown and are excluded from the sums instead of counted as zero — folding a real 5M-token day in as 0 read / 0 input would drag every rate toward 0% and make a working setup look broken. `tokencount` keeps its meaning, so existing heatmap history stays comparable.
+- **An idle-return nudge.** After a gap longer than the cache TTL, the next message re-sends the whole conversation as fresh input at full price. When that context is also large (≥100k, `FREECODE_IDLE_NUDGE_TOKENS`, `0` disables), the TUI says so before sending and lets you decide — only you know whether the next message continues the old task. Idle is measured against the configured TTL, so it stays true under `FREECODE_CACHE_TTL=1h` instead of contradicting the cold-cache warning that shares its clock. A hint, never a blocking dialog.
+- **A prompt-cache miss detector.** A hit rate says money was lost; this says which turn lost it. After each response the detector compares cache usage against the previous call — reading none of a known prefix, or less than was cached, means bytes at an earlier position changed. Sites that knowingly change the prefix (compaction, a system-prompt hook rewrite) record why in an invalidation journal, and a documented miss stays at debug; an undocumented one raises a notice, because silence in the journal means something mutated an already-sent message. That is exactly the bug class RC3/RC4 in v0.20.0, both found by hand long after they landed. Detection is deliberately conservative: first call, post-compaction rebuild, and providers that report no cache fields are all silent, since a detector that cries wolf gets switched off before it catches anything.
+- **Byte and line limits on `read`,** with errors that say which limit was hit, and adaptive truncation that snaps its cut to a line boundary instead of mid-token.
+
+### Changed
+- **Tools no longer render.** The per-tool UI layer is gone from core (~1,400 lines): core emits `StreamEvent` data and each frontend draws it, which is what the architecture already claimed and what every frontend except the TUI was already doing.
+
+### Fixed
+- **`/clear` was a no-op.** It printed `*Messages cleared*` and touched neither the transcript nor core, so the entire conversation kept being re-sent on every later request — the command most likely to be reached for on a cost warning was the one doing nothing about it. It now clears the transcript, starts a fresh core session, and resets the session-scoped counters.
+- **A prompt starting with an absolute path was dispatched as a slash command.** `/home/me/repo check this` came back as `Unknown command: /home/me/repo` instead of reaching the model, because a leading `/` alone decided. The first token must now also look like a command name, so anything carrying a path separator is a prompt. Single-segment paths (`/tmp check this`) are still read as commands.
+
 ## v0.20.0
 
 The token-efficiency release. Prompt caching was measured at ~5% hit rate across six live sessions; it now runs at 90–99.8% on steady-state turns. Every cause was ours, none was the provider. Full write-up in `docs/superpowers/2026-08-06-prompt-caching-findings.md`, architecture in `docs/caching-architecture.md`.
