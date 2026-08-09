@@ -1,7 +1,8 @@
 # Memory Write Path
 
 > **Date:** 2026-08-09
-> **Status:** Proposed
+> **Status:** ✅ Implemented (2026-08-09) — both phases live, on `feat/memory-write-path`.
+> One deviation from D6, recorded in place below.
 > **Extends:** `specs/2026-07-26-memory-knowledge-graph.md` (the read side — implemented)
 > **Related:** `specs/2026-06-02-memory-session-design.md`, `specs/2026-08-09-cache-observability.md` (D2 cache-bust attribution)
 > **Prior art studied:** `claude-code` (`memdir/`, `services/extractMemories/`, `services/autoDream/`)
@@ -179,16 +180,42 @@ Properties:
 - **Errors swallowed.** A failed extraction logs at debug level and is otherwise
   invisible.
 
-### D6 — Extraction is a subagent on a restricted profile
+### D6 — Extraction is a one-shot provider call ⚠️ *(revised during implementation)*
 
-`executeSubagent` (`agent/subagent.ts:42`) with a prompt containing the
-transcript and the current index, allowed the `memory` tool only. This reuses the
-existing subagent path — its own loop, its own iteration cap, its own event
-stream — rather than adding a second bespoke model-call path.
+**As specified:** `executeSubagent` (`agent/subagent.ts:42`) allowed the `memory`
+tool only.
 
-`profiles.ts:263` `TOOL_PERMISSIONS` needs a `memory: ["file.write"]` entry;
-without it `isToolAllowed` fails closed on the unknown-tool branch
-(`profiles.ts:285`).
+**As built:** a single `provider.execute()` call returning a JSON array of
+proposals, which `extract.ts` validates and saves itself — the
+`agent/title-generator.ts` pattern, and the same shape as jcode's
+`Sidecar::extract_memories`, which likewise returns structs for the caller to
+persist.
+
+The spec was wrong on a fact: `SubagentType` (`agent/types.ts:38`) is a closed
+union of five types and `SubagentConfig` carries no tool allowlist, so
+"allowed the `memory` tool only" is not expressible through `executeSubagent`
+without adding a sixth subagent type. Weighed against that, the one-shot call
+is strictly better here: one request instead of an agent loop, and because *we*
+parse the proposals rather than letting a model call a tool, the
+`MAX_SAVES_PER_RUN` cap is enforced deterministically instead of being a request
+the model may ignore.
+
+`profiles.ts:263` still gains `memory: ["file.write"]` — the tool is real and
+reachable by any agent, and without the entry `isToolAllowed` fails closed on
+the unknown-tool branch (`profiles.ts:285`).
+
+**Subagents do not extract.** `executeSubagent` passes `memoryExtraction: false`
+(new `AgentLoopConfig` field, default `true`). Not in the original spec, and a
+real defect it would have shipped: `executeSubagent` calls `loop.run()`, so every
+verifier / explorer / reviewer would have fired its own extraction call against a
+transcript of delegated machine work, turning one user turn into several
+extraction calls.
+
+**Cost.** Extraction adds **one provider call per completed top-level run**.
+No model is passed, so the provider's default (cheaper) model handles it rather
+than the session's main model. claude-code pays this too but softens it by
+forking the parent agent to share its prompt cache; FreeCode has no forked-agent
+primitive, so ours is a fresh call over a transcript clipped to 12k chars.
 
 ### D7 — `memory` is a mutating tool
 
@@ -204,31 +231,30 @@ parent's mode.
 
 ## 5. Module layout
 
-| File | Change | Responsibility |
-| --- | --- | --- |
-| `tools/memory.ts` | **create** | The tool: `save` / `delete` / `list` over `MemoryStore`, secret check (D4) |
-| `memory/mem-prompt.ts` | modify | Add `buildMemoryGuidanceBlock()` — static text, no entries (D2) |
-| `memory/extract.ts` | **create** | `extractMemories(transcript, ctx)` — the D5/D6 subagent call, cap, error swallowing |
-| `tools/index.ts` | modify | Register the tool |
-| `permission/mode-policy.ts` | **no change** | Deliberate omission from `READONLY_TOOLS` (D7). Listed here so a reviewer working the tool checklist sees it was considered, not forgotten |
-| `permission/rules.ts` | **no change** | Deliberate omission from `PATH_TOOLS`/`URL_TOOLS` — the tool takes no path or url argument, so path-scoped rules have nothing to match |
-| `permission/suggest.ts` | modify | `DISPLAY_NAMES["memory"] = "Memory"` |
-| `permission/profiles.ts` | modify | `TOOL_PERMISSIONS.memory = ["file.write"]` (D6) |
-| `context/compiler.ts` | modify | Emit the guidance block into the cached static prefix (D2) |
-| `agent/loop.ts` | modify | Fire-and-forget extraction at the `complete("Done", ...)` branch, line 846 (D5) |
+| | File | Change | Responsibility |
+| --- | --- | --- | --- |
+| ✅ | `tools/memory.ts` | **created** | The tool: `save` / `delete` / `list` over `MemoryStore`, secret check (D4) |
+| ✅ | `memory/mem-prompt.ts` | modified | `buildMemoryGuidanceBlock()` — static text, no entries (D2) |
+| ✅ | `memory/extract.ts` | **created** | `extractMemories(input)` — one-shot call, parse, cap, error swallowing (D5/D6) |
+| ✅ | `tools/index.ts` | modified | Registered the tool |
+| ✅ | `permission/mode-policy.ts` | **no change** | Deliberate omission from `READONLY_TOOLS` (D7). Listed so a reviewer working the tool checklist sees it was considered, not forgotten |
+| ✅ | `permission/rules.ts` | **no change** | Deliberate omission from `PATH_TOOLS`/`URL_TOOLS` — the tool takes no path or url argument, so path-scoped rules have nothing to match |
+| ✅ | `permission/suggest.ts` | modified | `DISPLAY_NAMES["memory"] = "Memory"` |
+| ✅ | `permission/profiles.ts` | modified | `TOOL_PERMISSIONS.memory = ["file.write"]` (D6) |
+| ✅ | `context/compiler.ts` | modified | Guidance block emitted into the cached static prefix (D2) |
+| ✅ | `agent/loop.ts` | modified | `kickMemoryExtraction()` at the `complete("Done", …)` branch; `memoryExtraction` config field (D5) |
+| ✅ | `agent/subagent.ts` | modified | Passes `memoryExtraction: false` (D6) |
 
 `tools/memory.ts` stays under the ~150-line project limit; extraction lives in
 `memory/extract.ts` rather than in the tool, so the tool has one job.
 
 ## 6. Phasing
 
-**Phase 1 — model-driven.** D1–D4, D7. The tool, the guidance block, the
-registration tables. Self-contained: the store starts filling from the model's
-own judgement, and every downstream consumer (graph, `/graph`, retrieval)
-becomes exercised for the first time.
-
-**Phase 2 — the safety net.** D5, D6. Extraction at completion. Depends on
-Phase 1's tool existing.
+- [x] **Phase 1 — model-driven.** D1–D4, D7. The tool, the guidance block, the
+  registration tables. Self-contained: the store starts filling from the model's
+  own judgement, and every downstream consumer (graph, `/graph`, retrieval)
+  becomes exercised for the first time.
+- [x] **Phase 2 — the safety net.** D5, D6. Extraction at completion.
 
 Phase 1 ships and is useful alone. Phase 2 is what makes capture reliable rather
 than dependent on the model remembering to act.
@@ -249,31 +275,46 @@ than dependent on the model remembering to act.
 
 `node:test`, matching the existing convention in `memory/*.test.ts` and
 `memory/graph/*.test.ts` (temp dir + real `MemoryStore`, no mocking of the store).
+**18 new tests; suite green at 520/520.**
 
-- `tools/memory.test.ts` — save creates a file with valid frontmatter that
+- [x] `tools/memory.test.ts` (8) — save creates a file whose frontmatter
   `parseMemoryFrontmatter` round-trips; save on an existing name reports
-  `updated`; delete returns false for a missing entry; list returns descriptions
-  but never bodies; a secret-bearing save is refused and writes nothing.
-- `memory/extract.test.ts` — the 3-save cap holds when more are proposed; a
-  throwing subagent produces no rejection; an empty transcript performs no call.
-- `memory/mem-prompt.test.ts` — the guidance block is byte-identical across
-  calls with different store contents (the property D2's caching depends on).
-- Integration: save via the tool → `MemoryGraphService.retrieve()` returns it
-  (proves the change event and graph sync work end to end).
+  `updated` with the prior description; delete reports hit vs miss; list returns
+  descriptions but never bodies; a secret-bearing save is refused and writes
+  nothing; `validateInput` rejects a bad type and missing per-action fields;
+  comma-separated `tags` from strict-decoding providers are coerced.
+- [x] `memory/extract.test.ts` (7) — the 3-save cap holds when 5 are proposed;
+  a throwing completion saves nothing and does not reject; malformed output
+  saves nothing; an empty transcript never calls the provider; a secret-bearing
+  proposal is skipped while its siblings save; fenced JSON parses; proposals
+  with an unknown type or missing fields are skipped.
+- [x] `memory/mem-prompt.test.ts` (3) — the guidance block is byte-identical
+  across calls with different store contents (the property D2's caching depends
+  on), names the tool/types/exclusions, and stays small.
+- [x] Regression guard for `memoryExtraction: false` — `recovery/manager.test.ts`
+  asserts an exact provider-call count, so a broken flag turns 3 into 4 and fails.
+- [ ] **Not done:** the integration test (save via tool →
+  `MemoryGraphService.retrieve()` returns it). The retrieval half is already
+  covered by the graph suite; this would prove the change event links the two
+  end to end.
 
 ## 9. Success criteria
 
-- A fresh project accumulates memories through ordinary use, with no user action.
-- `freecode memory graph stats` reports non-zero `nodes` on a real project — for
-  the first time.
-- The static system-prompt prefix is byte-identical before and after a memory
-  save, so `cacheHitRate` is unchanged by memory activity (verifies D2; a
-  regression here shows up as an unexplained bust in the cache-observability
-  spec's D2 detector).
-- Turn latency at completion is unchanged within noise (verifies D5's
-  fire-and-forget).
-- A memory containing an API key is never written to disk (verifies D4).
-- No path through the tool or the extractor can throw into `AgentLoop.run()`.
+- [x] The static system-prompt prefix is byte-identical before and after a memory
+  save, so `cacheHitRate` is unchanged by memory activity (D2). *Verified by
+  test:* the guidance block — the only memory text in the cached prefix — is
+  constant by construction.
+- [x] A memory containing an API key is never written to disk (D4). *Verified by
+  test,* on both the tool and the extraction path.
+- [x] No path through the tool or the extractor can throw into `AgentLoop.run()`.
+  *Verified by test* for the extractor (throwing and malformed completions);
+  the tool returns failures as tool results, never exceptions.
+- [ ] A fresh project accumulates memories through ordinary use, with no user
+  action. **Not yet verified — needs a real session against a live provider.**
+- [ ] `freecode memory graph stats` reports non-zero `nodes` on a real project.
+  **Not yet verified,** same reason.
+- [ ] Turn latency at completion unchanged within noise (D5). **Not measured;**
+  true by construction (the promise is never awaited) but unbenchmarked.
 
 ## 10. Decisions taken without explicit sign-off
 
@@ -287,3 +328,8 @@ Recorded so they are easy to overturn:
    with real data.
 4. **No consolidation** (§3) — both reference implementations have it; we defer
    until there is something to consolidate.
+5. **Extraction is always on** (D6) — one extra provider call per completed
+   top-level run, on the provider's default model. No setting gates it. If the
+   cost shows up in `/cost` before the memories show their worth, the
+   `memoryExtraction` config field is already the switch; it just needs to be
+   surfaced through settings.
