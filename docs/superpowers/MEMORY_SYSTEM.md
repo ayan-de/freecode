@@ -302,6 +302,23 @@ Vectors never leave the machine. There is no network call anywhere in retrieval.
 (`file.write`), `DISPLAY_NAMES`. Deliberately **not** in `READONLY_TOOLS`, so it
 is blocked in `plan`/`review`/`explore` like every other tool that writes.
 
+**What the user sees.** Two different paths, deliberately:
+
+| The model saves it | Turn-end extraction saves it |
+| --- | --- |
+| Renders as a normal tool call (`● Memory — Saved memory feedback/prefers-tables.`) | Renders as a system notice: *"Remembered 2 things for next time: …"* |
+| Magenta in the TS TUI, `󰍛` in the Rust TUI | Names each memory, and points at `/graph` and the off switch |
+
+The notice travels on the **bus**, not the turn stream — extraction is
+fire-and-forget and runs *after* the turn's `done`, so the stream is closed by
+then. The bus speaker wire (`server.ts:1080`) is subscribed at startup and
+writes to stdout regardless of whether a stream is open, so out-of-band notices
+arrive fine. Wire event: `memory.saved` (bus) → `memory_saved` (`StreamEvent`).
+
+Nothing is ever recorded about the user silently: this is the same rule
+claude-code follows with `createMemorySavedMessage` (`utils/messages.ts:4460`),
+emitted from both its extractor and its consolidation job.
+
 **IPC:** `memory.list` · `memory.get` · `memory.save` · `memory.delete` ·
 `memory.query` (routes through the graph service) · `memory.buildPrompt` ·
 `memory.graph.rebuild` · `memory.graph.stats` · `graph.explore`

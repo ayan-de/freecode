@@ -9,6 +9,7 @@ import type { ProviderId } from "../providers/index.js";
 import { getMemoryStore } from "./mem-store.js";
 import { MEMORY_TYPES, type MemoryType } from "./mem-types.js";
 import { containsSecret } from "./graph/secret-filter.js";
+import { BusEvents } from "../bus/index.js";
 import { logger } from "../utils/logger.js";
 
 // A runaway extractor fills the store with noise faster than anything cleans it
@@ -40,6 +41,8 @@ export interface ExtractInput {
   projectPath: string;
   provider: string;
   model?: string;
+  /** Emits memory.saved so the user is told. Omit to save silently (tests). */
+  sessionId?: string;
   /** Test seam; defaults to a one-shot provider call. */
   complete?: (system: string, prompt: string) => Promise<string>;
 }
@@ -125,6 +128,7 @@ export async function extractMemories(input: ExtractInput): Promise<number> {
     if (proposals.length === 0) return 0;
 
     const store = getMemoryStore(input.projectPath);
+    const savedEntries: Array<{ type: string; name: string }> = [];
     let saved = 0;
     for (const p of proposals) {
       if (saved >= MAX_SAVES_PER_RUN) break;
@@ -152,6 +156,14 @@ export async function extractMemories(input: ExtractInput): Promise<number> {
         updatedAt: now,
       });
       saved++;
+      savedEntries.push({ type: p.type, name: p.name });
+    }
+
+    // Tell the user something was recorded about them. Emitted on the bus, not
+    // the turn stream: extraction runs after the turn's `done`, so the stream
+    // is closed by now — the bus speaker wire is always live.
+    if (savedEntries.length > 0 && input.sessionId) {
+      BusEvents.memorySaved(input.sessionId, savedEntries);
     }
     return saved;
   } catch (error) {

@@ -55,6 +55,12 @@ export interface SessionDiffEvent {
   diff: FileDiff[];
 }
 
+export interface MemorySavedEvent {
+  type: "memory.saved";
+  sessionId: string;
+  memories: Array<{ type: string; name: string }>;
+}
+
 export interface ToolsChangedEvent {
   type: "tools.changed";
   added: Array<{ id: string; description: string }>;
@@ -210,6 +216,7 @@ export type BusEvent =
   | SessionUpdatedEvent
   | SessionErrorEvent
   | SessionDiffEvent
+  | MemorySavedEvent
   | ToolsChangedEvent
   | MCPToolsChangedEvent
   | SubagentStartedEvent
@@ -484,6 +491,15 @@ export const BusEvents = {
 
   sessionDiff: (sessionId: string, diff: FileDiff[]) =>
     bus.publish({ type: "session.diff", sessionId, diff } as SessionDiffEvent),
+
+  // Memories written by turn-end extraction (not by the tool — that already
+  // surfaces as a tool call). Users are told when something is recorded about
+  // them; silent writes are the wrong default.
+  memorySaved: (
+    sessionId: string,
+    memories: Array<{ type: string; name: string }>,
+  ) =>
+    bus.publish({ type: "memory.saved", sessionId, memories } as MemorySavedEvent),
 
   toolsChanged: (
     added: Array<{ id: string; description: string }>,

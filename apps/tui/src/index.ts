@@ -862,6 +862,17 @@ function handleToolEvent(event: StreamEvent) {
       setLiveOutputTokens(Math.round(streamedChars / 4));
       break;
     }
+    case "memory_saved": {
+      // Something was recorded about the user without them asking. Arrives
+      // after the turn's `done` (extraction is fire-and-forget), so it lands
+      // as its own notice rather than inside the turn's output.
+      const names = event.memories.map((m) => `${m.type}/${m.name}`).join(", ");
+      const count = event.memories.length;
+      createSystemMessage(
+        `*Remembered ${count} thing${count === 1 ? "" : "s"} for next time: ${names} — \`/graph\` to view, \`memory.autoExtract: false\` to stop.*`,
+      );
+      break;
+    }
     case "question_asked": {
       // Render each question as a centered modal card in sequence, collecting
       // answers indexed by question, then reply once the last one is answered.

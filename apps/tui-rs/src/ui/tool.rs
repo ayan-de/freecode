@@ -69,6 +69,7 @@ fn tool_icon(name: &str) -> &'static str {
         "websearch" => "󰜏",
         "todowrite" => "",
         "lsp" => "",
+        "memory" => "󰍛",
         // MCP tools (server-prefixed names) and anything unlisted:
         _ => "󰟶",
     }

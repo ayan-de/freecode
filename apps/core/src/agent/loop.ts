@@ -1143,6 +1143,7 @@ export class AgentLoop {
       transcript: text,
       projectPath: this.state.projectPath,
       provider,
+      sessionId: this.state.sessionId,
       // No model: extraction is a small classification job, so let the provider
       // pick its default rather than billing the session's (possibly large)
       // main model for it.

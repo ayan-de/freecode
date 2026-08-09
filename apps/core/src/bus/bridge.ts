@@ -46,6 +46,14 @@ export function busEventToClientEvent(
     };
   }
 
+  if (event.type === "memory.saved") {
+    return {
+      type: "memory_saved",
+      sessionId: event.sessionId,
+      memories: event.memories,
+    };
+  }
+
   // Lifecycle/progress events (session.*, subagent.*, mcp.server.*, tool.*)
   // are forwarded verbatim; frontends render what they recognize and ignore
   // the rest. Cast: these carry richer payloads than the base StreamEvent

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { extractMemories, MAX_SAVES_PER_RUN } from "./extract.js";
 import { getMemoryStore } from "./mem-store.js";
+import { bus } from "../bus/index.js";
 
 function fixture(): { projectPath: string; cleanup: () => void } {
   const projectPath = mkdtempSync(join(tmpdir(), "mem-extract-"));
@@ -163,6 +164,57 @@ test("proposals with an unknown type or missing fields are skipped", async () =>
     });
     assert.equal(saved, 1);
   } finally {
+    cleanup();
+  }
+});
+
+// Writing notes about someone without telling them is the wrong default, so
+// the bus notice is part of the contract, not a nicety.
+function captureMemorySaved(): { events: unknown[]; stop: () => void } {
+  const events: unknown[] = [];
+  const stop = bus.subscribeAll((e) => {
+    if ((e as { type: string }).type === "memory.saved") events.push(e);
+  });
+  return { events, stop };
+}
+
+test("announces saved memories on the bus so the user is told", async () => {
+  const { projectPath, cleanup } = fixture();
+  const cap = captureMemorySaved();
+  try {
+    await extractMemories({
+      transcript: TRANSCRIPT,
+      projectPath,
+      provider: "anthropic",
+      sessionId: "S1",
+      complete: async () => JSON.stringify([proposal("deploy-cadence")]),
+    });
+    assert.equal(cap.events.length, 1);
+    assert.deepEqual(cap.events[0], {
+      type: "memory.saved",
+      sessionId: "S1",
+      memories: [{ type: "project", name: "deploy-cadence" }],
+    });
+  } finally {
+    cap.stop();
+    cleanup();
+  }
+});
+
+test("stays silent when nothing was saved", async () => {
+  const { projectPath, cleanup } = fixture();
+  const cap = captureMemorySaved();
+  try {
+    await extractMemories({
+      transcript: TRANSCRIPT,
+      projectPath,
+      provider: "anthropic",
+      sessionId: "S1",
+      complete: async () => "[]",
+    });
+    assert.equal(cap.events.length, 0, "an empty extraction must not notify");
+  } finally {
+    cap.stop();
     cleanup();
   }
 });

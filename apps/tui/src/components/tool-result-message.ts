@@ -23,6 +23,7 @@ const TOOL_COLORS: Record<string, (text: string) => string> = {
   Grep: (t) => chalk.magentaBright(t),
   Skill: (t) => chalk.whiteBright(t),
   Agent: (t) => chalk.whiteBright(t),
+  Memory: (t) => chalk.magentaBright(t),
 };
 
 /**
