@@ -25,6 +25,7 @@
 import { readFileSync, readdirSync, existsSync, statSync } from "fs";
 import { join, basename } from "path";
 import { homedir } from "os";
+import { createHash } from "crypto";
 
 const SESSIONS_ROOT = join(homedir(), ".freecode", "sessions");
 
@@ -53,6 +54,91 @@ const DEFAULT_SYSTEM_TOKENS = 12_000;
 // someone off to fix a healthy session — the measurement equivalent of a false
 // positive, and worse than staying quiet, because Phase 0 exists to be trusted.
 const PARALLELISM_MIN_CALLS = 10;
+
+// ---------------------------------------------------------------------------
+// Repeat-work signal — Phase 0 of
+// docs/superpowers/specs/2026-08-08-continual-harness-design.md ("Layer 1").
+// The question this answers: does the agent redo work in this session that a
+// continual harness (a durable note like "you already read this file" or
+// "this command fails here, use X instead") could have prevented? Three
+// sub-signals, each scoped to what messages.jsonl can actually prove rather
+// than what would be nice to know — an inflated signal sends someone to build
+// a feature that doesn't pay off; see PARALLELISM_MIN_CALLS above for why
+// this script already treats that as worse than reporting nothing.
+// ---------------------------------------------------------------------------
+
+// A file re-read below this many times is normal iteration (re-check a file
+// after editing it, look at it from two different angles) — only count it as
+// signal once the same exact path comes back a third time.
+const REPEAT_READ_MIN = 3;
+
+// Mirrors agent/oscillation.ts RECENT_EDIT_WINDOW. Kept in sync by hand
+// deliberately, not by import: this script has no build step and reads
+// persisted history the way it actually was written, not the way the TS
+// source happens to compile today — see the CHARS_PER_TOKEN comment above for
+// the same reasoning applied to a different constant.
+const RECENT_EDIT_WINDOW = 30;
+
+// Exact literal error strings the loop writes into a tool-result message
+// (agent/loop.ts:2428 persists `result.modelOutput || result.error || ""`).
+// These come from tools/orchestrator.ts and tools/bash.ts and are matched as
+// prefixes, not substrings — a command whose own stdout happens to contain
+// the word "error" must not count. This catches hard tool-execution failures
+// (permission denial, missing tool, timeout, spawn error). It does NOT catch
+// a bash command's own non-zero exit: bash.ts resolves `{ success: true }`
+// for any exit code and never writes it into the persisted string, only into
+// `metadata.exitCode`, which is not part of `result`. The `<stderr>` marker
+// below is the closest available proxy for that case, reported separately
+// because it is weaker evidence.
+const HARD_ERROR_PREFIXES = [
+  "Permission denied: ",
+  "Command timed out after ",
+  "Error executing command: ",
+];
+const isHardToolError = (resultText) =>
+  typeof resultText === "string" &&
+  (HARD_ERROR_PREFIXES.some((p) => resultText.startsWith(p)) ||
+    (resultText.startsWith("Tool '") && resultText.includes("' not found")));
+
+// bash.ts:227-228 wraps stderr as `<stderr>\n...\n</stderr>` inside the
+// otherwise-successful output. Its presence on a repeated command is weaker
+// evidence than a hard error (some tools write warnings to stderr on
+// success), so it is reported as a separate, explicitly softer number.
+const hasStderr = (resultText) =>
+  typeof resultText === "string" && resultText.includes("<stderr>");
+
+// tools/edit.ts's own literal failure strings (:579,586,594). Its catch-block
+// errors (:617,658) rethrow whatever the filesystem/apply step said and are
+// not enumerable here — an edit that failed for one of those reasons is
+// undercounted as "succeeded" for oscillation purposes. Accepted approximation,
+// same spirit as HARD_ERROR_PREFIXES: better to undercount a rare case than to
+// guess at arbitrary exception text and overcount.
+const EDIT_ERROR_PREFIXES = [
+  "oldString and newString are identical",
+  "File not found: ",
+  "Path is a directory: ",
+];
+const isFailedEdit = (resultText) =>
+  typeof resultText === "string" &&
+  EDIT_ERROR_PREFIXES.some((p) => resultText.startsWith(p));
+
+// Port of agent/oscillation.ts toEditTransition/isRevert — same reasoning as
+// RECENT_EDIT_WINDOW above for why this is copied rather than imported.
+const hashSide = (value) => createHash("sha1").update(value).digest("hex");
+const toEditTransition = (file, oldString, newString) => ({
+  file,
+  from: hashSide(oldString),
+  to: hashSide(newString),
+});
+const isRevert = (recent, edit) => {
+  if (edit.from === edit.to) return false;
+  return recent.some(
+    (prior) =>
+      prior.file === edit.file &&
+      prior.from === edit.to &&
+      prior.to === edit.from,
+  );
+};
 
 const tokens = (chars) => Math.ceil(chars / CHARS_PER_TOKEN);
 
@@ -161,6 +247,12 @@ function analyze(session, opts) {
   let currentResponse = null;
   const hasUsageAnywhere = messages.some((m) => m.usage);
 
+  // Repeat-work signal (Phase 0, see constants block above).
+  const readCounts = new Map(); // filePath -> times read
+  const bashByCommand = new Map(); // command -> { count, hardErrors, stderrHits }
+  const recentEdits = [];
+  let oscillationScore = 0;
+
   for (const msg of messages) {
     const partsChars = JSON.stringify(msg.parts ?? []).length;
 
@@ -203,6 +295,45 @@ function analyze(session, opts) {
         toolNames.set(name, (toolNames.get(name) ?? 0) + 1);
         if (typeof part.result === "string")
           resultSizes.push(part.result.length);
+
+        const args = part.tool?.args ?? {};
+        const result = part.result;
+
+        if (name === "read" && typeof args.filePath === "string") {
+          readCounts.set(args.filePath, (readCounts.get(args.filePath) ?? 0) + 1);
+        }
+
+        if (name === "bash" && typeof args.command === "string") {
+          const entry = bashByCommand.get(args.command) ?? {
+            count: 0,
+            hardErrors: 0,
+            stderrHits: 0,
+          };
+          entry.count++;
+          if (isHardToolError(result)) entry.hardErrors++;
+          if (hasStderr(result)) entry.stderrHits++;
+          bashByCommand.set(args.command, entry);
+        }
+
+        // Mirrors updateLoopHealth's part C (agent/loop.ts:2190-2217): only an
+        // edit that undoes an earlier one on the same file scores, and a
+        // failed edit changed nothing so it can't be part of a revert cycle.
+        if (
+          name === "edit" &&
+          !isFailedEdit(result) &&
+          typeof args.filePath === "string" &&
+          typeof args.oldString === "string" &&
+          typeof args.newString === "string"
+        ) {
+          const edit = toEditTransition(
+            args.filePath,
+            args.oldString,
+            args.newString,
+          );
+          if (isRevert(recentEdits, edit)) oscillationScore++;
+          recentEdits.push(edit);
+          if (recentEdits.length > RECENT_EDIT_WINDOW) recentEdits.shift();
+        }
       }
       toolCallHistogram.set(calls, (toolCallHistogram.get(calls) ?? 0) + 1);
     } else if (msg.role === "user") {
@@ -255,6 +386,21 @@ function analyze(session, opts) {
   const billedEquivalent =
     uncachedInput + reported.cacheRead * 0.1 + reported.cacheWrite * 1.25;
 
+  // Repeat-work summary. See the constants block for what each number can
+  // and cannot prove.
+  const repeatedReads = [...readCounts.entries()]
+    .filter(([, count]) => count >= REPEAT_READ_MIN)
+    .sort((a, b) => b[1] - a[1]);
+  const wastedReads = repeatedReads.reduce((sum, [, count]) => sum + count - 1, 0);
+
+  const retriedBash = [...bashByCommand.entries()].filter(
+    ([, e]) => e.count >= 2 && (e.hardErrors > 0 || e.stderrHits > 0),
+  );
+  const retriedAfterHardError = retriedBash.filter(([, e]) => e.hardErrors > 0);
+  const retriedAfterStderr = retriedBash.filter(
+    ([, e]) => e.hardErrors === 0 && e.stderrHits > 0,
+  );
+
   return {
     id: session.id,
     title: meta.title ?? "",
@@ -291,6 +437,19 @@ function analyze(session, opts) {
     billedInput,
     uncachedInput,
     billedEquivalent,
+    repeatWork: {
+      repeatedReads: repeatedReads.map(([path, count]) => ({ path, count })),
+      wastedReads,
+      retriedAfterHardError: retriedAfterHardError.map(([command, e]) => ({
+        command,
+        count: e.count,
+      })),
+      retriedAfterStderr: retriedAfterStderr.map(([command, e]) => ({
+        command,
+        count: e.count,
+      })),
+      oscillationScore,
+    },
   };
 }
 
@@ -350,6 +509,43 @@ function report(a) {
       `    top tools               ${a.topTools.map(([n, c]) => `${n}:${c}`).join("  ")}`,
     );
   }
+
+  console.log(`\n  Repeat work   [Layer1-P0 signal]`);
+  const rw = a.repeatWork;
+  if (rw.repeatedReads.length > 0) {
+    console.log(
+      `    files re-read >= ${REPEAT_READ_MIN}x     ${num(rw.repeatedReads.length)}` +
+        `  (${num(rw.wastedReads)} reads beyond the first)`,
+    );
+    for (const { path, count } of rw.repeatedReads.slice(0, 5)) {
+      console.log(`      ${count}x  ${path}`);
+    }
+  } else {
+    console.log(`    files re-read >= ${REPEAT_READ_MIN}x     0`);
+  }
+  if (rw.retriedAfterHardError.length > 0) {
+    console.log(
+      `    commands retried after error   ${num(rw.retriedAfterHardError.length)}   <- hard signal`,
+    );
+    for (const { command, count } of rw.retriedAfterHardError.slice(0, 5)) {
+      console.log(`      ${count}x  ${command.split("\n")[0].slice(0, 60)}`);
+    }
+  }
+  if (rw.retriedAfterStderr.length > 0) {
+    console.log(
+      `    commands retried w/ stderr     ${num(rw.retriedAfterStderr.length)}   (weaker signal — stderr isn't always failure)`,
+    );
+  }
+  if (
+    rw.retriedAfterHardError.length === 0 &&
+    rw.retriedAfterStderr.length === 0
+  ) {
+    console.log(`    commands retried after error   0`);
+  }
+  console.log(
+    `    oscillation score              ${num(rw.oscillationScore)}` +
+      (rw.oscillationScore > 0 ? "   <- edit/revert/edit cycles" : ""),
+  );
 
   console.log(`\n  Context`);
   console.log(`    final history           ${K(a.finalHistoryTokens)} tokens`);
@@ -445,6 +641,24 @@ function compare(before, after) {
       "billed-equivalent",
       before.billedEquivalent,
       after.billedEquivalent,
+      false,
+    ],
+    [
+      "wasted re-reads",
+      before.repeatWork.wastedReads,
+      after.repeatWork.wastedReads,
+      false,
+    ],
+    [
+      "commands retried/error",
+      before.repeatWork.retriedAfterHardError.length,
+      after.repeatWork.retriedAfterHardError.length,
+      false,
+    ],
+    [
+      "oscillation score",
+      before.repeatWork.oscillationScore,
+      after.repeatWork.oscillationScore,
       false,
     ],
   ];

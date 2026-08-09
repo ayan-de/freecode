@@ -554,11 +554,34 @@ they fail when the implementation is deliberately broken.
 
 Each phase is independently shippable and independently revertible.
 
-**Phase 0 — Measure (no behaviour change).**
-Extend `scripts/analyze-session.mjs` to report a repeat-work signal: same file read N
-times across turns, same failing command retried, oscillation counts from
-`loop-health`. Without this we cannot tell whether the feature works. *Verify: run it
-on 3 recorded sessions, sanity-check the numbers by hand.*
+**Phase 0 — Measure (no behaviour change). Implemented.**
+Extended `scripts/analyze-session.mjs` (branch `continual-harness-phase-0`) with a
+"Repeat work [Layer1-P0 signal]" section: files re-read ≥3x by exact path, bash
+commands retried after a hard tool-execution error (exact-prefix match against
+`orchestrator.ts`/`bash.ts`'s literal error strings) or after producing `<stderr>`
+output (reported separately, labelled weaker evidence), and an oscillation score
+ported directly from `agent/oscillation.ts`'s `toEditTransition`/`isRevert` (copied,
+not imported — this script has no build step and reads persisted history as it was
+actually written, same reasoning as its existing `CHARS_PER_TOKEN` mirror). All three
+also feed `--json` and the `--compare` table for free, since they're just new fields
+on the existing `analyze()` return.
+
+*Verify, done:* ran against 6 real recorded sessions (not the planned 3 — the first
+three were quiet on the hard-error-retry path, so more were pulled to exercise it).
+Two of the three signals were independently hand-verified exact: the repeated-read
+count against a from-scratch reimplementation (which itself first reported a wrong
+number — a too-loose substring match conflating `resume-picker.tsx` with
+`resume-picker.test.ts` — catching a bug in the *verification*, not the script, which
+is exactly what this verify step is for), and the oscillation score against a second
+independent reimplementation, exact match on both the score and which edit triggered
+it. `retriedAfterHardError` stayed at 0 across all 6 sessions — plausible and expected
+given the deliberately conservative literal-prefix match, not evidence of a bug.
+
+Finding worth carrying into Phase 1+ design: the two largest real repeat-read counts
+seen (22x and 18x, both on files central to the task at hand) are exactly the shape of
+thing a continual harness note ("you've read this file many times this session; here's
+what mattered") would target — a concrete, measured case for the feature, not just the
+theoretical one in §1.
 
 **Phase 1 — Store + injection, no refinement.**
 `harness/types.ts`, `store.ts`, `inject.ts`. Hand-write a `harness_state.json`, confirm
