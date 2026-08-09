@@ -1,6 +1,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
 import type { StreamEvent } from "@thisisayande/freecode-shared";
+import type { UsageTotals } from "../utils/format-tokens.js";
 
 export interface MessageCreators {
   createUserMessage(content: string): { component: Component; id: number };
@@ -34,6 +35,18 @@ export interface CommandContext extends MessageCreators {
   showResumePicker?(): void;
   /** Trigger manual compaction of the current session (the /compact command). */
   compactSession?(): Promise<void>;
+  /**
+   * Cache/token totals for the active session (the /cost command). Lives in the
+   * shell rather than the store because it accumulates across prompts and is
+   * reset when the session changes. Undefined before the first completed run.
+   */
+  getSessionUsage?(): UsageTotals | undefined;
+  /**
+   * Drop the transcript and start a fresh core session (the /clear command).
+   * The point is the reset in core: clearing only the rendered messages would
+   * leave the whole conversation still being re-sent on the next request.
+   */
+  clearSession?(): Promise<void>;
   handleToolEvent?(event: StreamEvent): void;
   /**
    * Release the terminal from pi-tui, run `fn` (typically an alternate-screen

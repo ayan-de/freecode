@@ -306,9 +306,13 @@ export interface LoopResult {
   iterationCount: number;
   finalState: SessionState;
   usage?: {
+    // NOTE: already includes cache writes — they are billed input, so folding
+    // them in keeps ↓ honest on turn 1. `cacheCreationInputTokens` below is the
+    // same tokens reported separately for the cache hit rate, NOT an addition.
     inputTokens: number;
     outputTokens: number;
     cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
     // Last API call's full input — true context-window occupancy
     contextTokens?: number;
   };

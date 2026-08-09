@@ -87,6 +87,15 @@ import {
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import {
+  recordInvalidation,
+} from "../providers/cache-invalidation.js";
+import {
+  checkCacheUsage,
+  describeCacheProblem,
+  isCacheMissNoticesEnabled,
+  bumpCacheGeneration,
+} from "../providers/cache-miss.js";
+import {
   noteSendAndCheckCold,
   summarizeCache,
 } from "../providers/cache-awareness.js";
@@ -581,6 +590,10 @@ export class AgentLoop {
       let totalInputTokens = 0;
       let totalOutputTokens = 0;
       let totalCacheReadTokens = 0;
+      // Reported separately for the hit rate only. These tokens are ALSO in
+      // totalInputTokens (cache writes are billed input) — never add both into
+      // a denominator or the writes count twice.
+      let totalCacheWriteTokens = 0;
       // Occupancy of the model's window = last call's full input (each call
       // resends the whole conversation, so summing would double-count).
       let lastTurnContextTokens = 0;
@@ -592,6 +605,7 @@ export class AgentLoop {
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
         cacheReadInputTokens: totalCacheReadTokens,
+        cacheCreationInputTokens: totalCacheWriteTokens,
         contextTokens: lastTurnContextTokens,
       });
 
@@ -683,6 +697,8 @@ export class AgentLoop {
             (turnResult.usage.cacheCreationInputTokens ?? 0);
           totalOutputTokens += turnResult.usage.outputTokens ?? 0;
           totalCacheReadTokens += turnResult.usage.cacheReadInputTokens ?? 0;
+          totalCacheWriteTokens +=
+            turnResult.usage.cacheCreationInputTokens ?? 0;
           lastTurnContextTokens =
             (turnResult.usage.inputTokens ?? 0) +
             (turnResult.usage.cacheReadInputTokens ?? 0) +
@@ -690,18 +706,19 @@ export class AgentLoop {
 
           // Persist this turn's total tokens into the daily usage heatmap
           // (~/.freecode/usage.json), consumed by the TUI `/usage` command.
-          recordDailyUsage(
-            (turnResult.usage.inputTokens ?? 0) +
-              (turnResult.usage.outputTokens ?? 0) +
-              (turnResult.usage.cacheReadInputTokens ?? 0) +
-              (turnResult.usage.cacheCreationInputTokens ?? 0),
-          );
+          recordDailyUsage({
+            inputTokens: turnResult.usage.inputTokens ?? 0,
+            outputTokens: turnResult.usage.outputTokens ?? 0,
+            cacheReadTokens: turnResult.usage.cacheReadInputTokens ?? 0,
+            cacheWriteTokens: turnResult.usage.cacheCreationInputTokens ?? 0,
+          });
 
           BusEvents.stream(this.state.sessionId, {
             type: "usage_totals",
             totalInputTokens,
             totalOutputTokens,
             totalCacheReadTokens,
+            totalCacheWriteTokens,
           });
 
           // Spend circuit breaker (RC7/D7): loop-health only warns on a stuck
@@ -1012,6 +1029,15 @@ export class AgentLoop {
     }
 
     if (outcome.compacted) {
+      // Compaction rebuilds the provider-facing history, so the next request
+      // MUST miss. Documented + generation bump so D2 reports it as expected
+      // rather than as a harness bust.
+      recordInvalidation(
+        this.state.sessionId,
+        "compaction",
+        `${trigger} compaction: ${outcome.tokensBefore} → ${outcome.tokensAfter} tokens`,
+      );
+      bumpCacheGeneration(this.state.sessionId);
       this.recorder.recordCompactOccurred(
         outcome.tokensBefore,
         outcome.tokensAfter,
@@ -1159,6 +1185,16 @@ export class AgentLoop {
         sessionBlocks,
         hookResult.modifiedPrompt,
       );
+      // A hook that rewrites the system prompt changes the first cache
+      // breakpoint, so everything after it is re-written. Legitimate, but only
+      // if it says so — otherwise D2 reports it as an unexplained bust.
+      if (hookResult.modifiedPrompt) {
+        recordInvalidation(
+          this.state.sessionId,
+          "system prompt hook",
+          "a UserPromptSubmit hook rewrote the system prompt",
+        );
+      }
 
       // The threshold check is a prediction, and predictions miss: one turn can
       // add more than the buffer covers, or the session may have been resumed
@@ -1630,6 +1666,41 @@ export class AgentLoop {
       state: "warm",
       cacheReadTokens: readTokens,
       cacheWriteTokens: writeTokens,
+    });
+    this.checkCacheHealth(usage, readTokens, writeTokens);
+  }
+
+  // Spec 2026-08-09 D2: a hit rate says money was lost; this says which turn
+  // lost it. A miss the invalidation journal explains is normal and stays at
+  // debug — an unexplained one means something mutated an already-sent message,
+  // which is the bug RC3/RC4 were and which nothing currently catches.
+  private checkCacheHealth(
+    usage: { inputTokens?: number } | undefined,
+    readTokens: number,
+    writeTokens: number,
+  ): void {
+    if (!isCacheMissNoticesEnabled()) return;
+    const problem = checkCacheUsage(this.state.sessionId, {
+      cacheReadTokens: readTokens,
+      cacheWriteTokens: writeTokens,
+      inputTokens: usage?.inputTokens ?? 0,
+    });
+    if (!problem) return;
+
+    if (problem.documentedCause) {
+      logger.debug(
+        `[cache] miss attributed to ${problem.documentedCause} ` +
+          `(${problem.affectedTokens} tokens)`,
+      );
+      return;
+    }
+    logger.warn(`[cache] ${describeCacheProblem(problem)}`);
+    BusEvents.stream(this.state.sessionId, {
+      type: "cache_status",
+      state: "miss",
+      cacheReadTokens: readTokens,
+      cacheWriteTokens: writeTokens,
+      message: describeCacheProblem(problem),
     });
   }
 

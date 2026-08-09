@@ -108,10 +108,14 @@ export type StreamEvent =
       // will likely miss Anthropic's ~5-min cache; "warm" carries post-turn
       // read/write token counts. Informational — frontends may render or ignore.
       type: "cache_status";
-      state: "cold" | "warm";
-      message?: string; // human-readable, set on "cold"
-      cacheReadTokens?: number; // served from cache (cheap), set on "warm"
-      cacheWriteTokens?: number; // written to cache this turn, set on "warm"
+      // "miss" is the harness-bug alarm (spec 2026-08-09 D2): the prefix was
+      // busted with no recorded cause, i.e. something changed a message that
+      // had already been sent. A legitimate rebuild (compaction) is documented
+      // in the invalidation journal and never reaches the frontend.
+      state: "cold" | "warm" | "miss";
+      message?: string; // human-readable, set on "cold" and "miss"
+      cacheReadTokens?: number; // served from cache (cheap), set on "warm"/"miss"
+      cacheWriteTokens?: number; // written to cache this turn, set on "warm"/"miss"
     }
   // Turn-level advisory the user needs to see (e.g. an attachment dropped
   // because the model can't accept it). Does not fail the turn.
@@ -121,9 +125,13 @@ export type StreamEvent =
   // 2026-08-05-token-efficiency, D7). Core computes; frontends only display.
   | {
       type: "usage_totals";
+      // Already includes cache writes — they are billed as input. The separate
+      // totalCacheWriteTokens below is the same tokens broken out for the cache
+      // hit rate, so summing the two double-counts them.
       totalInputTokens: number;
       totalOutputTokens: number;
       totalCacheReadTokens: number;
+      totalCacheWriteTokens?: number;
     }
   | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
   | {

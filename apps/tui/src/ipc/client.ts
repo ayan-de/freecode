@@ -456,9 +456,12 @@ export interface SessionSendResult {
   turnCount?: number;
   iterationCount?: number;
   usage?: {
+    // Includes cache writes (billed input); cacheCreationInputTokens repeats
+    // them for the hit-rate breakdown rather than adding to them.
     inputTokens: number;
     outputTokens: number;
     cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
     contextTokens?: number;
   };
 }
@@ -620,14 +623,24 @@ export async function resolveCommand(
   return prompt;
 }
 
-/** Per-day token totals for the `/usage` heatmap. Core owns the storage. */
-export async function getUsage(): Promise<
-  { date: string; tokencount: number }[]
-> {
-  return (await sendRequest("usage.get")) as {
-    date: string;
-    tokencount: number;
-  }[];
+/**
+ * Per-day token totals for the `/usage` heatmap and `/cost`. Core owns the
+ * storage. The breakdown fields are absent on days recorded before they
+ * existed — `/cost` reports those as "no breakdown" rather than as zeroes.
+ */
+export interface DailyUsage {
+  date: string;
+  tokencount: number;
+  /** Billed input: cache writes already folded in. */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  /** The subset of `inputTokens` that was cache writes. */
+  cacheWriteTokens?: number;
+}
+
+export async function getUsage(): Promise<DailyUsage[]> {
+  return (await sendRequest("usage.get")) as DailyUsage[];
 }
 
 export interface SkillInfo {

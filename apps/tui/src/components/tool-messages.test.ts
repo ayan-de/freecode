@@ -4,6 +4,16 @@ import { clearMessages, getMessages } from "../state/message-store.js";
 import { createToolProgressMessage } from "./index.js";
 import { ToolResultMessage } from "./tool-result-message.js";
 
+/**
+ * Headers are chalk-styled, so reset codes land between the parts an assertion
+ * wants adjacent (`Run` and `(`, a path and its `:range`). Whether they appear
+ * at all depends on chalk's colour detection — FORCE_COLOR or a TTY turns them
+ * on — so assert on the plain text and the test holds either way.
+ */
+function plain(lines: string[]): string {
+  return lines.join("|").replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 test("createToolProgressMessage adds a renderable tool message", () => {
   clearMessages();
 
@@ -56,7 +66,7 @@ test("a multi-line bash command is flattened in the Run header", () => {
   for (const line of lines) {
     assert.ok(!line.includes("\n"), `embedded newline in: ${line}`);
   }
-  assert.match(lines.join("|"), /Run\(cd apps\/tui/);
+  assert.match(plain(lines), /Run\(cd apps\/tui/);
 });
 
 test("multi-line string args are flattened in the header", () => {
@@ -75,18 +85,15 @@ test("multi-line string args are flattened in the header", () => {
 
 test("a ranged read shows the line window in the header", () => {
   const header = (args: Record<string, unknown>) =>
-    new ToolResultMessage({
-      toolCallId: "call-range",
-      toolName: "read",
-      args: { filePath: "/tmp/auth.ts", ...args },
-      result: "ok",
-      success: true,
-    })
-      .render(120)
-      .join("\n")
-      // The range is dim-styled, so the reset codes sit between the path and
-      // the colon. Compare on the plain text.
-      .replace(/\x1b\[[0-9;]*m/g, "");
+    plain(
+      new ToolResultMessage({
+        toolCallId: "call-range",
+        toolName: "read",
+        args: { filePath: "/tmp/auth.ts", ...args },
+        result: "ok",
+        success: true,
+      }).render(120),
+    );
 
   // offset + limit → an explicit closed range.
   assert.match(header({ offset: 340, limit: 60 }), /auth\.ts:340-399/);
@@ -97,7 +104,7 @@ test("a ranged read shows the line window in the header", () => {
   // Providers that stringify numeric args get the same treatment.
   assert.match(header({ offset: "10", limit: "5" }), /auth\.ts:10-14/);
   // A whole-file read is unchanged.
-  const plain = header({});
-  assert.match(plain, /auth\.ts\)/);
-  assert.equal(/auth\.ts:/.test(plain), false);
+  const wholeFile = header({});
+  assert.match(wholeFile, /auth\.ts\)/);
+  assert.equal(/auth\.ts:/.test(wholeFile), false);
 });
