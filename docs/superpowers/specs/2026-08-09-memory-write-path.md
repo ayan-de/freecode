@@ -175,10 +175,50 @@ Properties:
 - **Capped at 3 saves per completion.** A runaway extractor that saves a memory
   per turn fills the store with noise faster than any consolidation could clean
   it, and there is no consolidation (§3 non-goals).
-- **Skipped when there is nothing to learn** — no user message this run, or the
-  run was interrupted/failed.
 - **Errors swallowed.** A failed extraction logs at debug level and is otherwise
   invisible.
+
+#### D5a — Gates: jcode's cadence, claude-code's free skips
+
+Running on *every* completed run was the original design and it was wrong.
+claude-code affords that cadence only because `runForkedAgent` +
+`createCacheSafeParams` put the transcript on the parent's prompt cache, so
+extraction bills near cache-read rates. FreeCode has no forked-agent primitive,
+so ours is a fresh, full-price call — it must not copy the cadence without the
+cache. jcode, whose extraction is likewise a real call, extracts every
+`PERIODIC_EXTRACTION_INTERVAL = 12` runs plus on topic change, never per turn.
+
+`memory/extract-policy.ts` applies four gates, cheapest first:
+
+| # | Gate | Source | Rationale |
+| - | ---- | ------ | --------- |
+| 1 | Skip if the `memory` tool ran this run | claude-code `hasMemoryWritesSince` | The model already said what it wanted to keep; a second model second-guessing it is the least valuable call available. Resets the counter — the range is handled |
+| 2 | Skip if transcript < 200 chars or < 2 turns | jcode `MIN_TURNS_FOR_EXTRACTION`, `len() >= 200` | "fix the typo" never held a memory |
+| 3 | Extract every N runs (default 8) **or** on topic change | jcode `PERIODIC_EXTRACTION_INTERVAL` + `TOPIC_CHANGE_THRESHOLD` | The actual lever |
+| 4 | `memory.autoExtract` / `memory.extractEveryNRuns`, `FREECODE_DISABLE_MEMORY_EXTRACTION` | claude-code `isAutoMemoryEnabled` | A throttle without a kill switch is half a mitigation |
+
+**Throttling loses nothing.** `buildTranscript()` rebuilds from the session's
+whole history, not from the current run, so a skipped run is still covered by
+the next extraction rather than dropped.
+
+**Topic change is free.** `lexicalSimilarity()` (`graph/index.ts:57`) and the
+`0.12` threshold are already computed every turn for the retrieval stash; the
+policy reuses the same function and constant so the two can never disagree
+about what a topic is. Note it does not strip stopwords — two prompts sharing
+only "and" score 0.125 and stay above the threshold, which biases toward fewer
+extractions (the right side, for cost).
+
+Measured on a simulated 20-run session: **20 provider calls → 3.**
+
+**Settings surface** (project `.freecode/settings.json` wins over user
+`~/.freecode/settings.json`, matching `permission/settings.ts` scope order):
+
+```json
+{ "memory": { "autoExtract": true, "extractEveryNRuns": 8 } }
+```
+
+An unparseable settings file falls through to defaults rather than disabling
+memory — failing closed here would silently turn the feature off.
 
 ### D6 — Extraction is a one-shot provider call ⚠️ *(revised during implementation)*
 
@@ -211,11 +251,10 @@ verifier / explorer / reviewer would have fired its own extraction call against 
 transcript of delegated machine work, turning one user turn into several
 extraction calls.
 
-**Cost.** Extraction adds **one provider call per completed top-level run**.
-No model is passed, so the provider's default (cheaper) model handles it rather
-than the session's main model. claude-code pays this too but softens it by
-forking the parent agent to share its prompt cache; FreeCode has no forked-agent
-primitive, so ours is a fresh call over a transcript clipped to 12k chars.
+**Cost.** Extraction is a real provider call over a transcript clipped to 12k
+chars, on the provider's default (cheaper) model rather than the session's main
+model. Originally one call per completed run; D5a's gates cut that to roughly
+one per 8 runs or per topic change.
 
 ### D7 — `memory` is a mutating tool
 
@@ -236,6 +275,8 @@ parent's mode.
 | ✅ | `tools/memory.ts` | **created** | The tool: `save` / `delete` / `list` over `MemoryStore`, secret check (D4) |
 | ✅ | `memory/mem-prompt.ts` | modified | `buildMemoryGuidanceBlock()` — static text, no entries (D2) |
 | ✅ | `memory/extract.ts` | **created** | `extractMemories(input)` — one-shot call, parse, cap, error swallowing (D5/D6) |
+| ✅ | `memory/extract-policy.ts` | **created** | `shouldExtract()` — the four gates + settings load (D5a) |
+| ✅ | `server.ts` | modified | `resetExtractPolicy(sessionId)` on `session.delete` |
 | ✅ | `tools/index.ts` | modified | Registered the tool |
 | ✅ | `permission/mode-policy.ts` | **no change** | Deliberate omission from `READONLY_TOOLS` (D7). Listed so a reviewer working the tool checklist sees it was considered, not forgotten |
 | ✅ | `permission/rules.ts` | **no change** | Deliberate omission from `PATH_TOOLS`/`URL_TOOLS` — the tool takes no path or url argument, so path-scoped rules have nothing to match |
@@ -275,7 +316,13 @@ than dependent on the model remembering to act.
 
 `node:test`, matching the existing convention in `memory/*.test.ts` and
 `memory/graph/*.test.ts` (temp dir + real `MemoryStore`, no mocking of the store).
-**18 new tests; suite green at 520/520.**
+**26 new tests; suite green at 528/528.**
+
+- [x] `memory/extract-policy.test.ts` (8) — the interval throttles then resets;
+  a topic change extracts without waiting; the memory-tool gate skips *and*
+  resets the counter; short exchanges skip; settings and the env var each
+  disable; two sessions keep independent counters; an unparseable settings file
+  falls through to defaults rather than disabling memory.
 
 - [x] `tools/memory.test.ts` (8) — save creates a file whose frontmatter
   `parseMemoryFrontmatter` round-trips; save on an existing name reports
@@ -332,8 +379,28 @@ Recorded so they are easy to overturn:
    with real data.
 4. **No consolidation** (§3) — both reference implementations have it; we defer
    until there is something to consolidate.
-5. **Extraction is always on** (D6) — one extra provider call per completed
-   top-level run, on the provider's default model. No setting gates it. If the
-   cost shows up in `/cost` before the memories show their worth, the
-   `memoryExtraction` config field is already the switch; it just needs to be
-   surfaced through settings.
+5. ~~**Extraction is always on**~~ — **resolved.** D5a gates it and surfaces
+   `memory.autoExtract` / `memory.extractEveryNRuns` in settings plus
+   `FREECODE_DISABLE_MEMORY_EXTRACTION`.
+6. **Interval default of 8** (D5a) — between jcode's 12 and every-run. A guess,
+   like the 3-save cap; revisit with real usage.
+
+## 11. Known gaps / fast-follows
+
+1. **No session-end flush.** jcode extracts at session end
+   (`trigger_final_extraction_with_dir`, four call sites); claude-code has
+   `autoDream`. We have neither, and the obvious hook does not work:
+   `disposeSessionMemory` has exactly **one** call site (`server.ts:964`,
+   `session.delete`), so it never fires on `session.switch`, `session.archive`,
+   `session.stop`, or process exit. Wiring a flush to it would fire only when a
+   user explicitly deletes a session.
+
+   **Consequence to be aware of:** a session that ends before hitting the
+   interval or a topic change never extracts at all. A one-shot session where
+   the user states a preference and leaves loses it unless the model saved it
+   with the tool. This is the throttle's real cost, and the fix is a genuine
+   session-end signal — worth tracing the exit paths and adding one.
+
+2. **No consolidation.** Unchanged from §3.
+
+3. **No automated test for save → retrieve.** Verified by hand only (§8).
