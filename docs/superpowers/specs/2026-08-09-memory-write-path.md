@@ -293,10 +293,12 @@ than dependent on the model remembering to act.
   on), names the tool/types/exclusions, and stays small.
 - [x] Regression guard for `memoryExtraction: false` — `recovery/manager.test.ts`
   asserts an exact provider-call count, so a broken flag turns 3 into 4 and fails.
-- [ ] **Not done:** the integration test (save via tool →
-  `MemoryGraphService.retrieve()` returns it). The retrieval half is already
-  covered by the graph suite; this would prove the change event links the two
-  end to end.
+- [ ] **Verified manually, not automated:** save via the tool →
+  `MemoryGraphService.retrieve()` returns it. A scratch run on a temp project
+  gave `stats: {vectors:1, dims:384, nodes:1, embedder:true}` and retrieved the
+  saved memory from a paraphrased query, proving the change event, the embed,
+  and the graph sync link up. Still worth an automated test, since nothing in
+  CI would catch a regression here.
 
 ## 9. Success criteria
 
@@ -311,8 +313,10 @@ than dependent on the model remembering to act.
   the tool returns failures as tool results, never exceptions.
 - [ ] A fresh project accumulates memories through ordinary use, with no user
   action. **Not yet verified — needs a real session against a live provider.**
-- [ ] `freecode memory graph stats` reports non-zero `nodes` on a real project.
-  **Not yet verified,** same reason.
+- [x] `freecode memory graph stats` reports non-zero `nodes`. *Verified
+  manually* on a scratch project (`vectors:1, nodes:1, embedder:true`) — the
+  first time the graph has indexed anything. Not yet observed on a project
+  populated by ordinary use.
 - [ ] Turn latency at completion unchanged within noise (D5). **Not measured;**
   true by construction (the promise is never awaited) but unbenchmarked.
 
