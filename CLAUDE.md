@@ -12,6 +12,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | Memory + sessions   | `specs/2026-06-02-memory-session-design.md`             |
 | Memory graph        | `specs/2026-07-26-memory-knowledge-graph.md`            |
 | Memory write path   | `specs/2026-08-09-memory-write-path.md`                 |
+| **Memory (all of it)** | **`docs/superpowers/MEMORY_SYSTEM.md`** — start here |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
