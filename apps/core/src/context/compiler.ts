@@ -9,6 +9,7 @@ import type { SystemBlock } from "../providers/types.js";
 import { compileInstructionsSection } from "./instructions.js";
 import { loadSystemPrompt } from "../session/prompt.js";
 import { renderAvailableSkillsSection } from "../skills/prompt.js";
+import { buildMemoryGuidanceBlock } from "../memory/mem-prompt.js";
 
 // ===========================================================================
 // System Prompts per Agent Mode
@@ -158,6 +159,9 @@ ${tree}`;
       this.compileSystemPrompt(),
       compileInstructionsSection(this.projectPath),
       skills,
+      // Constant text — safe in the cached prefix. The memories themselves are
+      // injected per turn by the loop, never here.
+      buildMemoryGuidanceBlock(),
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
