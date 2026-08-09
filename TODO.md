@@ -281,3 +281,5 @@ Need a feature like this
 5)The conversation isn't stored anywhere on the provider's side. There is no session. Anthropic's Messages API is fully stateless — your client reconstructs the entire conversation from scratch on every call, and the model re-reads all of it every time. "Memory" is an illusion your loop maintains by resending.
 
 (Partial exceptions exist — OpenAI's Responses API can store state server-side via previous_response_id, Gemini has explicit cache objects — but your loop treats providers uniformly and resends, which is the right call for portability.)
+
+6) Subagent UI
