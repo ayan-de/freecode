@@ -103,6 +103,16 @@ export type StreamEvent =
   // starts its turn — the UI treats that as a state change to "in-flight").
   | { type: "message_queued"; id: string; content: string }
   | { type: "message_dequeued"; id: string }
+  // A memory was written about the user WITHOUT them asking (turn-end
+  // extraction, spec 2026-08-09-memory-write-path D5). Arrives after the
+  // turn's `done` because extraction is fire-and-forget, so frontends must
+  // treat it as an out-of-band notice rather than part of the turn. Never
+  // emitted for the `memory` tool — that already shows as a tool call.
+  | {
+      type: "memory_saved";
+      sessionId?: string;
+      memories: Array<{ type: string; name: string }>;
+    }
   | {
       // Prompt-cache awareness (jcode #9). "cold" is emitted before a send that
       // will likely miss Anthropic's ~5-min cache; "warm" carries post-turn

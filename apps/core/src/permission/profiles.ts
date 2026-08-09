@@ -270,6 +270,9 @@ export const TOOL_PERMISSIONS: Record<string, PermissionOperation[]> = {
   agent: ["subprocess"],
   skill: ["file.read"],
   question: ["network"],
+  // Writes to the project's memory dir, never to the working tree. Needed so
+  // the extraction subagent's restricted profile can still record memories.
+  memory: ["file.write"],
   mcp: ["mcp"],
 };
 

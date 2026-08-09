@@ -3,6 +3,11 @@
 > A complete walkthrough of the feature: what problem it solves, the concepts
 > behind it, how each piece works, and what measurably changed before vs after.
 > Written so you can explain it end-to-end in an interview.
+>
+> **Scope note (2026-08-09):** this covers the **retrieval** half. The write
+> half — the `memory` tool, turn-end extraction, and its cost gates — landed
+> later; see [`MEMORY_SYSTEM.md`](./MEMORY_SYSTEM.md) for the whole system,
+> including how memories now get *created* in the first place.
 
 ---
 

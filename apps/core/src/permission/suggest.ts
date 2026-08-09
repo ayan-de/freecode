@@ -19,6 +19,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   agent: "Agent",
   skill: "Skill",
   output: "Output",
+  memory: "Memory",
   mcp: "MCP",
 };
 

@@ -11,6 +11,8 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | Multi-provider API  | `specs/2026-05-28-multi-provider-api-design.md`         |
 | Memory + sessions   | `specs/2026-06-02-memory-session-design.md`             |
 | Memory graph        | `specs/2026-07-26-memory-knowledge-graph.md`            |
+| Memory write path   | `specs/2026-08-09-memory-write-path.md`                 |
+| **Memory (all of it)** | **`docs/superpowers/MEMORY_SYSTEM.md`** — start here |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
@@ -30,7 +32,7 @@ The v4 architecture systems are implemented and live in `apps/core/src/`:
 | **Thread Store**           | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/remote.ts`                        |
 | **Sessions**               | `session/manager.ts`, `session/service.ts`, `session/store.ts`, `session/prompt.ts`, `session/normalize/`        |
 | **Compaction**             | `compaction/service.ts`, `compaction/selector.ts`, `compaction/summarizer.ts`, `compaction/tokens.ts`            |
-| **Memory**                 | `memory/mem-store.ts`, `memory/mem-query.ts`, `memory/mem-prompt.ts`, `memory/mem-types.ts`                       |
+| **Memory**                 | `memory/mem-store.ts`, `memory/mem-query.ts`, `memory/mem-prompt.ts`, `memory/mem-types.ts`. Write path (spec `2026-08-09-memory-write-path.md`): the `memory` tool, plus `extract.ts` mining finished turns, gated by `extract-policy.ts` (skip when the model already saved / when too short; else every `memory.extractEveryNRuns` runs (default 8) or on topic change). Off via `memory.autoExtract: false` in `.freecode/settings.json` or `FREECODE_DISABLE_MEMORY_EXTRACTION=1`. |
 | **Memory Graph**           | `memory/graph/` — derived KG over persistent memory (spec `2026-07-26-memory-knowledge-graph.md`). `embedder.ts` (local ONNX/fastembed, optional dep), `vector-store.ts` (packed f32 + content-hash cache), `builder.ts` (tag/wikilink/supersede edges), `clusters.ts` (deterministic k-means), `cascade.ts` (seed top-k → graph walk), `secret-filter.ts` (never embed secrets), `index.ts` (`MemoryGraphService`: async one-turn-behind injection, keyword fallback). Sidecar in `<memory>/.graph/`; CLI: `memory graph stats|rebuild`. Keyword retrieval stays as fallback when the embedder is unavailable. |
 | **Permission**             | `permission/` — per-rule allow/ask/deny layer (`rules.ts`, `evaluate.ts`, `mode-policy.ts`, `settings.ts`, `prompt.ts`; spec `2026-07-18-permission-rules.md`) + `profiles.ts` capability profiles (minimal/readonly/standard/elevated/admin, used for subagents). Agent modes (plan/build/review/explore/danger) live in `agent/types.ts`. |
 | **MCP Client**             | `mcp/client-registry.ts`, `mcp/service.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                            |
@@ -133,7 +135,7 @@ freecode/
 ### Tools
 
 Built-in tools live in `apps/core/src/tools/` and are registered in `tools/index.ts`:
-`read`, `ls`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`; execution and batching go through `orchestrator.ts` + `batching.ts`. Tools do **not** render — core emits `StreamEvent` data and each frontend draws it (TUI: `apps/tui/src/components/tool-result-message.ts`).
+`read`, `ls`, `write`, `edit`, `glob`, `grep`, `bash`, `skill`, `agent` (subagent), `question`, `webfetch`, `websearch`, `todowrite`, `lsp`, `memory`. MCP tools are registered dynamically at runtime via `registerMcpTool`. Each tool is built through `factory.ts` (`buildTool`) with `parameters`/`behavior`/`permissions`; execution and batching go through `orchestrator.ts` + `batching.ts`. Tools do **not** render — core emits `StreamEvent` data and each frontend draws it (TUI: `apps/tui/src/components/tool-result-message.ts`).
 
 #### Adding a tool — registration checklist
 

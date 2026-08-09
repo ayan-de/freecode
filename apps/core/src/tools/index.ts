@@ -13,6 +13,7 @@ import { TodoWriteTool } from "./todo.js";
 import { LspTool } from "./lsp.js";
 import { LsTool } from "./ls.js";
 import { OutputTool } from "./output.js";
+import { MemoryTool } from "./memory.js";
 import {
   createToolOrchestrator,
   type ToolOrchestrator,
@@ -75,6 +76,7 @@ export const tools = {
   lsp: LspTool,
   ls: LsTool,
   output: OutputTool,
+  memory: MemoryTool,
 } as const;
 
 export type ToolId = keyof typeof tools;
