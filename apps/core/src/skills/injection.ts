@@ -167,7 +167,7 @@ export function renderSkillCompact(skill: Skill): string {
  * - Description contains query verbatim: 0.6
  * - Description shares words with query: 0.4-0.6, scaled by hit ratio
  */
-export function scoreSkill(skill: Skill, query: string): number {
+export function scoreSkill(skill: SkillMetadata, query: string): number {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return 0;
 
@@ -213,7 +213,10 @@ export function scoreSkill(skill: Skill, query: string): number {
  * Rank skills by relevance to a query, sorted by score descending.
  * Ties keep their original relative order.
  */
-export function rankSkills(skills: Skill[], query: string): Skill[] {
+export function rankSkills<T extends SkillMetadata>(
+  skills: T[],
+  query: string,
+): T[] {
   return skills
     .map((skill, index) => ({ skill, index, score: scoreSkill(skill, query) }))
     .sort((a, b) => b.score - a.score || a.index - b.index)

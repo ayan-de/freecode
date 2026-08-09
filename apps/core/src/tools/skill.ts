@@ -10,7 +10,11 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import type { SkillsManager } from "../skills/manager.js";
 import { getSkillsManagerForProject } from "../skills/manager.js";
-import { renderSkillForPrompt } from "../skills/index.js";
+import {
+  renderSkillForPrompt,
+  rankSkills,
+  scoreSkill,
+} from "../skills/index.js";
 
 interface SkillParams {
   name: string;
@@ -127,10 +131,17 @@ async function executeSkill(
     const skill = await manager.getSkill(params.name);
 
     if (!skill) {
+      const allMetadata = await manager.listSkills();
+      const suggestions = rankSkills(allMetadata, params.name)
+        .filter((s) => scoreSkill(s, params.name) > 0)
+        .slice(0, 3);
+      const didYouMean = suggestions.length
+        ? `Did you mean: ${suggestions.map((s) => s.name).join(", ")}?\n\n`
+        : "";
       const available = await listSkills(ctx);
       return {
         success: false,
-        error: `Skill "${params.name}" not found.\n\n${available}`,
+        error: `Skill "${params.name}" not found.\n\n${didYouMean}${available}`,
       };
     }
 
