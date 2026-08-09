@@ -7,6 +7,10 @@
 > primary file `packages/coding-agent/src/core/refinement/refinement.ts` (1017 lines).
 > **Related specs:** `2026-07-26-memory-knowledge-graph.md`, `2026-08-05-token-efficiency.md`,
 > `2026-06-02-memory-session-design.md`
+> **Companion spec:** `2026-08-10-autonomous-runs-design.md` ("Layer 2" — running the
+> agent without a human present: bounded budget-capped runs, and eventually ambient
+> self-scheduling). Separable and separately shippable; that spec's §4.7 covers how the
+> two interact.
 
 ---
 
