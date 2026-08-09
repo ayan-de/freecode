@@ -75,6 +75,7 @@ import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { extractMemories } from "../memory/extract.js";
 import { shouldExtract } from "../memory/extract-policy.js";
+import { loadHarnessPromptBlock } from "../harness/inject.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -88,9 +89,7 @@ import {
 } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
-import {
-  recordInvalidation,
-} from "../providers/cache-invalidation.js";
+import { recordInvalidation } from "../providers/cache-invalidation.js";
 import {
   checkCacheUsage,
   describeCacheProblem,
@@ -1226,6 +1225,11 @@ export class AgentLoop {
       // gate) into this turn's prompt. Transient — never persisted to history.
       const reminderText = this.pendingReminders.join("\n\n");
       this.pendingReminders = [];
+      // Continual harness (Phase 1 — store + injection only, no refinement
+      // yet: nothing writes an entry today outside tests). Off by default
+      // (docs/superpowers/specs/2026-08-08-continual-harness-design.md §9);
+      // loadHarnessPromptBlock checks settings before touching disk.
+      const harnessBlock = loadHarnessPromptBlock(context.projectPath);
       // Session-only system blocks: todo state and transient reminders. They
       // change, but they sit at the tail of the system array and the message
       // anchors that actually drive cache reads are downstream — so even a
@@ -1240,6 +1244,7 @@ export class AgentLoop {
             ]
           : []),
         ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
+        ...(harnessBlock ? [{ text: harnessBlock, cache: false }] : []),
         ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
         ...(reminderText ? [{ text: reminderText, cache: false }] : []),
       ];
