@@ -4,10 +4,13 @@
 // =============================================================================
 
 import { randomUUID } from "crypto";
+import * as path from "path";
+import * as os from "os";
 import type { SubagentType, SubagentConfig } from "./types.js";
 import { SUBAGENT_DEFINITIONS } from "./types.js";
 import { createAgentLoop } from "./loop.js";
 import { BusEvents } from "../bus/index.js";
+import { createSessionStore, type SessionStore } from "../session/store.js";
 
 export interface SubagentResult {
   success: boolean;
@@ -45,7 +48,14 @@ export async function executeSubagent(
   provider: string,
   model?: string,
 ): Promise<SubagentResult> {
-  const id = randomUUID();
+  let id: string = randomUUID();
+  let sessionStore: SessionStore | undefined;
+
+  if (config.forkFrom) {
+    const baseDir = path.join(os.homedir(), ".freecode");
+    sessionStore = await createSessionStore(baseDir);
+    id = await sessionStore.fork(config.forkFrom);
+  }
 
   // Emit subagent started event
   BusEvents.subagentStarted(id, config.type, "", config.taskPrompt);
@@ -58,6 +68,7 @@ export async function executeSubagent(
       // each subagent extract would multiply one user turn into several
       // extraction calls.
       memoryExtraction: false,
+      sessionStore,
     });
 
     const prompt = buildSubagentPrompt(config);

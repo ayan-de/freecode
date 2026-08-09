@@ -2,6 +2,8 @@
 // Agent Tool - Spawn a sub-agent with UI rendering
 // =============================================================================
 
+import * as path from "path";
+import * as os from "os";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
@@ -9,11 +11,14 @@ import { AgentLoop } from "../agent/loop.js";
 import { BusEvents } from "../bus/index.js";
 import type { HookContext } from "../agent/types.js";
 import type { HookRuntime } from "../hooks/runtime.js";
+import { createSessionStore, type SessionStore } from "../session/store.js";
+import { coerceBoolean } from "./read.js";
 
 interface AgentParams {
   task: string;
   prompt: string;
   agentType?: string;
+  forkContext?: boolean;
 }
 
 // =============================================================================
@@ -27,6 +32,11 @@ const agentSchema: JsonSchema = {
     prompt: { description: "The actual prompt/instruction for the sub-agent" },
     agentType: {
       description: "Optional: AI provider to use (e.g., 'chatgpt', 'claude')",
+    },
+    forkContext: {
+      type: "boolean",
+      description:
+        "If true, the sub-agent starts with the full parent conversation forked into its own session, instead of only the task prompt. Use when the sub-agent needs this conversation's context (e.g. continuing complex work) rather than a fresh, isolated investigation.",
     },
   },
   required: ["task", "prompt"],
@@ -49,6 +59,12 @@ function validateAgentInput(
   if (typeof p.prompt !== "string" || p.prompt.length === 0) {
     return { valid: false, error: "prompt is required" };
   }
+  if (
+    p.forkContext !== undefined &&
+    coerceBoolean(p.forkContext) === undefined
+  ) {
+    return { valid: false, error: "forkContext must be a boolean" };
+  }
   return { valid: true };
 }
 
@@ -67,8 +83,15 @@ async function executeSubagent(
     metadata?: Record<string, unknown>;
   }>
 > {
-  const subagentId = `subagent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  let subagentId = `subagent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const parentSessionId = ctx.sessionId || "unknown";
+  let sessionStore: SessionStore | undefined;
+
+  if (coerceBoolean(params.forkContext) && ctx.sessionId) {
+    const baseDir = path.join(os.homedir(), ".freecode");
+    sessionStore = await createSessionStore(baseDir);
+    subagentId = await sessionStore.fork(ctx.sessionId);
+  }
 
   const hookCtx: HookContext = {
     sessionId: subagentId,
@@ -93,6 +116,7 @@ async function executeSubagent(
     const subAgentLoop = new AgentLoop(subagentId, {
       maxIterations: 50,
       hooks,
+      sessionStore,
     });
 
     const result = await subAgentLoop.run({

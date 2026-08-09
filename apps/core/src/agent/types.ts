@@ -54,6 +54,10 @@ export interface SubagentConfig {
   systemPrompt?: string;
   /** Task-specific prompt */
   taskPrompt: string;
+  /** Parent session ID to fork: the sub-agent's session starts with the
+   * parent's full conversation history instead of just the task prompt.
+   * Omit for the default isolated-context behavior. */
+  forkFrom?: string;
 }
 
 export const SUBAGENT_DEFINITIONS: Record<
