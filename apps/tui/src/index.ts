@@ -1226,6 +1226,12 @@ async function submitPrompt(
   }
 }
 
+// A slash command name is a single bare word (`/model`, `/cost`, `/mcp:list`).
+// Absolute paths start with "/" too, so a leading slash alone can't decide:
+// "/home/me/repo check this" must go to the model as a prompt, not report
+// "Unknown command: /home/me/repo".
+const SLASH_COMMAND_NAME = /^[a-z0-9][a-z0-9_:.-]*$/i;
+
 editor.onSubmit = async (value: string) => {
   // Resolve the chips the user left in place, in document order — anything
   // they deleted is simply not in `value` and never gets uploaded. The
@@ -1247,7 +1253,7 @@ editor.onSubmit = async (value: string) => {
     const commandName = parts[0]?.toLowerCase();
     const args = parts.slice(1);
 
-    if (commandName) {
+    if (commandName && SLASH_COMMAND_NAME.test(commandName)) {
       if (commandName === "freecode" && !commandRegistry.get("freecode")) {
         const mod = await import("./commands/freecode/index.js");
         mod.registerFreecodeCommand();
