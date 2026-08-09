@@ -160,28 +160,64 @@ export function renderSkillCompact(skill: Skill): string {
  * Score a skill by relevance to a query.
  * Used for ranking when multiple skills might match.
  *
- * Currently not implemented - returns 1.0 for all skills.
- * Future: implement fuzzy matching on name, description, trigger.
+ * - Trigger regex match: 1.0
+ * - Exact name match: 1.0
+ * - Name contains/contained-by query: 0.8
+ * - Name shares a word with query: 0.7
+ * - Description contains query verbatim: 0.6
+ * - Description shares words with query: 0.4-0.6, scaled by hit ratio
  */
-export function scoreSkill(skill: Skill, _query: string): number {
-  // TODO: Implement relevance scoring
-  // - Exact name match: 1.0
-  // - Partial name match: 0.7-0.9
-  // - Description match: 0.4-0.6
-  // - Trigger regex match: 0.8-1.0
-  return 1.0;
+export function scoreSkill(skill: Skill, query: string): number {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) return 0;
+
+  const q = trimmedQuery.toLowerCase();
+  const queryWords = q.split(/\s+/).filter((w) => w.length > 2);
+  let best = 0;
+
+  if (skill.trigger) {
+    try {
+      if (new RegExp(skill.trigger, "i").test(trimmedQuery)) {
+        best = Math.max(best, 1.0);
+      }
+    } catch {
+      // Invalid regex in skill frontmatter — ignore rather than crash scoring.
+    }
+  }
+
+  const name = skill.name.toLowerCase();
+  if (name === q) {
+    best = Math.max(best, 1.0);
+  } else if (name.includes(q) || q.includes(name)) {
+    best = Math.max(best, 0.8);
+  } else if (queryWords.some((word) => name.includes(word))) {
+    best = Math.max(best, 0.7);
+  }
+
+  if (skill.description) {
+    const description = skill.description.toLowerCase();
+    if (description.includes(q)) {
+      best = Math.max(best, 0.6);
+    } else if (queryWords.length > 0) {
+      const hits = queryWords.filter((word) => description.includes(word)).length;
+      if (hits > 0) {
+        best = Math.max(best, 0.4 + 0.2 * (hits / queryWords.length));
+      }
+    }
+  }
+
+  return Math.min(1, best);
 }
 
 /**
- * Filter and rank skills by relevance to a query.
- * Returns skills sorted by score descending.
- *
- * Currently not implemented.
+ * Rank skills by relevance to a query, sorted by score descending.
+ * Ties keep their original relative order.
  */
 export function rankSkills(skills: Skill[], query: string): Skill[] {
-  // TODO: Implement ranking
-  // For now, return as-is
-  return skills;
+  return skills
+    .map((skill, index) => ({ skill, index, score: scoreSkill(skill, query) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ skill }) => skill);
 }
 
 // ============================================================================

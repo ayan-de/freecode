@@ -6,10 +6,12 @@ import type { ToolCallInput, HookExecutionResult } from "../types.js";
 import type { HookContext, HookCommand, RegisteredHook } from "../types.js";
 import { executeCommandHook } from "./command.js";
 import { executeCallbackHook } from "./callback.js";
+import { executePromptHook } from "./prompt.js";
 import { bus } from "../../bus/index.js";
 
 export { executeCommandHook } from "./command.js";
 export { executeCallbackHook } from "./callback.js";
+export { executePromptHook } from "./prompt.js";
 
 // =============================================================================
 // Execute a single hook
@@ -76,11 +78,12 @@ async function executeHookCommand(
       );
 
     case "prompt":
-      // For now, prompt hooks are not implemented
-      // They would require LLM evaluation
-      return {
-        success: true,
-      };
+      return executePromptHook(
+        matcher,
+        input,
+        context,
+        matcher.timeout ? matcher.timeout * 1000 : undefined,
+      );
 
     default:
       return {
