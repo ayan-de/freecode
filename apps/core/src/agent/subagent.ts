@@ -53,6 +53,11 @@ export async function executeSubagent(
   try {
     const loop = createAgentLoop(id, {
       maxIterations: config.maxIterations ?? 20,
+      // A subagent's transcript is delegated machine work, not user
+      // conversation — there is nothing durable to learn from it, and letting
+      // each subagent extract would multiply one user turn into several
+      // extraction calls.
+      memoryExtraction: false,
     });
 
     const prompt = buildSubagentPrompt(config);

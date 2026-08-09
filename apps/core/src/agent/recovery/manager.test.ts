@@ -268,7 +268,13 @@ test("agent loop session continues through a 429 storm", async () => {
       sessionId,
     );
     const loop = await runtime.runPromise(
-      createAgentLoopEffect(sessionId, { maxIterations: 3 }),
+      // memoryExtraction off: it fires its own provider call at completion,
+      // which would be counted by flakyCalls and obscure the retry count this
+      // test exists to assert.
+      createAgentLoopEffect(sessionId, {
+        maxIterations: 3,
+        memoryExtraction: false,
+      }),
     );
 
     flakyCalls = 0;

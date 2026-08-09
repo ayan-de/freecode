@@ -73,6 +73,7 @@ import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
+import { extractMemories } from "../memory/extract.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -176,6 +177,13 @@ export interface AgentLoopConfig {
   memory?: MemoryService;
   orchestrator?: ToolOrchestrator;
   recovery?: RecoveryManager;
+  /**
+   * Mine the transcript for durable memories when the run completes.
+   * Defaults to true. Subagents set it false: their transcript is delegated
+   * machine work, not user conversation, and one extraction call per subagent
+   * would multiply the cost of a single user turn.
+   */
+  memoryExtraction?: boolean;
 }
 
 // =============================================================================
@@ -215,6 +223,7 @@ export class AgentLoop {
   private recorder: RolloutRecorder;
   private orchestrator: ToolOrchestrator;
   private recovery: RecoveryManager;
+  private memoryExtraction: boolean;
   private sessionStore: SessionStore | undefined;
   private lastThinking: string | undefined;
   private compiler: PromptCompiler;
@@ -275,6 +284,7 @@ export class AgentLoop {
     this.recovery = config?.recovery ?? createRecoveryManagerFromConfig();
     this.compiler = new PromptCompiler("", "");
     this.sessionStore = config?.sessionStore;
+    this.memoryExtraction = config?.memoryExtraction ?? true;
   }
 
   private async loadHistory(): Promise<void> {
@@ -843,6 +853,13 @@ export class AgentLoop {
             }
           }
 
+          // The model answered with no further tool calls: this run is done and
+          // the transcript is as complete as it will get. Mine it for durable
+          // memories WITHOUT awaiting — the user's result returns now and
+          // extraction finishes behind it (spec 2026-08-09-memory-write-path
+          // D5). Same discipline as the graph's fire-and-forget onChange.
+          this.kickMemoryExtraction(input.provider);
+
           return this.complete(
             "Done",
             turnResult.responseText,
@@ -1076,6 +1093,40 @@ export class AgentLoop {
         .trim();
     }
     return "";
+  }
+
+  // Flatten the run's messages into a transcript for memory extraction. Text
+  // parts only — tool args and results are the "how", and what we want is what
+  // the user said and what was concluded.
+  private buildTranscript(): string {
+    const lines: string[] = [];
+    for (const msg of this.history) {
+      if (msg.role !== "user" && msg.role !== "assistant") continue;
+      const text = msg.parts
+        .filter((p) => p.type === "text")
+        .map((p) => (p as { content?: string }).content ?? "")
+        .join("\n")
+        .trim();
+      if (text.length > 0) lines.push(`${msg.role}: ${text}`);
+    }
+    return lines.join("\n\n");
+  }
+
+  // Fire-and-forget memory extraction. Deliberately not awaited and deliberately
+  // non-throwing: the run's result has already been decided, and a memory
+  // failure must never surface as a task failure.
+  private kickMemoryExtraction(provider: string): void {
+    if (!this.memoryExtraction || this.abort.signal.aborted) return;
+    void extractMemories({
+      transcript: this.buildTranscript(),
+      projectPath: this.state.projectPath,
+      provider,
+      // No model: extraction is a small classification job, so let the provider
+      // pick its default rather than billing the session's (possibly large)
+      // main model for it.
+    }).catch(() => {
+      // extractMemories already swallows; this guards the promise itself.
+    });
   }
 
   private async executeTurn(
