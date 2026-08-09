@@ -44,6 +44,7 @@ import {
   getMemoryStore,
   getMemoryGraphService,
   disposeSessionMemory,
+  resetExtractPolicy,
   type MemoryEntry,
   type MemoryType,
 } from "./memory/index.js";
@@ -962,6 +963,7 @@ const methodHandlers: Record<
     const manager = await getSessionManager();
     await manager.delete(sessionId);
     disposeSessionMemory(sessionId);
+    resetExtractPolicy(sessionId);
     disposeOutputStore(sessionId);
     disposeReadState(sessionId);
     disposeCacheAwareness(sessionId);

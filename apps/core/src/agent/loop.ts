@@ -74,6 +74,7 @@ import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { extractMemories } from "../memory/extract.js";
+import { shouldExtract } from "../memory/extract-policy.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -243,6 +244,9 @@ export class AgentLoop {
   private pendingReminders: string[] = [];
   private todoGateForces = 0;
   private turnsSinceTodoWrite = 0;
+  // Did the model save a memory itself during this run? If so, extraction is
+  // skipped — it has already said what it wanted to keep.
+  private memoryToolUsedThisRun = false;
   private turnsSinceLastNudge = 0;
   // The provider's own count of the last request's input (prompt + cache
   // reads + cache writes) — i.e. how full the model's window actually is.
@@ -506,6 +510,7 @@ export class AgentLoop {
     this.lastVerifierReport = undefined;
     this.lastMemoryQueryText = "";
     this.lastMemoryBlock = undefined;
+    this.memoryToolUsedThisRun = false;
     // History is reloaded below, and the ids are only meaningful against that
     // load — so decisions from a previous run cannot be carried over.
     this.pruneState.reset();
@@ -1098,7 +1103,7 @@ export class AgentLoop {
   // Flatten the run's messages into a transcript for memory extraction. Text
   // parts only — tool args and results are the "how", and what we want is what
   // the user said and what was concluded.
-  private buildTranscript(): string {
+  private buildTranscript(): { text: string; turns: number } {
     const lines: string[] = [];
     for (const msg of this.history) {
       if (msg.role !== "user" && msg.role !== "assistant") continue;
@@ -1109,7 +1114,7 @@ export class AgentLoop {
         .trim();
       if (text.length > 0) lines.push(`${msg.role}: ${text}`);
     }
-    return lines.join("\n\n");
+    return { text: lines.join("\n\n"), turns: lines.length };
   }
 
   // Fire-and-forget memory extraction. Deliberately not awaited and deliberately
@@ -1117,8 +1122,25 @@ export class AgentLoop {
   // failure must never surface as a task failure.
   private kickMemoryExtraction(provider: string): void {
     if (!this.memoryExtraction || this.abort.signal.aborted) return;
+
+    const { text, turns } = this.buildTranscript();
+    // Gates before the call, cheapest first: a skipped run costs a settings
+    // read and two string comparisons instead of a provider round trip.
+    const decision = shouldExtract({
+      sessionId: this.state.sessionId,
+      projectRoot: this.state.projectPath,
+      transcript: text,
+      turns,
+      memoryToolUsed: this.memoryToolUsedThisRun,
+      userText: this.getLastUserText(),
+    });
+    if (!decision.extract) {
+      logger.debug(`[MemoryExtract] skipped: ${decision.reason}`);
+      return;
+    }
+
     void extractMemories({
-      transcript: this.buildTranscript(),
+      transcript: text,
       projectPath: this.state.projectPath,
       provider,
       // No model: extraction is a small classification job, so let the provider
@@ -1320,6 +1342,9 @@ export class AgentLoop {
       }
 
       const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
+      if (toolCalls.some((tc) => tc.tool === "memory")) {
+        this.memoryToolUsedThisRun = true;
+      }
 
       // Construct assistant message and push to history
       const assistantMessage: Message = {

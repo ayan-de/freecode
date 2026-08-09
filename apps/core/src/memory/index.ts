@@ -8,3 +8,5 @@ export {
   disposeSessionMemory,
   MemoryGraphService,
 } from "./graph/index.js";
+export { extractMemories } from "./extract.js";
+export { shouldExtract, resetExtractPolicy } from "./extract-policy.js";
