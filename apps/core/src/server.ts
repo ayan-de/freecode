@@ -81,6 +81,18 @@ import { readDailyUsage } from "./usage/tracker.js";
 import { appendHistory, readHistoryDisplays } from "./history/store.js";
 import { getSkillsManagerForProject } from "./skills/manager.js";
 import { startGraphExplorer } from "./graph-explorer/server.js";
+import {
+  getGlobalHarnessDir,
+  loadHarnessState,
+  mergeHarnessStates,
+  resolveSessionHarnessDir,
+} from "./harness/store.js";
+import {
+  HARNESS_KINDS,
+  type DistillResult,
+  type HarnessEntry,
+  type HarnessState,
+} from "./harness/types.js";
 import { openBrowser } from "./utils/open-browser.js";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
@@ -307,6 +319,24 @@ function createError(
   data?: unknown,
 ): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message, data } };
+}
+
+/**
+ * The merged (global + session-local) harness view, exactly as prompt
+ * injection sees it — harness.list/.history must not show the user a
+ * different picture from what the model gets.
+ */
+function readHarness(params: Record<string, unknown>): HarnessState {
+  const { projectPath, sessionId } = params as {
+    projectPath?: string;
+    sessionId?: string;
+  };
+  const root = projectPath || process.cwd();
+  const global = loadHarnessState(getGlobalHarnessDir(), "global");
+  const local = sessionId
+    ? loadHarnessState(resolveSessionHarnessDir(root, sessionId), "local")
+    : undefined;
+  return mergeHarnessStates(global, local);
 }
 
 const methodHandlers: Record<
@@ -869,6 +899,27 @@ const methodHandlers: Record<
     };
     const store = getMemoryStore(projectPath || process.cwd());
     return buildMemoryPrompt(store, { types, limit, all });
+  },
+
+  // ========== Continual Harness Methods (spec §4.9, Phase 3) ==========
+  // See readHarness() below for the shared load.
+  // Read-only: what the agent has written down about this project, and the
+  // audit log of every distillation that put it there. Both read the same
+  // merged (global + session-local) view the prompt injection uses, so what
+  // the user sees in /harness is what the model actually gets — no second
+  // source of truth. `sessionId` is optional: omit it for global scope only.
+
+  "harness.list": async (
+    params: Record<string, unknown>,
+  ): Promise<HarnessEntry[]> => {
+    const state = readHarness(params);
+    return HARNESS_KINDS.flatMap((kind) => Object.values(state.entries[kind]));
+  },
+
+  "harness.history": async (
+    params: Record<string, unknown>,
+  ): Promise<DistillResult[]> => {
+    return readHarness(params).distillations;
   },
 
   // ========== Session Methods ==========

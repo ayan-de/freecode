@@ -53,6 +53,11 @@ export function extractTarget(toolName: string, args: Record<string, unknown>): 
   }
   if (URL_TOOLS.has(tool)) return (args.url ?? args.query) as string | undefined;
   if (tool === "agent") return (args.agentType as string | undefined) ?? "";
+  // distill's "target" is its scope: local dies with the session, global
+  // persists into every future session, so they're worth allowing separately
+  // (spec 2026-08-08 §9 — global requires `ask`). Same exact-or-`*` matching
+  // as agent; a bare `Distill` rule still covers both.
+  if (tool === "distill") return (args.scope as string | undefined) ?? "local";
   return undefined;
 }
 
@@ -76,7 +81,7 @@ export function ruleMatches(
     return matchPath(rule.pattern, extractTarget(tool, args), projectRoot);
   }
   if (URL_TOOLS.has(tool)) return matchUrl(rule.pattern, extractTarget(tool, args));
-  if (tool === "agent") {
+  if (tool === "agent" || tool === "distill") {
     return rule.pattern === "*" || rule.pattern === extractTarget(tool, args);
   }
   return false;

@@ -4,8 +4,12 @@ import { restoreScreen } from "../terminal-screen.js";
 import {
   getUsage,
   graphExplore,
+  harnessHistory,
+  harnessList,
   listSkills,
   type DailyUsage,
+  type DistillResultInfo,
+  type HarnessEntryInfo,
   type SkillInfo,
 } from "../ipc/client.js";
 import { renderCostReport } from "../utils/cost-report.js";
@@ -25,6 +29,7 @@ const helpCommand: Command = {
 - **/cost** - Show token spend and prompt-cache hit rate
 - **/skills** - List available skills (global + project)
 - **/graph** - Open the memory knowledge graph in your browser
+- **/harness** - Show the continual harness (what the agent has recorded)
 - **/exit** - Exit FreeCode
 
 Use **PgUp/PgDn** to scroll the message history.
@@ -219,6 +224,77 @@ const graphCommand: Command = {
   },
 };
 
+// The audit UI for the continual harness (spec 2026-08-08 §5.4: "an
+// unreadable self-modifying store is not shippable"). Read-only on purpose —
+// editing and rolling back go through the `distill` tool, which is
+// permission-gated; a slash command that silently rewrote persistent agent
+// state would be the one path around that gate.
+const harnessCommand: Command = {
+  name: "harness",
+  description: "Show the continual harness (what the agent has recorded)",
+  execute: async (_args, ctx) => {
+    const sessionId = ctx.getSessionId?.();
+    let entries: HarnessEntryInfo[];
+    let history: DistillResultInfo[];
+    try {
+      [entries, history] = await Promise.all([
+        harnessList(sessionId),
+        harnessHistory(sessionId),
+      ]);
+    } catch (err) {
+      ctx.showMessage(`*Error reading harness: ${err}*`);
+      return;
+    }
+
+    if (entries.length === 0 && history.length === 0) {
+      ctx.showMessage(
+        "*The continual harness is empty.*\n\n" +
+          "It fills up when the agent calls **distill** after learning something durable " +
+          "(or when you run **/distill**). Off unless `harness.enabled` is true in " +
+          "`.freecode/settings.json`.",
+      );
+      return;
+    }
+
+    const lines = [`**Continual Harness** (${entries.length} entries)`, ""];
+    const byKind = new Map<string, HarnessEntryInfo[]>();
+    for (const entry of entries) {
+      const list = byKind.get(entry.kind) ?? [];
+      list.push(entry);
+      byKind.set(entry.kind, list);
+    }
+    for (const [kind, list] of [...byKind].sort()) {
+      lines.push(`**${kind}** (${list.length})`);
+      for (const entry of list.sort((a, b) => a.id.localeCompare(b.id))) {
+        lines.push(
+          `- \`${entry.scope}:${entry.id}\` **${entry.title}** _(v${entry.version})_`,
+        );
+        lines.push(`  ${entry.content.replace(/\s+/g, " ").trim()}`);
+      }
+      lines.push("");
+    }
+
+    if (history.length > 0) {
+      lines.push(`**History** (${history.length})`);
+      // Newest first, capped — the full log lives in harness_state.json.
+      for (const event of [...history].reverse().slice(0, 10)) {
+        const applied = event.appliedEdits.filter((e) => e.applied).length;
+        const failed = event.appliedEdits.length - applied;
+        lines.push(
+          `- \`${event.id}\` (${event.scope}) ${event.summary} — ${applied} applied` +
+            (failed > 0 ? `, ${failed} rejected` : "") +
+            (event.rollbackOf ? ` _(rollback of ${event.rollbackOf})_` : ""),
+        );
+      }
+      lines.push("");
+      lines.push(
+        "_Undo one with the `distill` tool's `rollback_id`, e.g. “roll back <id>”._",
+      );
+    }
+    ctx.showMessage(lines.join("\n"));
+  },
+};
+
 export function registerBuiltInCommands(): void {
   registerCommand(helpCommand);
   registerCommand(clearCommand);
@@ -230,4 +306,5 @@ export function registerBuiltInCommands(): void {
   registerCommand(costCommand);
   registerCommand(skillsCommand);
   registerCommand(graphCommand);
+  registerCommand(harnessCommand);
 }

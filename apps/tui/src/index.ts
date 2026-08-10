@@ -1284,6 +1284,7 @@ editor.onSubmit = async (value: string) => {
           // rather than printing a 0% that looks like a cache failure.
           getSessionUsage: () => (sessionRuns > 0 ? sessionUsage : undefined),
           clearSession: clearSession,
+          getSessionId: () => currentSession?.sessionId,
           compactSession: async () => {
             if (!currentSession) {
               showMessage("*No active session to compact.*");

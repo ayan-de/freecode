@@ -48,6 +48,8 @@ export interface CommandContext extends MessageCreators {
    */
   clearSession?(): Promise<void>;
   handleToolEvent?(event: StreamEvent): void;
+  /** Active session id, for commands whose data is session-scoped (/harness). */
+  getSessionId?(): string | undefined;
   /**
    * Release the terminal from pi-tui, run `fn` (typically an alternate-screen
    * UI that owns stdin/stdout itself), then re-attach pi-tui afterwards.

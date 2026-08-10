@@ -754,10 +754,47 @@ test, not by a second live call — the unit coverage is thorough and mutation-c
 a live rollback call would have cost more real API credits without proportionally new
 information given what the tests already prove.
 
-**Phase 3 — Global scope + audit UI.**
-Global store, `refinements.jsonl`, `harness.list`/`harness.history` IPC, a `/harness`
-TUI view. Global requires `ask` permission. _Verify: a lesson from session A changes
-behaviour in session B — the actual success criterion._
+**Phase 3 — Global scope + audit UI. Implemented.**
+
+- **Global store: already done, no new code.** Phase 2's `kickDistillation` already
+  routes `scope: "global"` to `getGlobalHarnessDir()`, and `loadHarnessPromptBlock`
+  already merges global into every session's prompt block. The remaining Phase 3 work
+  was making it *inspectable* and *gated*, not making it exist.
+- **`harness.list` / `harness.history` IPC** (`server.ts`), both read-only, both over a
+  shared `readHarness()` that loads global + (optional) session-local and merges them
+  through the same `mergeHarnessStates` prompt injection uses — so `/harness` cannot
+  show the user a different picture from what the model gets. `sessionId` is optional;
+  omitting it gives global-only. Declared as handlers, not in `METHODS`, matching the
+  existing `memory.*`/`skills.list` handlers which are also handler-only.
+- **`/harness` TUI view** (`commands/built-in.ts`) — entries grouped by kind with
+  `scope:id`, title, version and content, then the 10 most recent distillations newest
+  first with applied/rejected edit counts and rollback provenance. Read-only on
+  purpose: rollback stays behind the permission-gated `distill` tool, since a slash
+  command that rewrote persistent agent state would be the one path around that gate.
+  Needed one new `CommandContext` member, `getSessionId()`, to reach local scope.
+- **Global requires `ask`** — `distill` is already `mutating`, so build mode's
+  `modeDefault` asks for *every* call. The gap was that a user allow-rule
+  (`Distill`) would blanket-allow global too. Fixed by giving `distill` a rule pattern
+  in `permission/rules.ts` (`extractTarget` → `args.scope ?? "local"`, matched
+  exact-or-`*` exactly like `agent`), so `Distill(local)` allows the session-scoped case
+  while global still falls through to `ask`. Six lines, no new mechanism.
+
+**`refinements.jsonl` deliberately not built.** §4.2 planned a separate append-only
+global log, but Phase 2 already made `HarnessState.distillations` the full append-only
+audit log (it had to — rollback needs each edit's before/after snapshot, so a summary
+log was never viable). A second file would be a second source of truth for the same
+records, written by the same atomic tmp+rename that already protects the first.
+`harness.history` reads the state's log directly.
+
+_Verify, done:_ `Distill(local)` / `Distill(global)` / `Distill(*)` / bare `Distill`
+matching, including the default-to-local case, as unit tests (597 green, `tsc` clean
+across core and TUI). Both IPC handlers driven end-to-end through the real
+`handleRequest` — a hand-written global entry was returned by `harness.list` with the
+correct merged shape, `harness.history` returned the (empty) log, and the probe entry
+was removed afterward with the removal re-read and confirmed. The
+session-A-changes-session-B criterion is Phase 2's live-verified global write path plus
+Phase 1's live-verified injection, unchanged by this phase; not re-spent API credits to
+re-demonstrate the same two links.
 
 **Phase 4 — The gate and automatic triggers.**
 `gate.ts`, turn interval, compaction boundary, cooldown. Default **off**. _Verify:

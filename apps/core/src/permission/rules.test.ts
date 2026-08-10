@@ -112,6 +112,18 @@ test("agent rules match subagent type or wildcard", () => {
   assert.ok(!matches("Agent(explore)", "agent", { agentType: "review" }));
 });
 
+// Global-scope distillations persist into every future session, so allowing
+// local must not silently allow global (spec 2026-08-08 §9).
+test("distill rules match scope, defaulting to local", () => {
+  assert.ok(matches("Distill(local)", "distill", { scope: "local" }));
+  assert.ok(matches("Distill(local)", "distill", {}));
+  assert.ok(!matches("Distill(local)", "distill", { scope: "global" }));
+  assert.ok(matches("Distill(global)", "distill", { scope: "global" }));
+  assert.ok(matches("Distill(*)", "distill", { scope: "global" }));
+  // A bare rule still covers both scopes.
+  assert.ok(matches("Distill", "distill", { scope: "global" }));
+});
+
 test("mcp server-level rule matches all tools of that server, name-level only", () => {
   assert.ok(matches("mcp__linear", "mcp__linear__create_issue", {}));
   assert.ok(!matches("mcp__linear", "mcp__github__create_pr", {}));
