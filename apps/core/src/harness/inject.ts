@@ -10,7 +10,11 @@
 // not guessed twice.
 // =============================================================================
 
-import { HARNESS_KINDS, type HarnessState } from "./types.js";
+import {
+  HARNESS_KINDS,
+  type HarnessEntryKind,
+  type HarnessState,
+} from "./types.js";
 import { loadHarnessSettings } from "./settings.js";
 import {
   getGlobalHarnessDir,
@@ -50,8 +54,16 @@ export function formatHarnessStateForPrompt(
   const maxDistillations =
     options.maxDistillations ?? DEFAULT_MAX_DISTILLATIONS;
 
+  // A bridged entry (harness/bridge.ts) already reaches the model through the
+  // memory block or the skills registry. Rendering it here too would put the
+  // same content in the request twice.
+  const visible = (kind: HarnessEntryKind) =>
+    Object.values(state.entries[kind]).filter(
+      (entry) => entry.metadata.bridged !== true,
+    );
+
   const totalEntries = HARNESS_KINDS.reduce(
-    (sum, kind) => sum + Object.keys(state.entries[kind]).length,
+    (sum, kind) => sum + visible(kind).length,
     0,
   );
   if (totalEntries === 0) return "";
@@ -65,7 +77,7 @@ export function formatHarnessStateForPrompt(
   ];
 
   for (const kind of HARNESS_KINDS) {
-    const entries = Object.values(state.entries[kind]).sort((a, b) =>
+    const entries = visible(kind).sort((a, b) =>
       [a.path, a.title, a.id]
         .join("\0")
         .localeCompare([b.path, b.title, b.id].join("\0")),

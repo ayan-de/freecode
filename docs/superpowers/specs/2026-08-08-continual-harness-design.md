@@ -846,10 +846,57 @@ and the trigger ships off by default, so the honest state is "the mechanism is t
 the cost number is not measured yet." Take that number before flipping
 `autoDistill.enabled` on anywhere by default — which is exactly why the default is off.
 
-**Phase 5 — Memory/skill bridge (§4.4 option b).**
-Harness memory entries write through `mem-store.ts`; skill entries through the skills
-loader. Migration for anything written in phases 2-4. _Verify: a refined memory is
-retrievable through the existing memory graph cascade._
+**Phase 5 — Memory/skill bridge (§4.4 option b). Implemented.**
+`harness/bridge.ts` — `bridgeHarnessState(state, result, ctx)`, called by the loop
+right after `applyDistillationProposal` and before `saveHarnessState`, on both the
+distill and the rollback paths:
+
+- **`memory` entries** are saved through the real `MemoryStore` as `type: "project"`
+  (things learned about this codebase, which is what that type is for — the distillation
+  prompt reasons about the session, not the person) tagged `distilled`, so the existing
+  graph/cascade indexes and retrieves them. The harness has no embeddings of its own and
+  was never going to grow any.
+- **`skill` entries** become a real `<name>/SKILL.md` with loader-parseable frontmatter,
+  in `<project>/.freecode/skills` for local scope and `~/.freecode/skills` for global.
+  This is the difference between the model reading a note *about* a procedure and being
+  able to invoke it.
+- **Bridged entries are marked `metadata.bridged` and skipped by prompt injection.**
+  Without that, a bridged memory rides in every request twice — once in the harness
+  block, once in the memory block.
+- **Migration is the sweep, not a separate pass.** Every call re-bridges any entry still
+  lacking the mark, so Phase 2-4 entries migrate the next time that scope distills. No
+  migration command, no schema version, no one-shot script to get wrong. A harness that
+  never distills again never migrates — and also never changes, so nothing drifts.
+- **Failure leaves the entry unmarked so it retries.** The mark is written only after
+  the store write returns; the whole bridge is non-throwing, because a bridge failure
+  must not lose a distillation that already applied cleanly.
+
+**Global memories are deliberately NOT bridged.** `mem-store` is per-project
+(`getMemoryBaseDir` keys on the project path) and there is no global memory store to
+bridge into; writing a global harness memory into whichever project happened to be open
+would silently demote it to that project. Global memories stay harness-only and keep
+being injected exactly as in Phase 3. Skills have no such problem —
+`~/.freecode/skills` is a real global location the loader already searches — so global
+skills *do* bridge. This is the one place §4.4(b)'s "one source of truth" doesn't fully
+hold, and it's a gap in the memory store's scoping, not in the bridge: closing it means
+giving `mem-store` a global scope, which is its own change with its own retrieval
+questions.
+
+_Verify, done:_ 11 new tests (622 total green, `tsc` clean across core and TUI):
+bridgeability by kind × scope, memory write-through shape, skill file layout and
+frontmatter per scope, the sweep-as-migration (unmarked migrates, marked isn't
+rewritten), deletes routed from the result rather than the sweep (a deleted entry is
+already gone from state), an unapplied delete touching nothing, non-throwing failure
+leaving the entry unmarked, and injection dropping bridged entries while keeping the
+rest. **Mutation-checked:** removing the injection filter fails 2 tests; marking an
+entry bridged before the write instead of after fails 1.
+
+**The success criterion itself, checked for real, no API credits needed:** bridged a
+memory ("this repo's tests need `--runInBand`") through the real `MemoryStore` into a
+throwaway project, then queried `MemoryGraphService.retrieve()` with a question sharing
+no keywords with the title — "why do the tests hang when I run them" — and got that
+memory back. Both the temp project and the per-project memory dir it created under
+`~/.freecode/projects/` were removed afterward, confirmed by re-listing.
 
 Realistic scope: phases 0-2 are the bulk of the value and roughly 800-1000 lines
 including tests. Phases 3-5 are each smaller than phase 2.

@@ -84,6 +84,7 @@ import {
   saveHarnessState,
 } from "../harness/store.js";
 import { planDistillation } from "../harness/planner.js";
+import { bridgeHarnessState } from "../harness/bridge.js";
 import {
   markDistilled,
   reviewAutoDistill,
@@ -1280,11 +1281,17 @@ export class AgentLoop {
           }
           const proposal = rollbackProposal(target);
           const state = loadHarnessState(harnessDir, scope);
-          applyDistillationProposal(state, proposal, {
+          const rolled = applyDistillationProposal(state, proposal, {
             id: newDistillationId(),
             scope,
             rollbackOf: target.id,
             baselineState,
+          });
+          // A rollback that restores or removes a bridged entry has to reach
+          // the real memory/skill store too, or the harness would say the
+          // entry is gone while the file it wrote is still being retrieved.
+          bridgeHarnessState(state, rolled, {
+            projectPath: this.state.projectPath,
           });
           saveHarnessState(harnessDir, state);
           return;
@@ -1304,10 +1311,16 @@ export class AgentLoop {
         }
 
         const state = loadHarnessState(harnessDir, scope);
-        applyDistillationProposal(state, proposal, {
+        const applied = applyDistillationProposal(state, proposal, {
           id: newDistillationId(),
           scope,
           baselineState,
+        });
+        // Memory and skill entries write through the real stores (spec
+        // §4.4b), which is also where entries from Phases 2-4 get migrated —
+        // the sweep re-bridges anything still unmarked.
+        bridgeHarnessState(state, applied, {
+          projectPath: this.state.projectPath,
         });
         saveHarnessState(harnessDir, state);
       } catch (error) {
