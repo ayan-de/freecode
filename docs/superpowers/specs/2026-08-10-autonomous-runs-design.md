@@ -535,10 +535,54 @@ against a real (not fixture) small task in this repo produces a report a human f
 actually useful — read it before deciding this phase is done, don't just check the file
 exists.*
 
-**Phase 4 — Memory garden (§4.6), shippable independently of everything else.**
-Can land any time after `memory/graph/clusters.ts` exists, which it already does. Not
-gated on phases 0-3 at all — noted here only because it shares this spec's document,
-not this spec's dependency chain.
+**Phase 4 — Memory garden (§4.6). Implemented, ahead of Phases 0-3.**
+Landed first precisely because it is not on this spec's dependency chain: it is useful
+attended, today, with no autonomy involved at all.
+
+`memory/graph/garden.ts` — `findDuplicates` / `findStale` / `garden`, all pure over
+`MemoryEntry[]`. No I/O, no embedder, no service, and nothing that writes. "Propose,
+never write" is the whole safety property, and a pure function cannot violate it by
+accident. Surfaced as `freecode memory graph garden [--half-life <days>]
+[--threshold <0-1>]`, which prints a worklist and explicitly says nothing was changed.
+There is no `--apply`: acting on a proposal stays a human decision, and the point of
+this phase is real usage data on the consolidation logic *before* anything unattended
+ever calls it.
+
+Two deviations from §4.6 worth recording:
+
+- **Similarity is lexical, not embedding-based.** `lexicalSimilarity` (Jaccard over
+  tokens, already in `graph/index.ts`) rather than cosine over the vector store, because
+  the embedder is an optional dependency and this has to work without it. The ceiling is
+  named in the file: it catches near-identical *wording* only, so the same fact phrased
+  two ways will not pair. Upgrade to vector scoring when there is evidence the lexical
+  pass misses things that matter.
+- **`findStale` is an age threshold, under the spec's "half-life" name.** `updatedAt`
+  is the only timestamp a memory carries and there is no access-frequency signal to
+  decay against, so a real decay model would be arithmetic dressed up as evidence. Stale
+  means "a human should look at this", not "this is wrong" — an old memory is often
+  still true, which is the other reason nothing here deletes.
+
+Also: cross-type pairs are never proposed as duplicates (the same sentence filed under
+`user` and under `project` says two different things about who it describes), and a
+memory proposed for removal as a duplicate is not also listed as stale — one
+recommendation per memory, or the output stops being a worklist.
+
+_Verify, done:_ 11 tests (633 total green, `tsc` clean), covering the threshold in both
+directions, the staleness boundary, deterministic keep/drop regardless of input order,
+one-recommendation-per-memory, and that `garden` leaves its input untouched.
+**Mutation-checked:** flipping the staleness comparison to `<=` fails 1 test; halving
+the duplicate threshold fails 1.
+
+**The first real CLI run against a seeded store found a bug the unit tests had not:**
+two byte-identical memories reported `duplicates: none`, because the memory's *name* —
+the store's file key, which duplicates always differ by — was being scored as part of
+its text. Fixed to compare description + content only, with a regression test pinning
+it. Worth noting as the concrete case for running the thing rather than trusting a
+green suite. The seeded store and the `~/.freecode/projects/` directory it created were
+removed afterward, confirmed by re-listing.
+
+_Not done:_ wiring `garden` as an end-of-run step, since there is no Tier A run to wire
+it into yet (Phases 0-3). That is one call in the run's teardown when it exists.
 
 **Phase 5 — Permission profile + worktree isolation (§4.8).**
 Could technically land as early as Phase 1, but sequenced last on purpose: get the

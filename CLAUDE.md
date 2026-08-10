@@ -13,6 +13,8 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | Memory graph        | `specs/2026-07-26-memory-knowledge-graph.md`            |
 | Memory write path   | `specs/2026-08-09-memory-write-path.md`                 |
 | **Memory (all of it)** | **`docs/superpowers/MEMORY_SYSTEM.md`** — start here |
+| Continual harness   | `specs/2026-08-08-continual-harness-design.md`          |
+| Autonomous runs     | `specs/2026-08-10-autonomous-runs-design.md` (design; only §4.6 built) |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
@@ -33,7 +35,8 @@ The v4 architecture systems are implemented and live in `apps/core/src/`:
 | **Sessions**               | `session/manager.ts`, `session/service.ts`, `session/store.ts`, `session/prompt.ts`, `session/normalize/`        |
 | **Compaction**             | `compaction/service.ts`, `compaction/selector.ts`, `compaction/summarizer.ts`, `compaction/tokens.ts`            |
 | **Memory**                 | `memory/mem-store.ts`, `memory/mem-query.ts`, `memory/mem-prompt.ts`, `memory/mem-types.ts`. Write path (spec `2026-08-09-memory-write-path.md`): the `memory` tool, plus `extract.ts` mining finished turns, gated by `extract-policy.ts` (skip when the model already saved / when too short; else every `memory.extractEveryNRuns` runs (default 8) or on topic change). Off via `memory.autoExtract: false` in `.freecode/settings.json` or `FREECODE_DISABLE_MEMORY_EXTRACTION=1`. |
-| **Memory Graph**           | `memory/graph/` — derived KG over persistent memory (spec `2026-07-26-memory-knowledge-graph.md`). `embedder.ts` (local ONNX/fastembed, optional dep), `vector-store.ts` (packed f32 + content-hash cache), `builder.ts` (tag/wikilink/supersede edges), `clusters.ts` (deterministic k-means), `cascade.ts` (seed top-k → graph walk), `secret-filter.ts` (never embed secrets), `index.ts` (`MemoryGraphService`: async one-turn-behind injection, keyword fallback). Sidecar in `<memory>/.graph/`; CLI: `memory graph stats|rebuild`. Keyword retrieval stays as fallback when the embedder is unavailable. |
+| **Memory Graph**           | `memory/graph/` — derived KG over persistent memory (spec `2026-07-26-memory-knowledge-graph.md`). `embedder.ts` (local ONNX/fastembed, optional dep), `vector-store.ts` (packed f32 + content-hash cache), `builder.ts` (tag/wikilink/supersede edges), `clusters.ts` (deterministic k-means), `cascade.ts` (seed top-k → graph walk), `secret-filter.ts` (never embed secrets), `garden.ts` (pure consolidation proposals — duplicates/stale, never writes), `index.ts` (`MemoryGraphService`: async one-turn-behind injection, keyword fallback). Sidecar in `<memory>/.graph/`; CLI: `memory graph stats|rebuild|garden`. Keyword retrieval stays as fallback when the embedder is unavailable. |
+| **Continual Harness**      | `harness/` — durable, agent-editable harness state (spec `2026-08-08-continual-harness-design.md`), **off by default** (`harness.enabled`). `store.ts`/`types.ts` (global `~/.freecode/harness/` + per-session local, atomic write, corrupt → empty), `inject.ts` (capped session block, never the cached prefix), `planner.ts`+`prompts.ts`+`apply.ts` (plan/apply/rollback, per-edit baseline-conflict rejection), `gate.ts` (automatic triggers: cooldown AND (turn interval OR compaction), then a cheap fail-closed LLM review — `harness.autoDistill.enabled`, also off), `bridge.ts` (memory entries write through `mem-store`, skill entries become real `SKILL.md` files; bridged entries drop out of injection). Tool: `distill` (schedule-only, runs at the turn boundary); command `/distill`; TUI `/harness`; IPC `harness.list`/`harness.history`. Global scope is `ask`-gated via `Distill(local)`/`Distill(global)` permission rules. |
 | **Permission**             | `permission/` — per-rule allow/ask/deny layer (`rules.ts`, `evaluate.ts`, `mode-policy.ts`, `settings.ts`, `prompt.ts`; spec `2026-07-18-permission-rules.md`) + `profiles.ts` capability profiles (minimal/readonly/standard/elevated/admin, used for subagents). Agent modes (plan/build/review/explore/danger) live in `agent/types.ts`. |
 | **MCP Client**             | `mcp/client-registry.ts`, `mcp/service.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                            |
 | **Context Engine**         | `context/collector.ts`, `context/compiler.ts`, `context/tree-cache.ts`, `context/strategies/`                    |
@@ -68,6 +71,7 @@ The backend runs a **single agentic tool-use loop**: the model receives the prom
 │   Effect runtime + layers · Agent loop · Tools · Context engine · Sessions    │
 │   Provider registry · MCP client · Hooks · Skills · Memory · Compaction ·     │
 │   Rollout (event sourcing) · Thread store · Bus (PubSub) · Permission profiles│
+│   Continual harness (opt-in)                                                  │
 └──────────────────────────────────────┬────────────────────────────────────────┘
                                        │  Vercel AI SDK
                                        ▼

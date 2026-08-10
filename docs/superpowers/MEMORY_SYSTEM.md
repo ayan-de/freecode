@@ -323,8 +323,16 @@ emitted from both its extractor and its consolidation job.
 `memory.query` (routes through the graph service) · `memory.buildPrompt` ·
 `memory.graph.rebuild` · `memory.graph.stats` · `graph.explore`
 
-**CLI:** `freecode memory graph stats` · `graph rebuild` · `ui-install` ·
-`ui-uninstall`
+**CLI:** `freecode memory graph stats` · `graph rebuild` · `graph garden` ·
+`ui-install` · `ui-uninstall`
+
+**`graph garden`** — consolidation *proposals* over the store: near-identical
+memories (which to keep, which to drop) and ones nothing has touched in
+`--half-life` days (default 90). Pure functions in `graph/garden.ts`; it never
+writes, and there is deliberately no `--apply` — acting on a proposal is a human
+decision, and an old memory is often still true. Similarity is lexical (Jaccard),
+so it catches near-identical wording, not the same fact phrased two ways.
+Spec: `specs/2026-08-10-autonomous-runs-design.md` §4.6.
 
 **`/graph`** — the optional explorer addon. Downloaded separately
 (`~/.freecode/addons/graph-ui/`), never baked into the binary, checked at request
