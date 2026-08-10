@@ -2,20 +2,18 @@
 // Continual Harness Store — load / merge / save
 // PRIMARY: read and write harness_state.json, global and per-session-local.
 // Spec: docs/superpowers/specs/2026-08-08-continual-harness-design.md, §3.2/§3.6/§4.2
-// Phase 1 scope: load + merge + atomic save, all defensive (never throw — this
-// runs on every system-prompt build, same reasoning as prime-agent's
-// loadHarnessState). Nothing calls save() yet outside tests; that starts with
-// the refine tool in Phase 2. The local (per-session) path is implemented and
-// tested but not wired into the live prompt path yet — SessionStore has no
-// public accessor for a session's on-disk directory today, so wiring it means
-// either adding one or resolving the directory a different way. Left for
-// Phase 2, which is when a local store first has a writer.
+// Phase 1: load + merge + atomic save, all defensive (never throw — this runs
+// on every system-prompt build, same reasoning as prime-agent's
+// loadHarnessState). Phase 2 adds the local-session directory resolver below
+// (resolveSessionHarnessDir) and the distill tool/planner/apply, which is the
+// first writer this store has ever had outside a test.
 // =============================================================================
 
 import * as fs from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
 import { CONFIG_DIR } from "../providers/config.js";
+import { formatSessionDirName } from "../store/path-formatter.js";
 import {
   HARNESS_KINDS,
   type HarnessEntry,
@@ -25,6 +23,11 @@ import {
 
 const HARNESS_STATE_FILE = "harness_state.json";
 const HARNESS_DIR_NAME = "harness";
+// Mirrors session/store.ts's private SESSION_DIR + sessionDir() layout
+// (`~/.freecode/sessions/<formatted-project-dir>/<sessionId>/`). Duplicated
+// rather than imported because SessionStore has no public accessor for a
+// session's on-disk directory — see resolveSessionHarnessDir below.
+const SESSIONS_DIR_NAME = "sessions";
 
 export function emptyHarnessState(): HarnessState {
   return {
@@ -35,7 +38,7 @@ export function emptyHarnessState(): HarnessState {
       skill: {},
       subagent: {},
     },
-    refinements: [],
+    distillations: [],
   };
 }
 
@@ -49,6 +52,26 @@ export function getLocalHarnessDir(
   return sessionArtifactDir
     ? path.join(sessionArtifactDir, HARNESS_DIR_NAME)
     : undefined;
+}
+
+/**
+ * Resolve a session's local harness directory directly from (projectPath,
+ * sessionId), without going through SessionStore. This is the local-scope
+ * counterpart to getGlobalHarnessDir, unblocking Phase 2 without adding a
+ * new method to the SessionStore interface (and its sqlite/json/remote
+ * implementations) for a directory path only this feature needs.
+ */
+export function resolveSessionHarnessDir(
+  projectPath: string,
+  sessionId: string,
+): string {
+  const sessionDir = path.join(
+    CONFIG_DIR,
+    SESSIONS_DIR_NAME,
+    formatSessionDirName(projectPath),
+    sessionId,
+  );
+  return getLocalHarnessDir(sessionDir) as string;
 }
 
 export function getHarnessStatePath(harnessDir: string): string {
@@ -118,8 +141,8 @@ export function loadHarnessState(
       };
     }
   }
-  if (Array.isArray(parsed.refinements)) {
-    state.refinements = parsed.refinements as HarnessState["refinements"];
+  if (Array.isArray(parsed.distillations)) {
+    state.distillations = parsed.distillations as HarnessState["distillations"];
   }
   return state;
 }
@@ -153,7 +176,10 @@ export function mergeHarnessStates(
       merged.entries[kind][mergedId] = scoped;
     }
   }
-  merged.refinements = [...global.refinements, ...(local?.refinements ?? [])];
+  merged.distillations = [
+    ...global.distillations,
+    ...(local?.distillations ?? []),
+  ];
   return merged;
 }
 

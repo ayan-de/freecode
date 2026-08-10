@@ -76,6 +76,21 @@ import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { extractMemories } from "../memory/extract.js";
 import { shouldExtract } from "../memory/extract-policy.js";
 import { loadHarnessPromptBlock } from "../harness/inject.js";
+import { loadHarnessSettings } from "../harness/settings.js";
+import {
+  getGlobalHarnessDir,
+  loadHarnessState,
+  resolveSessionHarnessDir,
+  saveHarnessState,
+} from "../harness/store.js";
+import { planDistillation } from "../harness/planner.js";
+import {
+  applyDistillationProposal,
+  newDistillationId,
+  rollbackProposal,
+} from "../harness/apply.js";
+import type { HarnessScope } from "../harness/types.js";
+import type { DistillParams } from "../tools/distill.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -246,6 +261,10 @@ export class AgentLoop {
   // Did the model save a memory itself during this run? If so, extraction is
   // skipped — it has already said what it wanted to keep.
   private memoryToolUsedThisRun = false;
+  // Did the model call the distill tool this run, and with what args? Falsy
+  // means no distillation runs at turn end — Phase 2 has no automatic
+  // trigger, only explicit (tool call or /distill).
+  private distillRequestedThisRun: DistillParams | false = false;
   private turnsSinceLastNudge = 0;
   // The provider's own count of the last request's input (prompt + cache
   // reads + cache writes) — i.e. how full the model's window actually is.
@@ -510,6 +529,7 @@ export class AgentLoop {
     this.lastMemoryQueryText = "";
     this.lastMemoryBlock = undefined;
     this.memoryToolUsedThisRun = false;
+    this.distillRequestedThisRun = false;
     // History is reloaded below, and the ids are only meaningful against that
     // load — so decisions from a previous run cannot be carried over.
     this.pruneState.reset();
@@ -863,6 +883,7 @@ export class AgentLoop {
           // extraction finishes behind it (spec 2026-08-09-memory-write-path
           // D5). Same discipline as the graph's fire-and-forget onChange.
           this.kickMemoryExtraction(input.provider);
+          this.kickDistillation(input.provider, input.model);
 
           return this.complete(
             "Done",
@@ -1151,6 +1172,98 @@ export class AgentLoop {
     });
   }
 
+  // ===========================================================================
+  // PRIVATE: kickDistillation()
+  // Fire-and-forget, same discipline as kickMemoryExtraction: the user's
+  // result has already been decided, distillation runs behind it. Phase 2 has
+  // no automatic trigger — this only runs when the model called the distill
+  // tool this run (distillRequestedThisRun), never on a timer or turn count.
+  // Unlike memory extraction, distillation DOES use the session's own model:
+  // proposal quality matters more here than for a small classification job,
+  // and there's no Phase-4-style cost-control need yet since this only fires
+  // on an explicit request, not automatically every N turns.
+  // ===========================================================================
+  private kickDistillation(provider: string, model: string | undefined): void {
+    const requested = this.distillRequestedThisRun;
+    if (!requested || this.abort.signal.aborted) return;
+    // The distill TOOL is always registered (tools/index.ts has no notion of
+    // conditional registration), so the model can call it in any project. The
+    // work behind it must still honor harness.enabled — off by default per
+    // spec §9 — or "opt-in" would only apply to prompt injection and not to
+    // the thing that actually writes to disk. Silent no-op, not an error: the
+    // model isn't told distillation is unavailable, it's just a no-op turn.
+    if (!loadHarnessSettings(this.state.projectPath).enabled) {
+      logger.debug("[Distill] skipped: harness.enabled is off");
+      return;
+    }
+
+    const scope: HarnessScope = requested.scope ?? "local";
+    const harnessDir =
+      scope === "global"
+        ? getGlobalHarnessDir()
+        : resolveSessionHarnessDir(
+            this.state.projectPath,
+            this.state.sessionId,
+          );
+
+    void (async () => {
+      try {
+        // Baseline snapshot taken now, before the (possibly slow) LLM call —
+        // apply() re-reads fresh and checks against this, so a write that
+        // lands while planning is in flight is detected, not clobbered.
+        const baselineState = loadHarnessState(harnessDir, scope);
+
+        if (requested.rollback_id) {
+          const target = baselineState.distillations.find(
+            (d) => d.id === requested.rollback_id,
+          );
+          if (!target) {
+            logger.debug(
+              `[Distill] rollback target not found: ${requested.rollback_id}`,
+            );
+            return;
+          }
+          const proposal = rollbackProposal(target);
+          const state = loadHarnessState(harnessDir, scope);
+          applyDistillationProposal(state, proposal, {
+            id: newDistillationId(),
+            scope,
+            rollbackOf: target.id,
+            baselineState,
+          });
+          saveHarnessState(harnessDir, state);
+          return;
+        }
+
+        const { text: transcript } = this.buildTranscript();
+        const proposal = await planDistillation({
+          transcript,
+          state: baselineState,
+          scope,
+          provider,
+          model,
+          instructions: requested.instructions,
+        });
+        if (proposal.edits.length === 0) {
+          logger.debug(`[Distill] nothing to apply: ${proposal.summary}`);
+          return;
+        }
+
+        const state = loadHarnessState(harnessDir, scope);
+        applyDistillationProposal(state, proposal, {
+          id: newDistillationId(),
+          scope,
+          baselineState,
+        });
+        saveHarnessState(harnessDir, state);
+      } catch (error) {
+        // Never let a distillation failure surface as a task failure — same
+        // contract as kickMemoryExtraction.
+        logger.debug("[Distill] kick failed", { error });
+      }
+    })();
+  }
+
   private async executeTurn(
     provider: string,
     model: string | undefined,
@@ -1229,7 +1342,10 @@ export class AgentLoop {
       // yet: nothing writes an entry today outside tests). Off by default
       // (docs/superpowers/specs/2026-08-08-continual-harness-design.md §9);
       // loadHarnessPromptBlock checks settings before touching disk.
-      const harnessBlock = loadHarnessPromptBlock(context.projectPath);
+      const harnessBlock = loadHarnessPromptBlock(
+        context.projectPath,
+        this.state.sessionId,
+      );
       // Session-only system blocks: todo state and transient reminders. They
       // change, but they sit at the tail of the system array and the message
       // anchors that actually drive cache reads are downstream — so even a
@@ -1350,6 +1466,11 @@ export class AgentLoop {
       const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
       if (toolCalls.some((tc) => tc.tool === "memory")) {
         this.memoryToolUsedThisRun = true;
+      }
+      const distillCall = toolCalls.find((tc) => tc.tool === "distill");
+      if (distillCall) {
+        this.distillRequestedThisRun = (distillCall.args ??
+          {}) as DistillParams;
       }
 
       // Construct assistant message and push to history

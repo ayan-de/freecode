@@ -6,23 +6,28 @@
 // Caps exist because harness state is unbounded and this rides on EVERY
 // request once harness.enabled: without a cap it grows into the prompt
 // forever. Defaults mirror prime-agent's (refinement.ts:26-28): 6 entries per
-// kind, 180 chars each, 5 recent refinements — tune later with real data, not
-// guessed twice.
+// kind, 180 chars each, 5 recent distillations — tune later with real data,
+// not guessed twice.
 // =============================================================================
 
 import { HARNESS_KINDS, type HarnessState } from "./types.js";
 import { loadHarnessSettings } from "./settings.js";
-import { getGlobalHarnessDir, loadHarnessState } from "./store.js";
+import {
+  getGlobalHarnessDir,
+  loadHarnessState,
+  mergeHarnessStates,
+  resolveSessionHarnessDir,
+} from "./store.js";
 
 export interface HarnessInjectOptions {
   maxEntriesPerKind?: number;
   maxContentLength?: number;
-  maxRefinements?: number;
+  maxDistillations?: number;
 }
 
 const DEFAULT_MAX_ENTRIES_PER_KIND = 6;
 const DEFAULT_MAX_CONTENT_LENGTH = 180;
-const DEFAULT_MAX_REFINEMENTS = 5;
+const DEFAULT_MAX_DISTILLATIONS = 5;
 
 function compact(text: string, maxLength: number): string {
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -42,7 +47,8 @@ export function formatHarnessStateForPrompt(
     options.maxEntriesPerKind ?? DEFAULT_MAX_ENTRIES_PER_KIND;
   const maxContentLength =
     options.maxContentLength ?? DEFAULT_MAX_CONTENT_LENGTH;
-  const maxRefinements = options.maxRefinements ?? DEFAULT_MAX_REFINEMENTS;
+  const maxDistillations =
+    options.maxDistillations ?? DEFAULT_MAX_DISTILLATIONS;
 
   const totalEntries = HARNESS_KINDS.reduce(
     (sum, kind) => sum + Object.keys(state.entries[kind]).length,
@@ -78,10 +84,10 @@ export function formatHarnessStateForPrompt(
     lines.push("");
   }
 
-  if (state.refinements.length > 0) {
+  if (state.distillations.length > 0) {
     lines.push("## Recent changes to this harness");
-    for (const event of state.refinements.slice(-maxRefinements)) {
-      lines.push(`- [${event.id}] ${compact(event.trigger, maxContentLength)}`);
+    for (const event of state.distillations.slice(-maxDistillations)) {
+      lines.push(`- [${event.id}] ${compact(event.summary, maxContentLength)}`);
     }
     lines.push("");
   }
@@ -90,11 +96,17 @@ export function formatHarnessStateForPrompt(
 }
 
 /**
- * The single call site for the agent loop: check settings, load, format.
- * Off by default (harness.enabled), in which case this returns "" without
- * touching disk — same shape as renderTodoPromptBlock (tools/todo.ts), one
- * function call and no branching left in the loop. Global scope only for
- * now; see store.ts's module comment for why local isn't wired here yet.
+ * The single call site for the agent loop: check settings, load both scopes,
+ * merge, format. Off by default (harness.enabled), in which case this
+ * returns "" without touching disk — same shape as renderTodoPromptBlock
+ * (tools/todo.ts), one function call and no branching left in the loop.
+ *
+ * Reads local scope too, not just global — a session-local distillation that
+ * nothing ever reads back is write-only and pointless. Confirmed live: before
+ * this, a `distill` call with scope local wrote a correct entry to disk that
+ * the very session that created it never saw again. Local entries from a
+ * *different* session are invisible by construction (resolveSessionHarnessDir
+ * is keyed by sessionId) — that boundary is intentional, not a bug.
  *
  * `globalDir` defaults to the real `~/.freecode/harness` but is overridable —
  * same pattern as context/instructions.ts's `globalDir` param — because
@@ -103,8 +115,12 @@ export function formatHarnessStateForPrompt(
  */
 export function loadHarnessPromptBlock(
   projectRoot: string,
+  sessionId: string,
   globalDir: string = getGlobalHarnessDir(),
+  localDir: string = resolveSessionHarnessDir(projectRoot, sessionId),
 ): string {
   if (!loadHarnessSettings(projectRoot).enabled) return "";
-  return formatHarnessStateForPrompt(loadHarnessState(globalDir, "global"));
+  const global = loadHarnessState(globalDir, "global");
+  const local = loadHarnessState(localDir, "local");
+  return formatHarnessStateForPrompt(mergeHarnessStates(global, local));
 }

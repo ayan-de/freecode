@@ -43,7 +43,7 @@ function entry(overrides: Partial<HarnessEntry> = {}): HarnessEntry {
   };
 }
 
-test("emptyHarnessState has all four kinds and no refinements", () => {
+test("emptyHarnessState has all four kinds and no distillations", () => {
   const state = emptyHarnessState();
   assert.deepEqual(Object.keys(state.entries).sort(), [
     "memory",
@@ -51,7 +51,7 @@ test("emptyHarnessState has all four kinds and no refinements", () => {
     "skill",
     "subagent",
   ]);
-  assert.equal(state.refinements.length, 0);
+  assert.equal(state.distillations.length, 0);
   assert.equal(state.schema, 1);
 });
 
@@ -142,7 +142,7 @@ test("loadHarnessState skips an entry missing title/content rather than failing 
         skill: {},
         subagent: {},
       },
-      refinements: [],
+      distillations: [],
     };
     writeFileSync(getHarnessStatePath(dir), JSON.stringify(raw));
     const loaded = loadHarnessState(dir, "global");

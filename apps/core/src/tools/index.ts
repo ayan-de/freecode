@@ -14,6 +14,7 @@ import { LspTool } from "./lsp.js";
 import { LsTool } from "./ls.js";
 import { OutputTool } from "./output.js";
 import { MemoryTool } from "./memory.js";
+import { DistillTool } from "./distill.js";
 import {
   createToolOrchestrator,
   type ToolOrchestrator,
@@ -34,11 +35,7 @@ import type {
   ValidationResult,
   PermissionCheckResult,
 } from "./tool.types.js";
-import {
-  buildTool,
-  defaultBehavior,
-  executeTool,
-} from "./factory.js";
+import { buildTool, defaultBehavior, executeTool } from "./factory.js";
 
 export type {
   ToolContext,
@@ -77,6 +74,7 @@ export const tools = {
   ls: LsTool,
   output: OutputTool,
   memory: MemoryTool,
+  distill: DistillTool,
 } as const;
 
 export type ToolId = keyof typeof tools;

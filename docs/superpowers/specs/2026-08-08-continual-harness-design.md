@@ -643,10 +643,116 @@ _Verify, done, three parts:_
    see §9's cost stance); the throwaway project dir, the global harness dir, and the
    session it created were all deleted afterward, confirmed by re-listing each.
 
-**Phase 2 — Explicit refinement only.**
-`planner.ts`, `apply.ts`, the `refine` tool, `/refine` command, rollback. No automatic
-triggers. Local scope only. _Verify: rollback round-trip test passes under mutation;
-a real session produces a sane proposal._
+**Phase 2 — Explicit refinement only. Implemented, as "distill."**
+Branch `continual-harness-phase-0` (name predates this phase). The feature this spec
+calls "refine" throughout is named **distill** in FreeCode — user's choice, made before
+this phase started. Renamed the Phase 1 vocabulary first (`RefinementKind` →
+`HarnessEntryKind`, `HarnessRefinementEvent` folded into `DistillResult`, `refinements`
+field → `distillations`) while the blast radius was still one prior commit, rather than
+carrying the old name through four more phases. This section and all code use "distill"/
+"distillation"; read it as a synonym for the spec's "refine" elsewhere.
+
+New files: `harness/apply.ts` (`applyDistillationProposal`, `rollbackProposal`,
+`validateEdit` — direct port of §3.3/§3.5, with two adaptations: no Python skill-reference
+requirement, since FreeCode skills are markdown+frontmatter not Python calls; no
+`base_system_prompt` id rejection, since FreeCode's base prompt is never represented as a
+harness entry at all, so there's no id a distillation could target to reach it — the
+attack the prime-agent check defends against doesn't exist here by construction).
+`harness/prompts.ts` (system + user prompt, TS string constants per §4.1's explicit
+recommendation). `harness/planner.ts` (`planDistillation`, mirrors `memory/extract.ts`'s
+shape: `getProvider().execute()`, a `complete` test seam, never throws — a failed
+distillation is invisible to the user's task, same contract as failed memory extraction).
+`tools/distill.ts` (schedule-only — returns immediately, no LLM call or mutation inside
+`execute()`; `agent/loop.ts` recognizes the tool call by name, same mechanism it already
+used for `memory`, and runs the real work in a new `kickDistillation()` fired
+fire-and-forget at the turn boundary, directly beside `kickMemoryExtraction`).
+`commands/templates/distill.ts` (`/distill`, same `PromptCommand` shape as `/init` — a
+canned instruction telling the model to call the tool, not a separate execution path).
+Full 7-step tool registration checklist from CLAUDE.md.
+
+**One structural fix beyond the spec's Phase 1/2 split, made necessary by Phase 2
+actually having a writer:** `HarnessState.distillations` in Phase 1 was a lightweight
+summary event (`HarnessDistillationEvent`: id/trigger/changes/evidence/outcome). Building
+`rollback_id` against it revealed that's unusable for rollback — `rollbackProposal` needs
+each edit's `before`/`after` snapshot, which a summary doesn't carry. Fixed by making the
+audit log store the full `DistillResult` (including `appliedEdits`) instead of a lighter
+projection of it — the audit log entry _is_ the result now, not a summary of it. Caught
+before any of this shipped, by building the rollback path rather than assuming the Phase 1
+shape would carry over.
+
+_Verify, done, four parts:_
+
+1. **27 new tests** (13 `apply.test.ts`, 14 `planner.test.ts`), plus 4 more for tool
+   registration (`distill.registration.test.ts`: absent from `READONLY_TOOLS`, present in
+   `DISPLAY_NAMES`, every schema property has a `type`) and 6 for local-scope injection
+   (below). Full suite 596 tests green, `tsc` clean.
+2. **Rollback round-trip, mutation-checked per §7.** The apply/rollback tests assert
+   _content_ equivalence (title/content/path/reference/arguments/metadata) rather than
+   full-entry equality — `version`/`updatedAt`/`source` correctly keep advancing through a
+   rollback rather than rewinding, since the audit trail is append-only by design (§3.5);
+   asserting byte-identical entries was the test's bug, not the implementation's, caught by
+   running it before trusting it. Separately confirmed the round-trip test has real teeth: a
+   deliberately-broken rollback (forward iteration instead of reverse — the exact mistake
+   §3.5 warns about) produces the wrong restored value, and the test catches it.
+3. **JSON parsing robustness**, fixture-driven: bare object, fenced block, brace-sliced
+   from prose, truncated mid-string, truncated mid-array, genuinely malformed-but-complete
+   JSON — truncation is diagnosed distinctly from malformed in every case. FreeCode's
+   `ExecuteResult.stopReason === "max_tokens"` gives an authoritative truncation signal
+   prime-agent's SDK layer didn't expose the same way, so `isIncompleteJson` here is a
+   fallback rather than the primary signal — kept anyway since a provider that doesn't set
+   `stopReason` correctly still needs a backstop.
+4. **A real session produces a sane proposal — done for real, with the user's
+   confirmation before spending API credits (same as Phase 1).** Corrected the model twice
+   about a project's test command in a throwaway project, had it call `distill` with
+   `scope: local`, and inspected the result: it correctly chose `kind: "memory"` (not
+   `"prompt"`), wrote a specific and accurate note, and gave a rationale that matched the
+   system prompt's own reasoning about when local scope applies. Not a rubber stamp — a
+   materially correct judgment call by the model.
+
+**Two real gaps found by the live check, both fixed before this phase was called done —
+this is what "verify, don't assume" is for:**
+
+- **Local entries were write-only.** `loadHarnessPromptBlock` (Phase 1) only ever read the
+  global dir. A `distill` call with `scope: local` wrote a correct entry to disk that the
+  very session that created it never saw again — local scope existed but did nothing.
+  Fixed: `loadHarnessPromptBlock` now takes `sessionId`, loads and merges local alongside
+  global via the already-built (but previously unwired) `mergeHarnessStates`. A new test
+  (`inject.settings.test.ts`, "the gap the Phase 2 live check found") pins this down as a
+  regression test, and the fix was confirmed against the real files the live distillation
+  produced — a fresh call to `loadHarnessPromptBlock` with production defaults, no test
+  overrides, against that exact session, now renders the local entry. A brand-new session
+  correctly still doesn't see it, by design — local is scoped to the session that wrote it.
+- **`kickDistillation` never checked `harness.enabled`.** The tool is unconditionally
+  registered (no mechanism to conditionally offer a tool exists in this codebase), so the
+  model could call it in any project regardless of the setting — meaning "off by default"
+  only applied to prompt injection (Phase 1), not to the thing that actually writes to
+  disk. Fixed: `kickDistillation` now checks the setting first and silently no-ops if
+  disabled, matching `loadHarnessPromptBlock`'s existing gate.
+
+**One gap found and deliberately not fixed, out of scope for this feature:**
+`freecode run` (`cli/commands/run.ts`) calls `process.exit()` immediately after a turn
+completes. `kickDistillation` and `kickMemoryExtraction` are both fire-and-forget by
+design (§4.6: scheduling, not execution — the result already returned to the user by the
+time either runs), so headless one-shot mode kills them before they finish. This is a
+pre-existing gap that affects memory extraction identically, not something this phase
+introduced, and not something narrowly scoped to fix here — it needs its own look at
+whether `run` should wait for pending background work before exiting, and for how long.
+Verification for this phase worked around it by driving the loop directly instead of
+through the CLI (documented in the branch's commit); the TUI and the JSON-RPC server
+don't have this problem, since neither process exits between turns.
+
+**One loose end, not chased down:** during live verification, MiniMax logged "no model
+specified; falling back to MiniMax-M2" around the distill tool call, despite
+`kickDistillation` explicitly passing the session's configured model through. The
+distillation still completed correctly on the fallback model, so this didn't block
+anything, but the model-resolution path between `executeTurn`'s natural-completion branch
+and the provider call inside `planDistillation` is worth a closer look before relying on
+`harness.model` config (§10, open question 1) to mean anything.
+
+Rollback-by-id itself (the mechanism, not just its round-trip logic) was verified only by
+test, not by a second live call — the unit coverage is thorough and mutation-checked, and
+a live rollback call would have cost more real API credits without proportionally new
+information given what the tests already prove.
 
 **Phase 3 — Global scope + audit UI.**
 Global store, `refinements.jsonl`, `harness.list`/`harness.history` IPC, a `/harness`

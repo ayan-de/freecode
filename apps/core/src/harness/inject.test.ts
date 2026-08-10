@@ -86,20 +86,21 @@ test("total injected size stays bounded for a maximally full harness (budget ass
   );
 });
 
-test("recent refinements are capped to maxRefinements and rendered oldest kept last", () => {
+test("recent distillations are capped to maxDistillations and rendered oldest kept last", () => {
   const state = emptyHarnessState();
   state.entries.prompt["note"] = entry();
   for (let i = 0; i < 10; i++) {
-    state.refinements.push({
+    state.distillations.push({
       id: `r${i}`,
-      trigger: `trigger ${i}`,
-      changes: [],
-      evidence: "",
-      outcome: "",
+      summary: `trigger ${i}`,
+      rationale: "",
+      expectedOutcome: "",
+      appliedEdits: [],
+      scope: "local",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
   }
-  const text = formatHarnessStateForPrompt(state, { maxRefinements: 2 });
+  const text = formatHarnessStateForPrompt(state, { maxDistillations: 2 });
   assert.ok(text.includes("[r8]"));
   assert.ok(text.includes("[r9]"));
   assert.ok(!text.includes("[r0]"));
