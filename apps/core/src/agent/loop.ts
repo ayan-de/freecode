@@ -85,6 +85,11 @@ import {
 } from "../harness/store.js";
 import { planDistillation } from "../harness/planner.js";
 import {
+  markDistilled,
+  reviewAutoDistill,
+  shouldConsiderDistill,
+} from "../harness/gate.js";
+import {
   applyDistillationProposal,
   newDistillationId,
   rollbackProposal,
@@ -265,6 +270,10 @@ export class AgentLoop {
   // means no distillation runs at turn end — Phase 2 has no automatic
   // trigger, only explicit (tool call or /distill).
   private distillRequestedThisRun: DistillParams | false = false;
+  // Compaction is one of the auto-distillation triggers (spec §4.5: the cache
+  // cost of a prompt change is already sunk there). Sticky until consumed, so
+  // a compaction mid-run still triggers at the run's end.
+  private compactedSinceDistill = false;
   private turnsSinceLastNudge = 0;
   // The provider's own count of the last request's input (prompt + cache
   // reads + cache writes) — i.e. how full the model's window actually is.
@@ -1071,6 +1080,7 @@ export class AgentLoop {
     }
 
     if (outcome.compacted) {
+      this.compactedSinceDistill = true;
       // Compaction rebuilds the provider-facing history, so the next request
       // MUST miss. Documented + generation bump so D2 reports it as expected
       // rather than as a harness bust.
@@ -1175,17 +1185,23 @@ export class AgentLoop {
   // ===========================================================================
   // PRIVATE: kickDistillation()
   // Fire-and-forget, same discipline as kickMemoryExtraction: the user's
-  // result has already been decided, distillation runs behind it. Phase 2 has
-  // no automatic trigger — this only runs when the model called the distill
-  // tool this run (distillRequestedThisRun), never on a timer or turn count.
-  // Unlike memory extraction, distillation DOES use the session's own model:
-  // proposal quality matters more here than for a small classification job,
-  // and there's no Phase-4-style cost-control need yet since this only fires
-  // on an explicit request, not automatically every N turns.
+  // result has already been decided, distillation runs behind it.
+  //
+  // Two entry paths. Explicit: the model called the distill tool this run
+  // (distillRequestedThisRun) — runs unconditionally, honours the requested
+  // scope. Automatic (Phase 4): no tool call, so the gate decides — turn
+  // interval or compaction boundary, then a cheap LLM review, both off by
+  // default (harness.autoDistill.enabled). The automatic path is ALWAYS local
+  // scope: a global write persists into every future session and is gated on
+  // `ask` via the distill tool's permission rule, so letting a timer write
+  // global would be the one path around that gate.
+  //
+  // Unlike memory extraction, distillation uses the session's own model:
+  // proposal quality matters more here than for a small classification job.
   // ===========================================================================
   private kickDistillation(provider: string, model: string | undefined): void {
+    if (this.abort.signal.aborted) return;
     const requested = this.distillRequestedThisRun;
-    if (!requested || this.abort.signal.aborted) return;
     // The distill TOOL is always registered (tools/index.ts has no notion of
     // conditional registration), so the model can call it in any project. The
     // work behind it must still honor harness.enabled — off by default per
@@ -1197,7 +1213,7 @@ export class AgentLoop {
       return;
     }
 
-    const scope: HarnessScope = requested.scope ?? "local";
+    const scope: HarnessScope = requested ? (requested.scope ?? "local") : "local";
     const harnessDir =
       scope === "global"
         ? getGlobalHarnessDir()
@@ -1208,18 +1224,57 @@ export class AgentLoop {
 
     void (async () => {
       try {
+        const { text: transcript, turns } = this.buildTranscript();
+        let instructions = requested ? requested.instructions : undefined;
+
+        if (!requested) {
+          const decision = shouldConsiderDistill({
+            sessionId: this.state.sessionId,
+            projectRoot: this.state.projectPath,
+            transcript,
+            turns,
+            compacted: this.compactedSinceDistill,
+          });
+          if (!decision.consider) {
+            logger.debug(`[Distill] auto skipped: ${decision.reason}`);
+            return;
+          }
+          const review = await reviewAutoDistill({
+            transcript,
+            state: loadHarnessState(harnessDir, scope),
+            provider,
+            model,
+          });
+          // Arm the throttle on the review, not on the verdict: the call has
+          // been paid for either way, and re-reviewing the same transcript on
+          // the very next turn would pay for it again to reach the same "no".
+          markDistilled(this.state.sessionId, turns);
+          this.compactedSinceDistill = false;
+          if (!review.shouldDistill) {
+            logger.debug(`[Distill] gate said no: ${review.rationale}`);
+            return;
+          }
+          instructions = review.instructions;
+        } else {
+          // An explicit call has just mined this transcript; letting the
+          // interval fire right behind it would pay twice for the same one.
+          markDistilled(this.state.sessionId, turns);
+          this.compactedSinceDistill = false;
+        }
+
         // Baseline snapshot taken now, before the (possibly slow) LLM call —
         // apply() re-reads fresh and checks against this, so a write that
         // lands while planning is in flight is detected, not clobbered.
         const baselineState = loadHarnessState(harnessDir, scope);
 
-        if (requested.rollback_id) {
+        const rollbackId = requested ? requested.rollback_id : undefined;
+        if (rollbackId) {
           const target = baselineState.distillations.find(
-            (d) => d.id === requested.rollback_id,
+            (d) => d.id === rollbackId,
           );
           if (!target) {
             logger.debug(
-              `[Distill] rollback target not found: ${requested.rollback_id}`,
+              `[Distill] rollback target not found: ${rollbackId}`,
             );
             return;
           }
@@ -1235,14 +1290,13 @@ export class AgentLoop {
           return;
         }
 
-        const { text: transcript } = this.buildTranscript();
         const proposal = await planDistillation({
           transcript,
           state: baselineState,
           scope,
           provider,
           model,
-          instructions: requested.instructions,
+          instructions,
         });
         if (proposal.edits.length === 0) {
           logger.debug(`[Distill] nothing to apply: ${proposal.summary}`);

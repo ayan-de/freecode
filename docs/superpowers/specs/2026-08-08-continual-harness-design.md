@@ -796,9 +796,55 @@ session-A-changes-session-B criterion is Phase 2's live-verified global write pa
 Phase 1's live-verified injection, unchanged by this phase; not re-spent API credits to
 re-demonstrate the same two links.
 
-**Phase 4 — The gate and automatic triggers.**
-`gate.ts`, turn interval, compaction boundary, cooldown. Default **off**. _Verify:
-cost per session with auto-refine on vs off, from `usage.json`._
+**Phase 4 — The gate and automatic triggers. Implemented.**
+`harness/gate.ts`, two gates in front of the planner, cheapest first:
+
+1. `shouldConsiderDistill()` — pure policy, no LLM: settings, a minimum transcript
+   length (same floor and reasoning as `memory/extract-policy.ts`), then **cooldown
+   AND (turn interval OR compaction boundary)**. Per-session state is an in-process LRU
+   map, same shape as `extract-policy.ts`'s — deliberately not persisted, since a
+   restart re-arming the interval costs one extra review call while persisting it would
+   mean a fourth on-disk store for a throttle.
+2. `reviewAutoDistill()` — the cheap LLM call (512 output tokens vs the planner's
+   4096) answering only "is anything here worth persisting?", returning
+   `{shouldDistill, rationale, instructions?}`. Fail-closed in every failure shape:
+   malformed JSON, a stringy `"true"`, a missing field, a provider throw all read as
+   **no**. A gate that failed open would turn a provider hiccup into an unreviewed
+   write to state that gets injected into every future prompt.
+
+Settings (`harness.autoDistill.{enabled,turnInterval,compact,cooldownMs}`) parse
+field-by-field down the project→user chain, so a project can shorten the interval
+without restating the block. Prime-agent's defaults unchanged (25 turns / compact on /
+20 min cooldown) except `enabled`, which is **false** — Phase 4 ships off per §9.
+
+Loop wiring: `kickDistillation` grew a second entry path. Explicit tool call →
+unchanged Phase 2 behaviour. No tool call → the gate decides, and the planner runs with
+the gate's `instructions` as its focus. `runCompaction` sets a sticky
+`compactedSinceDistill` flag the policy consumes, so a compaction mid-run still triggers
+at the run's end.
+
+**The automatic path is always local scope**, deliberately: a global entry persists into
+every future session, and Phase 3 made global gated on `ask` through the distill tool's
+permission rule. A timer that could write global would be the one path around that gate.
+Promoting something to global stays a decision a human sees.
+
+**Throttle armed on the review, not the verdict.** `markDistilled` is called as soon as
+the review call returns — including when it says no, and including after an *explicit*
+distillation. The review has been paid for either way, and re-reviewing the same
+transcript on the very next turn would pay again to reach the same answer.
+
+_Verify, done:_ 14 new tests (611 total green, `tsc` clean across core and TUI) covering
+both switches, the interval, the cooldown, compaction bypassing the interval but not the
+cooldown, `compact: false`, per-session isolation, and every fail-closed shape of the
+review. **Mutation-checked per §7:** making the gate fail open
+(`shouldDistill !== false`) fails 1 test; removing the cooldown check fails 2. Both
+restored to green afterward.
+
+_Not verified:_ the cost-per-session-on-vs-off measurement this phase's original verify
+step asked for. It needs real automatic runs against a real project on a paid provider,
+and the trigger ships off by default, so the honest state is "the mechanism is tested,
+the cost number is not measured yet." Take that number before flipping
+`autoDistill.enabled` on anywhere by default — which is exactly why the default is off.
 
 **Phase 5 — Memory/skill bridge (§4.4 option b).**
 Harness memory entries write through `mem-store.ts`; skill entries through the skills

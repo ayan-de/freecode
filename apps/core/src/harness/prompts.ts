@@ -43,6 +43,43 @@ Output JSON only, no prose before or after, in exactly this shape:
 
 Keep edits few (a handful at most) and each one small. A large edits array is a sign something upstream is wrong, not a sign of a thorough review.`;
 
+// The Phase 4 gate: a separate, much smaller call in front of the planner.
+// It answers one question and writes nothing, which is what makes an
+// automatic turn-interval trigger affordable at all (spec §3.4).
+export const GATE_SYSTEM_PROMPT = `You decide whether a finished stretch of an AI coding session contains anything worth writing into FreeCode's continual harness — a small, durable store of notes the agent carries into future sessions.
+
+Answer yes ONLY if the transcript shows something durable that the harness does not already record:
+- a mistake repeated or corrected in a way that would recur next session
+- a project-specific fact the agent had to discover the hard way (a build command, a test flag, a non-obvious constraint)
+- a procedure worth naming so it isn't re-derived from scratch
+- a stated preference or decision that outlives the current task
+
+Answer no for: ordinary successful work, one-off noise, unsupported hypotheses, transient tool output, anything only useful for finishing the task currently in progress, and anything the existing harness entries already cover. "No" is the common, correct answer — most sessions contain nothing durable, and a weak entry is worse than none because it gets injected into every future prompt.
+
+Output JSON only, no prose:
+
+{
+  "shouldDistill": true | false,
+  "rationale": "one sentence — what durable thing you saw, or why there is nothing",
+  "instructions": "optional: if yes, one line telling the distillation pass what to focus on"
+}`;
+
+export function buildGateUserPrompt(input: {
+  transcript: string;
+  state: import("./types.js").HarnessState;
+}): string {
+  const existing = HARNESS_KINDS.flatMap((kind) =>
+    Object.values(input.state.entries[kind]).map(
+      (e) => `- [${e.kind}:${e.id}] ${e.title}: ${e.content.slice(0, 200)}`,
+    ),
+  );
+  return [
+    `<existing_harness_entries>\n${existing.length > 0 ? existing.join("\n") : "None yet."}\n</existing_harness_entries>`,
+    `<transcript>\n${input.transcript}\n</transcript>`,
+    "Return only the JSON object described in the system prompt.",
+  ].join("\n\n");
+}
+
 export interface DistillUserPromptInput {
   transcript: string;
   harnessOverview: string;
