@@ -300,9 +300,7 @@ export class MemoryGraphService {
   // Same scoring, same fallback, but exposes the cascade's raw output (id +
   // score + via) and which seed mode was used so the UI can highlight the
   // walked path without paying the round trip to a typed entry.
-  async retrieveForExplorer(
-    query: string,
-  ): Promise<{
+  async retrieveForExplorer(query: string): Promise<{
     results: RetrievalResult[];
     seedMode: "vector" | "keyword";
   }> {
@@ -367,6 +365,56 @@ export class MemoryGraphService {
       edges: this.graph.allEdges(),
       embedderAvailable: embedder.available(),
     };
+  }
+
+  /**
+   * The memory behind a graph node, plus its immediate neighbours.
+   *
+   * The graph itself is a derived index — a `GraphNode` is `{ id, kind, label }`
+   * and deliberately carries no content, so the explorer had nothing to show
+   * when a node was clicked. This resolves an id back to the stored entry.
+   *
+   * Only `Memory` nodes have an entry; `tag:` and `cluster:` nodes are
+   * synthetic groupings and return `entry: null` with their members as
+   * neighbours, which is still the useful thing to show.
+   */
+  nodeDetailForExplorer(id: string): {
+    node: GraphNode;
+    entry: MemoryEntry | null;
+    neighbors: Array<{
+      node: GraphNode;
+      kind: string;
+      direction: "out" | "in";
+    }>;
+  } | null {
+    const node = this.graph.allNodes().find((n) => n.id === id);
+    if (!node) return null;
+
+    const byId = new Map(this.graph.allNodes().map((n) => [n.id, n]));
+    const neighbors: Array<{
+      node: GraphNode;
+      kind: string;
+      direction: "out" | "in";
+    }> = [];
+    for (const edge of this.graph.allEdges()) {
+      if (edge.from === id) {
+        const other = byId.get(edge.to);
+        if (other)
+          neighbors.push({ node: other, kind: edge.kind, direction: "out" });
+      } else if (edge.to === id) {
+        const other = byId.get(edge.from);
+        if (other)
+          neighbors.push({ node: other, kind: edge.kind, direction: "in" });
+      }
+    }
+
+    let entry: MemoryEntry | null = null;
+    if (node.kind === "Memory" && id.includes("/")) {
+      const { type, name } = splitId(id);
+      entry = this.store.load(name, type) ?? null;
+    }
+
+    return { node, entry, neighbors };
   }
 
   private sessionMemory(sessionId: string): SessionMemory {

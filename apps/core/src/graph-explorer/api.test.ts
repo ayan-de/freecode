@@ -8,8 +8,10 @@ import { MemoryGraphService } from "../memory/graph/index.js";
 import {
   dispatchApi,
   handleGraph,
+  handleNode,
   handleSearch,
   writeApiResult,
+  type NodeDetailResponse,
 } from "./api.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 
@@ -32,7 +34,10 @@ function svc(): { service: MemoryGraphService; cleanup: () => void } {
   const service = new MemoryGraphService(new MemoryStore(dir));
   (service as unknown as { seed: () => Promise<unknown[]> }).seed =
     async () => [];
-  return { service, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    service,
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
 }
 
 function fakeReq(method: string): import("http").IncomingMessage {
@@ -105,9 +110,7 @@ test("handleSearch returns results with via edges for cascaded nodes", async () 
     // Force a non-empty seed pool so cascade actually has something to walk.
     (service as unknown as { seed: (q: string) => Promise<unknown[]> }).seed =
       async () => [{ id: "project/alpha", score: 1 }];
-    const url = new URL(
-      `http://x/api/search?q=${encodeURIComponent("alpha")}`,
-    );
+    const url = new URL(`http://x/api/search?q=${encodeURIComponent("alpha")}`);
     const r = await handleSearch(fakeReq("GET"), url, fakeRes(), { service });
     assert.equal(r.status, 200);
     const body = (r as { body: unknown }).body as {
@@ -191,10 +194,124 @@ test("writeApiResult serializes the body and sets the right headers", () => {
     body: { ok: true, n: 1 },
   });
   assert.equal(captured.status, 200);
-  assert.match(
-    captured.headers["Content-Type"] ?? "",
-    /^application\/json/,
-  );
+  assert.match(captured.headers["Content-Type"] ?? "", /^application\/json/);
   assert.equal(captured.headers["Cache-Control"], "no-store");
   assert.equal(JSON.parse(captured.body ?? "").ok, true);
+});
+
+// -----------------------------------------------------------------------------
+// /api/node — the endpoint that gives a clicked node something to show.
+// -----------------------------------------------------------------------------
+
+test("handleNode returns the stored memory behind a node", async () => {
+  const { service, cleanup } = svc();
+  try {
+    const store = (service as unknown as { store: MemoryStore }).store;
+    store.save(
+      mkEntry("freecode-founder", {
+        type: "user",
+        description: "Builds freecode",
+        content: "Ships releases from main.",
+        tags: ["freecode", "founder"],
+        createdAt: 1000,
+        updatedAt: 2000,
+      }),
+    );
+    await handleGraph(fakeReq("GET"), fakeRes(), { service });
+
+    const r = handleNode(
+      fakeReq("GET"),
+      new URL("http://x/api/node?id=user/freecode-founder"),
+      fakeRes(),
+      { service },
+    );
+    assert.equal(r.status, 200);
+    const body = (r as { body: NodeDetailResponse }).body;
+
+    // The graph node itself carries only these three fields — the point of
+    // the endpoint is everything below it.
+    assert.equal(body.node.kind, "Memory");
+    assert.equal(body.node.label, "freecode-founder");
+
+    assert.ok(body.entry);
+    assert.equal(body.entry!.description, "Builds freecode");
+    assert.equal(body.entry!.content, "Ships releases from main.");
+    // MemoryStore.load derives timestamps from the file's own birthtime/mtime
+    // rather than frontmatter, so the saved values are not what comes back.
+    assert.ok(body.entry!.createdAt > 0);
+    assert.ok(body.entry!.updatedAt > 0);
+    assert.deepEqual(body.entry!.tags, ["freecode", "founder"]);
+
+    // Its tags are neighbours, so the panel can walk to them.
+    const tagNeighbors = body.neighbors.filter((n) => n.kind === "Tag");
+    assert.equal(tagNeighbors.length, 2);
+    assert.equal(tagNeighbors[0].edge, "HasTag");
+    assert.equal(tagNeighbors[0].direction, "out");
+  } finally {
+    cleanup();
+  }
+});
+
+test("handleNode reports a tag node as a grouping with no entry", async () => {
+  const { service, cleanup } = svc();
+  try {
+    const store = (service as unknown as { store: MemoryStore }).store;
+    store.save(mkEntry("a", { tags: ["shared"] }));
+    store.save(mkEntry("b", { tags: ["shared"] }));
+    await handleGraph(fakeReq("GET"), fakeRes(), { service });
+
+    const r = handleNode(
+      fakeReq("GET"),
+      new URL("http://x/api/node?id=tag:shared"),
+      fakeRes(),
+      { service },
+    );
+    assert.equal(r.status, 200);
+    const body = (r as { body: NodeDetailResponse }).body;
+    assert.equal(body.node.kind, "Tag");
+    // A synthetic grouping has no stored content — the members are the value.
+    assert.equal(body.entry, null);
+    assert.equal(body.neighbors.filter((n) => n.kind === "Memory").length, 2);
+  } finally {
+    cleanup();
+  }
+});
+
+test("handleNode 400s without an id and 404s on an unknown one", async () => {
+  const { service, cleanup } = svc();
+  try {
+    const missingId = handleNode(
+      fakeReq("GET"),
+      new URL("http://x/api/node"),
+      fakeRes(),
+      { service },
+    );
+    assert.equal(missingId.status, 400);
+
+    const unknown = handleNode(
+      fakeReq("GET"),
+      new URL("http://x/api/node?id=project/nope"),
+      fakeRes(),
+      { service },
+    );
+    assert.equal(unknown.status, 404);
+  } finally {
+    cleanup();
+  }
+});
+
+test("dispatchApi routes /api/node", async () => {
+  const { service, cleanup } = svc();
+  try {
+    const r = await dispatchApi(
+      fakeReq("GET"),
+      new URL("http://x/api/node?id=nope"),
+      fakeRes(),
+      { service },
+    );
+    assert.ok(r, "dispatch handled the path");
+    assert.equal(r!.status, 404);
+  } finally {
+    cleanup();
+  }
 });

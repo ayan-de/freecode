@@ -21,6 +21,11 @@
   const seedModeEl = document.getElementById("seed-mode");
   const emptyEl = document.getElementById("empty");
   const qInput = document.getElementById("q");
+  const detailEl = document.getElementById("detail");
+  const detailKindEl = document.getElementById("detail-kind");
+  const detailTitleEl = document.getElementById("detail-title");
+  const detailBodyEl = document.getElementById("detail-body");
+  const detailCloseEl = document.getElementById("detail-close");
 
   // d3 layers — created once, populated on data load.
   const root = svg.append("g").attr("class", "root");
@@ -158,7 +163,13 @@
       .attr("class", (d) => `node kind-${d.kind}`)
       .attr("r", nodeRadius)
       .style("fill", nodeColor)
-      .call(drag);
+      .call(drag)
+      // d3-drag swallows the click that follows a drag that actually moved,
+      // so a plain click handler here means "clicked without dragging".
+      .on("click", (event, d) => {
+        event.stopPropagation();
+        openDetail(d.id);
+      });
 
     // Tag/Cluster labels are hidden by default to avoid crowding (see
     // node-labels below) — a native <title> makes every node's name/kind
@@ -302,6 +313,148 @@
       clearHighlights();
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Node detail panel
+  //
+  // /api/graph carries only { id, kind, label } — enough to draw a circle and
+  // nothing to read. The body of a memory is fetched on demand from
+  // /api/node so the initial payload stays small on a large graph.
+  // ---------------------------------------------------------------------------
+
+  let selectedId = null;
+
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    // textContent throughout: memory bodies are user text and must never be
+    // parsed as HTML.
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  function formatDate(ms) {
+    if (!ms) return "unknown";
+    return new Date(ms).toLocaleString();
+  }
+
+  function closeDetail() {
+    detailEl.hidden = true;
+    selectedId = null;
+    if (nodesSel) nodesSel.classed("selected", false);
+  }
+
+  function section(parent, heading, child) {
+    parent.appendChild(el("h4", null, heading));
+    parent.appendChild(child);
+  }
+
+  function renderDetail(data) {
+    detailKindEl.textContent = data.node.kind;
+    detailTitleEl.textContent = data.node.label;
+    detailBodyEl.replaceChildren();
+
+    const entry = data.entry;
+    if (entry) {
+      if (entry.description) {
+        section(
+          detailBodyEl,
+          "description",
+          el("p", "detail-desc", entry.description),
+        );
+      }
+
+      const meta = el("div", "detail-meta");
+      for (const [key, value] of [
+        ["type", entry.type],
+        ["created", formatDate(entry.createdAt)],
+        ["updated", formatDate(entry.updatedAt)],
+      ]) {
+        meta.appendChild(el("span", null, key));
+        meta.appendChild(el("span", null, value));
+      }
+      section(detailBodyEl, "details", meta);
+
+      if (entry.tags && entry.tags.length > 0) {
+        const tags = el("div", "detail-tags");
+        for (const tag of entry.tags) {
+          tags.appendChild(el("span", "detail-tag", tag));
+        }
+        section(detailBodyEl, "tags", tags);
+      }
+
+      section(
+        detailBodyEl,
+        "content",
+        el("pre", "detail-content", entry.content || "(empty)"),
+      );
+    } else {
+      // Tag and Cluster nodes are synthetic groupings with no stored entry.
+      // Say so, rather than rendering an empty panel that looks broken.
+      section(
+        detailBodyEl,
+        "about",
+        el(
+          "p",
+          "detail-empty",
+          data.node.kind === "Memory"
+            ? "This memory is in the graph but its file could not be read."
+            : `A ${data.node.kind.toLowerCase()} groups the memories below. It has no content of its own.`,
+        ),
+      );
+    }
+
+    const list = el("ul", "detail-neighbors");
+    if (data.neighbors.length === 0) {
+      list.appendChild(el("li", "detail-empty", "none"));
+    }
+    for (const n of data.neighbors) {
+      const li = el("li");
+      const link = el("button", "detail-link", n.label);
+      link.addEventListener("click", () => openDetail(n.id));
+      li.appendChild(link);
+      li.appendChild(
+        el(
+          "span",
+          "detail-edge",
+          `  ${n.direction === "out" ? "→" : "←"} ${n.edge}`,
+        ),
+      );
+      list.appendChild(li);
+    }
+    section(detailBodyEl, `connected (${data.neighbors.length})`, list);
+
+    detailEl.hidden = false;
+  }
+
+  async function openDetail(id) {
+    selectedId = id;
+    if (nodesSel) nodesSel.classed("selected", (d) => d.id === id);
+    try {
+      const res = await fetch(`/api/node?id=${encodeURIComponent(id)}`);
+      if (!res.ok) {
+        detailKindEl.textContent = "";
+        detailTitleEl.textContent = id;
+        detailBodyEl.replaceChildren(
+          el("p", "detail-empty", `error: /api/node returned ${res.status}`),
+        );
+        detailEl.hidden = false;
+        return;
+      }
+      const data = await res.json();
+      // A slower earlier click must not overwrite a newer selection.
+      if (selectedId === id) renderDetail(data);
+    } catch (err) {
+      detailBodyEl.replaceChildren(el("p", "detail-empty", `error: ${err.message}`));
+      detailEl.hidden = false;
+    }
+  }
+
+  detailCloseEl.addEventListener("click", closeDetail);
+  svg.on("click", closeDetail);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDetail();
+  });
 
   // Initial load.
   (async () => {

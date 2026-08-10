@@ -36,9 +36,39 @@ export interface SearchResponse {
   seedMode: "vector" | "keyword";
 }
 
+/**
+ * What one node actually holds.
+ *
+ * `/api/graph` sends `{ id, kind, label }` per node — enough to draw, nothing
+ * to read. The graph is a derived index; the content lives in the store. This
+ * is the endpoint that resolves a node back to it, so clicking a node can show
+ * something.
+ */
+export interface NodeDetailResponse {
+  node: { id: string; kind: string; label: string };
+  entry: {
+    name: string;
+    description: string;
+    type: string;
+    content: string;
+    createdAt: number;
+    updatedAt: number;
+    tags?: string[];
+    supersedes?: string[];
+  } | null;
+  neighbors: Array<{
+    id: string;
+    kind: string;
+    label: string;
+    edge: string;
+    direction: "out" | "in";
+  }>;
+}
+
 export type ApiResult =
-  | { status: 200; body: GraphDump | SearchResponse }
-  | { status: 400; body: { error: string } };
+  | { status: 200; body: GraphDump | SearchResponse | NodeDetailResponse }
+  | { status: 400; body: { error: string } }
+  | { status: 404; body: { error: string } };
 
 // GET /api/graph — full graph dump + embedder availability. The service's
 // dumpGraphForExplorer() triggers a sync against disk, so the explorer sees
@@ -76,6 +106,39 @@ export async function handleSearch(
   return { status: 200, body: { results, seedMode } };
 }
 
+// GET /api/node?id=... — the memory behind a node, plus its neighbours.
+export function handleNode(
+  _req: IncomingMessage,
+  url: URL,
+  _res: ServerResponse,
+  deps: GraphApiDeps,
+): ApiResult {
+  const id = url.searchParams.get("id") ?? "";
+  if (id.trim().length === 0) {
+    return { status: 400, body: { error: "missing id parameter" } };
+  }
+  const detail = deps.service.nodeDetailForExplorer(id);
+  if (!detail) {
+    return { status: 404, body: { error: `no such node: ${id}` } };
+  }
+  return {
+    status: 200,
+    body: {
+      node: detail.node,
+      entry: detail.entry,
+      // Flattened for the client: it renders a list, not a graph, and a nested
+      // node object per row is one more thing the page has to unwrap.
+      neighbors: detail.neighbors.map((n) => ({
+        id: n.node.id,
+        kind: n.node.kind,
+        label: n.node.label,
+        edge: n.kind,
+        direction: n.direction,
+      })),
+    },
+  };
+}
+
 // Dispatches an HTTP request to the right handler. Returns null when the
 // path is neither /api/graph nor /api/search so the static server can serve
 // other paths (or 404).
@@ -91,6 +154,9 @@ export async function dispatchApi(
   }
   if (url.pathname === "/api/search") {
     return handleSearch(req, url, res, deps);
+  }
+  if (url.pathname === "/api/node") {
+    return handleNode(req, url, res, deps);
   }
   return null;
 }
