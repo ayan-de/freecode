@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.24.0
+
+Clicking a node in `/graph` now shows the memory behind it. It previously did nothing, and there was nothing it could have done: the graph payload carried no content.
+
+### Added
+- **Node detail in the graph explorer.** `/api/graph` sends `{ id, kind, label }` per node — three strings, enough to draw a circle and nothing to read. The graph is a *derived index*; the description, body, tags and timestamps live in the memory store and were never served, and `graph.js` wired drag and a `<title>` hover tooltip but no click handler. A new `GET /api/node?id=…` resolves a node id back to its `MemoryEntry` plus its immediate neighbours, and clicking a node opens a panel with the description, type, created/updated, tags, the full content, and a clickable list of what it connects to. Escape or a background click closes it. Fetched on demand rather than folded into `/api/graph`, so the initial payload stays small on a large graph. Tag and Cluster nodes are synthetic groupings with no stored entry — they return `entry: null` and say they group the memories below, rather than rendering an empty panel that reads as broken. All panel text goes through `textContent`: memory bodies are user text and must never reach `innerHTML`. The explorer still binds to `127.0.0.1` only.
+
+### Note
+- The explorer page ships as the optional `graph-ui.tar.gz` addon, so this needs `freecode memory ui-install` after upgrading — the new page calls an endpoint older binaries don't serve.
+- Memories carrying no `tags` and no `[[wikilinks]]` produce no edges, so a fresh graph is a set of disconnected nodes and every `connected` list is empty. That is the derivation working as specified, not a rendering fault.
+
 ## v0.23.1
 
 Fixes two false positives in v0.23.0's observability work, one of them capable of aborting healthy requests. Both had the same root cause: a detector placed at the layer that was convenient to instrument rather than the layer carrying the signal.
