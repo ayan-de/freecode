@@ -21,6 +21,7 @@ import { webCommand } from "./commands/web.js";
 import { mobileCommand } from "./commands/mobile.js";
 import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
+import { traceCommand } from "./commands/trace.js";
 import { uninstallCommand } from "./commands/uninstall.js";
 
 // ANSI color codes
@@ -57,7 +58,10 @@ export function resolveVersion(): string {
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const packageJson = JSON.parse(
-      fs.readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf-8"),
+      fs.readFileSync(
+        path.join(__dirname, "..", "..", "package.json"),
+        "utf-8",
+      ),
     );
     return packageJson.version;
   } catch {
@@ -88,6 +92,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(mobileCommand)
     .command(serveCommand)
     .command(runCommand)
+    .command(traceCommand as CommandModule)
     .command(uninstallCommand)
     .strict();
 

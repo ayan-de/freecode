@@ -14,6 +14,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | Memory write path   | `specs/2026-08-09-memory-write-path.md`                 |
 | **Memory (all of it)** | **`docs/superpowers/MEMORY_SYSTEM.md`** — start here |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
+| Observability       | `specs/2026-08-10-agent-observability.md`               |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
 ## Implemented Subsystems
@@ -29,6 +30,7 @@ The v4 architecture systems are implemented and live in `apps/core/src/`:
 | **Hooks**                  | `hooks/` — PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PreCompact, PostCompact, SessionStart, UserPromptSubmit, SubagentStart, SubagentStop, Stop, Notification, TurnStart, TurnEnd |
 | **Skills System**          | `skills/manager.ts`, `skills/loader.ts`, `skills/registry.ts`, `skills/injection.ts`, `skills/types.ts`          |
 | **Rollout/Event Sourcing** | `rollout/recorder.ts`, `rollout/types.ts`, `rollout/history.ts`, `rollout/replay.ts`                              |
+| **Observability**          | Spec `2026-08-10-agent-observability.md`. Model-call events (`model.request`/`first_token`/`response`/`error`) recorded by `rollout/recorder.ts` around `callProviderOnce`; `model.request` is written *before* the call so an unterminated request is itself the evidence of a hang. `providers/stall-guard.ts` bounds provider **silence** (first chunk 120s, inter-chunk 60s, non-streaming call 300s; `FREECODE_*_TIMEOUT_MS`, `0` disables). `rollout/trace.ts` (pure fold → spans) + `trace-render.ts` (waterfall) + `rollout/otlp.ts` (OTLP/HTTP JSON, no SDK dep, exported from the log not the hot path). CLI: `freecode trace [id] [--follow\|--slow\|--list\|--json\|--otlp]`. |
 | **Thread Store**           | `store/thread-store.ts`, `store/sqlite-store.ts`, `store/json-store.ts`, `store/remote.ts`                        |
 | **Sessions**               | `session/manager.ts`, `session/service.ts`, `session/store.ts`, `session/prompt.ts`, `session/normalize/`        |
 | **Compaction**             | `compaction/service.ts`, `compaction/selector.ts`, `compaction/summarizer.ts`, `compaction/tokens.ts`            |

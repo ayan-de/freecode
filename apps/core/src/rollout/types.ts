@@ -36,7 +36,11 @@ export type RolloutEvent =
   | HookTriggeredEvent
   | HookBlockedEvent
   | ContextOverflowEvent
-  | ParseErrorEvent;
+  | ParseErrorEvent
+  | ModelRequestEvent
+  | ModelFirstTokenEvent
+  | ModelResponseEvent
+  | ModelErrorEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -112,5 +116,67 @@ export interface ParseErrorEvent extends BaseEvent {
   type: "parse.error";
   turnId: string;
   parser: string;
+  error: string;
+}
+
+// ============================================================================
+// Model call events
+//
+// The provider round trip is the slowest and most failure-prone step in the
+// loop, and until these existed it was the one step the log said nothing
+// about. A stalled request left `turn.started` with no successor, which is
+// indistinguishable in the log from a turn that simply ended — so "the agent
+// is stuck" could not be told apart from "the agent is done" after the fact.
+//
+// `model.request` is written BEFORE the call, so an unterminated request is
+// itself the evidence: request with no matching response/error is a hang.
+// ============================================================================
+
+export interface ModelRequestEvent extends BaseEvent {
+  type: "model.request";
+  turnId: string;
+  provider: string;
+  model: string;
+  /** Messages sent, after history pruning. */
+  messageCount: number;
+  /** Tool definitions offered on this call. */
+  toolCount: number;
+  /** Approximate serialized prompt size; catches runaway context growth. */
+  promptChars: number;
+  streamed: boolean;
+}
+
+/** Time to first chunk — separates "provider never started" from "died mid-stream". */
+export interface ModelFirstTokenEvent extends BaseEvent {
+  type: "model.first_token";
+  turnId: string;
+  ttft_ms: number;
+}
+
+export interface ModelResponseEvent extends BaseEvent {
+  type: "model.response";
+  turnId: string;
+  provider: string;
+  model: string;
+  duration_ms: number;
+  ttft_ms?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  /** Names only — the args are already captured by function.call. */
+  toolCalls: string[];
+  textChars: number;
+  thinkingChars: number;
+}
+
+export interface ModelErrorEvent extends BaseEvent {
+  type: "model.error";
+  turnId: string;
+  provider: string;
+  model: string;
+  duration_ms: number;
+  /** `stall` = went silent past its budget; `abort` = cancelled by the user. */
+  kind: "stall" | "abort" | "provider";
   error: string;
 }

@@ -8,7 +8,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import type { RolloutEvent } from "./types.js";
+import type {
+  BaseEvent,
+  ModelErrorEvent,
+  ModelRequestEvent,
+  ModelResponseEvent,
+  RolloutEvent,
+} from "./types.js";
 
 // ============================================================================
 // ULID Generator (Timestamp + Random)
@@ -67,6 +73,13 @@ export interface RecordOptions {
   parser?: string;
   error?: string;
   seq?: number;
+  /**
+   * Escape hatch for event payloads with their own field sets, spread verbatim
+   * onto the event. Model events carry a dozen fields that mean nothing to any
+   * other event type; threading each one through the whitelist above would
+   * double its length to describe a shape only one caller uses.
+   */
+  fields?: Record<string, unknown>;
 }
 
 export class RolloutRecorder {
@@ -157,7 +170,7 @@ export class RolloutRecorder {
     if (opts.error) extra.error = opts.error;
     if (opts.seq !== undefined) extra.seq = opts.seq;
 
-    return { type, ...base, ...extra } as RolloutEvent;
+    return { type, ...base, ...extra, ...opts.fields } as RolloutEvent;
   }
 
   // ===========================================================================
@@ -318,6 +331,62 @@ export class RolloutRecorder {
       error,
     });
     this.write(event);
+  }
+
+  // ===========================================================================
+  // PUBLIC: model call events
+  //
+  // Written around the provider round trip. recordModelRequest() fires BEFORE
+  // the call so that a hang leaves a request with no terminator — the absence
+  // is the diagnosis.
+  // ===========================================================================
+  recordModelRequest(
+    turnId: string,
+    fields: Omit<ModelRequestEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("model.request", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
+  }
+
+  recordModelFirstToken(turnId: string, ttft_ms: number): void {
+    this.write(
+      this.makeEvent("model.first_token", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields: { ttft_ms },
+      }),
+    );
+  }
+
+  recordModelResponse(
+    turnId: string,
+    fields: Omit<ModelResponseEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("model.response", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
+  }
+
+  recordModelError(
+    turnId: string,
+    fields: Omit<ModelErrorEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("model.error", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
   }
 }
 

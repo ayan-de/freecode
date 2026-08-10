@@ -89,8 +89,12 @@ import {
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import {
-  recordInvalidation,
-} from "../providers/cache-invalidation.js";
+  ProviderStallError,
+  linkAbort,
+  requestTimeoutMs,
+  withStallTimeout,
+} from "../providers/stall-guard.js";
+import { recordInvalidation } from "../providers/cache-invalidation.js";
 import {
   checkCacheUsage,
   describeCacheProblem,
@@ -205,6 +209,39 @@ function extractToolImage(
   if (typeof b64 !== "string" || b64.length === 0) return undefined;
   if (typeof mediaType !== "string" || mediaType.length === 0) return undefined;
   return { data: b64, mediaType };
+}
+
+/**
+ * Rough serialized size of a request, for the `model.request` trace event.
+ *
+ * Character count rather than a token estimate: this exists to make runaway
+ * context growth visible in the log, and for that a cheap number that is
+ * comparable turn-over-turn beats an expensive one that is merely closer.
+ * `JSON.stringify` over a 100KB prompt every single turn is not worth it.
+ */
+function estimatePromptChars(
+  messages: Message[],
+  system: SystemBlock[],
+): number {
+  let total = 0;
+  for (const block of system) total += block.text.length;
+  for (const message of messages) {
+    for (const part of message.parts) {
+      switch (part.type) {
+        case "text":
+        case "code":
+          total += part.content.length;
+          break;
+        case "tool":
+          total += part.result?.length ?? 0;
+          break;
+        case "image":
+          total += part.data.length;
+          break;
+      }
+    }
+  }
+  return total;
 }
 
 // =============================================================================
@@ -1637,96 +1674,192 @@ export class AgentLoop {
     // is exactly the one compaction budgeted for.
     const maxTokens = await resolveMaxOutputTokens(provider, model);
 
-    // Prefer streaming when the provider supports it AND we have a listener.
-    // If either is missing, fall back to the one-shot execute() path so callers
-    // and downstream code paths are unchanged.
-    if (aiProvider.stream) {
-      let content = "";
-      let thinking = "";
-      let toolCalls:
-        | Array<{ name: string; args: Record<string, unknown>; id: string }>
-        | undefined;
-      let usage:
-        | {
-            inputTokens: number;
-            outputTokens: number;
-            cacheReadInputTokens?: number;
-            cacheCreationInputTokens?: number;
-          }
-        | undefined;
+    // Trace the provider round trip. `model.request` is written before the
+    // call on purpose: a request with no matching response or error is what a
+    // hang looks like in the log, and that asymmetry is the whole diagnostic.
+    const turnId = `turn-${this.state.turnCount}`;
+    const resolvedModel = model ?? "(provider default)";
+    const startedAt = Date.now();
+    this.recorder.recordModelRequest(turnId, {
+      provider,
+      model: resolvedModel,
+      messageCount: prunedMessages.length,
+      toolCount: tools.length,
+      promptChars: estimatePromptChars(prunedMessages, system),
+      streamed: Boolean(aiProvider.stream),
+    });
 
-      for await (const chunk of aiProvider.stream({
-        messages: prunedMessages,
-        system,
-        tools,
-        model,
-        maxTokens,
-        abortSignal: this.abort.signal,
-        sessionId: this.state.sessionId,
-      })) {
-        if (this.abort.signal.aborted) break;
-        switch (chunk.type) {
-          case "text_delta":
-            content += chunk.delta;
-            BusEvents.stream(this.state.sessionId, {
-              type: "text_delta",
-              delta: chunk.delta,
-            });
-            break;
-          case "thinking_delta":
-            thinking += chunk.delta;
-            BusEvents.stream(this.state.sessionId, {
-              type: "thinking_delta",
-              delta: chunk.delta,
-            });
-            break;
-          case "tool_call":
-            (toolCalls ??= []).push({
-              id: chunk.id,
-              name: chunk.name,
-              args: chunk.args,
-            });
-            break;
-          case "usage":
-            usage = {
-              inputTokens: chunk.usage.inputTokens,
-              outputTokens: chunk.usage.outputTokens,
-              cacheReadInputTokens: chunk.usage.cacheReadInputTokens,
-              cacheCreationInputTokens: chunk.usage.cacheCreationInputTokens,
-            };
-            break;
-          case "error":
-            throw new Error(chunk.error);
-          case "done":
-            break;
+    // A per-call controller, chained to the session's. A stalled request can
+    // then be killed at the socket without aborting the session itself.
+    const call = linkAbort(this.abort.signal);
+
+    const recordModelFailure = (err: unknown): void => {
+      this.recorder.recordModelError(turnId, {
+        provider,
+        model: resolvedModel,
+        duration_ms: Date.now() - startedAt,
+        kind:
+          err instanceof ProviderStallError
+            ? "stall"
+            : this.abort.signal.aborted
+              ? "abort"
+              : "provider",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    };
+
+    try {
+      // Prefer streaming when the provider supports it AND we have a listener.
+      // If either is missing, fall back to the one-shot execute() path so callers
+      // and downstream code paths are unchanged.
+      if (aiProvider.stream) {
+        let content = "";
+        let thinking = "";
+        let toolCalls:
+          | Array<{ name: string; args: Record<string, unknown>; id: string }>
+          | undefined;
+        let usage:
+          | {
+              inputTokens: number;
+              outputTokens: number;
+              cacheReadInputTokens?: number;
+              cacheCreationInputTokens?: number;
+            }
+          | undefined;
+
+        let ttft_ms: number | undefined;
+
+        for await (const chunk of withStallTimeout(
+          aiProvider.stream({
+            messages: prunedMessages,
+            system,
+            tools,
+            model,
+            maxTokens,
+            abortSignal: call.signal,
+            sessionId: this.state.sessionId,
+          }),
+          // Kill the socket rather than leaving the request orphaned in flight.
+          { onStall: () => call.abort() },
+        )) {
+          if (ttft_ms === undefined) {
+            ttft_ms = Date.now() - startedAt;
+            this.recorder.recordModelFirstToken(turnId, ttft_ms);
+          }
+          if (this.abort.signal.aborted) break;
+          switch (chunk.type) {
+            case "text_delta":
+              content += chunk.delta;
+              BusEvents.stream(this.state.sessionId, {
+                type: "text_delta",
+                delta: chunk.delta,
+              });
+              break;
+            case "thinking_delta":
+              thinking += chunk.delta;
+              BusEvents.stream(this.state.sessionId, {
+                type: "thinking_delta",
+                delta: chunk.delta,
+              });
+              break;
+            case "tool_call":
+              (toolCalls ??= []).push({
+                id: chunk.id,
+                name: chunk.name,
+                args: chunk.args,
+              });
+              break;
+            case "usage":
+              usage = {
+                inputTokens: chunk.usage.inputTokens,
+                outputTokens: chunk.usage.outputTokens,
+                cacheReadInputTokens: chunk.usage.cacheReadInputTokens,
+                cacheCreationInputTokens: chunk.usage.cacheCreationInputTokens,
+              };
+              break;
+            case "error":
+              throw new Error(chunk.error);
+            case "done":
+              break;
+          }
         }
+
+        this.emitCacheWarm(usage);
+        this.recorder.recordModelResponse(turnId, {
+          provider,
+          model: resolvedModel,
+          duration_ms: Date.now() - startedAt,
+          ttft_ms,
+          inputTokens: usage?.inputTokens,
+          outputTokens: usage?.outputTokens,
+          cacheReadTokens: usage?.cacheReadInputTokens,
+          cacheWriteTokens: usage?.cacheCreationInputTokens,
+          toolCalls: (toolCalls ?? []).map((t) => t.name),
+          textChars: content.length,
+          thinkingChars: thinking.length,
+        });
+        return {
+          content,
+          thinking: thinking ? thinking : undefined,
+          toolCalls,
+          usage,
+          streamed: true,
+        };
       }
 
-      this.emitCacheWarm(usage);
-      return {
-        content,
-        thinking: thinking ? thinking : undefined,
-        toolCalls,
-        usage,
-        streamed: true,
-      };
-    }
+      // Non-streaming has no chunks to measure silence between, so the bound is
+      // on the whole call instead of on a gap.
+      const budget = requestTimeoutMs();
+      let timedOut = false;
+      const deadline =
+        budget > 0
+          ? setTimeout(() => {
+              timedOut = true;
+              call.abort();
+            }, budget)
+          : undefined;
 
-    const result = await aiProvider.execute({
-      messages: prunedMessages,
-      system,
-      tools,
-      model,
-      abortSignal: this.abort.signal,
-      sessionId: this.state.sessionId,
-    });
-    this.emitCacheWarm(result.usage);
-    return {
-      content: result.content,
-      thinking: result.thinking,
-      toolCalls: result.toolCalls,
-      usage: result.usage,
-    };
+      let result;
+      try {
+        result = await aiProvider.execute({
+          messages: prunedMessages,
+          system,
+          tools,
+          model,
+          abortSignal: call.signal,
+          sessionId: this.state.sessionId,
+        });
+      } catch (err) {
+        // The abort surfaces as a generic cancellation; restate it as the stall
+        // it actually was, so the log and the user see the real cause.
+        throw timedOut ? new ProviderStallError(budget, 0) : err;
+      } finally {
+        clearTimeout(deadline);
+      }
+
+      this.emitCacheWarm(result.usage);
+      this.recorder.recordModelResponse(turnId, {
+        provider,
+        model: resolvedModel,
+        duration_ms: Date.now() - startedAt,
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+        cacheReadTokens: result.usage?.cacheReadInputTokens,
+        cacheWriteTokens: result.usage?.cacheCreationInputTokens,
+        toolCalls: (result.toolCalls ?? []).map((t) => t.name),
+        textChars: result.content.length,
+        thinkingChars: result.thinking?.length ?? 0,
+      });
+      return {
+        content: result.content,
+        thinking: result.thinking,
+        toolCalls: result.toolCalls,
+        usage: result.usage,
+      };
+    } catch (err) {
+      recordModelFailure(err);
+      throw err;
+    }
   }
 
   // Surface post-turn cache hit/write token counts (jcode #9). Only emitted when
