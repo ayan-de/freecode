@@ -7,6 +7,7 @@ import {
   ProviderChunk,
 } from "./types.js";
 import { getApiKey } from "./config.js";
+import { createTimeoutFetch } from "./fetch-timeout.js";
 import { registerProvider } from "./registry.js";
 import {
   convertToCoreMessages,
@@ -26,7 +27,10 @@ const PROVIDER_INFO = {
 };
 
 function createOpenAIProvider(_apiKey: string): AIProvider {
-  const openai = createOpenAI({ apiKey: getApiKey("openai") });
+  const openai = createOpenAI({
+    apiKey: getApiKey("openai"),
+    fetch: createTimeoutFetch(),
+  });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     // Shares buildOptions with stream() rather than assembling its own copy:

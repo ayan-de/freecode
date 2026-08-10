@@ -7,6 +7,7 @@ import {
   ProviderChunk,
 } from "./types.js";
 import { getApiKey } from "./config.js";
+import { createTimeoutFetch } from "./fetch-timeout.js";
 import { registerProvider } from "./registry.js";
 import {
   convertToCoreMessages,
@@ -28,7 +29,10 @@ const PROVIDER_INFO = {
 };
 
 function createAnthropicProvider(_apiKey: string): AIProvider {
-  const anthropic = createAnthropic({ apiKey: getApiKey("anthropic") });
+  const anthropic = createAnthropic({
+    apiKey: getApiKey("anthropic"),
+    fetch: createTimeoutFetch(),
+  });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = resolveModel(

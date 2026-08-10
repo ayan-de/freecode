@@ -1,6 +1,6 @@
 // =============================================================================
 // End-to-end proof that the agent loop traces its own provider calls, and that
-// a silent provider is killed instead of hanging the run forever.
+// a provider timeout is classified as a stall rather than a generic failure.
 //
 // Runs the real loop against fake providers registered in the registry, with
 // the recorder pointed at a temp dir, and reads the JSONL back.
@@ -18,6 +18,7 @@ import { createAgentLoopEffect } from "./loop.js";
 import { MemoryService } from "../compaction/service.js";
 import { createRecorder } from "../rollout/recorder.js";
 import { registerProvider } from "../providers/registry.js";
+import { StreamStallError } from "../providers/fetch-timeout.js";
 import type { ProviderId } from "../providers/config.js";
 import type {
   AIProvider,
@@ -64,25 +65,17 @@ registerProvider("trace-fake" as ProviderId, {
   }),
 });
 
-// Accepts the connection and then says nothing — the exact failure the stall
-// guard exists for. Never resolves on its own.
+// Fails the way the fetch layer does when a provider goes silent. The timeout
+// itself is tested in providers/fetch-timeout.test.ts; what matters here is
+// that the loop classifies it as a stall rather than a generic provider error.
 registerProvider("stall-fake" as ProviderId, {
   info: info("stall-fake"),
   create: (): AIProvider => ({
     info: info("stall-fake"),
     execute: async () => done,
-    stream: async function* (opts): AsyncGenerator<ProviderChunk> {
-      // Honours abortSignal exactly as the real adapters do, which is what
-      // makes this a faithful test of the guard's kill path rather than of a
-      // generator that politely gives up on its own.
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, 30_000);
-        opts.abortSignal?.addEventListener("abort", () => {
-          clearTimeout(timer);
-          reject(new Error("aborted"));
-        });
-      });
-      yield { type: "text_delta", delta: "too late" };
+    // eslint-disable-next-line require-yield
+    stream: async function* (): AsyncGenerator<ProviderChunk> {
+      throw new StreamStallError(180_000);
     },
   }),
 });
@@ -168,9 +161,7 @@ test("a healthy turn records request, first token and response", async () => {
   }
 });
 
-test("a silent provider is cut off and recorded as a stall, not left hanging", async () => {
-  const previous = process.env.FREECODE_FIRST_CHUNK_TIMEOUT_MS;
-  process.env.FREECODE_FIRST_CHUNK_TIMEOUT_MS = "150";
+test("a provider timeout is recorded as a stall, not a generic error", async () => {
   const rolloutDir = mkdtempSync(join(tmpdir(), "freecode-rollout-"));
   const { runtime, loop, projectPath } = await runLoop(
     "trace-stall",
@@ -187,11 +178,7 @@ test("a silent provider is cut off and recorded as a stall, not left hanging", a
     });
     const elapsed = Date.now() - startedAt;
 
-    // Before the guard existed this call never returned at all.
-    assert.ok(
-      elapsed < 20_000,
-      `loop returned in ${elapsed}ms instead of hanging`,
-    );
+    assert.ok(elapsed < 20_000, `loop returned in ${elapsed}ms`);
 
     const events = readEvents(rolloutDir);
     assert.ok(events.some((e) => e.type === "model.request"));
@@ -202,12 +189,9 @@ test("a silent provider is cut off and recorded as a stall, not left hanging", a
     const error = events.find((e) => e.type === "model.error");
     assert.ok(error, "the stall was recorded");
     assert.equal(error!.kind, "stall");
-    assert.match(String(error!.error), /no response/);
+    assert.match(String(error!.error), /no data/);
   } finally {
     await runtime.dispose();
     rmSync(rolloutDir, { recursive: true, force: true });
-    if (previous === undefined)
-      delete process.env.FREECODE_FIRST_CHUNK_TIMEOUT_MS;
-    else process.env.FREECODE_FIRST_CHUNK_TIMEOUT_MS = previous;
   }
 });

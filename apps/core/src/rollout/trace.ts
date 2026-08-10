@@ -12,7 +12,19 @@
 
 import type { RolloutEvent } from "./types.js";
 
-export type SpanStatus = "ok" | "error" | "hung";
+export type SpanStatus = "ok" | "error" | "in_flight" | "hung";
+
+/**
+ * How long an unterminated request must sit before it is called a hang rather
+ * than a request still in progress.
+ *
+ * Without this every in-flight call rendered as HUNG the moment `--follow`
+ * drew it, and then "recovered" when the response landed — which is not a
+ * diagnosis, it is a race against the redraw. The threshold matches the
+ * header timeout in `providers/fetch-timeout.ts`: past that point the request
+ * should already have been killed, so if it is still open something is wrong.
+ */
+export const HANG_THRESHOLD_MS = 300_000;
 
 export interface ModelSpan {
   turnId: string;
@@ -53,8 +65,10 @@ export interface Trace {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
-  /** True when any request never got a terminator — the session is/was hung. */
+  /** A request open longer than `HANG_THRESHOLD_MS` — genuinely stuck. */
   hung: boolean;
+  /** A request open but still within budget — normal during `--follow`. */
+  inFlight: boolean;
 }
 
 /**
@@ -81,7 +95,9 @@ export function buildTrace(
           provider: event.provider,
           model: event.model,
           startedAt: event.timestamp,
-          status: "hung",
+          // Resolved at the end against the clock. Anything still open is
+          // in flight until it has been open longer than a request should be.
+          status: "in_flight",
           duration_ms: 0,
           messageCount: event.messageCount,
           toolCount: event.toolCount,
@@ -137,8 +153,10 @@ export function buildTrace(
   // Everything still open never terminated. Age it against the clock so the
   // report says how long it has been hanging, not zero.
   const asOf = now ?? endedAt;
-  for (const span of open)
+  for (const span of open) {
     span.duration_ms = Math.max(0, asOf - span.startedAt);
+    if (span.duration_ms >= HANG_THRESHOLD_MS) span.status = "hung";
+  }
 
   return {
     sessionId,
@@ -152,7 +170,9 @@ export function buildTrace(
     inputTokens: sum(modelSpans, "inputTokens"),
     outputTokens: sum(modelSpans, "outputTokens"),
     cacheReadTokens: sum(modelSpans, "cacheReadTokens"),
-    hung: open.length > 0,
+    // Only spans past the threshold count. An in-flight request is not a hang.
+    hung: open.some((s) => s.status === "hung"),
+    inFlight: open.some((s) => s.status === "in_flight"),
   };
 }
 

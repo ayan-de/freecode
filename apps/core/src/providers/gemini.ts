@@ -7,6 +7,7 @@ import {
   ProviderChunk,
 } from "./types.js";
 import { getApiKey } from "./config.js";
+import { createTimeoutFetch } from "./fetch-timeout.js";
 import { registerProvider } from "./registry.js";
 import {
   convertToCoreMessages,
@@ -26,7 +27,10 @@ const PROVIDER_INFO = {
 };
 
 function createGeminiProvider(_apiKey: string): AIProvider {
-  const gemini = createGoogleGenerativeAI({ apiKey: getApiKey("gemini") });
+  const gemini = createGoogleGenerativeAI({
+    apiKey: getApiKey("gemini"),
+    fetch: createTimeoutFetch(),
+  });
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const model = resolveModel(

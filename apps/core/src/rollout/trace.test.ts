@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildTrace } from "./trace.js";
+import { HANG_THRESHOLD_MS, buildTrace } from "./trace.js";
 import { renderTrace } from "./trace-render.js";
 import type { RolloutEvent } from "./types.js";
 
@@ -76,10 +76,34 @@ test("a hang after first token is distinguishable from one before", () => {
       request(1000),
       event("model.first_token", 1600, { turnId: "turn-0", ttft_ms: 600 }),
     ],
-    61_000,
+    1000 + HANG_THRESHOLD_MS + 1,
   );
   assert.equal(trace.modelSpans[0].status, "hung");
   assert.equal(trace.modelSpans[0].ttft_ms, 600);
+});
+
+test("an in-flight request is not a hang", () => {
+  // The false positive: every live request rendered as HUNG the moment
+  // --follow drew it, then "recovered" when the response landed.
+  const trace = buildTrace("s1", [request(1000)], 1000 + 2_000);
+  assert.equal(trace.modelSpans[0].status, "in_flight");
+  assert.equal(trace.hung, false);
+  assert.equal(trace.inFlight, true);
+});
+
+test("in flight becomes hung only past the threshold", () => {
+  const justUnder = buildTrace("s1", [request(0)], HANG_THRESHOLD_MS - 1);
+  assert.equal(justUnder.modelSpans[0].status, "in_flight");
+
+  const justOver = buildTrace("s1", [request(0)], HANG_THRESHOLD_MS + 1);
+  assert.equal(justOver.modelSpans[0].status, "hung");
+  assert.equal(justOver.hung, true);
+});
+
+test("renders an in-flight request without crying wolf", () => {
+  const text = renderTrace(buildTrace("s1", [request(1000)], 3000));
+  assert.doesNotMatch(text, /HUNG/);
+  assert.match(text, /in flight/);
 });
 
 test("records a stall as an error with its kind", () => {
@@ -135,7 +159,7 @@ test("a response after a turnId reset still closes the open request", () => {
 test("renders a hang without claiming the session was healthy", () => {
   const text = renderTrace(buildTrace("s1", [request(1000)], 901_000));
   assert.match(text, /HUNG/);
-  assert.match(text, /never terminated/);
+  assert.match(text, /open for over/);
   assert.doesNotMatch(text, /no hangs/);
 });
 

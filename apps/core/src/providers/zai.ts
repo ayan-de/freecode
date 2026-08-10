@@ -7,6 +7,7 @@ import {
   ProviderChunk,
 } from "./types.js";
 import { getApiKey } from "./config.js";
+import { createTimeoutFetch } from "./fetch-timeout.js";
 import { registerProvider } from "./registry.js";
 import {
   convertToCoreMessages,
@@ -36,6 +37,7 @@ function createZaiProvider(_apiKey: string): AIProvider {
   const zai = createAnthropic({
     apiKey: getApiKey("zai"),
     baseURL: BASE_URL,
+    fetch: createTimeoutFetch(),
   });
 
   function buildOptions(opts: ExecuteOptions) {

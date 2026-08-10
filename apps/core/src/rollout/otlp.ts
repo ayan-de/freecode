@@ -119,6 +119,7 @@ export function traceToOtlp(trace: Trace, serviceName = "freecode"): unknown {
         "freecode.model_ms": trace.model_ms,
         "freecode.tool_ms": trace.tool_ms,
         "freecode.hung": trace.hung,
+        "freecode.in_flight": trace.inFlight,
       }),
       status: { code: trace.hung ? STATUS_ERROR : STATUS_OK },
     },

@@ -1,6 +1,8 @@
 # Agent Observability — model-call tracing, stall detection, OTLP export
 
 **Status:** implemented (§3–§6); §7 deferred
+**Revised:** 2026-08-11 (v0.23.1) — §4 and §5 corrected after both
+false-positived; see the notes in each.
 **Date:** 2026-08-10
 **Supersedes:** nothing. Extends `rollout/` (event sourcing) rather than replacing it.
 
@@ -67,45 +69,56 @@ runaway context growth visible turn-over-turn, and a cheap comparable number
 beats an expensive precise one — `JSON.stringify` over a 100KB prompt every
 turn is not worth it.
 
-## 4. Stall guard
+## 4. Request timeouts — and where liveness must be measured
 
-`providers/stall-guard.ts`. **The bound is on silence, not on total time**: a
-long reasoning turn that keeps emitting thinking deltas is healthy and must not
-be killed; a stream that says nothing for a minute is not.
+`providers/fetch-timeout.ts`, wired as the `fetch` option on every provider
+factory (`anthropic`, `openai`, `gemini`, `minimax`, `deepseek`, `zai`).
 
-| Budget                                | Default | Env                                   |
-| ------------------------------------- | ------- | ------------------------------------- |
-| First chunk                           | 120s    | `FREECODE_FIRST_CHUNK_TIMEOUT_MS`     |
-| Gap between chunks                    | 60s     | `FREECODE_STREAM_STALL_TIMEOUT_MS`    |
-| Whole call (non-streaming `execute`)  | 300s    | `FREECODE_REQUEST_TIMEOUT_MS`         |
+**The first implementation of this measured the wrong layer and had to be
+replaced (v0.23.1).** It bounded silence between `ProviderChunk`s — downstream
+of `normalizeAiSdkStream`, which forwards 5 part types and drops the rest. The
+AI SDK streams a tool call's *arguments* as `tool-input-delta` parts and emits
+`tool-call` only once they are complete, so a model writing a large file
+produced a continuous stream at the wire and total silence at the measurement
+point. The guard aborted healthy requests mid-write. `start-step`, thinking
+boundaries and SSE keep-alives were invisible for the same reason.
 
-`0` disables any of them. `withStallTimeout` races `iterator.next()` against a
-timer; on expiry it invokes `onStall` — which the loop uses to abort a
-per-call `AbortController` chained to the session's via `linkAbort` — and
-throws `ProviderStallError`.
+The lesson generalises: **liveness must be measured where the bytes are, not
+where the semantics are.** Any filter between the socket and the timer will
+eventually hide a legitimate signal.
 
-Two subtleties worth preserving:
+| Bound                          | Default | Env                              |
+| ------------------------------ | ------- | -------------------------------- |
+| Response headers               | 300s    | `FREECODE_HEADER_TIMEOUT_MS`     |
+| Silence on a live SSE stream   | 180s    | `FREECODE_SSE_STALL_TIMEOUT_MS`  |
 
-- **The iterator close is best-effort and deliberately not awaited.**
-  `return()` on an async generator parked inside an `await` does not settle
-  until that await does. Awaiting it when a provider has gone silent would hang
-  in the cleanup path — reintroducing the exact bug. What actually kills a live
-  request is the abort signal, not the close.
-- **`linkAbort` rather than `AbortSignal.any`.** The latter landed in Node 20;
-  the package declares `node >=18`.
+`0` disables either. The header bound is cleared the instant headers arrive, so
+it never constrains generation time; the SSE bound counts *any* byte, including
+content-free keep-alives. Non-SSE responses pass through untouched. This is the
+structure opencode arrived at (`provider/provider.ts`: `timeoutController` +
+`wrapSSE`), with one difference: opencode leaves its chunk timeout off by
+default and defaults the header timeout for OpenAI only.
 
-Retries remain owned by `RecoveryManager`, which treats a stall as transient
-and retries it — so a genuinely dead endpoint now fails after roughly
-`3 × 120s` rather than never. That is the existing recovery policy, not a
-decision made here; see §8.
+`anySignal` rather than `AbortSignal.any`: the latter landed in Node 20 and the
+package declares `node >=18`.
+
+Retries remain owned by `RecoveryManager`, which treats a timeout as transient;
+see §8.
 
 ## 5. Trace assembly and CLI
 
 `rollout/trace.ts` (pure fold, no IO) pairs requests with their terminators.
-Anything still open at the end is `status: "hung"`, aged against the clock.
 Pairing prefers matching `turnId` but falls back to the oldest open span,
 because turn numbering restarts at `turn-0` on resume and a mismatch must not
 orphan a real response into a phantom hang.
+
+An open span is `in_flight` until it has been open longer than
+`HANG_THRESHOLD_MS` (300s, matching the header timeout), then `hung`. **The
+first version had no such distinction** and labelled every open request `hung`,
+so under `--follow` a request one second old rendered as `HUNG` and then
+"recovered" when the response arrived. That is not a diagnosis, it is a race
+against the redraw — and a warning that fires on healthy runs trains the reader
+to ignore it.
 
 `rollout/trace-render.ts` renders a waterfall plus a where-the-time-went
 breakdown (model / tools / other). When a log contains no model events at all

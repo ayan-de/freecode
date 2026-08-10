@@ -88,12 +88,7 @@ import {
 } from "../models-dev.js";
 import { getProvider } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
-import {
-  ProviderStallError,
-  linkAbort,
-  requestTimeoutMs,
-  withStallTimeout,
-} from "../providers/stall-guard.js";
+import { isTimeoutError } from "../providers/fetch-timeout.js";
 import { recordInvalidation } from "../providers/cache-invalidation.js";
 import {
   checkCacheUsage,
@@ -1689,21 +1684,21 @@ export class AgentLoop {
       streamed: Boolean(aiProvider.stream),
     });
 
-    // A per-call controller, chained to the session's. A stalled request can
-    // then be killed at the socket without aborting the session itself.
-    const call = linkAbort(this.abort.signal);
-
+    // Request timeouts live in the provider's fetch wrapper (fetch-timeout.ts),
+    // not here. Bounding silence between ProviderChunks measured the wrong
+    // thing: tool-call arguments stream as `tool-input-delta` parts that
+    // normalizeAiSdkStream drops, so a large file write looked like a dead
+    // stream and got killed mid-flight.
     const recordModelFailure = (err: unknown): void => {
       this.recorder.recordModelError(turnId, {
         provider,
         model: resolvedModel,
         duration_ms: Date.now() - startedAt,
-        kind:
-          err instanceof ProviderStallError
-            ? "stall"
-            : this.abort.signal.aborted
-              ? "abort"
-              : "provider",
+        kind: isTimeoutError(err)
+          ? "stall"
+          : this.abort.signal.aborted
+            ? "abort"
+            : "provider",
         error: err instanceof Error ? err.message : String(err),
       });
     };
@@ -1729,19 +1724,15 @@ export class AgentLoop {
 
         let ttft_ms: number | undefined;
 
-        for await (const chunk of withStallTimeout(
-          aiProvider.stream({
-            messages: prunedMessages,
-            system,
-            tools,
-            model,
-            maxTokens,
-            abortSignal: call.signal,
-            sessionId: this.state.sessionId,
-          }),
-          // Kill the socket rather than leaving the request orphaned in flight.
-          { onStall: () => call.abort() },
-        )) {
+        for await (const chunk of aiProvider.stream({
+          messages: prunedMessages,
+          system,
+          tools,
+          model,
+          maxTokens,
+          abortSignal: this.abort.signal,
+          sessionId: this.state.sessionId,
+        })) {
           if (ttft_ms === undefined) {
             ttft_ms = Date.now() - startedAt;
             this.recorder.recordModelFirstToken(turnId, ttft_ms);
@@ -1807,35 +1798,17 @@ export class AgentLoop {
         };
       }
 
-      // Non-streaming has no chunks to measure silence between, so the bound is
-      // on the whole call instead of on a gap.
-      const budget = requestTimeoutMs();
-      let timedOut = false;
-      const deadline =
-        budget > 0
-          ? setTimeout(() => {
-              timedOut = true;
-              call.abort();
-            }, budget)
-          : undefined;
-
-      let result;
-      try {
-        result = await aiProvider.execute({
-          messages: prunedMessages,
-          system,
-          tools,
-          model,
-          abortSignal: call.signal,
-          sessionId: this.state.sessionId,
-        });
-      } catch (err) {
-        // The abort surfaces as a generic cancellation; restate it as the stall
-        // it actually was, so the log and the user see the real cause.
-        throw timedOut ? new ProviderStallError(budget, 0) : err;
-      } finally {
-        clearTimeout(deadline);
-      }
+      // No explicit bound here either: a non-streaming body is delivered in
+      // one piece, so the header timeout in fetch-timeout.ts already covers
+      // "the provider never answered", and generation time is not ours to cap.
+      const result = await aiProvider.execute({
+        messages: prunedMessages,
+        system,
+        tools,
+        model,
+        abortSignal: this.abort.signal,
+        sessionId: this.state.sessionId,
+      });
 
       this.emitCacheWarm(result.usage);
       this.recorder.recordModelResponse(turnId, {

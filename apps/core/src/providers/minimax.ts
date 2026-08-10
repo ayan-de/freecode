@@ -7,6 +7,7 @@ import {
   ProviderChunk,
 } from "./types.js";
 import { getApiKey } from "./config.js";
+import { createTimeoutFetch } from "./fetch-timeout.js";
 import { registerProvider } from "./registry.js";
 import {
   convertToCoreMessages,
@@ -47,6 +48,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
   const minimax = createAnthropic({
     apiKey: getApiKey("minimax"),
     baseURL: BASE_URL,
+    fetch: createTimeoutFetch(),
   });
 
   // Build the same options shape for execute() and stream() (mirrors anthropic.ts).

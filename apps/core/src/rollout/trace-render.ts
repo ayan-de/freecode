@@ -6,7 +6,7 @@
 // errored is called out rather than left for the reader to spot.
 // =============================================================================
 
-import type { ModelSpan, Trace } from "./trace.js";
+import { HANG_THRESHOLD_MS, type ModelSpan, type Trace } from "./trace.js";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -40,6 +40,7 @@ function durationTag(ms: number, status: ModelSpan["status"]): string {
   const text = formatDuration(ms).padStart(7);
   if (status === "hung") return red(text);
   if (status === "error") return yellow(text);
+  if (status === "in_flight") return cyan(text);
   return ms >= SLOW_MS ? yellow(text) : dim(text);
 }
 
@@ -63,9 +64,17 @@ function renderModelSpan(span: ModelSpan): string[] {
   if (span.toolCalls.length > 0) {
     lines.push(`                  ${dim("→ " + span.toolCalls.join(", "))}`);
   }
+  if (span.status === "in_flight") {
+    // Not a fault. Saying otherwise trained the reader to ignore the word.
+    lines.push(
+      `                  ${cyan("in flight")} ${dim(
+        span.ttft_ms === undefined ? "— awaiting first token" : "— streaming",
+      )}`,
+    );
+  }
   if (span.status === "hung") {
     lines.push(
-      `                  ${red("HUNG")} ${dim("— request never terminated. No response, no error.")}`,
+      `                  ${red("HUNG")} ${dim(`— open for over ${formatDuration(HANG_THRESHOLD_MS)} with no response and no error.`)}`,
     );
     if (span.ttft_ms === undefined) {
       lines.push(
@@ -151,11 +160,17 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
     );
   } else if (hung.length > 0) {
     out.push(
-      red(`${hung.length} request(s) never terminated`) +
-        dim(" — this session is hung on the provider, not on a tool."),
+      red(
+        `${hung.length} request(s) open for over ${formatDuration(HANG_THRESHOLD_MS)}`,
+      ) + dim(" — hung on the provider, not on a tool."),
     );
   } else if (errored.length > 0) {
     out.push(yellow(`${errored.length} model call(s) failed`));
+  } else if (trace.inFlight) {
+    out.push(
+      cyan("a request is in flight") +
+        dim(" — not a fault; still within budget."),
+    );
   } else {
     out.push(green("no hangs, no model errors"));
   }
