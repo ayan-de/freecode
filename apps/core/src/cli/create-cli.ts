@@ -21,6 +21,7 @@ import { webCommand } from "./commands/web.js";
 import { mobileCommand } from "./commands/mobile.js";
 import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
+import { autonomousCommand } from "./commands/autonomous.js";
 import { uninstallCommand } from "./commands/uninstall.js";
 
 // ANSI color codes
@@ -88,6 +89,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(mobileCommand)
     .command(serveCommand)
     .command(runCommand)
+    .command(autonomousCommand)
     .command(uninstallCommand)
     .strict();
 
