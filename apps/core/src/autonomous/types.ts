@@ -50,6 +50,9 @@ export interface RunManifest {
   mission?: string;
   worktreePath?: string;
   pid?: number;
+  /** Set by autonomous.cancel; the run's own loop checks this at the next turn
+   * boundary and exits cleanly — "checked, not signaled" (§5.1). */
+  cancelRequested?: boolean;
   stopReason?: RunStopReason;
   createdAt: string;
   updatedAt: string;

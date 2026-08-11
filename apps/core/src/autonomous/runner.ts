@@ -48,6 +48,14 @@ export interface AutonomousRunOptions {
   signal?: AbortSignal;
   /** Persists a manifest checkpoint after every turn. Defaults to disk via run-store.ts. */
   persist?: (manifest: RunManifest) => void;
+  /**
+   * Cross-process cancel check (§5.1's "checked, not signaled"): a detached
+   * child has no in-process AbortSignal the caller who requested cancel can
+   * reach, so it must poll disk itself. Defaults to reading `cancelRequested`
+   * off the manifest passed in — a caller driving a fresh reload per turn
+   * should override this to re-read from run-store.ts.
+   */
+  checkCancelled?: () => boolean;
 }
 
 export async function runAutonomous(
@@ -56,6 +64,8 @@ export async function runAutonomous(
   const { manifest, worktreePath, turnRunner, signal } = options;
   const estimateUsd = options.estimateUsd ?? (() => 0);
   const persist = options.persist ?? saveRunManifest;
+  const checkCancelled =
+    options.checkCancelled ?? (() => manifest.cancelRequested === true);
   const start = Date.now();
 
   let prompt = manifest.mission ?? "Begin.";
@@ -63,7 +73,7 @@ export async function runAutonomous(
   let gateResult: GateResult | undefined;
 
   for (;;) {
-    if (signal?.aborted) {
+    if (signal?.aborted || checkCancelled()) {
       manifest.status = "cancelled";
       manifest.stopReason = "cancelled";
       persist(manifest);

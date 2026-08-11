@@ -143,6 +143,24 @@ test("runAutonomous: a failed turn stops the run without consuming budget furthe
   cleanup();
 });
 
+test("runAutonomous: checkCancelled returning true cancels before any turn runs", async () => {
+  const { dir, cleanup } = initRepo();
+  const manifest = createRunManifest(
+    { maxTurns: 20, maxTokens: 150_000, timeoutMs: 3_600_000, maxUsd: 5 },
+    "exit 1",
+  );
+  const result = await runAutonomous({
+    manifest,
+    worktreePath: dir,
+    turnRunner: editingTurnRunner(dir),
+    checkCancelled: () => true,
+    persist: noPersist,
+  });
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.usage.turns, 0);
+  cleanup();
+});
+
 test("runAutonomous: an already-aborted signal cancels before any turn runs", async () => {
   const { dir, cleanup } = initRepo();
   const manifest = createRunManifest(
