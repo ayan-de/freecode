@@ -283,3 +283,22 @@ Need a feature like this
 (Partial exceptions exist — OpenAI's Responses API can store state server-side via previous_response_id, Gemini has explicit cache objects — but your loop treats providers uniformly and resends, which is the right call for portability.)
 
 6) Subagent UI
+
+//
+All 5 phases of the autonomous-runs-design spec are now shipped and committed on continual-harness-phase-0:
+
+- Phase 0 — manifest + budget ceilings
+- Phase 1 — gate mechanics + foreground driver
+- Phase 2 — real backend wiring, detached execution, CLI surface
+- Phase 5 — permission profile + worktree isolation
+- Phase 3 — reporting (report.md, autonomous review)
+
+freecode autonomous start --verify "..." --max-usd N "mission" is usable end-to-end: isolated worktree, scoped permissions, budget-capped, produces a real report. 687 tests green, tsc clean throughout.
+
+Known, documented gaps (called out honestly in each commit rather than papered over):
+- No real cost estimator — maxUsd never trips on actual dollars, only tokens/turns/time (no pricing table exists in FreeCode).
+- Task cards have no writer yet — the model isn't prompted to author them mid-run, so reports render but are thinner than they could be.
+- A stray, unanticipated tool call can stall a run up to 30 minutes before failing closed (existing headless-ask-timeout behavior, not something this work could tighten without touching the core permission system).
+- No autonomous.* JSON-RPC handlers — only the CLI surface exists; TUI/VS Code/Web can't drive this yet.
+
+That's the full spec as designed. Want me to keep going into any of those gaps, or is this a good stopping point?
