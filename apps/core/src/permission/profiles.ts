@@ -67,6 +67,24 @@ export const PROFILES = {
     mcpServers: [] as string[],
   } as PermissionProfile,
 
+  /**
+   * Unattended - bounded autonomous runs (Tier A), no human present.
+   * Stricter than every profile above: shell/network are only nominally on
+   * here (this struct is descriptive/documentation-facing, per spec §4.8) —
+   * the actual enforcement for a run is the rule set autonomous/permissions.ts
+   * seeds via .freecode/settings.json, reusing permission/rules.ts's
+   * existing allow/ask/deny machinery rather than a second mechanism.
+   */
+  unattended: {
+    name: "unattended",
+    fileRead: true,
+    fileWrite: true, // scoped to the run's worktree only, enforced by rules
+    network: false, // opt-in per run via explicit rule, not a blanket true
+    shell: true, // scoped to an allowlist, not free-form
+    subprocess: false,
+    mcpServers: [] as string[],
+  } as PermissionProfile,
+
   /** Admin - maximum permissions for trusted agents */
   admin: {
     name: "admin",

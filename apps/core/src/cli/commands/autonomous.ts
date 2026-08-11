@@ -17,6 +17,7 @@ interface StartArgs {
   timeoutMs: number;
   maxUsd: number;
   model?: string;
+  worktree: boolean;
 }
 
 const startCommand: CommandModule<object, StartArgs> = {
@@ -46,12 +47,22 @@ const startCommand: CommandModule<object, StartArgs> = {
       .option("model", {
         type: "string",
         describe: "model to use, in provider/model format",
+      })
+      .option("worktree", {
+        type: "boolean",
+        default: true,
+        describe:
+          "run in a dedicated git worktree, not this checkout (see spec §5.3 — pass --no-worktree to opt out, loudly)",
       }),
   handler: async (argv) => {
     const { createRunManifest, saveRunManifest } = await import(
       "../../autonomous/run-store.js"
     );
     const { spawnRun } = await import("../../autonomous/supervisor.js");
+    const { createRunWorktree } = await import("../../autonomous/worktree.js");
+    const { writeUnattendedPermissions } = await import(
+      "../../autonomous/permissions.js"
+    );
 
     const manifest = createRunManifest(
       {
@@ -63,7 +74,17 @@ const startCommand: CommandModule<object, StartArgs> = {
       argv.verify,
       argv.mission.join(" ") || undefined,
     );
-    manifest.worktreePath = process.cwd();
+
+    const sourceRepo = process.cwd();
+    if (argv.worktree) {
+      manifest.worktreePath = createRunWorktree(sourceRepo, manifest.id);
+    } else {
+      console.warn(
+        `WARNING: --no-worktree passed. This run operates directly in ${sourceRepo}, not an isolated copy. Uncommitted changes there are at risk.`,
+      );
+      manifest.worktreePath = sourceRepo;
+    }
+    writeUnattendedPermissions(manifest.worktreePath, argv.verify);
     saveRunManifest(manifest);
 
     // process.argv[1] is the entrypoint that launched *this* process. In the
