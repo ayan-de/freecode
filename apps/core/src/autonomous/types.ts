@@ -41,6 +41,22 @@ export interface RunUsage {
   usd: number;
 }
 
+/**
+ * jcode's shape (§3.2): before/after/validation/outcome per unit of work,
+ * turning a long run into something a human can skim in two minutes instead
+ * of reading a transcript. v1 has no writer for these yet — see report.ts's
+ * header — so this type exists for report.ts to render and for a future
+ * writer to populate without a schema change.
+ */
+export interface TaskCard {
+  id: string;
+  before: { problem: string; evidence?: string };
+  after: { change: string; filesChanged?: string[] };
+  validation?: { commands?: string[]; result?: string };
+  outcome: "success" | "partial" | "failed";
+  createdAt: string;
+}
+
 export interface RunManifest {
   id: string;
   status: RunStatus;

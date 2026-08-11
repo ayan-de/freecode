@@ -85,11 +85,14 @@ export async function runAutonomousChild(
     },
   };
 
-  await runAutonomous({
+  const final = await runAutonomous({
     manifest,
     worktreePath,
     turnRunner,
     persist: saveRunManifest,
     checkCancelled: () => loadRunManifest(runId)?.cancelRequested === true,
   });
+
+  const { writeReport } = await import("./report.js");
+  writeReport(final);
 }

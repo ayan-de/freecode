@@ -151,6 +151,31 @@ const cancelCommand: CommandModule<object, { runId: string }> = {
   },
 };
 
+const reviewCommand: CommandModule<object, { runId: string }> = {
+  command: "review <runId>",
+  describe: "print the human-readable report for a finished run",
+  builder: (yargs) =>
+    yargs.positional("runId", { type: "string", demandOption: true }),
+  handler: async (argv) => {
+    const { loadRunManifest } = await import("../../autonomous/run-store.js");
+    const { getReportPath, writeReport } = await import(
+      "../../autonomous/report.js"
+    );
+    const manifest = loadRunManifest(argv.runId);
+    if (!manifest) {
+      console.error(`No such run: ${argv.runId}`);
+      process.exit(1);
+    }
+    const { existsSync, readFileSync } = await import("fs");
+    const reportPath = getReportPath(argv.runId);
+    // A run in progress, or one from before Phase 3, has no report on disk
+    // yet — regenerate from whatever the manifest/task-cards hold now rather
+    // than erroring.
+    const path = existsSync(reportPath) ? reportPath : writeReport(manifest);
+    console.log(readFileSync(path, "utf-8"));
+  },
+};
+
 interface ChildArgs {
   runId: string;
   model?: string;
@@ -179,6 +204,7 @@ export const autonomousCommand: CommandModule = {
       .command(startCommand)
       .command(statusCommand)
       .command(cancelCommand)
+      .command(reviewCommand)
       .command(childCommand)
       .demandCommand(1),
   handler: () => {},
