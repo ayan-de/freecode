@@ -52,6 +52,8 @@ import {
   listModels,
   listCommands,
   resolveCommand,
+  listTools,
+  mcpStatus,
   getCurrentModel,
   setCurrentModel,
   getLastAgentMode,
@@ -105,8 +107,9 @@ import { InterruptController } from "./interrupt-controller.js";
 import { SafeTUI } from "./render-guard.js";
 import { ENTER_ALT_SCREEN, restoreScreen } from "./terminal-screen.js";
 import { installCrashHandlers } from "./crash-handler.js";
-import { ResponsiveInfoBox } from "./components/info-box.js";
+// import { ResponsiveInfoBox } from "./components/info-box.js"; // commented out: header disabled
 // import { StatusHeader } from "./components/status-header.js"; // commented out: context moved to ContextBox overlay
+import { LogoHeader } from "./components/logo-header.js";
 import { ContextBox } from "./components/context-box.js";
 import { ModeLine } from "./components/mode-line.js";
 import {
@@ -145,6 +148,11 @@ let isReadingClipboard = false;
 let hasFirstMessage = false;
 let contextTokens = 0;
 let contextLimitTokens = 0;
+// Cached once at TUI startup so the pinned logo header can show tool/MCP
+// counts without each render making an async IPC call. `-1` until the loader
+// resolves; the header renders `…` while the values are still pending.
+let headerToolCount = -1;
+let headerMcpCount = -1;
 // Cache totals across every prompt in this session. A single run can look fine
 // while the session average is poor — the first prompt after a compaction pays
 // full price for the whole rebuilt prefix, and that only shows up in the sum.
@@ -233,23 +241,20 @@ tui = new SafeTUI(terminal);
 
 import { Spacer } from "@earendil-works/pi-tui";
 
-const infoBox = new ResponsiveInfoBox(
-  () => currentProvider,
-  () => currentModel,
-);
-
-// Fixed header pinned to the top row. Added as the TUI's first child so it
-// renders above the scrollable history and never scrolls away. Hidden (0 rows)
-// until the first prompt is sent — see hasFirstMessage.
-// const statusHeader = new StatusHeader(
-//   () => hasFirstMessage,
-//   () => currentAgentMode,
+// const infoBox = new ResponsiveInfoBox(
 //   () => currentProvider,
 //   () => currentModel,
-//   () => contextTokens,
-//   () => contextLimitTokens,
-// );
-// tui.addChild(statusHeader);
+// ); // commented out: header disabled
+
+// Fixed logo header pinned to the top row. Added as the TUI's first child so
+// it renders above the scrollable history and never scrolls away.
+const logoHeader = new LogoHeader(
+  () => headerToolCount,
+  () => headerMcpCount,
+);
+tui.addChild(new Spacer(1));
+tui.addChild(logoHeader);
+tui.addChild(new Spacer(1));
 
 // Floating top-right overlay showing the context-window usage widget (replaces
 // the right half of the old StatusHeader). Non-capturing so it never steals
@@ -263,7 +268,7 @@ const contextBoxOverlay = tui.showOverlay(contextBox, {
   anchor: "top-right",
   width: contextBox.width(),
   offsetX: 2,
-  offsetY: 1,
+  offsetY: 8,
   nonCapturing: true,
   visible: (termWidth) => termWidth >= 60,
 });
@@ -274,8 +279,8 @@ const contextBoxOverlay = tui.showOverlay(contextBox, {
 // release, copies the dragged text via OSC 52 (see the mouse handling below).
 const selectionStore = new SelectionStore();
 
-// Create message list and add to tui BEFORE editor. infoBox renders as the
-// list's first entry (see VirtualMessageList) so it scrolls away with the
+// Create message list and add to tui BEFORE editor. The list's optional
+// header slot (was infoBox, currently disabled) would scroll away with the
 // rest of the history instead of sitting fixed above the viewport.
 // The viewport callback tells the list how many rows it may use in scrolled
 // mode: terminal height minus the chrome below it (editor, spacers, mode line),
@@ -299,7 +304,7 @@ messageList = new VirtualMessageList(
       }, 0);
     return Math.max(6, terminal.rows - otherHeight);
   },
-  infoBox,
+  undefined, // header disabled — see commented-out ResponsiveInfoBox above
   () => selectionStore.get(),
   getMessageListOffset,
 );
@@ -1934,18 +1939,23 @@ setCliRestartHandler(() => {
 
 loadCurrentModel();
 
+// Cache the tool + MCP counts once at startup so the logo header can render
+// them synchronously. Errors are swallowed (daemon may not be ready yet) and
+// leave the values at `-1`; the header falls back to `…`.
+async function loadHeaderCounts(): Promise<void> {
+  try {
+    const [tools, servers] = await Promise.all([listTools(), mcpStatus()]);
+    headerToolCount = tools.length;
+    headerMcpCount = servers.length;
+  } catch {
+    // daemon may not be ready; leave the counts at -1.
+  }
+}
+void loadHeaderCounts();
+
 // Check for interrupted sessions on startup
 async function checkForInterruptedSession(): Promise<void> {
-  try {
-    const sessions = await sessionList({ status: "interrupted" });
-    if (sessions.length > 0) {
-      showMessage(
-        "**Interrupted session detected. Type /resume to continue or start a new session.**",
-      );
-    }
-  } catch {
-    // Ignore - session might not be available yet
-  }
+  // Disabled: no longer surface the interrupted-session banner on startup.
 }
 
 // Parse `freecode --resume [id]` (alias `-r`). A bare `--resume` (no id) opens
