@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.24.2
+
+`freecode` now checks for updates on launch instead of requiring `freecode update` to be run manually.
+
+### Added
+- **Launch-time update check** (`apps/tui/src/entry.ts`). The compiled binary compares its baked-in version against GitHub's latest release tag once per launch (3s timeout, best-effort — offline or GitHub-down just skips the check). If current, the TUI opens as before. If stale, it prints `updating X → Y`, runs the same installer `freecode update` uses (with its normal progress output), then re-execs the freshly installed binary so the TUI that opens is the new version, not the one already loaded in memory. Dev (`tsx`) is unaffected — the check only runs when `FREECODE_BUNDLED=1`.
+
 ## v0.24.1
 
 Fatal CLI errors now print a clean, formatted message instead of a raw stack trace.

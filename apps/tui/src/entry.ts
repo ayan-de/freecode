@@ -13,7 +13,7 @@
 // =============================================================================
 
 // @ts-ignore — resolved via core's package.json exports map
-import { createCli } from "@thisisayande/freecode-core/cli/create-cli";
+import { createCli, resolveVersion } from "@thisisayande/freecode-core/cli/create-cli";
 // @ts-ignore — resolved via core's package.json exports map
 import { formatFatalError } from "@thisisayande/freecode-core/cli/format-fatal-error";
 import type { CommandModule } from "yargs";
@@ -51,6 +51,48 @@ if (
   process.exit(result.status ?? 1);
 }
 
+// Checked once per launch, only in the distributed binary — dev (tsx) has no
+// release to compare against. Best-effort: any failure (offline, GitHub down,
+// rate limit) just skips the check and opens the TUI on the current version.
+async function checkForUpdate(): Promise<void> {
+  if (process.env.FREECODE_BUNDLED !== "1" || process.env.__FREECODE_UPDATE_CHECKED) {
+    return;
+  }
+  process.env.__FREECODE_UPDATE_CHECKED = "1";
+
+  let latest: string;
+  try {
+    const res = await fetch(
+      "https://api.github.com/repos/ayan-de/freecode/releases/latest",
+      { signal: AbortSignal.timeout(3000) },
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as { tag_name?: string };
+    latest = (data.tag_name ?? "").replace(/^v/, "");
+  } catch {
+    return;
+  }
+  const current = resolveVersion();
+  if (!latest || latest === current) return;
+
+  process.stderr.write(`[freecode] updating ${current} → ${latest}\n`);
+  const r = spawnSync("bash", ["-c", "curl -fsSL https://freecode.ayande.xyz/install | bash"], {
+    stdio: "inherit",
+  });
+  if (r.status !== 0) {
+    process.stderr.write(`[freecode] update failed, continuing on ${current}\n`);
+    return;
+  }
+
+  // Re-exec so the TUI that opens is the newly installed binary, not the
+  // one already loaded in this process's memory.
+  const result = spawnSync(process.execPath, process.argv.slice(2), {
+    stdio: "inherit",
+    env: { ...process.env, __FREECODE_UPDATE_CHECKED: "1" },
+  });
+  process.exit(result.status ?? 0);
+}
+
 interface TuiArgs {
   project?: string;
   resume?: string;
@@ -86,6 +128,8 @@ const tuiCommand: CommandModule<object, TuiArgs> = {
         process.exit(1);
       }
     }
+
+    await checkForUpdate();
 
     // Lazy: importing runs the TUI (index.ts calls tui.start()), and the
     // other commands must not pay its startup cost.
