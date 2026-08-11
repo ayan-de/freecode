@@ -14,6 +14,8 @@
 
 // @ts-ignore — resolved via core's package.json exports map
 import { createCli } from "@thisisayande/freecode-core/cli/create-cli";
+// @ts-ignore — resolved via core's package.json exports map
+import { formatFatalError } from "@thisisayande/freecode-core/cli/format-fatal-error";
 import type { CommandModule } from "yargs";
 import * as fs from "fs";
 import * as path from "path";
@@ -103,11 +105,17 @@ const updateCommand: CommandModule = {
   },
 };
 
+// Background work (retries, fallback providers) can reject after the TUI's
+// own awaited chain has resolved. Left unhandled, Bun's default reporter
+// dumps the raw error object (every AI SDK field plus minified stack
+// context); keep it on the same clean one-liner as the awaited failure.
+process.on("unhandledRejection", (e) => {
+  process.stderr.write(`[freecode] fatal: ${formatFatalError(e)}\n`);
+});
+
 createCli([tuiCommand, updateCommand])
   .parseAsync()
   .catch((e: unknown) => {
-    process.stderr.write(
-      `[freecode] fatal: ${e instanceof Error ? e.stack : e}\n`,
-    );
+    process.stderr.write(`[freecode] fatal: ${formatFatalError(e)}\n`);
     process.exit(1);
   });

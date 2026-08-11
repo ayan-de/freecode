@@ -12,7 +12,8 @@
   "exports": {
     ".": "./dist/server.js",
     "./cli": "./dist/cli.js",
-    "./cli/create-cli": "./dist/cli/create-cli.js"
+    "./cli/create-cli": "./dist/cli/create-cli.js",
+    "./cli/format-fatal-error": "./dist/cli/format-fatal-error.js"
   },
   "scripts": {
     "dev": "tsx src/server.ts",
