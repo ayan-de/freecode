@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.24.1
+
+Fatal CLI errors now print a clean, formatted message instead of a raw stack trace.
+
+### Added
+- **`formatFatalError` utility** (`apps/core/src/cli/format-fatal-error.ts`), used by `cli.ts` and `apps/tui/src/entry.ts` to render uncaught startup errors consistently.
+
 ## v0.24.0
 
 Clicking a node in `/graph` now shows the memory behind it. It previously did nothing, and there was nothing it could have done: the graph payload carried no content.
