@@ -92,14 +92,28 @@ async function checkForUpdate(): Promise<void> {
   // the stale binary, and the user has to close the TUI and re-type
   // `freecode` to actually pick up the update. The `stable` symlink is
   // rewritten on every install to point at the version just unpacked.
+  //
+  // This has to be checked AFTER the installer runs (not before), because at
+  // startup `stable` still points at the same version as `process.execPath`
+  // — the installer is what rewrites it. Comparing pre-install would
+  // conclude "no change" and re-exec the same old binary, leaving the TUI
+  // showing the stale version and forcing the user to relaunch manually.
   const freecodeHome = process.env.FREECODE_HOME ?? path.join(process.env.HOME ?? "", ".freecode");
   const stable = path.join(freecodeHome, "builds", "stable", "freecode");
-  const execTarget =
+  let execTarget: string;
+  if (
     process.env.FREECODE_BUNDLED === "1" &&
     fs.existsSync(stable) &&
     fs.realpathSync(stable) !== fs.realpathSync(process.execPath)
-      ? stable
-      : process.execPath;
+  ) {
+    execTarget = stable;
+  } else {
+    // No bundled re-exec (dev) or `stable` still points at the version we
+    // just ran from — the installer either failed or installed the same
+    // version we already are. Either way, nothing to do: stay in this
+    // process.
+    return;
+  }
   const result = spawnSync(execTarget, process.argv.slice(2), {
     stdio: "inherit",
     env: { ...process.env, __FREECODE_UPDATE_CHECKED: "1" },
