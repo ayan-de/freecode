@@ -1,6 +1,7 @@
 import { Component, Text, Box, truncateToWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { renderDiff, looksLikeDiff, getDiffStats, diffTheme, getLanguageFromFilename } from "./diff-view.js";
+import { renderDiff, looksLikeDiff, getDiffStats, getLanguageFromFilename } from "./diff-view.js";
+import { diffTheme } from "./code-block.js";
 import { highlight, supportsLanguage } from "cli-highlight";
 import { formatDuration } from "../utils/format-duration.js";
 

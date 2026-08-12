@@ -4,6 +4,7 @@ import type {
   MarkdownTheme,
   SelectListTheme,
 } from "@earendil-works/pi-tui";
+import { renderCodeBlock } from "./components/code-block.js";
 
 const chalk = new Chalk({ level: 3 });
 
@@ -30,6 +31,7 @@ export const defaultMarkdownTheme: MarkdownTheme = {
   italic: (text: string) => chalk.italic(text),
   strikethrough: (text: string) => chalk.strikethrough(text),
   underline: (text: string) => chalk.underline(text),
+  highlightCode: (code: string, lang?: string) => renderCodeBlock(code, lang),
 };
 
 export const defaultEditorTheme: EditorTheme = {

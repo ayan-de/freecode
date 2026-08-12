@@ -2,28 +2,11 @@ import chalk from "chalk";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import { highlight, supportsLanguage } from "cli-highlight";
 import stringWidth from "string-width";
+import { diffTheme } from "./code-block.js";
 
 // Matches a line-numbered diff row produced by core's generateDiffString:
 //   "+ 12 content" / "- 12 content" / "  12 content" / "     …"
 const DIFF_LINE = /^([+\- ])(\s*\d*)\s(.*)$/;
-
-export const diffTheme = {
-  keyword: chalk.hex("#ff79c6"),      // Dracula pink/magenta
-  built_in: chalk.hex("#8be9fd"),     // Dracula cyan
-  type: chalk.hex("#8be9fd"),         // Dracula cyan
-  literal: chalk.hex("#bd93f9"),      // Dracula purple
-  number: chalk.hex("#bd93f9"),       // Dracula purple
-  regexp: chalk.hex("#f1fa8c"),       // Dracula yellow
-  string: chalk.hex("#f1fa8c"),       // Dracula yellow
-  comment: chalk.hex("#6272a4"),      // Dracula gray/blue comment
-  function: chalk.hex("#50fa7b"),     // Dracula green
-  class: chalk.hex("#8be9fd"),        // Dracula cyan
-  attr: chalk.hex("#ffb86c"),         // Dracula orange
-  tag: chalk.hex("#ff79c6"),          // Dracula pink
-  name: chalk.hex("#ff79c6"),         // Dracula pink
-  meta: chalk.hex("#ffb86c"),         // Dracula orange
-  default: chalk.hex("#f8f8f2")       // Dracula white
-};
 
 export function getLanguageFromFilename(filename?: string): string | undefined {
   if (!filename) return undefined;
