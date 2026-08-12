@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearMessages, addMessage } from "../state/message-store.js";
+import {
+  clearMessages,
+  addMessage,
+  setActivePromptIndex,
+} from "../state/message-store.js";
 import { VirtualMessageList } from "./virtual-message-list.js";
 
 function addLines(count: number, prefix = "line"): void {
@@ -148,7 +152,11 @@ test("resolveLogicalPosition returns null for clicks below the last rendered lin
  * A message whose rendered text can be changed in place, and that counts how
  * often it was asked to render — lets the cache be observed from outside.
  */
-function addCounted(text: string): { renders: number; text: string; id: number } {
+function addCounted(text: string): {
+  renders: number;
+  text: string;
+  id: number;
+} {
   const spy = { renders: 0, text, id: 0 };
   const msg = addMessage("system", text, {
     render: () => {
@@ -292,5 +300,97 @@ test("getLineAt returns the same logical line before and after a scroll", () => 
   // even though it's no longer at screen row 1 — the scroll-invariance
   // guarantee resolveLogicalPosition/getLineAt exist for.
   assert.equal(list.getLineAt(before!.lineIndex), lineBefore);
+  list.destroy();
+});
+
+test("only the active prompt's messages are rendered", () => {
+  clearMessages();
+  addMessage("user", "p1", { render: () => ["p1"], invalidate: () => {} });
+  addMessage("assistant", "a1", {
+    render: () => ["a1"],
+    invalidate: () => {},
+  });
+  addMessage("user", "p2", { render: () => ["p2"], invalidate: () => {} });
+  addMessage("assistant", "a2", {
+    render: () => ["a2"],
+    invalidate: () => {},
+  });
+  addMessage("user", "p3", { render: () => ["p3"], invalidate: () => {} });
+  addMessage("assistant", "a3", {
+    render: () => ["a3"],
+    invalidate: () => {},
+  });
+
+  // Auto-active is the latest prompt (3). The chat should show only
+  // p3 + a3 — p1, a1, p2, a2 are hidden.
+  const list = new VirtualMessageList(100, () => 10);
+  const rendered = list.render(80);
+  assert.ok(
+    rendered.includes("p3"),
+    `expected p3 in rendered output, got: ${JSON.stringify(rendered)}`,
+  );
+  assert.ok(
+    rendered.includes("a3"),
+    `expected a3 in rendered output, got: ${JSON.stringify(rendered)}`,
+  );
+  assert.ok(
+    !rendered.includes("p1"),
+    `did not expect p1 in rendered output, got: ${JSON.stringify(rendered)}`,
+  );
+  assert.ok(
+    !rendered.includes("a1"),
+    `did not expect a1 in rendered output, got: ${JSON.stringify(rendered)}`,
+  );
+  assert.ok(
+    !rendered.includes("p2"),
+    `did not expect p2 in rendered output, got: ${JSON.stringify(rendered)}`,
+  );
+  list.destroy();
+});
+
+test("switching tabs changes which messages are rendered", () => {
+  clearMessages();
+  addMessage("user", "p1", { render: () => ["p1"], invalidate: () => {} });
+  addMessage("assistant", "a1", {
+    render: () => ["a1"],
+    invalidate: () => {},
+  });
+  addMessage("user", "p2", { render: () => ["p2"], invalidate: () => {} });
+  addMessage("assistant", "a2", {
+    render: () => ["a2"],
+    invalidate: () => {},
+  });
+
+  const list = new VirtualMessageList(100, () => 10);
+  list.render(80);
+  // Auto-active is p2. Switch to p1.
+  setActivePromptIndex(1);
+  const rendered = list.render(80);
+  assert.ok(rendered.includes("p1"));
+  assert.ok(rendered.includes("a1"));
+  assert.ok(!rendered.includes("p2"));
+  assert.ok(!rendered.includes("a2"));
+  list.destroy();
+});
+
+test("submitting a new prompt auto-switches to its tab", () => {
+  clearMessages();
+  addMessage("user", "p1", { render: () => ["p1"], invalidate: () => {} });
+  addMessage("assistant", "a1", {
+    render: () => ["a1"],
+    invalidate: () => {},
+  });
+
+  const list = new VirtualMessageList(100, () => 10);
+  // Jump to tab 1 first.
+  setActivePromptIndex(1);
+  list.render(80);
+
+  // User submits a new prompt.
+  addMessage("user", "p2", { render: () => ["p2"], invalidate: () => {} });
+  // No explicit setActivePromptIndex call — the store auto-switched.
+  const rendered = list.render(80);
+  assert.ok(rendered.includes("p2"));
+  assert.ok(!rendered.includes("p1"));
   list.destroy();
 });

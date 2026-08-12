@@ -1,7 +1,11 @@
 import { type Component, type TUI } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import type { MessageInstance } from "./message-types.js";
-import { subscribeToMessages, getMessages } from "../state/message-store.js";
+import {
+  subscribeToMessages,
+  getMessages,
+  getActivePromptIndex,
+} from "../state/message-store.js";
 import { ThinkingMessage } from "./message-row.js";
 import { normalize, type Selection } from "../state/selection-store.js";
 import { highlightRange } from "../utils/ansi-select.js";
@@ -52,6 +56,13 @@ export class VirtualMessageList implements Component {
    * (~43 ms/frame at 100 turns) and streaming turns stuttered.
    */
   private renderCache = new Map<number, { width: number; lines: string[] }>();
+  /** Active tab — drives the prompt-index filter on every render. The
+   *  store is the source of truth; we cache it locally so a single
+   *  render pass reads a single value instead of bouncing through the
+   *  store for every message. Updated on store notifications and on
+   *  every render so a tab switch via `setActivePromptIndex` is picked
+   *  up immediately. */
+  private activePromptIndex: number | undefined;
 
   constructor(
     maxVisible = 100,
@@ -65,8 +76,19 @@ export class VirtualMessageList implements Component {
     this.header = header;
     this.getSelection = getSelection;
     this.getVerticalOffset = getVerticalOffset;
+    this.activePromptIndex = getActivePromptIndex();
     // Subscribe to message store changes
     this.unsubscribe = subscribeToMessages((msgs) => {
+      const newActive = getActivePromptIndex();
+      // Tabs are pages of a different conversation: the previous scroll
+      // position becomes meaningless when the active tab changes, so
+      // reset to follow mode and re-render against the new prompt's
+      // content. (A new prompt auto-switches the active tab; the user
+      // expects to land at the bottom of the new in-progress turn.)
+      if (newActive !== this.activePromptIndex) {
+        this.activePromptIndex = newActive;
+        this.scrollTop = null;
+      }
       this.messages = msgs;
       this.invalidate();
       this.scheduleTick();
@@ -93,11 +115,19 @@ export class VirtualMessageList implements Component {
   }
 
   /**
-   * Schedule a tick interval if an in-progress message exists
+   * Schedule a tick interval if an in-progress message exists for the
+   * active tab. Streaming output only happens on the active tab (the
+   * in-progress line itself is filtered out for non-active tabs), so
+   * the tick is only useful when there's something live to repaint.
    */
   private scheduleTick(): void {
-    const hasInProgress = this.messages.some((m) => m.type === "in_progress");
-    if (!hasInProgress) return;
+    const activeIdx = this.activePromptIndex;
+    const hasLiveInProgress =
+      activeIdx !== undefined &&
+      this.messages.some(
+        (m) => m.type === "in_progress" && m.promptIndex === activeIdx,
+      );
+    if (!hasLiveInProgress) return;
 
     if (this.tickInterval) return;
 
@@ -179,7 +209,11 @@ export class VirtualMessageList implements Component {
     const relativeY = cy - offset;
     const clickedIndex = startIndex + (relativeY - 1);
     const entry = this.lastLineMap[clickedIndex];
-    if (entry?.msg?.component && "toggle" in entry.msg.component && typeof (entry.msg.component as any).toggle === "function") {
+    if (
+      entry?.msg?.component &&
+      "toggle" in entry.msg.component &&
+      typeof (entry.msg.component as any).toggle === "function"
+    ) {
       (entry.msg.component as any).toggle();
       this.invalidateMessage(entry.msg.id);
       return true;
@@ -193,12 +227,60 @@ export class VirtualMessageList implements Component {
   }
 
   /**
+   * Total number of user prompts currently in the store (delegates to the
+   * store helper). Exposed so the index.ts hotkey handler can render a
+   * "Prompt N/M" line and the picker can show "M of N".
+   */
+  getPromptCount(): number {
+    let n = 0;
+    for (const m of this.messages) {
+      if (m.type === "user" || m.type === "queued_user") n++;
+    }
+    return n;
+  }
+
+  /**
+   * 1-based index of the prompt whose messages occupy the bottom of the
+   * history (or the most recent prompt whose turn is still in flight).
+   * Returns undefined when no prompt has been submitted yet — used by
+   * hotkey handlers and the picker to show "Prompt M/M" instead of "0/0".
+   */
+  getLastPromptIndex(): number | undefined {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const idx = this.messages[i]!.promptIndex;
+      if (idx !== undefined) return idx;
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve a 1-based prompt index to the message-store position of its
+   * first user/queued_user row. Returns undefined when no such prompt
+   * exists in the current history.
+   */
+  findPromptMessageIndex(promptIndex: number): number | undefined {
+    for (let i = 0; i < this.messages.length; i++) {
+      const m = this.messages[i]!;
+      if (
+        (m.type === "user" || m.type === "queued_user") &&
+        m.promptIndex === promptIndex
+      ) {
+        return i;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Resolves a screen coordinate to a logical position keyed off the full
    * (unwindowed) line index — stable across scrolling, since scrolling only
    * changes the `startIndex` window into the same underlying array. Returns
    * null when the click misses rendered content (e.g. below the last line).
    */
-  resolveLogicalPosition(cx: number, cy: number): { lineIndex: number; column: number } | null {
+  resolveLogicalPosition(
+    cx: number,
+    cy: number,
+  ): { lineIndex: number; column: number } | null {
     const content = this.contentRows();
     let startIndex = 0;
     if (this.lastTotalLines <= content) {
@@ -211,7 +293,8 @@ export class VirtualMessageList implements Component {
     const offset = this.getVerticalOffset();
     const relativeY = cy - offset;
     const lineIndex = startIndex + (relativeY - 1);
-    if (lineIndex < 0 || lineIndex >= this.lastRenderedLines.length) return null;
+    if (lineIndex < 0 || lineIndex >= this.lastRenderedLines.length)
+      return null;
     return { lineIndex, column: Math.max(0, cx - 1) };
   }
 
@@ -286,13 +369,28 @@ export class VirtualMessageList implements Component {
       }
     }
 
-    // Separate in-progress message from others
+    // Separate in-progress message from others. Each tab shows one
+    // prompt's worth of content — the active prompt's user message and
+    // everything that follows it (assistant text, tool rows, the
+    // in-progress line). System messages interleaved mid-turn carry the
+    // same promptIndex as their neighbors, so they slide into the right
+    // tab automatically.
+    //
+    // When no prompt has been submitted yet the active index is
+    // undefined and we render every pre-prompt message unchanged so
+    // the welcome screen / logo header still shows.
+    const activeIdx = this.activePromptIndex;
+    const matchesActiveTab = (m: MessageInstance) =>
+      activeIdx === undefined || m.promptIndex === activeIdx;
     const regularMessages = this.messages.filter(
-      (m) => m.type !== "in_progress",
+      (m) => m.type !== "in_progress" && matchesActiveTab(m),
     );
-    const inProgressMessage = this.messages.find(
-      (m) => m.type === "in_progress",
-    );
+    const inProgressMessage =
+      activeIdx === undefined
+        ? this.messages.find((m) => m.type === "in_progress")
+        : this.messages.find(
+            (m) => m.type === "in_progress" && m.promptIndex === activeIdx,
+          );
 
     // Render regular messages first (older messages, then newer ones)
     const visibleMessages = regularMessages.slice(-this.maxVisible);

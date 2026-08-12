@@ -9,6 +9,7 @@ import {
   updateMessage,
   getMessages,
   getMessageByQueueId,
+  promoteQueuedMessage,
 } from "../state/message-store.js";
 import { createMessageComponent, ThinkingMessage } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
@@ -41,13 +42,17 @@ export function createQueuedUserMessage(
  * Promote a queued_user row to a normal user message in place — used when
  * the queued prompt transitions from "waiting" to "in flight". The local
  * store id stays the same so the virtual list does not reflow, and the
- * component swap is what the renderer picks up on the next paint.
+ * component swap is what the renderer picks up on the next paint. The
+ * store also flips the row's `type`, which is what makes the turn's
+ * output land on this prompt's page instead of the previous one.
  */
-export function promoteQueuedToUser(queueId: string): MessageInstance | undefined {
+export function promoteQueuedToUser(
+  queueId: string,
+): MessageInstance | undefined {
   const existing = getMessageByQueueId(queueId);
   if (!existing || existing.type !== "queued_user") return existing;
   const component = createMessageComponent("user", existing.content);
-  return updateMessage(existing.id, existing.content, component);
+  return promoteQueuedMessage(existing.id, component);
 }
 
 /**

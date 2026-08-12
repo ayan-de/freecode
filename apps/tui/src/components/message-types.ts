@@ -27,6 +27,14 @@ export interface MessageInstance {
    * the local message-store id has rotated.
    */
   queueId?: string;
+  /**
+   * 1-based index of the user prompt this message belongs to. Set on every
+   * user/queued_user message and inherited by every subsequent message
+   * until the next user prompt. System messages and the in-progress line
+   * that precedes the first user prompt have promptIndex === undefined.
+   * Drives the inline "Prompt 2/2" label and Alt+Up/Down page navigation.
+   */
+  promptIndex?: number;
 }
 
 export interface MessageStoreOptions {
