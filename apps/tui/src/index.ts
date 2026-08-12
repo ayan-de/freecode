@@ -4,6 +4,7 @@ import {
   TUI,
   Key,
   matchesKey,
+  isKeyRelease,
   CombinedAutocompleteProvider,
   SelectList,
   type SelectItem,
@@ -74,6 +75,7 @@ import {
   createSystemMessage,
   createInProgressMessage,
   createQueuedUserMessage,
+  promoteQueuedToUser,
   removeMessageById,
   updateInProgressMessage,
   subscribeToMessages,
@@ -95,12 +97,16 @@ import {
   resetLiveUsageTotals,
   ThinkingMessage,
 } from "./components/message-row.js";
-import { getMessages, clearMessages } from "./state/message-store.js";
-import { VirtualMessageList } from "./components/virtual-message-list.js";
 import {
-  PromptEditor,
-  stripImageTokens,
-} from "./components/prompt-editor.js";
+  getMessages,
+  clearMessages,
+  setMessagePromptIndex,
+  getActivePromptIndex,
+  setActivePromptIndex,
+} from "./state/message-store.js";
+import { VirtualMessageList } from "./components/virtual-message-list.js";
+import { PromptTabStrip, stepTab } from "./components/prompt-tab-strip.js";
+import { PromptEditor, stripImageTokens } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
 import { MaskedInput } from "./components/masked-input.js";
 import { InterruptController } from "./interrupt-controller.js";
@@ -293,6 +299,14 @@ const getMessageListOffset = () => {
   }, 0);
 };
 
+// Prompt-tab strip — single-row tab bar above the chat that shows one
+// tab per submitted prompt. Sits at the top of the TUI so it stays
+// pinned while the chat scrolls. Hidden when no prompts have been
+// submitted yet (height() returns 0). Auto-switches to the freshly
+// submitted prompt on submit, so submitting lands you in the new tab
+// without an extra click — matches the OS-window metaphor.
+const tabStrip = new PromptTabStrip();
+
 messageList = new VirtualMessageList(
   200,
   () => {
@@ -308,6 +322,11 @@ messageList = new VirtualMessageList(
   getMessageListOffset,
 );
 messageList.setTui(tui);
+// Tab strip goes BEFORE the message list so it sits in the top row(s)
+// and its height is included in `getMessageListOffset` (the offset the
+// list passes to click-coord resolvers already accounts for chrome
+// above it).
+tui.addChild(tabStrip);
 tui.addChild(messageList);
 
 // A terminal resize invalidates the rendered-line indices a selection is
@@ -670,8 +689,8 @@ async function showResumePicker(): Promise<void> {
       try {
         const messages =
           tab === "freecode"
-            ? (await sessionResume(sessionId)).messages ?? []
-            : (await sessionClaudeTranscript(sessionId)).messages ?? [];
+            ? ((await sessionResume(sessionId)).messages ?? [])
+            : ((await sessionClaudeTranscript(sessionId)).messages ?? []);
         previewCache.set(sessionId, messages);
         if (
           resumeSelector &&
@@ -997,6 +1016,19 @@ function handleToolEvent(event: StreamEvent) {
       tui.requestRender();
       break;
     }
+    // The queued prompt's turn just started (the FIFO drain re-entered
+    // the loop inside core). Promote the row from "queued" to a normal
+    // user message: the badge goes away, and — because the store flips
+    // the row's type — every event from here on is filed under this
+    // prompt's page instead of the turn that just finished.
+    case "message_started": {
+      const started = getMessageByQueueId(event.id);
+      if (started && started.type === "queued_user") {
+        promoteQueuedToUser(event.id);
+        tui.requestRender();
+      }
+      break;
+    }
     // Pulled out of the queue (Ctrl+Backspace, or fall-through cleanup).
     // If the row is still in the transcript with the queued badge, drop it;
     // if it's already been promoted to an in-flight user message, leave it
@@ -1050,6 +1082,13 @@ async function submitPrompt(
 
   // A new prompt always returns the view to the live bottom of the history.
   messageList.scrollToBottom();
+
+  // Page the view is on before the optimistic echo switches it. Adding a
+  // user row auto-switches to its page; if the server turns out to have
+  // queued the prompt instead of starting a turn, that switch has to be
+  // undone (see the queued branch below) or the user ends up staring at
+  // an idle page while the running turn streams on the one they left.
+  const pageBeforeSubmit = getActivePromptIndex();
 
   // Optimistic local echo of the user message — instant visual feedback.
   // If the server parks the prompt in the follow-up queue, we'll swap this
@@ -1139,8 +1178,27 @@ async function submitPrompt(
     // transcript entry — keyed by `result.id` so Ctrl+Backspace targets
     // it via session.dequeue.
     if ("queued" in result) {
+      // Capture the slot the optimistic echo was holding before we drop
+      // it, then move the queued_user into that slot so the tab strip
+      // doesn't end up with a hole (e.g. 1, _, 3, 4 instead of 1, 2, 3,
+      // 4). The race between message_queued and session.send resolving
+      // means the queued_user was tagged with whatever promptIndex was
+      // available when it was added — often the next index after the
+      // optimistic user, which would leave a gap once we remove the
+      // optimistic row.
+      const freedSlot = userMsg.promptIndex;
       removeMessageById(inProgressMsg.id);
       removeMessageById(userMsg.id);
+      const queuedRow = result.id ? getMessageByQueueId(result.id) : undefined;
+      if (queuedRow && freedSlot !== undefined) {
+        setMessagePromptIndex(queuedRow.id, freedSlot);
+      }
+      // No turn started, so stay on the page the running turn is streaming
+      // into. The queued prompt's page takes over when core reports
+      // `message_started`.
+      if (pageBeforeSubmit !== undefined) {
+        setActivePromptIndex(pageBeforeSubmit);
+      }
       tui.requestRender();
       return;
     }
@@ -1197,7 +1255,8 @@ async function submitPrompt(
         tokenInfo += ` cache ${hitRate}% (${formatTokenCount(cachedTokens)} read`;
         // Writes bill at ~1.25x, so a high read rate bought by constant
         // rewriting is not the win it looks like. Only shown when non-zero.
-        tokenInfo += writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
+        tokenInfo +=
+          writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
       }
       if (contextLimit > 0) {
         tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
@@ -1741,6 +1800,23 @@ tui.addInputListener((data) => {
       return { consume: true };
     }
 
+    // Tab strip occupies the rows directly above the chat. Compute its
+    // region from the same offset the chat uses, so a resize that
+    // shifts the strip stays consistent with `getMessageListOffset`.
+    if (button === 0 && !isDrag && tabStrip.height() > 0) {
+      const stripTop = getMessageListOffset();
+      const stripBottom = stripTop + tabStrip.height() - 1;
+      if (cy >= stripTop && cy <= stripBottom) {
+        // Click consumes one tab shift even when the active tab doesn't
+        // change (idempotent — clicking the current tab is a no-op but
+        // we still own the row so a press doesn't fall through into a
+        // chat selection).
+        tabStrip.handleClick(cx, cy);
+        tui.requestRender();
+        return { consume: true };
+      }
+    }
+
     // Check if the click toggles an expandable message (e.g. thoughts or tool results)
     if (button === 0 && !isDrag && messageList.handleClick(cx, cy)) {
       return { consume: true };
@@ -1908,6 +1984,38 @@ tui.addInputListener((data) => {
   }
   if (matchesKey(data, "pageDown")) {
     messageList.scrollPageDown();
+    return { consume: true };
+  }
+  // Tab navigation: Shift+Left/Right walk between prompt tabs. No-op
+  // when no prompts exist (the strip is hidden). Right at the last tab
+  // wraps — the user can press Left to come back, but never gets
+  // stranded past the end. (Modeled on browser / OS tab UI; matches
+  // the screenshot the user shared.)
+  //
+  // Shift, not bare arrows: this listener runs *before* the focused
+  // component (pi-tui drains inputListeners first in TUI.handleInput),
+  // so binding plain left/right here swallows the prompt editor's
+  // cursor movement. alt/ctrl+arrow are the editor's word-jump, so
+  // shift+arrow is the only free arrow pair.
+  const tabPrev = matchesKey(data, Key.shift("left"));
+  const tabNext = matchesKey(data, Key.shift("right"));
+  if (tabPrev || tabNext) {
+    // With the Kitty keyboard protocol (pi-tui negotiates flags=7, which
+    // includes "report event types") the terminal sends both a press and
+    // a release for the same key, and matchesKey() matches both — acting
+    // on each moved two tabs per keypress, skipping every other prompt.
+    // pi-tui filters releases only for the focused component, not for
+    // input listeners, so the guard has to live here.
+    if (isKeyRelease(data)) return { consume: true };
+    const target = stepTab(
+      tabStrip.getActiveTab(),
+      tabStrip.getTabCount(),
+      tabPrev ? "prev" : "next",
+    );
+    if (target !== undefined) {
+      tabStrip.setActiveTab(target);
+      tui.requestRender();
+    }
     return { consume: true };
   }
   return undefined;
