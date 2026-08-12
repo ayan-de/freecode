@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.24.3
+
+The top of the TUI gets a real header. The previous `ResponsiveInfoBox` was a per-message list entry that scrolled away with the transcript, leaving the first visible row of a fresh session empty; the only branding was the `>_ FreeCode` line in the prompt editor. A new `LogoHeader` (`apps/tui/src/components/logo-header.ts`) is pinned to the first row, shows the FreeCode wordmark in two-tone yellow, the version, and a compact `Tools: N    MCP: M    Directory: <cwd>` line. Tool and MCP counts are fetched once at startup (`listTools` + `mcpStatus` in parallel) and cached as `-1` until they resolve, so the header renders `…` instead of blocking on the daemon. The old `infoBox` slot in `VirtualMessageList` is now `undefined`, and the right-edge `ContextBox` overlay was pushed down (`offsetY: 8`) to clear the new header. The interrupted-session startup banner was removed at the same time — `--resume` and `/resume` still cover that path, and a banner that named an interrupted session on every cold boot had outlived its usefulness.
+
 ## v0.24.2
 
 `freecode` now checks for updates on launch instead of requiring `freecode update` to be run manually.
