@@ -99,10 +99,15 @@ export type StreamEvent =
   // arrived while a turn was already in progress and was parked instead of
   // racing. `id` matches the `QueuedMessage`; `content` is the original prompt
   // so the UI can echo it back. `message_dequeued` fires when the same id is
-  // pulled out via session.dequeue (or, implicitly, when the queue finally
-  // starts its turn — the UI treats that as a state change to "in-flight").
+  // pulled out via session.dequeue.
   | { type: "message_queued"; id: string; content: string }
   | { type: "message_dequeued"; id: string }
+  // The queued message with this id just became the in-flight turn (the
+  // FIFO drain re-entered the loop). Frontends have no other way to see
+  // this boundary: the drain happens inside core's `finally`, not through
+  // a session.send they issued, so without it every event after the drain
+  // looks like it still belongs to the previous turn.
+  | { type: "message_started"; id: string }
   // A memory was written about the user WITHOUT them asking (turn-end
   // extraction, spec 2026-08-09-memory-write-path D5). Arrives after the
   // turn's `done` because extraction is fire-and-forget, so frontends must

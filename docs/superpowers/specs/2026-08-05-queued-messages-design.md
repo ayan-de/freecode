@@ -22,14 +22,17 @@ When a user submits a message while the agent is mid-turn for that session, queu
 
 ### Protocol (`packages/shared/src/ipc/protocol.ts`)
 
-Add two variants to the `StreamEvent` union:
+Add three variants to the `StreamEvent` union:
 
 ```typescript
 | { type: "message_queued"; id: string; content: string }
 | { type: "message_dequeued"; id: string }
+| { type: "message_started"; id: string }
 ```
 
-`message_queued` is emitted once per queued message, on the same stream the original `session.send` call is listening on. `message_dequeued` is emitted on the stream in response to a `session.dequeue` call.
+`message_queued` is emitted once per queued message, on the same stream the original `session.send` call is listening on. `message_dequeued` is emitted on the stream in response to a `session.dequeue` call. `message_started` is emitted by `runSessionTurn` when the FIFO drain re-enters the loop with that queued message, before any model event of the new turn.
+
+**Amendment (2026-08-13):** `message_started` was not in the original design, which assumed a frontend could infer the boundary from the first `tool_start`/`text_delta` of the new turn. It cannot: the drain re-enters `runSessionTurn` from inside the previous turn's `finally`, never through a `session.send` the frontend issued, and stream events carry no message id — so every event after the drain is indistinguishable from the previous turn's. The TUI's per-prompt page grouping filed the drained turn's output under the previous prompt because of this.
 
 Add `session.dequeue` to `METHODS` in `protocol.ts`: params `{ sessionId: string; id: string }`, result `{ removed: boolean }`.
 
@@ -37,7 +40,7 @@ Add `session.dequeue` to `METHODS` in `protocol.ts`: params `{ sessionId: string
 
 - No change to editor input behavior — it already allows typing/submitting at any time; no lock is added.
 - On `message_queued`, render the message in the transcript immediately (as a user message) with a dim/"queued" visual marker, keyed by its `id`, the same way a normal user message renders otherwise.
-- When that message's turn actually starts (existing `tool_start` / `text_delta` / `thinking` events arrive for it), the marker is dropped and it renders as a normal in-flight user message — no new state machine needed, this falls out of the existing per-message rendering once the turn begins.
+- When that message's turn actually starts, core emits `message_started` with the same `id`: the TUI promotes the row in place (`promoteQueuedToUser`), dropping the marker so it renders as a normal in-flight user message. The row keeps its store id, `queueId` and prompt-page index, so nothing reflows.
 - Removing/editing a queued message: while its "queued" marker is showing, pressing a dedicated key (e.g. `Ctrl+Backspace` on the queued item, or a small `[x]`/`[edit]` affordance next to it — exact keybinding left to implementation, following existing TUI keybinding conventions) calls `session.dequeue({ sessionId, id })`.
   - Plain removal: on `message_dequeued`, drop the message from the transcript.
   - Edit: on `message_dequeued`, additionally repopulate the editor with the removed message's content (same as pi's "restore queued message to editor" behavior) so the user can revise and resubmit.

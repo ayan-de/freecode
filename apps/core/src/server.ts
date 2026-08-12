@@ -170,6 +170,13 @@ interface TurnInput {
     | "review"
     | "explore"
     | "danger";
+  /**
+   * Set only on the FIFO-drain path: the `QueuedMessage.id` this turn was
+   * pulled from. Emitted back out as `message_started` so frontends can
+   * flip the queued row to in-flight — this re-entry never passes through
+   * session.send, so it is otherwise invisible to them.
+   */
+  queuedId?: string;
 }
 
 /**
@@ -196,6 +203,16 @@ async function runSessionTurn(
     createAgentLoopEffect(sessionId, { maxIterations: 250 }),
   );
   activeLoops.set(sessionId, loop);
+
+  // Queued turn is now in flight — tell the frontends before the first
+  // model event arrives, so everything this turn emits is attributed to
+  // the queued prompt rather than to the turn that just finished.
+  if (input.queuedId) {
+    BusEvents.stream(sessionId, {
+      type: "message_started",
+      id: input.queuedId,
+    });
+  }
 
   // Per-turn store handle for title-pinning below. Cheap (effect runtime
   // memoizes the underlying service) but doing it once per turn is clearer
@@ -248,6 +265,7 @@ async function runSessionTurn(
         provider: input.provider,
         model: input.model,
         agentMode: input.agentMode,
+        queuedId: next.id,
       }).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         logger.error("Queued session turn failed", { sessionId, message });
