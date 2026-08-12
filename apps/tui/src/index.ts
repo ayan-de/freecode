@@ -246,15 +246,14 @@ import { Spacer } from "@earendil-works/pi-tui";
 //   () => currentModel,
 // ); // commented out: header disabled
 
-// Fixed logo header pinned to the top row. Added as the TUI's first child so
-// it renders above the scrollable history and never scrolls away.
+// Logo header (logo + version + tools/MCP + directory) is rendered as the
+// scrollable header of the message list — it scrolls away with the history
+// rather than staying pinned at the top of the viewport. See the
+// `VirtualMessageList` constructor below where `logoHeader` is passed in.
 const logoHeader = new LogoHeader(
   () => headerToolCount,
   () => headerMcpCount,
 );
-tui.addChild(new Spacer(1));
-tui.addChild(logoHeader);
-tui.addChild(new Spacer(1));
 
 // Floating top-right overlay showing the context-window usage widget (replaces
 // the right half of the old StatusHeader). Non-capturing so it never steals
@@ -267,8 +266,8 @@ const contextBox = new ContextBox(
 const contextBoxOverlay = tui.showOverlay(contextBox, {
   anchor: "top-right",
   width: contextBox.width(),
-  offsetX: 2,
-  offsetY: 8,
+  offsetX: 0,
+  offsetY: 0,
   nonCapturing: true,
   visible: (termWidth) => termWidth >= 60,
 });
@@ -304,7 +303,7 @@ messageList = new VirtualMessageList(
       }, 0);
     return Math.max(6, terminal.rows - otherHeight);
   },
-  undefined, // header disabled — see commented-out ResponsiveInfoBox above
+  logoHeader, // scrolls with the messages instead of being pinned at top
   () => selectionStore.get(),
   getMessageListOffset,
 );
