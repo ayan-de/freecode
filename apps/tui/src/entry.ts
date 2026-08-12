@@ -85,8 +85,22 @@ async function checkForUpdate(): Promise<void> {
   }
 
   // Re-exec so the TUI that opens is the newly installed binary, not the
-  // one already loaded in this process's memory.
-  const result = spawnSync(process.execPath, process.argv.slice(2), {
+  // one already loaded in this process's memory. Re-exec through the
+  // installer's `stable` symlink rather than `process.execPath`: the kernel
+  // resolves symlinks at exec time, so `process.execPath` is the concrete
+  // path to the *old* version's binary file. Spawning that path again runs
+  // the stale binary, and the user has to close the TUI and re-type
+  // `freecode` to actually pick up the update. The `stable` symlink is
+  // rewritten on every install to point at the version just unpacked.
+  const freecodeHome = process.env.FREECODE_HOME ?? path.join(process.env.HOME ?? "", ".freecode");
+  const stable = path.join(freecodeHome, "builds", "stable", "freecode");
+  const execTarget =
+    process.env.FREECODE_BUNDLED === "1" &&
+    fs.existsSync(stable) &&
+    fs.realpathSync(stable) !== fs.realpathSync(process.execPath)
+      ? stable
+      : process.execPath;
+  const result = spawnSync(execTarget, process.argv.slice(2), {
     stdio: "inherit",
     env: { ...process.env, __FREECODE_UPDATE_CHECKED: "1" },
   });
