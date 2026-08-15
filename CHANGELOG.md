@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.25.7
+
+A supervising process wrapping the TUI in a PTY (e.g. agent-board) now has a guaranteed way to ask for a clean shutdown: a new `InterruptController.forceExit()` runs the same shutdown + resume-hint sequence as a confirmed double Ctrl+C, without needing the double-press to land first. The race was that the first Ctrl+C could be consumed by an in-flight turn's `cancelTurn` instead of arming exit, so the second Ctrl+C only armed it and the resume hint never printed before SIGTERM killed the process. `forceExit` lets a SIGTERM handler run that sequence directly, so the hint lands regardless of where the first Ctrl+C went.
+
+### Added
+- **`InterruptController.forceExit()`** (`apps/tui/src/interrupt-controller.ts`). Public method that delegates to the existing private `exit()` — runs `shutdown()`, prints the `freecode --resume <sessionId>` hint on TTY, then `process.exit(0)`. Wired from `apps/tui/src/index.ts`'s SIGTERM handler so a wrapper process can guarantee a clean shutdown even when its first Ctrl+C is swallowed by an active turn. Covered by `interrupt-controller.test.ts` (3 tests: hint + shutdown + exit code path, no `isTurnActive()` precondition, normal Ctrl+C during an active turn still cancels rather than exiting).
+
 ## v0.24.6
 
 The assistant's code samples in chat now render like code in an editor — a dim line-number gutter and Dracula syntax colors — instead of a flat monospace block. Before, fenced code blocks (` ```ts `) fell through to pi-tui's default plain-text rendering, so a multi-line snippet looked the same as the surrounding prose and the only visual cue it was code at all was the faint gutter that some Markdown themes draw. Wiring `renderCodeBlock` into the Markdown theme's `highlightCode` hook gives every code block a uniform look regardless of which model produced it: 3-wide right-aligned line numbers, a dim vertical pipe separator, and token-level highlighting. The first attempt at this used a green `+ N` prefix — diff-style — but the `+` carried an "added to a file" implication that doesn't apply to code the model is just showing. The gutter is now neutral (`  N │`); the green stays where it actually means "added", in `renderDiff`. While moving it, `renderCodeBlock` and the shared Dracula palette were extracted out of `diff-view.ts` into a new `code-block.ts` — code-block rendering and diff rendering share styling but no logic, and the old module name implied it was the home for all colored code in the TUI.
