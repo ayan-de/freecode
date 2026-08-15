@@ -84,6 +84,18 @@ export class InterruptController {
     process.exit(0);
   }
 
+  // Runs the same shutdown + resume-hint sequence as a confirmed double
+  // Ctrl+C, without needing the double-press to have actually landed. A
+  // supervising process (e.g. agent-board) that drives this TUI over a PTY
+  // sends Ctrl+C twice and then SIGTERM as a fallback; if the first Ctrl+C
+  // got consumed by an in-flight turn (isTurnActive() cancel) instead of
+  // arming exit, the second one only arms it and the resume hint never
+  // prints before SIGTERM kills the process. Call this from a SIGTERM
+  // handler so the hint is guaranteed to print regardless of that race.
+  forceExit(): void {
+    this.exit();
+  }
+
   // Printed after shutdown() so it lands on the restored terminal. Only for
   // interactive TTYs with a live session, and only once.
   private printResumeHint(): void {

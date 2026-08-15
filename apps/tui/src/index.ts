@@ -2004,6 +2004,15 @@ if (resumeArg.present && resumeArg.id) {
 // when the alt screen was already exited cleanly.
 process.on("exit", restoreScreen);
 
+// A supervising process (agent-board driving this TUI headlessly over a PTY)
+// has no way to send the double Ctrl+C that normally arms+confirms exit, so
+// it falls back to SIGTERM. Without this handler that's a silent kill with
+// no resume hint printed. forceExit() runs the same shutdown + hint sequence
+// the interactive double-press does.
+process.on("SIGTERM", () => {
+  interruptController.forceExit();
+});
+
 // Faults that escape every try/catch: restore the terminal, take the backend
 // down, and print a legible report instead of vanishing mid-session.
 installCrashHandlers({
