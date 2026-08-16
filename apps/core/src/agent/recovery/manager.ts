@@ -181,9 +181,25 @@ function getErrorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/**
+ * Bun/undici raise a native `DOMException` (name "TimeoutError", numeric
+ * `code` 23) when a fetch's underlying connection stalls, ahead of and
+ * independent of createTimeoutFetch's own AbortControllers. Its message
+ * ("The operation timed out.") doesn't contain the substring "timeout", and
+ * its `code` is a number rather than one of NETWORK_ERROR_CODES' strings, so
+ * neither existing check catches it — leaving a plain network hiccup
+ * misclassified as fatal.
+ */
+function isNativeTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const anyErr = error as { name?: unknown; code?: unknown };
+  return anyErr.name === "TimeoutError" || anyErr.code === 23;
+}
+
 export function isTransientError(error: unknown): boolean {
   if (isAbortError(error)) return false; // user interrupt is never retried
   if (isQuotaExhaustedError(error)) return false; // no amount of waiting helps
+  if (isNativeTimeoutError(error)) return true;
   const status = getErrorStatus(error);
   if (status === 429) return true;
   if (status !== undefined) return status >= 500; // other 4xx = fatal
@@ -193,6 +209,7 @@ export function isTransientError(error: unknown): boolean {
   return (
     msg.includes("fetch failed") ||
     msg.includes("timeout") ||
+    msg.includes("timed out") ||
     msg.includes("network")
   );
 }
