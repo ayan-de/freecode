@@ -1,5 +1,14 @@
 # @thisisayande/freecode
 
+## 0.25.9
+
+### Patch Changes
+
+- Memory-graph auto-injection is now visible in the chat. The `memory_injected` stream event from core surfaces in the TUI as `*Recalled N thing(s) from memory: type/name, …*` so the user can see what saved memories the loop pulled in for the current turn — previously the recall happened silently and the only signal was whatever the model did with it. One notice per user message (deduplicated by query text), not one per inner-loop tool-call turn.
+
+- Updated dependencies
+  - @thisisayande/freecode-core@0.25.9
+
 ## 0.25.8
 
 ### Patch Changes

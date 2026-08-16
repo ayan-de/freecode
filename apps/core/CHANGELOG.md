@@ -1,5 +1,13 @@
 # @thisisayande/freecode-core
 
+## 0.25.9
+
+### Patch Changes
+
+- `memory_injected` stream event for the auto-injection path. Saved memories surfaced into the prompt with no visible cue — the user had to trust the model's behavior to know whether a recall happened at all. The agent loop now emits `memory_injected` once per user message that gets a hit (not every inner-loop tool-call turn — dedup key is the query text), carrying `{ type, name }` per memory so the UI can name them without re-fetching bodies. Wired into the TUI as `*Recalled N things from memory: …*`.
+
+  While moving the recall off its "skip on same text" fast path, `MemoryGraphService.prepareMemories` was changed to be safe to call every turn instead of every user-text-change. A new per-session `resolved` flag means once a query is "resolved" (hit or confirmed miss), the call is a cheap synchronous stash read with no re-fetch, so the always-call pattern costs nothing on warm turns while still letting a cold-start retrieval whose background fetch lands just after `COLD_BUDGET_MS` times out surface on the very next inner-loop turn — previously that miss was lost until the user typed again.
+
 ## 0.25.8
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.25.9
+
+The memory-graph auto-injection path used to be silent — saved memories surfaced into the prompt with no visible cue, so a recall either happened or it didn't and the user had to trust the model's behavior to know which. A new `memory_injected` stream event (`packages/shared/src/ipc/protocol.ts`, emitted from `apps/core/src/agent/loop.ts`) fires once per user message that lands a hit, not every inner-loop tool-call turn, and the TUI renders it as `*Recalled N things from memory: type/name, …*` so the user can see what was pulled in. The dedup key is the query text, so a repeated call with the same user message doesn't spam the notice. While moving the recall out of the "skip on same text" fast path, the underlying `MemoryGraphService.prepareMemories` was changed to be safe to call every turn instead of every user-text-change — a cold-start miss whose background retrieval lands just after `COLD_BUDGET_MS` gives up now surfaces on the very next inner-loop turn instead of being lost until the user types again.
+
+### Added
+- **`memory_injected` stream event** (`packages/shared/src/ipc/protocol.ts`). Emitted from the agent loop when an automatic (non-`memory`-tool) retrieval surfaces one or more saved memories into a turn's prompt. Carries `{ type, name }` per memory so the UI can name them without fetching the bodies. Deduplicated per user message text — one notice per request, regardless of how many tool-call turns the inner loop runs. Wired into the TUI (`apps/tui/src/index.ts`) as `*Recalled N thing(s) from memory: …*` so the auto-injection is no longer silent.
+
+### Changed
+- **`MemoryGraphService.prepareMemories` is now safe to call every turn** (`apps/core/src/memory/graph/index.ts`). Previously skipped when the user text was unchanged, so a cold-start retrieval whose background fetch completed just after the `COLD_BUDGET_MS` wait timed out never got a chance to surface until the next user message. A new per-session `resolved` flag means once a query is "resolved" (hit or confirmed miss), the call is a cheap synchronous stash read — no re-fetch — so the always-call pattern costs nothing on warm turns while still letting a late-arriving miss land.
+
 ## v0.25.7
 
 A supervising process wrapping the TUI in a PTY (e.g. agent-board) now has a guaranteed way to ask for a clean shutdown: a new `InterruptController.forceExit()` runs the same shutdown + resume-hint sequence as a confirmed double Ctrl+C, without needing the double-press to land first. The race was that the first Ctrl+C could be consumed by an in-flight turn's `cancelTurn` instead of arming exit, so the second Ctrl+C only armed it and the resume hint never printed before SIGTERM killed the process. `forceExit` lets a SIGTERM handler run that sequence directly, so the hint lands regardless of where the first Ctrl+C went.
