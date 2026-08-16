@@ -305,9 +305,7 @@ export class AgentLoop {
   private mutatedFiles = new Set<string>();
   private verifierAttempts = 0;
   private lastVerifierReport: string | undefined;
-  // Memory graph cache: skip expensive graph re-query when the user text
-  // hasn't changed (back-to-back tool turns triggered by one message).
-  private lastMemoryQueryText: string = "";
+  // Last rendered memory block, so a run reset clears stale injected memory.
   private lastMemoryBlock: string | undefined = undefined;
   // Which tool results have gone to the provider, and how, so the cached
   // prompt prefix stays byte-stable across the turns of this run.
@@ -551,7 +549,6 @@ export class AgentLoop {
     this.mutatedFiles = new Set<string>();
     this.verifierAttempts = 0;
     this.lastVerifierReport = undefined;
-    this.lastMemoryQueryText = "";
     this.lastMemoryBlock = undefined;
     this.memoryToolUsedThisRun = false;
     // History is reloaded below, and the ids are only meaningful against that
@@ -1261,19 +1258,20 @@ export class AgentLoop {
       // a topic change) waits a small budget for the fresh retrieval. Never
       // throws, never injects off-topic memories.
       //
-      // Cache optimisation: within a single user request, the agent may loop
-      // many times (tool call → result → tool call → …), but the user text
-      // doesn't change between those inner turns. Re-querying the graph on
-      // every inner turn wastes time and doesn't change the result. We cache the
-      // last query text and skip the round-trip when nothing changed.
-      const currentUserText = this.getLastUserText();
-      if (currentUserText !== this.lastMemoryQueryText) {
-        const memGraph = getMemoryGraphService(context.projectPath);
-        this.lastMemoryBlock = renderRetrievedMemories(
-          await memGraph.prepareMemories(this.state.sessionId, currentUserText),
-        );
-        this.lastMemoryQueryText = currentUserText;
-      }
+      // Called every turn, not just when the user text changes: prepareMemories
+      // is a cheap stash read once its query is "resolved" (graph/index.ts), so
+      // this costs nothing on warm turns. It must NOT be gated on query-text
+      // equality — a cold-start miss (retrieval lands just after the loop gives
+      // up waiting) needs to surface on the very next inner-loop turn even
+      // though the user hasn't spoken again, otherwise a real match never gets
+      // injected for the rest of the request.
+      const memGraph = getMemoryGraphService(context.projectPath);
+      this.lastMemoryBlock = renderRetrievedMemories(
+        await memGraph.prepareMemories(
+          this.state.sessionId,
+          this.getLastUserText(),
+        ),
+      );
       const memoryBlock = this.lastMemoryBlock;
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and the model

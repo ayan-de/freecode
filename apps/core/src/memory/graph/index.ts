@@ -35,6 +35,10 @@ interface SessionMemory {
   stash: MemoryEntry[];
   lastQuery: string;
   inflight: Promise<void> | null;
+  // Whether `lastQuery` has a completed retrieval (hit or confirmed miss).
+  // Lets prepareMemories be called on every turn without re-fetching: once
+  // resolved, callers just read `stash` instead of re-kicking retrieve().
+  resolved: boolean;
 }
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -425,7 +429,7 @@ export class MemoryGraphService {
       this.sessions.set(sessionId, st);
       return st;
     }
-    st = { stash: [], lastQuery: "", inflight: null };
+    st = { stash: [], lastQuery: "", inflight: null, resolved: false };
     this.sessions.set(sessionId, st);
     while (this.sessions.size > MAX_SESSIONS) {
       const oldest = this.sessions.keys().next().value as string | undefined;
@@ -441,6 +445,13 @@ export class MemoryGraphService {
   // message, or right after a topic change clears the set) waits a small budget
   // for the fresh retrieval, then falls back to background. Per-session, so
   // sessions in the same project never share a stash. Never throws.
+  //
+  // Safe to call every turn (not just when the query text changes): once a
+  // query is `resolved` (its retrieval has landed, hit or confirmed miss),
+  // this is a cheap synchronous stash read — no re-fetch. That matters
+  // because a cold-start miss (retrieval lands just after the COLD_BUDGET_MS
+  // wait gives up) must still surface once the background fetch completes,
+  // even if the caller's query text never changes again within the request.
   async prepareMemories(
     sessionId: string,
     query: string,
@@ -452,10 +463,16 @@ export class MemoryGraphService {
     // Topic change → drop the stale set so we don't inject off-topic memories.
     if (st.lastQuery && lexicalSimilarity(q, st.lastQuery) < TOPIC_SIM_MIN) {
       st.stash = [];
+      st.resolved = false;
+    }
+    if (q !== st.lastQuery) {
+      st.lastQuery = q;
+      st.resolved = false;
     }
     const cold = st.stash.length === 0;
-    st.lastQuery = q;
-    this.kickPrefetch(st);
+    if (!st.resolved) {
+      this.kickPrefetch(st);
+    }
 
     // Cold start: give the in-flight retrieval a brief chance to land.
     if (cold && st.inflight) {
@@ -474,11 +491,13 @@ export class MemoryGraphService {
           const results = await this.retrieve(q);
           if (q === st.lastQuery) {
             st.stash = results;
+            st.resolved = true;
             return;
           }
         }
       } catch {
-        // Keep the previous stash; nothing invalid gets injected.
+        // Keep the previous stash; nothing invalid gets injected. Leave
+        // `resolved` false so a later call retries instead of getting stuck.
       } finally {
         st.inflight = null;
       }
