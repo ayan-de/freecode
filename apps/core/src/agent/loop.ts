@@ -47,6 +47,7 @@ import {
   evaluateTodoGate,
   shouldNudgeTodo,
   todoNudgeReminder,
+  wrapUpReminder,
   TODO_GATE_MAX_FORCES,
 } from "./reminders.js";
 import {
@@ -259,6 +260,11 @@ export class AgentLoop {
   private memoryExtraction: boolean;
   private sessionStore: SessionStore | undefined;
   private lastThinking: string | undefined;
+  // Last text the model actually produced, kept independent of how the turn
+  // ended. An abnormal stop (iteration cap, loop health, interrupt) still has
+  // this available, so the run can hand back real content instead of a bare
+  // status string.
+  private lastResponseText: string | undefined;
   private compiler: PromptCompiler;
   // Per-rule permission layer: project + user settings + session grants
   private permissionSettings: PermissionSettingsManager | undefined;
@@ -310,7 +316,12 @@ export class AgentLoop {
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
     this.config = {
-      maxIterations: config?.maxIterations ?? 250,
+      // Unbounded by default, matching Claude Code (interactive sessions
+      // never set maxTurns) and opencode (agent.steps defaults to Infinity).
+      // loop-health (stuck-pattern detection) and the todo/verify gates are
+      // what actually end a run; callers that want a hard cap (subagents,
+      // headless/-p invocations) pass maxIterations explicitly.
+      maxIterations: config?.maxIterations ?? Infinity,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
     };
     this.memory = config?.memory ?? new MemoryService(sessionId);
@@ -660,15 +671,29 @@ export class AgentLoop {
       // CONTINUOUS LOOP - Core agent cycle
       // =======================================================================
       while (this.state.status === "running") {
-        // Check: Have we hit max iterations?
+        // Check: Have we hit max iterations? This is a last-resort safety
+        // valve (loop-health and the todo/verify gates are what normally end
+        // a run) — hand back whatever the model last said rather than a bare
+        // status string, since it may have already produced a useful wrap-up
+        // on the previous, reminder-primed turn.
         if (this.state.iterationCount >= this.config.maxIterations) {
           await this.stop("max_iterations_reached");
+          const note =
+            `\n\n---\n_Stopped: reached the ${this.config.maxIterations}-turn ` +
+            `iteration safety limit before finishing. The above reflects the ` +
+            `last turn's response — some planned work may be incomplete._`;
           return this.complete(
             "Max iterations reached",
-            undefined,
+            this.lastResponseText ? this.lastResponseText + note : undefined,
             undefined,
             usageSoFar(),
           );
+        }
+
+        // One turn before the safety valve trips: tell the model to stop
+        // calling tools and summarize instead of getting cut off mid-task.
+        if (this.state.iterationCount === this.config.maxIterations - 1) {
+          this.pendingReminders.push(wrapUpReminder());
         }
 
         // Check: Loop health (detect stuck patterns)
@@ -1349,6 +1374,7 @@ export class AgentLoop {
 
       // Emit text content if present (for UI to display)
       if (providerResult.content) {
+        this.lastResponseText = providerResult.content;
         BusEvents.stream(this.state.sessionId, {
           type: "text",
           content: providerResult.content,

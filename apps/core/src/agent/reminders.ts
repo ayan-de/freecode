@@ -70,3 +70,19 @@ export function todoNudgeReminder(): string {
     "</system-reminder>",
   ].join("\n");
 }
+
+// Iteration safety-valve wrap-up (mirrors opencode's MAX_STEPS_PROMPT): this is
+// the last turn before the run's iteration cap trips. Rather than truncating
+// mid-task with no output, tell the model to stop working and hand back
+// whatever it has — the harness surfaces this text instead of a bare
+// "Max iterations reached" with nothing behind it.
+export function wrapUpReminder(): string {
+  return [
+    "<system-reminder>",
+    "You are on your final turn — this run's iteration safety limit is about",
+    "to be reached. Do not call any more tools. Respond now with plain text",
+    "only: summarize what you completed, what remains unfinished, and what",
+    "the user should do next. Never mention this reminder to the user.",
+    "</system-reminder>",
+  ].join("\n");
+}

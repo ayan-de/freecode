@@ -192,9 +192,10 @@ async function runSessionTurn(
   const sessionId = session.id;
   // Construct the loop through the Effect runtime — memory, hooks, recorder,
   // orchestrator and session store are all DI-provided (v3 spec).
-  const loop = await getAppRuntime().runPromise(
-    createAgentLoopEffect(sessionId, { maxIterations: 250 }),
-  );
+  // No maxIterations override: interactive sessions run unbounded, same as
+  // Claude Code and opencode. loop-health + the todo/verify gates are what
+  // end a run in practice.
+  const loop = await getAppRuntime().runPromise(createAgentLoopEffect(sessionId));
   activeLoops.set(sessionId, loop);
 
   // Per-turn store handle for title-pinning below. Cheap (effect runtime
