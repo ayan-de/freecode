@@ -215,7 +215,12 @@ export const DEFAULT_LOOP_HEURISTICS: LoopHeuristics = {
   oscillationScoreThreshold: 4,
   reasoningSimilarityThreshold: 0.9,
   reasoningSimilarityTurns: 3,
-  totalIterationLimit: 250,
+  // Unbounded by default, matching AgentLoopConfig.maxIterations — the
+  // repeated-tool/stagnation/oscillation heuristics above are what actually
+  // catch stuck patterns. Callers that want a hard turn cap (subagents,
+  // headless/-p invocations) already pass maxIterations explicitly, which
+  // trips before this would.
+  totalIterationLimit: Infinity,
 };
 
 export interface LoopAction {
