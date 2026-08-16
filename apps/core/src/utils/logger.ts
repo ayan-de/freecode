@@ -24,7 +24,13 @@ export class ConsoleLogger implements Logger {
     meta?: Record<string, unknown>,
   ): void {
     const metaStr = meta ? ` ${JSON.stringify(meta)}` : "";
-    console.log(`${this.prefix}${level.toUpperCase()}: ${message}${metaStr}`);
+    // Core speaks JSON-RPC over stdout (`freecode serve`). Logging there
+    // is indistinguishable from a protocol frame and will either be skipped
+    // or (in strict clients) tear down the reader. stderr is the channel
+    // frontends already surface as chatter.
+    process.stderr.write(
+      `${this.prefix}${level.toUpperCase()}: ${message}${metaStr}\n`,
+    );
   }
 
   debug(message: string, meta?: Record<string, unknown>): void {

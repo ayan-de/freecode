@@ -22,7 +22,13 @@ export function busEventToClientEvent(
   if (INTERNAL_ONLY.has(event.type)) return undefined;
 
   // The bus is only a carrier for stream events — unwrap to the wire language.
-  if (event.type === "stream") return event.event;
+  // sessionId lives on the StreamRelayEvent wrapper, not on every StreamEvent
+  // variant; re-attach it here so multi-session consumers (e.g. frontends
+  // multiplexing several sessions over one process's stdout) can correlate
+  // each line without every event author remembering to stamp it themselves.
+  if (event.type === "stream") {
+    return { ...event.event, sessionId: event.sessionId } as StreamEvent;
+  }
 
   if (event.type === "question.asked") {
     return {

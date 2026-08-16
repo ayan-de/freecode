@@ -73,36 +73,46 @@ export type PermissionPromptDecision =
   | "allow-always"
   | "deny";
 
+// `sessionId` is populated on every variant when the event is relayed through
+// the bus (see `busEventToClientEvent` in apps/core/src/bus/bridge.ts, which
+// stamps it from the `StreamRelayEvent` wrapper) — it's optional here because
+// event *authors* below construct these payloads without it. Consumers that
+// multiplex several sessions over one process's stdout (e.g. frontends
+// driving multiple concurrent sessions) need it to route each line; the TUI
+// and per-session SSE channel don't, since they're already scoped to one
+// session and can ignore the field.
 export type StreamEvent =
   | {
       type: "tool_start";
+      sessionId?: string;
       toolCallId: string;
       toolName: string;
       args: Record<string, unknown>;
     }
-  | { type: "tool_output"; toolCallId: string; content: string }
+  | { type: "tool_output"; sessionId?: string; toolCallId: string; content: string }
   | {
       type: "tool_complete";
+      sessionId?: string;
       toolCallId: string;
       toolName: string;
       result: string;
       success: boolean;
       duration_ms?: number;
     }
-  | { type: "thinking"; content: string } // full thinking, emitted at turn end (non-stream path)
-  | { type: "text"; content: string } // full assistant text, emitted at turn end (non-stream path or as compatibility snapshot when streaming)
-  | { type: "text_delta"; delta: string } // incremental assistant text chunk (streaming path)
-  | { type: "thinking_delta"; delta: string } // incremental reasoning chunk (streaming path)
-  | { type: "done"; content: string }
-  | { type: "error"; content: string }
+  | { type: "thinking"; sessionId?: string; content: string } // full thinking, emitted at turn end (non-stream path)
+  | { type: "text"; sessionId?: string; content: string } // full assistant text, emitted at turn end (non-stream path or as compatibility snapshot when streaming)
+  | { type: "text_delta"; sessionId?: string; delta: string } // incremental assistant text chunk (streaming path)
+  | { type: "thinking_delta"; sessionId?: string; delta: string } // incremental reasoning chunk (streaming path)
+  | { type: "done"; sessionId?: string; content: string }
+  | { type: "error"; sessionId?: string; content: string }
   // Follow-up queue (spec 2026-08-05-queued-messages-design): a session.send
   // arrived while a turn was already in progress and was parked instead of
   // racing. `id` matches the `QueuedMessage`; `content` is the original prompt
   // so the UI can echo it back. `message_dequeued` fires when the same id is
   // pulled out via session.dequeue (or, implicitly, when the queue finally
   // starts its turn — the UI treats that as a state change to "in-flight").
-  | { type: "message_queued"; id: string; content: string }
-  | { type: "message_dequeued"; id: string }
+  | { type: "message_queued"; sessionId?: string; id: string; content: string }
+  | { type: "message_dequeued"; sessionId?: string; id: string }
   // A memory was written about the user WITHOUT them asking (turn-end
   // extraction, spec 2026-08-09-memory-write-path D5). Arrives after the
   // turn's `done` because extraction is fire-and-forget, so frontends must
@@ -120,6 +130,7 @@ export type StreamEvent =
   // rather than repeating it. Silent when nothing relevant was found.
   | {
       type: "memory_injected";
+      sessionId?: string;
       memories: Array<{ type: string; name: string }>;
     }
   | {
@@ -127,6 +138,7 @@ export type StreamEvent =
       // will likely miss Anthropic's ~5-min cache; "warm" carries post-turn
       // read/write token counts. Informational — frontends may render or ignore.
       type: "cache_status";
+      sessionId?: string;
       // "miss" is the harness-bug alarm (spec 2026-08-09 D2): the prefix was
       // busted with no recorded cause, i.e. something changed a message that
       // had already been sent. A legitimate rebuild (compaction) is documented
@@ -138,12 +150,13 @@ export type StreamEvent =
     }
   // Turn-level advisory the user needs to see (e.g. an attachment dropped
   // because the model can't accept it). Does not fail the turn.
-  | { type: "notice"; level: "info" | "warn"; content: string }
+  | { type: "notice"; sessionId?: string; level: "info" | "warn"; content: string }
   // Running spend for the current run() — emitted once per completed turn so
   // the frontend can render a live per-session counter (spec
   // 2026-08-05-token-efficiency, D7). Core computes; frontends only display.
   | {
       type: "usage_totals";
+      sessionId?: string;
       // Already includes cache writes — they are billed as input. The separate
       // totalCacheWriteTokens below is the same tokens broken out for the cache
       // hit rate, so summing the two double-counts them.
@@ -152,9 +165,10 @@ export type StreamEvent =
       totalCacheReadTokens: number;
       totalCacheWriteTokens?: number;
     }
-  | { type: "compaction_start"; trigger: "auto" | "manual" } // compaction began
+  | { type: "compaction_start"; sessionId?: string; trigger: "auto" | "manual" } // compaction began
   | {
       type: "compaction_complete";
+      sessionId?: string;
       trigger: "auto" | "manual";
       compacted: boolean; // false when there was nothing to compact / it was blocked
       tokensBefore: number;
