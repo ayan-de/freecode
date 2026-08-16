@@ -877,6 +877,16 @@ function handleToolEvent(event: StreamEvent) {
       );
       break;
     }
+    case "memory_injected": {
+      // Automatic retrieval (not the memory tool) surfaced saved memories
+      // into this turn's prompt. Silent otherwise, so surface it once here.
+      const names = event.memories.map((m) => `${m.type}/${m.name}`).join(", ");
+      const count = event.memories.length;
+      createSystemMessage(
+        `*Recalled ${count} thing${count === 1 ? "" : "s"} from memory: ${names}*`,
+      );
+      break;
+    }
     case "question_asked": {
       // Render each question as a centered modal card in sequence, collecting
       // answers indexed by question, then reply once the last one is answered.

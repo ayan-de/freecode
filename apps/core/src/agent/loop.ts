@@ -307,6 +307,9 @@ export class AgentLoop {
   private lastVerifierReport: string | undefined;
   // Last rendered memory block, so a run reset clears stale injected memory.
   private lastMemoryBlock: string | undefined = undefined;
+  // User text a memory_injected notice was last emitted for — dedupes the
+  // stream event across the many inner-loop turns of one user request.
+  private lastMemoryEmittedFor: string | undefined = undefined;
   // Which tool results have gone to the provider, and how, so the cached
   // prompt prefix stays byte-stable across the turns of this run.
   private readonly pruneState = new PruneState();
@@ -550,6 +553,7 @@ export class AgentLoop {
     this.verifierAttempts = 0;
     this.lastVerifierReport = undefined;
     this.lastMemoryBlock = undefined;
+    this.lastMemoryEmittedFor = undefined;
     this.memoryToolUsedThisRun = false;
     // History is reloaded below, and the ids are only meaningful against that
     // load — so decisions from a previous run cannot be carried over.
@@ -1266,13 +1270,30 @@ export class AgentLoop {
       // though the user hasn't spoken again, otherwise a real match never gets
       // injected for the rest of the request.
       const memGraph = getMemoryGraphService(context.projectPath);
-      this.lastMemoryBlock = renderRetrievedMemories(
-        await memGraph.prepareMemories(
-          this.state.sessionId,
-          this.getLastUserText(),
-        ),
+      const currentUserText = this.getLastUserText();
+      const retrievedMemories = await memGraph.prepareMemories(
+        this.state.sessionId,
+        currentUserText,
       );
+      this.lastMemoryBlock = renderRetrievedMemories(retrievedMemories);
       const memoryBlock = this.lastMemoryBlock;
+      // UI visibility for the otherwise-silent auto-injection path: fire once
+      // per user message that gets a hit (not every inner-loop turn — the
+      // dedup key is the query text, so repeat calls with an unchanged
+      // request don't spam the notice).
+      if (
+        retrievedMemories.length > 0 &&
+        currentUserText !== this.lastMemoryEmittedFor
+      ) {
+        this.lastMemoryEmittedFor = currentUserText;
+        BusEvents.stream(this.state.sessionId, {
+          type: "memory_injected",
+          memories: retrievedMemories.map((e) => ({
+            type: e.type,
+            name: e.name,
+          })),
+        });
+      }
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and the model
       // never loses track of remaining work on long tasks.

@@ -113,6 +113,15 @@ export type StreamEvent =
       sessionId?: string;
       memories: Array<{ type: string; name: string }>;
     }
+  // Automatic (non-tool-call) retrieval surfaced one or more saved memories
+  // into this turn's prompt (spec D5, graph/index.ts prepareMemories).
+  // Emitted once per distinct user message that gets a hit — not every
+  // inner-loop tool-call turn — so the UI shows a single notice per request
+  // rather than repeating it. Silent when nothing relevant was found.
+  | {
+      type: "memory_injected";
+      memories: Array<{ type: string; name: string }>;
+    }
   | {
       // Prompt-cache awareness (jcode #9). "cold" is emitted before a send that
       // will likely miss Anthropic's ~5-min cache; "warm" carries post-turn
