@@ -1,5 +1,19 @@
 # @thisisayande/freecode
 
+## 0.25.8
+
+### Patch Changes
+
+- Agent-loop iteration safety valve: runs no longer get cut off mid-task with no output. Three pieces working together:
+  - Interactive sessions (server.ts, `run` CLI) now default to `maxIterations: Infinity`, matching Claude Code's headless mode and opencode's `agent.steps` default — `maxTurns` is opt-in for subagents and `-p`-style invocations that pass an explicit cap, not a default on every run. `loop-health` (stuck-pattern detection) and the todo/verify gates are what actually end an interactive run.
+  - New `wrapUpReminder()` (apps/core/src/agent/reminders.ts) injects a one-shot `<system-reminder>` into the final turn _before_ a cap trips, telling the model to stop calling tools and hand back a plain-text summary. Mirrors opencode's `MAX_STEPS_PROMPT`.
+  - When the cap trips anyway, `AgentLoop` returns the model's last text + a `_Stopped: reached the N-turn iteration safety limit…_` footer instead of the previous bare `"Max iterations reached"` with no content. New `lastResponseText` field on `AgentLoop` keeps that text available across normal and abnormal stops.
+
+  Covered by `apps/core/src/agent/max-iterations.test.ts`: wrap-up reminder shape, exact stop-at-cap (no runaway calls), last-text + footer in the returned content, and that the reminder is injected only on the final turn — not the first.
+
+- Updated dependencies
+  - @thisisayande/freecode-core@0.25.8
+
 ## 0.5.0
 
 ### Minor Changes

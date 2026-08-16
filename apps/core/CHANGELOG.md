@@ -1,10 +1,21 @@
 # @thisisayande/freecode-core
 
+## 0.25.8
+
+### Patch Changes
+
+- Agent-loop iteration safety valve: runs no longer get cut off mid-task with no output. Three pieces working together:
+  - Interactive sessions (server.ts, `run` CLI) now default to `maxIterations: Infinity`, matching Claude Code's headless mode and opencode's `agent.steps` default — `maxTurns` is opt-in for subagents and `-p`-style invocations that pass an explicit cap, not a default on every run. `loop-health` (stuck-pattern detection) and the todo/verify gates are what actually end an interactive run.
+  - New `wrapUpReminder()` (apps/core/src/agent/reminders.ts) injects a one-shot `<system-reminder>` into the final turn _before_ a cap trips, telling the model to stop calling tools and hand back a plain-text summary. Mirrors opencode's `MAX_STEPS_PROMPT`.
+  - When the cap trips anyway, `AgentLoop` returns the model's last text + a `_Stopped: reached the N-turn iteration safety limit…_` footer instead of the previous bare `"Max iterations reached"` with no content. New `lastResponseText` field on `AgentLoop` keeps that text available across normal and abnormal stops.
+
+  Covered by `apps/core/src/agent/max-iterations.test.ts`: wrap-up reminder shape, exact stop-at-cap (no runaway calls), last-text + footer in the returned content, and that the reminder is injected only on the final turn — not the first.
+
 ## 0.6.4
 
 ### Fixes
 
-- Fixed `TypeError: H is not a function` (and, depending on the tool schema shape, a crash inside Zod's own `toJSONSchema` internals) on tool calls for `anthropic`, `openai`, `gemini`, `minimax`, `deepseek`, and `zai`. Tool `inputSchema` was passed as a raw JSON Schema object; the AI SDK's `asSchema()` treats an unmarked plain object as ambiguous — it checks for Zod's `"~standard"` marker and otherwise calls the object *as a function* (`schema()`), which throws for a plain object or can misroute into Zod's converter if the shape coincidentally matches. Fixed by wrapping every tool's `inputSchema` with the AI SDK's own `jsonSchema()` helper (new shared `buildToolsParam` in `providers/utils.ts`, replacing six copies of the same unwrapped construction), which tags the object unambiguously and skips the shape-sniffing entirely. Confirmed fixed against a live MiniMax tool-call failure.
+- Fixed `TypeError: H is not a function` (and, depending on the tool schema shape, a crash inside Zod's own `toJSONSchema` internals) on tool calls for `anthropic`, `openai`, `gemini`, `minimax`, `deepseek`, and `zai`. Tool `inputSchema` was passed as a raw JSON Schema object; the AI SDK's `asSchema()` treats an unmarked plain object as ambiguous — it checks for Zod's `"~standard"` marker and otherwise calls the object _as a function_ (`schema()`), which throws for a plain object or can misroute into Zod's converter if the shape coincidentally matches. Fixed by wrapping every tool's `inputSchema` with the AI SDK's own `jsonSchema()` helper (new shared `buildToolsParam` in `providers/utils.ts`, replacing six copies of the same unwrapped construction), which tags the object unambiguously and skips the shape-sniffing entirely. Confirmed fixed against a live MiniMax tool-call failure.
 
 ## 0.6.3
 
