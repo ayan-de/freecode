@@ -6,6 +6,7 @@
 // =============================================================================
 
 import type { ProviderChunk, ExecuteResult } from "./types.js";
+import { mapUsage } from "./provider-shared.js";
 
 type SdkChunk = { type: string } & Record<string, unknown>;
 
@@ -75,45 +76,22 @@ export async function* normalizeAiSdkStream(
         // `usage` (that field only exists on the per-step "finish-step"
         // part) — reading chunk.usage here was always undefined, so no
         // usage chunk was ever emitted and callers saw 0 tokens on completion.
-        // Cache counters live on `inputTokenDetails` in AI SDK v6, not as
-        // top-level `cache*InputTokens` — those names are the Anthropic wire
-        // format and only ever appear under providerMetadata. Reading them off
-        // usage silently yielded undefined on every turn, so cache activity
-        // recorded as 0 and looked exactly like "this provider does not cache".
-        // `cachedInputTokens` is the deprecated v5 spelling of cacheReadTokens,
-        // kept as a fallback for providers still emitting it.
-        const u = chunk.totalUsage as
-          | {
-              inputTokens?: number;
-              outputTokens?: number;
-              inputTokenDetails?: {
-                cacheReadTokens?: number;
-                cacheWriteTokens?: number;
-              };
-              cachedInputTokens?: number;
-            }
+        // `mapUsage` (providers/provider-shared.ts) does the same
+        // field-renaming the execute() path uses, so streaming and
+        // non-streaming publish the identical shape. Provider metadata
+        // (Anthropic wire envelope, OpenAI `prompt_cache_key`, …) is
+        // preserved verbatim for billing audit and for fields we don't
+        // normalize.
+        const totalUsage = chunk.totalUsage;
+        const providerMetadata = chunk.providerMetadata as
+          | Record<string, unknown>
           | undefined;
-        const meta = (
-          chunk.providerMetadata as
-            | { anthropic?: { cacheCreationInputTokens?: number | null } }
-            | undefined
-        )?.anthropic;
-        if (u) {
-          yield {
-            type: "usage",
-            usage: {
-              inputTokens: u.inputTokens ?? 0,
-              outputTokens: u.outputTokens ?? 0,
-              cacheCreationInputTokens:
-                u.inputTokenDetails?.cacheWriteTokens ??
-                meta?.cacheCreationInputTokens ??
-                undefined,
-              cacheReadInputTokens:
-                u.inputTokenDetails?.cacheReadTokens ??
-                u.cachedInputTokens ??
-                undefined,
-            },
-          };
+        const normalized = mapUsage(
+          totalUsage as Parameters<typeof mapUsage>[0],
+          providerMetadata,
+        );
+        if (normalized) {
+          yield { type: "usage", usage: normalized };
           usageEmitted = true;
         }
         break;

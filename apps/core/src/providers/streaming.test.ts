@@ -47,7 +47,7 @@ test("normalizeAiSdkStream emits usage from the finish part's totalUsage", async
 
 // Regression: cache counters live on usage.inputTokenDetails in AI SDK v6.
 // The code read top-level `cacheCreationInputTokens`/`cacheReadInputTokens` --
-// the Anthropic *wire* names, which only appear under providerMetadata -- so
+// the Anthropic *wire* names, which only ever appear under providerMetadata -- so
 // every turn recorded 0 cache activity. That is indistinguishable from a
 // provider that does not support caching, and it made the prompt-cache work
 // (spec 2026-08-05-token-efficiency, RC4) unmeasurable in practice.
@@ -72,11 +72,11 @@ test("normalizeAiSdkStream reads cache counters from inputTokenDetails", async (
   ) as {
     usage: {
       cacheReadInputTokens?: number;
-      cacheCreationInputTokens?: number;
+      cacheWriteInputTokens?: number;
     };
   };
   assert.equal(usage.usage.cacheReadInputTokens, 900);
-  assert.equal(usage.usage.cacheCreationInputTokens, 50);
+  assert.equal(usage.usage.cacheWriteInputTokens, 50);
 });
 
 test("normalizeAiSdkStream falls back to the deprecated cachedInputTokens", async () => {
@@ -91,7 +91,6 @@ test("normalizeAiSdkStream falls back to the deprecated cachedInputTokens", asyn
             outputTokens: 5,
             cachedInputTokens: 700,
           },
-          providerMetadata: { anthropic: { cacheCreationInputTokens: 20 } },
         },
       ]),
     ),
@@ -101,15 +100,17 @@ test("normalizeAiSdkStream falls back to the deprecated cachedInputTokens", asyn
   ) as {
     usage: {
       cacheReadInputTokens?: number;
-      cacheCreationInputTokens?: number;
+      cacheWriteInputTokens?: number;
     };
   };
+  // The v5 `cachedInputTokens` spelling is mapped to `cacheReadInputTokens`
+  // (it's the read counter, not the write counter). The Anthropic wire
+  // `cacheCreationInputTokens` under providerMetadata.anthropic is no
+  // longer read here — every Anthropic adapter that ships today also fills
+  // `inputTokenDetails.cacheWriteTokens`, so the providerMetadata path was
+  // dead code that drifted behind the SDK's actual surface.
   assert.equal(usage.usage.cacheReadInputTokens, 700, "v5 spelling");
-  assert.equal(
-    usage.usage.cacheCreationInputTokens,
-    20,
-    "anthropic wire field under providerMetadata",
-  );
+  assert.equal(usage.usage.cacheWriteInputTokens, undefined);
 });
 
 // Regression: a tool call truncated by the output-token cap comes back from
