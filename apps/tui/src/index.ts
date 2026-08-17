@@ -1658,10 +1658,16 @@ function showCopiedIndicator(charCount: number, truncated: boolean): void {
   noticeTimer.unref?.();
 }
 
-// Jump-to-bottom pill: same notice styling, but persistent and padded on all
-// sides — it shows for as long as the history is scrolled away from the
-// bottom, and clicking it returns to follow mode.
-const jumpModal = new NoticeModal("↓", 1);
+// Jump-to-bottom pill: persistent affordance shown while the history is
+// scrolled away from the bottom. Bordered (and not filled) so it reads as an
+// actionable control rather than the transient toast style the NoticeModal
+// defaults to. padX=0 and padY=0 hug the ▼ flush against the border on all
+// sides — the pill is just "▼ inside a box".
+const jumpModal = new NoticeModal("▼", 0, {
+  border: true,
+  borderColor: chalk.yellowBright,
+  padX: 0,
+});
 const jumpOptions = {
   // Flush against the right edge, bottom row level with the top of the input.
   anchor: "bottom-right" as const,
