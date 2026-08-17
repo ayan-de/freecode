@@ -27,7 +27,7 @@ import type {
   HookContext,
   AgentMode,
 } from "./types.js";
-import type { SystemBlock } from "../providers/types.js";
+import type { SystemBlock, ExecuteUsage } from "../providers/types.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { evaluatePermission } from "../permission/evaluate.js";
 import { promptForPermission } from "../permission/prompt.js";
@@ -651,8 +651,10 @@ export class AgentLoop {
       let totalCacheReadTokens = 0;
       // Reported separately for the hit rate only. These tokens are ALSO in
       // totalInputTokens (cache writes are billed input) — never add both into
-      // a denominator or the writes count twice.
+      // a denominator or the writes count twice. Same caveat for the new
+      // totalReasoningTokens: those are a subset of totalOutputTokens.
       let totalCacheWriteTokens = 0;
+      let totalReasoningTokens = 0;
       // Occupancy of the model's window = last call's full input (each call
       // resends the whole conversation, so summing would double-count).
       let lastTurnContextTokens = 0;
@@ -762,20 +764,26 @@ export class AgentLoop {
           : this.turnsSinceTodoWrite + 1;
         this.turnsSinceLastNudge += 1;
 
-        // Accumulate usage across turns
+        // Accumulate usage across turns. The provider-shared mapper
+        // guarantees `inputTokens` is the INCLUSIVE prompt total (cache
+        // reads + writes already folded in), so we never add cache writes
+        // back in here — that was the Anthropic double-count bug. Same
+        // pattern for output: `outputTokens` is inclusive of reasoning,
+        // and `reasoningTokens` is the subset we carry separately for the
+        // TUI's reasoning cost display.
         if (turnResult.usage) {
-          // Cache writes are billed input — fold them into ↓ so turn 1 isn't "free"
-          totalInputTokens +=
-            (turnResult.usage.inputTokens ?? 0) +
-            (turnResult.usage.cacheCreationInputTokens ?? 0);
+          totalInputTokens += turnResult.usage.inputTokens ?? 0;
           totalOutputTokens += turnResult.usage.outputTokens ?? 0;
           totalCacheReadTokens += turnResult.usage.cacheReadInputTokens ?? 0;
           totalCacheWriteTokens +=
-            turnResult.usage.cacheCreationInputTokens ?? 0;
-          lastTurnContextTokens =
-            (turnResult.usage.inputTokens ?? 0) +
-            (turnResult.usage.cacheReadInputTokens ?? 0) +
-            (turnResult.usage.cacheCreationInputTokens ?? 0);
+            turnResult.usage.cacheWriteInputTokens ??
+            turnResult.usage.cacheCreationInputTokens ??
+            0;
+          totalReasoningTokens += turnResult.usage.reasoningTokens ?? 0;
+          // Occupancy of the window = the last call's inclusive input.
+          // The SDK already folded cache reads/writes into
+          // `inputTokens`, so this is the full context this turn sent.
+          lastTurnContextTokens = turnResult.usage.inputTokens ?? 0;
 
           // Persist this turn's total tokens into the daily usage heatmap
           // (~/.freecode/usage.json), consumed by the TUI `/usage` command.
@@ -783,7 +791,11 @@ export class AgentLoop {
             inputTokens: turnResult.usage.inputTokens ?? 0,
             outputTokens: turnResult.usage.outputTokens ?? 0,
             cacheReadTokens: turnResult.usage.cacheReadInputTokens ?? 0,
-            cacheWriteTokens: turnResult.usage.cacheCreationInputTokens ?? 0,
+            cacheWriteTokens:
+              turnResult.usage.cacheWriteInputTokens ??
+              turnResult.usage.cacheCreationInputTokens ??
+              0,
+            reasoningTokens: turnResult.usage.reasoningTokens,
           });
 
           BusEvents.stream(this.state.sessionId, {
@@ -1228,12 +1240,7 @@ export class AgentLoop {
     error?: string;
     /** Whether this turn called todowrite — drives the todo-nudge counter. */
     usedTodoWrite?: boolean;
-    usage?: {
-      inputTokens: number;
-      outputTokens: number;
-      cacheReadInputTokens?: number;
-      cacheCreationInputTokens?: number;
-    };
+    usage?: ExecuteUsage;
   }> {
     try {
       // Build system prompt blocks using compiler
@@ -1374,12 +1381,12 @@ export class AgentLoop {
       // Record how full the window actually got. Each call resends the whole
       // conversation, so the last call's input *is* the occupancy — no summing.
       // Captured here (not in run()) because maybeCompact fires before this
-      // turn's result reaches the caller.
+      // turn's result reaches the caller. The provider-shared mapper gives us
+      // an *inclusive* inputTokens here, so we don't add cache fields on top
+      // (the old shape was Anthropic's non-cached `input_tokens` and needed
+      // the add-back; the new shape is already inclusive).
       if (providerResult.usage) {
-        this.lastMeasuredContextTokens =
-          (providerResult.usage.inputTokens ?? 0) +
-          (providerResult.usage.cacheReadInputTokens ?? 0) +
-          (providerResult.usage.cacheCreationInputTokens ?? 0);
+        this.lastMeasuredContextTokens = providerResult.usage.inputTokens ?? 0;
       }
 
       // Emit thinking content if present (for UI to display as streaming reasoning)
@@ -1600,12 +1607,7 @@ export class AgentLoop {
       args: Record<string, unknown>;
       id: string;
     }>;
-    usage?: {
-      inputTokens: number;
-      outputTokens: number;
-      cacheReadInputTokens?: number;
-      cacheCreationInputTokens?: number;
-    };
+    usage?: ExecuteUsage;
     streamed?: boolean;
   }> {
     return this.recovery.callProvider(
@@ -1640,12 +1642,7 @@ export class AgentLoop {
       args: Record<string, unknown>;
       id: string;
     }>;
-    usage?: {
-      inputTokens: number;
-      outputTokens: number;
-      cacheReadInputTokens?: number;
-      cacheCreationInputTokens?: number;
-    };
+    usage?: ExecuteUsage;
     streamed?: boolean;
   }> {
     const aiProvider = getProvider(provider as any);
@@ -1758,14 +1755,7 @@ export class AgentLoop {
         let toolCalls:
           | Array<{ name: string; args: Record<string, unknown>; id: string }>
           | undefined;
-        let usage:
-          | {
-              inputTokens: number;
-              outputTokens: number;
-              cacheReadInputTokens?: number;
-              cacheCreationInputTokens?: number;
-            }
-          | undefined;
+        let usage: ExecuteUsage | undefined;
 
         let ttft_ms: number | undefined;
 
@@ -1805,14 +1795,28 @@ export class AgentLoop {
                 args: chunk.args,
               });
               break;
-            case "usage":
+            case "usage": {
+              // Streaming uses the same payload shape as execute() — the
+              // provider mapper already populated every field. We just
+              // stash it for the recorder and the usage totals.
+              const {
+                inputTokens,
+                outputTokens,
+                cacheReadInputTokens,
+                cacheCreationInputTokens,
+                cacheWriteInputTokens,
+                reasoningTokens,
+              } = chunk.usage;
               usage = {
-                inputTokens: chunk.usage.inputTokens,
-                outputTokens: chunk.usage.outputTokens,
-                cacheReadInputTokens: chunk.usage.cacheReadInputTokens,
-                cacheCreationInputTokens: chunk.usage.cacheCreationInputTokens,
+                inputTokens: inputTokens ?? 0,
+                outputTokens: outputTokens ?? 0,
+                cacheReadInputTokens,
+                cacheCreationInputTokens,
+                cacheWriteInputTokens,
+                reasoningTokens,
               };
               break;
+            }
             case "error":
               throw new Error(chunk.error);
             case "done":
@@ -1829,7 +1833,9 @@ export class AgentLoop {
           inputTokens: usage?.inputTokens,
           outputTokens: usage?.outputTokens,
           cacheReadTokens: usage?.cacheReadInputTokens,
-          cacheWriteTokens: usage?.cacheCreationInputTokens,
+          cacheWriteTokens:
+            usage?.cacheWriteInputTokens ?? usage?.cacheCreationInputTokens,
+          reasoningTokens: usage?.reasoningTokens,
           toolCalls: (toolCalls ?? []).map((t) => t.name),
           textChars: content.length,
           thinkingChars: thinking.length,
@@ -1863,7 +1869,10 @@ export class AgentLoop {
         inputTokens: result.usage?.inputTokens,
         outputTokens: result.usage?.outputTokens,
         cacheReadTokens: result.usage?.cacheReadInputTokens,
-        cacheWriteTokens: result.usage?.cacheCreationInputTokens,
+        cacheWriteTokens:
+          result.usage?.cacheWriteInputTokens ??
+          result.usage?.cacheCreationInputTokens,
+        reasoningTokens: result.usage?.reasoningTokens,
         toolCalls: (result.toolCalls ?? []).map((t) => t.name),
         textChars: result.content.length,
         thinkingChars: result.thinking?.length ?? 0,
@@ -1886,8 +1895,18 @@ export class AgentLoop {
     inputTokens?: number;
     cacheReadInputTokens?: number;
     cacheCreationInputTokens?: number;
+    cacheWriteInputTokens?: number;
   }): void {
-    const { readTokens, writeTokens } = summarizeCache(usage);
+    // The new shape names the cache write counter `cacheWriteInputTokens`;
+    // the `cacheCreationInputTokens` alias is honored for any caller still
+    // handing in the legacy field. Same fallback pattern as the recorder.
+    const cacheWrite =
+      usage?.cacheWriteInputTokens ?? usage?.cacheCreationInputTokens ?? 0;
+    const { readTokens, writeTokens } = summarizeCache({
+      inputTokens: usage?.inputTokens,
+      cacheReadInputTokens: usage?.cacheReadInputTokens,
+      cacheCreationInputTokens: cacheWrite,
+    });
     if (readTokens === 0 && writeTokens === 0) return;
     BusEvents.stream(this.state.sessionId, {
       type: "cache_status",

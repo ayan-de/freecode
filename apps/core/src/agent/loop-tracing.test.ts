@@ -58,7 +58,7 @@ registerProvider("trace-fake" as ProviderId, {
           inputTokens: 1234,
           outputTokens: 7,
           cacheReadInputTokens: 1000,
-          cacheCreationInputTokens: 0,
+          cacheWriteInputTokens: 0,
         },
       };
     },

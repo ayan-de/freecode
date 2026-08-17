@@ -8,6 +8,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { safe } from "../providers/provider-shared.js";
 
 const USAGE_FILE = path.join(os.homedir(), ".freecode", "usage.json");
 
@@ -18,23 +19,44 @@ export interface DailyUsageEntry {
   // historically rather than only for the run in front of you. Optional
   // because entries written before this existed have only the total.
   //
-  // `inputTokens` is BILLED input — cache writes folded in, matching what the
-  // agent loop reports and what cacheHitRate() expects. `cacheWriteTokens` is
-  // those same writes broken out for display, NOT an extra addend:
-  //   tokencount = inputTokens + outputTokens + cacheReadTokens
+  // `inputTokens` is the INCLUSIVE prompt total (cache writes already
+  // folded in by the provider/AI SDK). `cacheWriteTokens` is the same
+  // writes broken out for the cache hit-rate display, NOT an extra addend:
+  //   tokencount = inputTokens + outputTokens + reasoningTokens(?)
+  // but the heavy hitter is `inputTokens + outputTokens` since `reasoning`
+  // is a subset of `outputTokens` for the providers that report it.
+  // The invariant on each provider's payload is:
+  //   inputTokens === nonCachedInputTokens + cacheReadInputTokens
+  //                 + cacheWriteInputTokens
+  // which is what the upstream mapper (provider-shared.ts) guarantees.
   inputTokens?: number;
   outputTokens?: number;
+  /** Pure visible output (output minus reasoning), when reasoning is reported. */
+  outputVisibleTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** Reasoning tokens, when the provider reports them (OpenAI Responses, Gemini). */
+  reasoningTokens?: number;
 }
 
-/** One turn's provider-reported usage, as handed to `recordDailyUsage`. */
+/**
+ * One turn's provider-reported usage, as handed to `recordDailyUsage`. Every
+ * field is independently meaningful and additive — downstream code never
+ * subtracts. Mirrors `ExecuteUsage` but with the legacy `cacheWriteTokens`
+ * name (`cacheCreationInputTokens` on the wire) preserved for clarity here.
+ */
 export interface UsageBreakdown {
-  /** Fresh input only — this function folds `cacheWriteTokens` in for you. */
+  /**
+   * INCLUSIVE prompt total — cache writes already folded in. This is what
+   * the provider actually billed as input and is what the user expects to
+   * see. Do NOT add `cacheWriteTokens` again on top of this.
+   */
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** Subset of `outputTokens` spent on hidden reasoning. */
+  reasoningTokens?: number;
 }
 
 function todayLocal(): string {
@@ -62,11 +84,17 @@ export function readDailyUsage(): DailyUsageEntry[] {
       ...(e.outputTokens !== undefined && {
         outputTokens: Number(e.outputTokens),
       }),
+      ...(e.outputVisibleTokens !== undefined && {
+        outputVisibleTokens: Number(e.outputVisibleTokens),
+      }),
       ...(e.cacheReadTokens !== undefined && {
         cacheReadTokens: Number(e.cacheReadTokens),
       }),
       ...(e.cacheWriteTokens !== undefined && {
         cacheWriteTokens: Number(e.cacheWriteTokens),
+      }),
+      ...(e.reasoningTokens !== undefined && {
+        reasoningTokens: Number(e.reasoningTokens),
       }),
     }));
   } catch {
@@ -76,15 +104,22 @@ export function readDailyUsage(): DailyUsageEntry[] {
 
 // Add one turn's usage to today's bucket (creating it if absent) and persist.
 export function recordDailyUsage(usage: UsageBreakdown): void {
-  const round = (n: number) => (Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
-  const cacheWriteTokens = round(usage.cacheWriteTokens);
-  // Writes are billed input, so they belong inside inputTokens — the same
-  // convention the loop and cacheHitRate() use. They are stored separately too,
-  // which is why the total below does not add them a second time.
-  const inputTokens = round(usage.inputTokens) + cacheWriteTokens;
-  const outputTokens = round(usage.outputTokens);
-  const cacheReadTokens = round(usage.cacheReadTokens);
-  const total = inputTokens + outputTokens + cacheReadTokens;
+  // `inputTokens` is already the inclusive total (cache writes included).
+  // The previous version of this file added `cacheWriteTokens` on top of
+  // `inputTokens` "to be safe" — but that double-counted on the Anthropic
+  // path, where the AI SDK already includes cache writes in `inputTokens`.
+  // The provider-shared.ts mapper now guarantees the invariant
+  //   inputTokens === nonCachedInputTokens + cacheReadInputTokens
+  //                   + cacheWriteInputTokens
+  // so we trust the value and use `cacheWriteTokens` only for the breakdown
+  // column, never as an additive to the total.
+  const inputTokens = safe(usage.inputTokens);
+  const outputTokens = safe(usage.outputTokens);
+  const cacheReadTokens = safe(usage.cacheReadTokens);
+  const cacheWriteTokens = safe(usage.cacheWriteTokens);
+  const reasoningTokens = safe(usage.reasoningTokens);
+  const outputVisibleTokens = Math.max(0, outputTokens - reasoningTokens);
+  const total = inputTokens + outputTokens;
   if (total <= 0) return;
 
   try {
@@ -103,9 +138,14 @@ export function recordDailyUsage(usage: UsageBreakdown): void {
     // which is the honest outcome — the missing tokens cannot be attributed.
     existing.inputTokens = (existing.inputTokens ?? 0) + inputTokens;
     existing.outputTokens = (existing.outputTokens ?? 0) + outputTokens;
-    existing.cacheReadTokens = (existing.cacheReadTokens ?? 0) + cacheReadTokens;
+    existing.outputVisibleTokens =
+      (existing.outputVisibleTokens ?? 0) + outputVisibleTokens;
+    existing.cacheReadTokens =
+      (existing.cacheReadTokens ?? 0) + cacheReadTokens;
     existing.cacheWriteTokens =
       (existing.cacheWriteTokens ?? 0) + cacheWriteTokens;
+    existing.reasoningTokens =
+      (existing.reasoningTokens ?? 0) + reasoningTokens;
     fs.writeFileSync(USAGE_FILE, JSON.stringify(entries, null, 2));
   } catch {
     // Usage tracking is best-effort; never break the agent loop.

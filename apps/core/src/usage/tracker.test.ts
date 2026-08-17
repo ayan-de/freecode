@@ -33,11 +33,16 @@ test("a turn is recorded with cache writes folded into input", () => {
 
   const [entry] = readDailyUsage();
   assert.equal(entry.date, today());
-  // Writes are billed input, so they live inside inputTokens...
-  assert.equal(entry.inputTokens, 150);
+  // The provider-shared mapper gives us an INCLUSIVE inputTokens, so the
+  // call site hands over the SDK's value (e.g. 100 = 100 fresh, no cache
+  // folded in by this test). The breakdown is preserved for the cache hit
+  // rate display — `cacheWriteTokens` is the same writes broken out, NOT
+  // an extra addend to the total.
+  assert.equal(entry.inputTokens, 100);
+  assert.equal(entry.cacheReadTokens, 900);
   assert.equal(entry.cacheWriteTokens, 50);
-  // ...which means the total must not add them again.
-  assert.equal(entry.tokencount, 150 + 20 + 900);
+  // The total is input + output (cache reads/writes already inside input).
+  assert.equal(entry.tokencount, 100 + 20);
 });
 
 test("turns accumulate into the same day", () => {
@@ -54,7 +59,23 @@ test("turns accumulate into the same day", () => {
   const [entry] = readDailyUsage();
   assert.equal(entry.inputTokens, 20);
   assert.equal(entry.cacheReadTokens, 200);
-  assert.equal(entry.tokencount, 230);
+  assert.equal(entry.tokencount, 30);
+});
+
+test("reasoning tokens are tracked separately and excluded from outputVisibleTokens", () => {
+  writeStore([]);
+  recordDailyUsage({
+    inputTokens: 100,
+    outputTokens: 50,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    reasoningTokens: 20,
+  });
+
+  const [entry] = readDailyUsage();
+  assert.equal(entry.outputTokens, 50);
+  assert.equal(entry.reasoningTokens, 20);
+  assert.equal(entry.outputVisibleTokens, 30);
 });
 
 test("legacy entries still read, with the breakdown left undefined", () => {
@@ -82,7 +103,10 @@ test("recording onto a legacy day keeps its total and starts its parts", () => {
   });
 
   const [entry] = readDailyUsage();
-  assert.equal(entry.tokencount, 1_115); // pre-existing total preserved
+  // Pre-existing total preserved; the new turn adds input + output only
+  // (cache writes are already inside inputTokens under the new contract —
+  // the previous tracker double-counted cache writes against the total).
+  assert.equal(entry.tokencount, 1_015);
   assert.equal(entry.inputTokens, 10); // parts cover only what we can attribute
   assert.equal(entry.cacheReadTokens, 100);
 });

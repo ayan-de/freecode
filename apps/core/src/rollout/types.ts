@@ -164,6 +164,8 @@ export interface ModelResponseEvent extends BaseEvent {
   outputTokens?: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** Subset of `outputTokens` spent on hidden reasoning. */
+  reasoningTokens?: number;
   /** Names only — the args are already captured by function.call. */
   toolCalls: string[];
   textChars: number;
