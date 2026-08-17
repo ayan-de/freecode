@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.25.13
+
+A test that was always wrong finally met CI on `main`. The bus → frontend bridge has been re-attaching `sessionId` from every `StreamRelayEvent` wrapper onto the unwrapped inner event since 0.25.11, but the test that asserted the unwrap result expected the inner event to come back unchanged — same shape, just no `sessionId` on the result. CI ran the suite, the assertion failed, and the implementation turned out to be the side of the disagreement that matched the changelog. The bridge itself is unchanged; this release only updates the test to assert the post-unwrap shape explicitly so the suite matches the contract the bridge has been honoring all along.
+
+### Fixed
+- **`busEventToClientEvent` relay test asserted the pre-0.25.11 shape** (`apps/core/src/bus/bridge.test.ts`). The bridge has always re-attached `sessionId` from the relay wrapper (see 0.25.11 changelog) — the test was the stale artifact. Updated to assert `{ type: 'text_delta', delta: 'hi', sessionId: 's1' }` so the suite matches the implementation.
+
 ## v0.25.12
 
 The Anthropic usage accounting had been over-counting cache writes by a small but compounding amount on every turn. The AI SDK already publishes `result.usage.inputTokens` as the inclusive prompt total — it folds `cache_creation_input_tokens` and `cache_read_input_tokens` in by design — but the loop was treating that field as "non-cache" and adding `cacheCreationInputTokens` back on top, so every Anthropic turn billed cache writes twice in the per-turn total and a third time in the cache-warmth heatmap. The effect on a normal session was modest (typically a few hundred extra tokens per turn, invisibly because Anthropic's API does not charge for cache writes today) but the math was wrong and would have started mattering the moment Anthropic changed that policy. The fix rides a small refactor: every provider now publishes the same additive `ExecuteUsage` shape (built once by a new `mapUsage` helper that mirrors opencode's `Usage` design), so the loop accumulates by reading each input field once instead of composing a derived total that could drift from what the SDK actually sent.
