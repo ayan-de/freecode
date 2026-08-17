@@ -49,7 +49,10 @@ test("a stream relay event is unwrapped to its inner StreamEvent", () => {
     sessionId: "s1",
     event: inner,
   } as any);
-  assert.deepEqual(out, inner);
+  // The bus re-attaches `sessionId` from the relay wrapper onto the inner
+  // event (see 0.25.11 changelog) so multi-session consumers can route
+  // each line without every event author stamping it themselves.
+  assert.deepEqual(out, { type: "text_delta", delta: "hi", sessionId: "s1" });
 });
 
 test("redundant bus tool.called/tool.completed are dropped", () => {
