@@ -16,6 +16,8 @@ import {
   PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
+import { mapUsage } from "./provider-shared.js";
+import type { ExecuteUsage } from "./types.js";
 
 const PROVIDER_INFO = {
   id: "gemini" as const,
@@ -78,16 +80,21 @@ function createGeminiProvider(_apiKey: string): AIProvider {
       },
     );
 
+    // Gemini's wire payload is `promptTokenCount` (inclusive of
+    // `cachedContentTokenCount`) + `candidatesTokenCount` (visible-only)
+    // + `thoughtsTokenCount` (subset of output spent on thinking). The AI
+    // SDK adapter folds that into `result.usage` with `outputTokens`
+    // carrying `candidates + thoughts` and `outputTokenDetails.reasoningTokens`
+    // carrying the thoughts subset — exactly the additive shape we publish.
+    const usage: ExecuteUsage | undefined = result.usage
+      ? mapUsage(result.usage, result.providerMetadata) ?? undefined
+      : undefined;
+
     return {
       content: result.text || "",
       thinking: undefined, // Gemini doesn't expose thinking blocks
       toolCalls: toolCalls?.length ? toolCalls : undefined,
-      usage: result.usage
-        ? {
-            inputTokens: result.usage.inputTokens ?? 0,
-            outputTokens: result.usage.outputTokens ?? 0,
-          }
-        : undefined,
+      usage,
       stopReason:
         result.finishReason === "tool-calls"
           ? "tool_use"

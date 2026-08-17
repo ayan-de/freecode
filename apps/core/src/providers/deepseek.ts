@@ -16,6 +16,8 @@ import {
   PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
+import { mapUsage } from "./provider-shared.js";
+import type { ExecuteUsage } from "./types.js";
 
 const PROVIDER_INFO = {
   id: "deepseek" as const,
@@ -76,16 +78,18 @@ function createDeepSeekProvider(_apiKey: string): AIProvider {
       },
     );
 
+    // DeepSeek is OpenAI-compatible; the adapter normalizes `prompt_tokens`
+    // + `completion_tokens` + (when enabled) `prompt_cache_hit_tokens` into
+    // the same shape every other provider exposes.
+    const usage: ExecuteUsage | undefined = result.usage
+      ? mapUsage(result.usage, result.providerMetadata) ?? undefined
+      : undefined;
+
     return {
       content: result.text || "",
       thinking: undefined, // generateText doesn't expose reasoning; stream() does via reasoning deltas
       toolCalls: toolCalls?.length ? toolCalls : undefined,
-      usage: result.usage
-        ? {
-            inputTokens: result.usage.inputTokens ?? 0,
-            outputTokens: result.usage.outputTokens ?? 0,
-          }
-        : undefined,
+      usage,
       stopReason:
         result.finishReason === "tool-calls"
           ? "tool_use"

@@ -1,4 +1,5 @@
 import type { Message } from "../agent/types.js";
+import type { NormalizedUsage } from "./provider-shared.js";
 
 export interface ProviderInfo {
   id: string;
@@ -62,6 +63,21 @@ export interface ExecuteOptions {
   sessionId?: string;
 }
 
+/**
+ * Token usage from a single provider call. Carries the additive shape
+ * documented in `provider-shared.ts` (every field is independently
+ * meaningful; consumers never subtract). The agent loop accumulates this
+ * across turns; the daily tracker / cache hit rate read it as-is.
+ *
+ * Mirrors `NormalizedUsage` with the legacy `cacheCreationInputTokens`
+ * alias preserved so existing readers (`loop.ts`, `cache-awareness.ts`,
+ * `recorder.ts`, IPC protocol) don't all need to rename in one go.
+ */
+export type ExecuteUsage = NormalizedUsage & {
+  /** Legacy name for `cacheWriteInputTokens`. Same value. */
+  cacheCreationInputTokens?: number;
+};
+
 export interface ExecuteResult {
   content: string;
   thinking?: string; // Extended thinking/reasoning content
@@ -70,12 +86,7 @@ export interface ExecuteResult {
     args: Record<string, unknown>;
     id: string;
   }>;
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationInputTokens?: number;
-    cacheReadInputTokens?: number;
-  };
+  usage?: ExecuteUsage;
   stopReason: "stop" | "tool_use" | "max_tokens" | "unknown";
   provider: string;
   model: string;

@@ -18,6 +18,8 @@ import {
   PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
+import { mapUsage } from "./provider-shared.js";
+import type { ExecuteUsage } from "./types.js";
 
 const PROVIDER_INFO = {
   id: "anthropic" as const,
@@ -82,22 +84,22 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
     );
 
     const content = result.text || "";
-    const anthropicMetadata = result.providerMetadata?.anthropic as any;
+    // Preserve the raw Anthropic wire payload (`cache_creation_input_tokens`,
+    // `cache_read_input_tokens`, server-side ids, …) on `providerMetadata`
+    // for billing audit and for any future field we don't yet normalize.
+    // The AI SDK normalizes Anthropic's `input_tokens` (non-cached only) into
+    // `result.usage.inputTokens` (the *inclusive* total = input + cache_*
+    // + cache_read) plus the breakdown on `inputTokenDetails`, so the mapper
+    // produces the full additive shape with no extra derivation here.
+    const usage: ExecuteUsage | undefined = result.usage
+      ? mapUsage(result.usage, result.providerMetadata) ?? undefined
+      : undefined;
 
     return {
       content,
       thinking: undefined, // V3 SDK doesn't expose thinking blocks
       toolCalls: toolCalls?.length ? toolCalls : undefined,
-      usage: result.usage
-        ? {
-            inputTokens: result.usage.inputTokens ?? 0,
-            outputTokens: result.usage.outputTokens ?? 0,
-            cacheCreationInputTokens:
-              anthropicMetadata?.cacheCreationInputTokens ?? undefined,
-            cacheReadInputTokens:
-              anthropicMetadata?.cacheReadInputTokens ?? undefined,
-          }
-        : undefined,
+      usage,
       stopReason:
         result.finishReason === "tool-calls"
           ? "tool_use"

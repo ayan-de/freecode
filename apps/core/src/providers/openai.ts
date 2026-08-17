@@ -16,6 +16,8 @@ import {
   PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
+import { mapUsage } from "./provider-shared.js";
+import type { ExecuteUsage } from "./types.js";
 
 const PROVIDER_INFO = {
   id: "openai" as const,
@@ -52,16 +54,22 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
       },
     );
 
+    // OpenAI Chat reports `prompt_tokens` (inclusive of cached reads),
+    // `completion_tokens`, and a `prompt_tokens_details.cached_tokens`
+    // subset — the AI SDK adapter folds that into `result.usage` with the
+    // same shape every other provider exposes. Responses also breaks
+    // `reasoning_tokens` out of `completion_tokens` via `outputTokenDetails`.
+    // `providerMetadata.openai` is preserved for fields we don't surface
+    // (e.g. `prompt_cache_key`).
+    const usage: ExecuteUsage | undefined = result.usage
+      ? mapUsage(result.usage, result.providerMetadata) ?? undefined
+      : undefined;
+
     return {
       content: result.text || "",
       thinking: undefined, // OpenAI doesn't have extended thinking in same way
       toolCalls: toolCalls?.length ? toolCalls : undefined,
-      usage: result.usage
-        ? {
-            inputTokens: result.usage.inputTokens ?? 0,
-            outputTokens: result.usage.outputTokens ?? 0,
-          }
-        : undefined,
+      usage,
       stopReason:
         result.finishReason === "tool-calls"
           ? "tool_use"

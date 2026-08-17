@@ -18,6 +18,8 @@ import {
   PROVIDER_MAX_RETRIES,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
+import { mapUsage } from "./provider-shared.js";
+import type { ExecuteUsage } from "./types.js";
 
 // z.ai (GLM) exposes an Anthropic Messages-compatible endpoint, so we reuse
 // @ai-sdk/anthropic with a custom baseURL instead of a new SDK dependency
@@ -89,22 +91,20 @@ function createZaiProvider(_apiKey: string): AIProvider {
       },
     );
 
-    const anthropicMetadata = result.providerMetadata?.anthropic as any;
+    // Same Anthropic-shaped usage as anthropic.ts: the AI SDK adapter folds
+    // z.ai's `input_tokens` (non-cached only) + `cache_*` breakdown into the
+    // inclusive `result.usage.inputTokens` plus `inputTokenDetails`. We just
+    // publish the full additive shape and preserve the raw envelope for
+    // billing audit.
+    const usage: ExecuteUsage | undefined = result.usage
+      ? mapUsage(result.usage, result.providerMetadata) ?? undefined
+      : undefined;
 
     return {
       content: result.text || "",
       thinking: undefined, // AI SDK generateText doesn't expose thinking blocks; stream() does via reasoning deltas
       toolCalls: toolCalls?.length ? toolCalls : undefined,
-      usage: result.usage
-        ? {
-            inputTokens: result.usage.inputTokens ?? 0,
-            outputTokens: result.usage.outputTokens ?? 0,
-            cacheCreationInputTokens:
-              anthropicMetadata?.cacheCreationInputTokens ?? undefined,
-            cacheReadInputTokens:
-              anthropicMetadata?.cacheReadInputTokens ?? undefined,
-          }
-        : undefined,
+      usage,
       stopReason:
         result.finishReason === "tool-calls"
           ? "tool_use"
