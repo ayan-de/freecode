@@ -39,6 +39,7 @@ function createGeminiProvider(_apiKey: string): AIProvider {
       opts.model,
       PROVIDER_INFO.id,
       PROVIDER_INFO.defaultModel,
+      !opts.quietModelFallback,
     );
 
     const tools = buildToolsParam(opts.tools);
@@ -111,6 +112,7 @@ function createGeminiProvider(_apiKey: string): AIProvider {
       opts.model,
       PROVIDER_INFO.id,
       PROVIDER_INFO.defaultModel,
+      !opts.quietModelFallback,
     );
     const tools = buildToolsParam(opts.tools);
     const systemPrompt =

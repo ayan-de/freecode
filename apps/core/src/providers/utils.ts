@@ -441,13 +441,16 @@ export function resolveModel(
   requested: string | undefined,
   providerId: string,
   defaultModel: string,
+  warnOnFallback = true,
 ): string {
   if (requested) return requested;
-  logger.warn(
-    `[${providerId}] no model specified; falling back to "${defaultModel}". ` +
-      `Set one in ~/.freecode/config.json under current.model — the default ` +
-      `may have a smaller context window than the model you expect.`,
-  );
+  if (warnOnFallback) {
+    logger.warn(
+      `[${providerId}] no model specified; falling back to "${defaultModel}". ` +
+        `Set one in ~/.freecode/config.json under current.model — the default ` +
+        `may have a smaller context window than the model you expect.`,
+    );
+  }
   return defaultModel;
 }
 

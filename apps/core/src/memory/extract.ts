@@ -103,6 +103,7 @@ async function oneShot(
     prompt,
     system,
     model: input.model,
+    quietModelFallback: true,
     maxTokens: 1024,
   });
   return result.content ?? "";

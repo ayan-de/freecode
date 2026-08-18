@@ -41,6 +41,12 @@ export interface ExecuteOptions {
   messages?: Message[];
   system?: string | SystemBlock[];
   model?: string;
+  // Set when the caller deliberately omits `model` to let the provider fall
+  // back to its default (e.g. memory extraction, which skips the session's
+  // main model on purpose) — suppresses resolveModel's "no model specified"
+  // warning, which otherwise reads as the user's configured model being
+  // ignored.
+  quietModelFallback?: boolean;
   temperature?: number;
   maxTokens?: number;
   tools?: ToolDef[];
