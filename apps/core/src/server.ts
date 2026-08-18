@@ -34,6 +34,7 @@ import {
   type ProviderId,
 } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
+import { formatFatalError } from "./cli/format-fatal-error.js";
 import type { ToolContext } from "./tools/types.js";
 import type {
   JsonRpcRequest,
@@ -1059,9 +1060,41 @@ export async function handleRequest(
 // call a no-op.
 let serverStarted = false;
 
+// Last-resort net for a provider/effect error that escapes every try/catch in
+// the turn path (see cli.ts's matching handler — this is the same fault,
+// caught here too so the *session* recovers, not just the terminal output).
+// cli.ts's handler only stops the raw dump; it has no way to know which
+// session was mid-turn when the fault hit, so that session's activeLoops
+// entry would otherwise sit forever and its session.send promise would never
+// resolve. Walk every in-flight loop, abort it, and surface a clean
+// session.error so the frontend shows a failure instead of a stuck spinner.
+function handleEscapedProviderError(kind: string, error: unknown): void {
+  const message = formatFatalError(error);
+  logger.error(`[Server] ${kind} escaped the turn path: ${message}`);
+  for (const [sessionId, loop] of [...activeLoops]) {
+    try {
+      loop.interrupt();
+    } catch {
+      // Loop already gone or mid-teardown — nothing to abort.
+    }
+    BusEvents.sessionError(sessionId, message);
+    activeLoops.delete(sessionId);
+  }
+}
+
 export async function startServer() {
   if (serverStarted) return;
   serverStarted = true;
+
+  // Registered once, for the life of the daemon: same rationale as cli.ts's
+  // handlers, but scoped to also clean up whichever session was in flight.
+  process.on("uncaughtException", (e) =>
+    handleEscapedProviderError("uncaughtException", e),
+  );
+  process.on("unhandledRejection", (e) =>
+    handleEscapedProviderError("unhandledRejection", e),
+  );
+
   await initProviders();
   await initMcpServers();
 
