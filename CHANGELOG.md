@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.25.14
+
+The `freecode serve` daemon only registered an `unhandledRejection` handler, so a provider error that surfaces through a stream/event-emitter path (an SDK `Readable` emitting `error` with no listener, the kind of thing Vercel AI SDK streams do under network failure) bypassed our handler entirely. Node still terminates the process on an uncaught exception by default, and Bun's reporter steps in: the raw SDK error object plus a minified-binary stack trace, then the whole daemon — every session, not just the one that hit the blip — dies. The fix is a paired handler at the same `process.on(...)` registration site as the existing `unhandledRejection` one; it does the same thing (`formatFatalError` to stderr, no `process.exit()` because `serve` is long-running), and registering it is itself what stops Node from killing the process.
+
+### Fixed
+- **`uncaughtException` killed the `serve` daemon** (`apps/core/src/cli.ts`). Provider errors that surface through an event-emitter path (no listener attached, stream emits `error`) hit `process.on("uncaughtException", ...)` instead of `unhandledRejection`. Without a handler, Bun's reporter prints a raw SDK object plus a minified-binary stack and the whole daemon terminates — every session, not just the one that hit the blip. Paired handler added next to the existing `unhandledRejection` one, same `formatFatalError`-to-stderr path, no `process.exit()` (long-running daemon).
+
 ## v0.25.13
 
 A test that was always wrong finally met CI on `main`. The bus → frontend bridge has been re-attaching `sessionId` from every `StreamRelayEvent` wrapper onto the unwrapped inner event since 0.25.11, but the test that asserted the unwrap result expected the inner event to come back unchanged — same shape, just no `sessionId` on the result. CI ran the suite, the assertion failed, and the implementation turned out to be the side of the disagreement that matched the changelog. The bridge itself is unchanged; this release only updates the test to assert the post-unwrap shape explicitly so the suite matches the contract the bridge has been honoring all along.
