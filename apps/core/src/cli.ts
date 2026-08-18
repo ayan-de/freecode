@@ -14,6 +14,18 @@ process.on("unhandledRejection", (e) => {
   console.error("Error:", formatFatalError(e));
 });
 
+// A provider error that surfaces through a stream/event-emitter path (rather
+// than a rejected promise — e.g. a Node stream emitting "error" with no
+// listener) arrives here instead of unhandledRejection, and without this
+// handler Bun's default reporter takes over: the raw SDK error object plus a
+// minified-binary stack, then the whole daemon (every session, not just the
+// one that hit the blip) dies. `serve` is long-running, so — same as
+// unhandledRejection above — this deliberately does not process.exit();
+// registering the handler is itself what stops Node from exiting.
+process.on("uncaughtException", (e) => {
+  console.error("Error:", formatFatalError(e));
+});
+
 createCli()
   .demandCommand(1, "Specify a command")
   .parseAsync()
