@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.25.15
+
+The 0.25.14 fix registered `uncaughtException` / `unhandledRejection` handlers in `cli.ts` so the terminal output stayed clean, but `cli.ts` has no way to know which session was mid-turn when the fault hit — it just logs to stderr and returns. The active session's `activeLoops` entry sat forever, and the `session.send` promise never resolved, so the frontend spinner kept spinning on a turn that was already dead. The handler needed to live on the session side too: at the same `process.on(...)` registration site as the 0.25.14 fix, but with access to `activeLoops`. On fault, walk every in-flight loop, interrupt it, surface a clean `session.error` so the frontend shows a failure instead of a stuck spinner, and drop the entry from `activeLoops`. The 0.25.14 handler is still the right place for the CLI-side cleanup; this is just the matching session-side recovery that was missing from the same fix.
+
+### Fixed
+- **Escaped provider error left the session's `session.send` promise pending forever** (`apps/core/src/server.ts`). The 0.25.14 `cli.ts` handler formatted the error to stderr but couldn't reach `activeLoops` — every in-flight loop was orphaned, the spinner never resolved, and the frontend kept waiting for a turn that had already died. New `handleEscapedProviderError` runs at the same `process.on("uncaughtException"/"unhandledRejection", ...)` registration site as the 0.25.14 fix and walks `activeLoops`: `loop.interrupt()`, `BusEvents.sessionError(sessionId, message)`, drop the entry. Frontend now sees a failure instead of a stuck spinner.
+
 ## v0.25.14
 
 The `freecode serve` daemon only registered an `unhandledRejection` handler, so a provider error that surfaces through a stream/event-emitter path (an SDK `Readable` emitting `error` with no listener, the kind of thing Vercel AI SDK streams do under network failure) bypassed our handler entirely. Node still terminates the process on an uncaught exception by default, and Bun's reporter steps in: the raw SDK error object plus a minified-binary stack trace, then the whole daemon — every session, not just the one that hit the blip — dies. The fix is a paired handler at the same `process.on(...)` registration site as the existing `unhandledRejection` one; it does the same thing (`formatFatalError` to stderr, no `process.exit()` because `serve` is long-running), and registering it is itself what stops Node from killing the process.
