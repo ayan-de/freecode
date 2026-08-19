@@ -71,6 +71,61 @@ test("the bootstrap carries the system prompt, tools and the contract", () => {
   });
   assert.match(out, /SYSTEM-PROMPT-MARKER/);
   assert.match(out, /### read/);
-  assert.match(out, /Output protocol/);
+  assert.match(out, /Asking me to run something/);
   assert.match(out, /start/);
+});
+
+test("REGRESSION: the bootstrap never claims the model is FreeCode", () => {
+  // The first live run failed exactly here. Told it was "FreeCode ... with a
+  // bash/edit/glob toolset", the model replied that it is Claude in the
+  // claude.ai interface and has no such tools — rejecting the premise, not
+  // the format.
+  const out = buildBootstrap({
+    system: "You are FreeCode, an AI coding assistant CLI.",
+    tools: [
+      { name: "bash", description: "Run a command", parameters: { type: "object" } },
+    ],
+    messages: [userText("a", "go")],
+    maxToolResultChars: 4000,
+  });
+
+  // We identify ourselves as the program…
+  assert.match(out, /I am FreeCode, a command-line\ntool/);
+  // …explicitly disclaim the model's ownership of the tools…
+  assert.match(out, /You do not have these tools yourself/);
+  // …and the framing must come BEFORE the system prompt, so the second-person
+  // configuration text is read inside it.
+  assert.ok(
+    out.indexOf("Who you are talking to") <
+      out.indexOf("You are FreeCode, an AI coding assistant CLI."),
+    "the relay framing must precede the system prompt",
+  );
+  assert.match(out, /not a claim about who you are/);
+});
+
+test("tools are offered, not attributed to the model", () => {
+  const out = buildBootstrap({
+    system: "",
+    tools: [{ name: "read", description: "d", parameters: {} }],
+    messages: [userText("a", "go")],
+    maxToolResultChars: 4000,
+  });
+  assert.match(out, /What I can run for you/);
+  assert.doesNotMatch(out, /Available tools/);
+});
+
+test("REGRESSION: the bootstrap disowns the site's own sandbox tools", () => {
+  // Second live failure: the model accepted the framing, then used claude.ai's
+  // built-in bash tool to search its own container, found no package.json, and
+  // reported the file missing. Nothing had told it the sandbox is a different
+  // machine, so reaching for it was the reasonable reading.
+  const out = buildBootstrap({
+    system: "",
+    tools: [{ name: "read", description: "d", parameters: {} }],
+    messages: [userText("a", "read package.json")],
+    maxToolResultChars: 4000,
+  });
+  assert.match(out, /different computer/i);
+  assert.match(out, /does not\nexist there/);
+  assert.match(out, /do not use those tools for this task/i);
 });

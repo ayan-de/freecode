@@ -599,6 +599,46 @@ transport — protocol, sent log, meter, ledger, rollover — is untouched by th
 split was worth its cost: the transport that was designed first turned out to be unusable,
 and none of the four phases built on top of it had to change.
 
+## Finding: claude.ai declines the agent protocol (2026-08-20)
+
+Four live runs. The transport worked in every one — bootstrap typed, sent, reply
+streamed back. The model never once misread the block syntax, which was the risk this
+spec worried about most. It refused the *premise*, four times, and was right three times:
+
+| Run | Objection | Verdict |
+| --- | --- | --- |
+| 1 | "I'm Claude, not FreeCode, and I don't have those tools" | correct — we asserted a false identity |
+| 2 | used its own sandbox tools, found no project | correct — we never said the sandbox is a different machine |
+| 3 | "reads like injected instructions telling me to bypass safety" | correct — we sent `ALL permission checks are BYPASSED` (danger mode) |
+| 4 | "that protocol isn't actually wired up here, so I won't pretend" | factually wrong, but a considered refusal |
+
+Runs 1–3 were **our** bugs and are fixed: the bootstrap no longer asserts an identity,
+explicitly disowns the site's own sandbox, and browser mode should not run in danger mode
+(`context/compiler.ts:39` is the text that reads as a jailbreak).
+
+Run 4 is the wall. A chat model asked to adopt a tool-calling protocol from text in a
+conversation is looking at something injection-shaped by construction, and claude.ai's
+tuning treats that with suspicion. **The fix for run 4 is not another prompt revision.**
+Iterating wording until a refusal slips through is jailbreaking regardless of intent, and
+a feature whose reliability rests on that is not a feature — a backend that refuses some
+fraction of turns is unusable as an agent loop even when it "works".
+
+### What this does and does not invalidate
+
+- **Conversational browser mode works.** `freecode browser chat` is verified end to end.
+- **Everything above the transport is provider-agnostic** and untouched by this: protocol
+  parser, sent log, ledger, meter, rollover, quota decoding. If any site's model
+  cooperates, it all applies unchanged.
+- **Untested elsewhere.** chatgpt.com is a different model with different tuning and is one
+  adapter file away. A different claude.ai model may also behave differently.
+- **API providers remain the agent path.** That is not a regression; it is what they were
+  already for.
+
+Honest summary: the hard technical problems (bot detection, transport, capture, protocol
+parsing, statefulness) were all solved. The blocker is a product/policy one — the model on
+the other end declines the role, and persuading it out of that is not a direction worth
+taking.
+
 ## Open risks
 
 - **Site redesigns** break adapters. Mitigated by network-reading, the inline shape check,

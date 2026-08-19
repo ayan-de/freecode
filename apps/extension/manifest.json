@@ -6,7 +6,7 @@
   "host_permissions": [
     "https://claude.ai/*",
     "https://chatgpt.com/*",
-    "http://127.0.0.1:8765/*"
+    "http://127.0.0.1:*/*"
   ],
   "background": {
     "service_worker": "background.js"

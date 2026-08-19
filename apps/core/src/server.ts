@@ -1179,6 +1179,12 @@ export async function startServer() {
         process.stderr.write(`Final parse error: ${e}\n`);
       }
     }
+    // stdin closing means the frontend that spawned us is gone: nothing can
+    // reach us again, so staying alive leaks a process per session. That was
+    // invisible until browser mode started binding a port — orphaned cores
+    // then held the bridge port and hijacked the extension. Exit like any
+    // other stdio server (LSP included) does when its client disconnects.
+    setTimeout(() => process.exit(0), 50).unref();
   });
 }
 

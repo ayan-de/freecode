@@ -38,6 +38,14 @@ export interface CommandResult {
 
 const POLL_TIMEOUT_MS = 25_000;
 
+/**
+ * How many consecutive ports to try. Core is a daemon that outlives the TUI,
+ * so a crashed run leaves the previous port bound; refusing to start in that
+ * case turned every crash into a manual `pkill`. The extension probes the same
+ * range, so whichever port we land on is discovered rather than configured.
+ */
+const PORT_RANGE = 10;
+
 export class ExtensionServer {
   private server: http.Server | null = null;
   private pendingPolls: Array<(cmd: BridgeCommand | null) => void> = [];
@@ -48,8 +56,12 @@ export class ExtensionServer {
   private clientWaiters: Array<() => void> = [];
   private lastHelloAt = 0;
   private helloWaiters: Array<{ after: number; resolve: () => void }> = [];
+  private actualPort: number;
+  private readonly startedAt = Date.now();
 
-  constructor(private readonly port: number) {}
+  constructor(private readonly port: number) {
+    this.actualPort = port;
+  }
 
   handle(listener: (msg: BridgeMessage) => void): void {
     this.onMessage = listener;
@@ -59,32 +71,44 @@ export class ExtensionServer {
     return this.clientSeen;
   }
 
+  /** The port actually bound — may differ from the configured one. */
+  get boundPort(): number {
+    return this.actualPort;
+  }
+
   async start(): Promise<void> {
     if (this.server) return;
-    const server = http.createServer((req, res) => {
-      void this.route(req, res);
-    });
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", (error: NodeJS.ErrnoException) => {
-        if (error.code !== "EADDRINUSE") return reject(error);
-        // Core is a daemon that outlives the TUI, so a crashed run leaves this
-        // port bound. The raw errno tells the user nothing about that.
-        reject(
-          new Error(
-            `browser-chat: port ${this.port} is already in use. A previous ` +
-              `FreeCode core process is probably still running — its daemon ` +
-              `outlives the TUI. Stop it with:\n` +
-              `  pkill -f "freecode.*core/dist/server.js"\n` +
-              `or set browser.bridgePort in ~/.freecode/config.json.`,
-          ),
-        );
+
+    let lastError: unknown;
+    for (let offset = 0; offset < PORT_RANGE; offset++) {
+      const port = this.port + offset;
+      const server = http.createServer((req, res) => {
+        void this.route(req, res);
       });
-      server.listen(this.port, "127.0.0.1", () => resolve());
-    });
-    this.server = server;
-    logger.info("browser-chat: extension bridge listening", {
-      port: this.port,
-    });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(port, "127.0.0.1", () => resolve());
+        });
+        this.server = server;
+        this.actualPort = port;
+        logger.info("browser-chat: extension bridge listening", { port });
+        return;
+      } catch (error) {
+        server.close();
+        lastError = error;
+        // Anything other than "taken" is a real failure — do not paper over it
+        // by silently walking the range.
+        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") break;
+      }
+    }
+
+    throw new Error(
+      `browser-chat: could not bind a bridge port in ${this.port}–` +
+        `${this.port + PORT_RANGE - 1}. Older FreeCode core processes may still ` +
+        `be running: pkill -f "freecode.*core/dist/server.js". ` +
+        `Cause: ${String(lastError)}`,
+    );
   }
 
   async stop(): Promise<void> {
@@ -188,7 +212,11 @@ export class ExtensionServer {
 
     if (url === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
+      // startedAt lets the extension pick the NEWEST bridge when more than one
+      // answers. A leftover core from a crashed run is still healthy, and
+      // without this the extension would happily attach to it and never see
+      // the session the user actually just started.
+      res.end(JSON.stringify({ ok: true, startedAt: this.startedAt }));
       return;
     }
 
