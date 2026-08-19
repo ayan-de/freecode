@@ -428,12 +428,15 @@ function showNextPermission(): void {
     {
       onSelect: (decision) => {
         removeSelector(picker);
-        void answerPermission(event.requestId, decision);
+        // Same benign race as questions: the server-side timeout may have
+        // already closed this request — don't let that become an unhandled
+        // rejection.
+        void answerPermission(event.requestId, decision).catch(() => {});
         showNextPermission();
       },
       onCancel: () => {
         removeSelector(picker);
-        void rejectPermission(event.requestId);
+        void rejectPermission(event.requestId).catch(() => {});
         showNextPermission();
       },
     },
@@ -911,14 +914,22 @@ function handleToolEvent(event: StreamEvent) {
           tui.setFocus(editor);
           tui.requestRender();
           if (text === null) {
-            void rejectQuestion(event.requestId);
+            // The request may already be closed (30-min server-side timeout
+            // fired while this modal was still open) — that's a benign race,
+            // not a crash: swallow it rather than let it become an unhandled
+            // rejection.
+            void rejectQuestion(event.requestId).catch(() => {});
             return;
           }
           answers[i] = text;
           if (i + 1 < event.questions.length) {
             askAt(i + 1);
           } else {
-            void answerQuestion(event.requestId, answers);
+            void answerQuestion(event.requestId, answers).catch(() => {
+              createSystemMessage(
+                "*This question timed out before you answered — your reply wasn't sent.*",
+              );
+            });
           }
         };
         modal.onSelect = (label) => finish(label);
