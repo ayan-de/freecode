@@ -6,7 +6,7 @@
     %LOCALAPPDATA%\freecode\bin, adding that directory to the user PATH.
 
     One-liner:
-      irm https://freecode.ayande.xyz/install.ps1 | iex
+      irm https://freecode.website/install.ps1 | iex
 #>
 param(
     [string]$InstallDir,

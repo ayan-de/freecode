@@ -210,7 +210,7 @@ export function startCli(onStderr?: (msg: string) => void): void {
         "[freecode] could not locate the core backend. This build must run " +
           "from the monorepo root (or set FREECODE_ROOT). If you installed " +
           "freecode, reinstall the release binary: " +
-          "curl -fsSL https://freecode.ayande.xyz/install | bash",
+          "curl -fsSL https://freecode.website/install | bash",
       );
     }
 

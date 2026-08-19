@@ -10,19 +10,19 @@ self-contained binary (TUI + backend bundled via `bun --compile`).
 macOS / Linux:
 
 ```sh
-curl -fsSL https://freecode.ayande.xyz/install | bash
+curl -fsSL https://freecode.website/install | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://freecode.ayande.xyz/install.ps1 | iex
+irm https://freecode.website/install.ps1 | iex
 ```
 
 Then run `freecode` in any project directory.
 
 - `freecode update` — install the latest release
-- `curl -fsSL https://freecode.ayande.xyz/uninstall | bash -s -- --yes` — remove it
+- `curl -fsSL https://freecode.website/uninstall | bash -s -- --yes` — remove it
 
 ## Development
 

@@ -2,7 +2,7 @@
 # =============================================================================
 # FreeCode installer
 #
-#   curl -fsSL https://freecode.ayande.xyz/install | bash
+#   curl -fsSL https://freecode.website/install | bash
 #
 # Downloads the latest self-contained `freecode` binary for this platform from
 # GitHub Releases, installs it under ~/.freecode/builds/versions/<version>, and
@@ -43,7 +43,7 @@ case "$OS" in
     IS_WINDOWS=true
     ARTIFACT="freecode-windows-x86_64"
     err "On Windows, install with PowerShell:
-    irm https://freecode.ayande.xyz/install.ps1 | iex" ;;
+    irm https://freecode.website/install.ps1 | iex" ;;
   *) err "Unsupported OS: $OS" ;;
 esac
 
@@ -159,4 +159,4 @@ else
   echo "  New terminals will have freecode on PATH automatically."
 fi
 echo "  Update later with:  freecode update"
-echo "  Uninstall with:     curl -fsSL https://freecode.ayande.xyz/uninstall | bash"
+echo "  Uninstall with:     curl -fsSL https://freecode.website/uninstall | bash"

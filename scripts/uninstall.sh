@@ -2,7 +2,7 @@
 # =============================================================================
 # FreeCode uninstaller
 #
-#   curl -fsSL https://freecode.ayande.xyz/uninstall | bash -s -- --yes
+#   curl -fsSL https://freecode.website/uninstall | bash -s -- --yes
 #
 # Removes the installed binaries and launcher. User data under ~/.freecode is
 # kept unless --purge is given.
@@ -64,4 +64,4 @@ remove "$LAUNCHER"
 if [ "$PURGE" = true ]; then remove "$FREECODE_HOME"; else remove "$BUILDS_DIR"; fi
 
 info "freecode uninstalled."
-info "Reinstall with: curl -fsSL https://freecode.ayande.xyz/install | bash"
+info "Reinstall with: curl -fsSL https://freecode.website/install | bash"

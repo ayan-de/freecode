@@ -76,7 +76,7 @@ async function checkForUpdate(): Promise<void> {
   if (!latest || latest === current) return;
 
   process.stderr.write(`[freecode] updating ${current} → ${latest}\n`);
-  const r = spawnSync("bash", ["-c", "curl -fsSL https://freecode.ayande.xyz/install | bash"], {
+  const r = spawnSync("bash", ["-c", "curl -fsSL https://freecode.website/install | bash"], {
     stdio: "inherit",
   });
   if (r.status !== 0) {
@@ -170,7 +170,7 @@ const updateCommand: CommandModule = {
   describe: "update freecode to the latest release",
   handler: async () => {
     const { spawnSync } = await import("child_process");
-    const cmd = "curl -fsSL https://freecode.ayande.xyz/install | bash";
+    const cmd = "curl -fsSL https://freecode.website/install | bash";
     process.stderr.write(`[freecode] updating: ${cmd}\n`);
     const r = spawnSync("bash", ["-c", cmd], { stdio: "inherit" });
     process.exit(r.status ?? 0);

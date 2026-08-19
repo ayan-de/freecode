@@ -6,7 +6,7 @@ import { Copy, Check, Terminal } from "lucide-react";
 const installers = {
   curl: {
     label: "curl",
-    command: "curl -fsSL https://freecode.ayande.xyz/install | bash",
+    command: "curl -fsSL https://freecode.website/install | bash",
   },
   npm: {
     label: "npm",
