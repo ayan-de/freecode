@@ -87,7 +87,7 @@ import {
   modelSupportsImages,
   resolveMaxOutputTokens,
 } from "../models-dev.js";
-import { getProvider } from "../providers/index.js";
+import { getProvider, listProviders } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import { isTimeoutError } from "../providers/fetch-timeout.js";
 import { recordInvalidation } from "../providers/cache-invalidation.js";
@@ -1059,6 +1059,13 @@ export class AgentLoop {
     provider: string,
     model: string | undefined,
   ): Promise<void> {
+    // Providers that own their context (the conversation lives on their side,
+    // and we send only new messages) get nothing from token-driven compaction:
+    // it would spend a summarization round trip shrinking an array that never
+    // goes on the wire. They manage continuation themselves.
+    const info = listProviders().find((p) => p.id === provider);
+    if (info?.remoteContext) return;
+
     const contextLimit = await this.resolveContextLimit(provider, model);
     if (
       !this.memory.shouldCompact(

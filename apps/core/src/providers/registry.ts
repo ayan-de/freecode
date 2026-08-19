@@ -39,5 +39,10 @@ export async function initProviders(): Promise<void> {
     import("./minimax.js"),
     import("./deepseek.js"),
     import("./zai.js"),
+    // Optional add-on (spec 2026-08-19-browser-chat-provider.md). Registration
+    // is metadata-only — the Playwright transport is imported lazily on first
+    // use — so this costs nothing at startup. A missing module is not an
+    // error: delete browser-chat/ and this line, and the feature is gone.
+    import("../browser-chat/index.js").catch(() => {}),
   ]);
 }

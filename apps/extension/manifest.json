@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "FreeCode Browser Bridge",
+  "version": "0.2.0",
+  "description": "Lets FreeCode use a chat site you are already signed in to, in your normal browser.",
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*", "https://chatgpt.com/*"],
+      "js": ["capture.generated.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://claude.ai/*", "https://chatgpt.com/*"],
+      "js": ["relay.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
+    }
+  ]
+}

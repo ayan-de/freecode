@@ -12,6 +12,12 @@ export interface ProviderInfo {
   // input budget is (context limit - this), not the full limit — compaction
   // subtracts it before deciding whether to fire.
   maxOutputTokens: number;
+  // The conversation lives on the provider's side, not in our request. Every
+  // call sends only the new messages, so local history size does not affect
+  // what a request costs and token-driven compaction has nothing to optimise —
+  // it would spend a summarization round trip to shrink an array we don't
+  // send. Providers that own their context manage it themselves.
+  remoteContext?: boolean;
 }
 
 export interface ToolDef {

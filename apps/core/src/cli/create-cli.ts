@@ -23,6 +23,9 @@ import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
 import { traceCommand } from "./commands/trace.js";
 import { uninstallCommand } from "./commands/uninstall.js";
+// Optional add-on (spec 2026-08-19-browser-chat-provider.md). Metadata-only at
+// module scope — the handlers import the transport lazily.
+import { browserCommand } from "../browser-chat/cli.js";
 
 // ANSI color codes
 const yellowBright = "\x1b[93m";
@@ -93,6 +96,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(serveCommand)
     .command(runCommand)
     .command(traceCommand as CommandModule)
+    .command(browserCommand)
     .command(uninstallCommand)
     .strict();
 
