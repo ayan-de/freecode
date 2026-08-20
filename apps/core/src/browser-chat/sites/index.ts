@@ -5,18 +5,17 @@
 import type { SiteId } from "../types.js";
 import type { SiteAdapter } from "./types.js";
 import { claudeAdapter } from "./claude.js";
+import { chatgptAdapter } from "./chatgpt.js";
 
 const ADAPTERS: Partial<Record<SiteId, SiteAdapter>> = {
   claude: claudeAdapter,
+  chatgpt: chatgptAdapter,
 };
 
 export function getSiteAdapter(site: SiteId): SiteAdapter {
   const adapter = ADAPTERS[site];
   if (!adapter) {
-    throw new Error(
-      `No site adapter for "${site}" yet. claude.ai is the Phase 1 target; ` +
-        `chatgpt.com lands in Phase 5.`,
-    );
+    throw new Error(`No site adapter for "${site}" yet.`);
   }
   return adapter;
 }

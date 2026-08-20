@@ -127,7 +127,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<number> {
         console.log(formatDomProbe(probe));
         console.log(
           "\n  → Update composerSelectors / submitSelectors in " +
-            "sites/claude.ts from the list above.\n",
+            `sites/${adapter.id}.ts from the list above.\n`,
         );
       }
       return 1;
@@ -150,7 +150,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<number> {
       for (const url of seen) console.log(`    ${url}`);
       console.log(
         "\n  Look for a POST that streams (completion / chat / message) and put a\n" +
-          "  distinctive substring of it in completionUrlPatterns in sites/claude.ts.\n",
+          `  distinctive substring of it in completionUrlPatterns in sites/${adapter.id}.ts.\n`,
       );
     } else {
       line("pass", "completion request matched");
