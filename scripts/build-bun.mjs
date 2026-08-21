@@ -56,6 +56,13 @@ const args = [
   "build",
   "--compile",
   "--minify",
+  // playwright-core's Electron/BiDi transports are optional requires the
+  // legacy browser/ path never exercises, but bun's bundler still tries to
+  // statically resolve them and fails since neither is a dependency.
+  "--external",
+  "electron",
+  "--external",
+  "chromium-bidi/*",
   "--define",
   `process.env.FREECODE_BUILD_VERSION=${JSON.stringify(pkg.version)}`,
   // Baked so the TUI spawns its backend by re-exec'ing this binary (`__core`)
