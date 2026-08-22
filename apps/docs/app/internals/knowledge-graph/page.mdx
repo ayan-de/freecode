@@ -11,6 +11,13 @@ by tags, wikilinks, and supersede edges, then retrieved by seeding from the
 current message and cascading outward with per-hop decay, one turn behind so the
 hot path never waits on it.
 
+In the [layer vocabulary](/internals/memory#which-memory-is-this), this is the
+*index over the semantic layer* — the part that answers "which of these facts
+matters right now?". Semantic memory is usually indexed one of three ways: a
+vector store of standalone statements (simple, weak at multi-hop), a fact graph of
+typed edges (structured, blind to paraphrase), or a hybrid. FreeCode is the
+hybrid: vectors pick the seeds, the graph expands them.
+
 ## On this page (coming soon)
 
 - Local ONNX embeddings and the content-hash vector cache

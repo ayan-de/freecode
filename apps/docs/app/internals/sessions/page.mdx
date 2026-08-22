@@ -1,19 +1,302 @@
 ---
 title: "Sessions, store & rollout"
-description: "Persistence and event sourcing."
+description: "Three logs, three readers — how a conversation is persisted, resumed, forked, and audited."
 ---
 
 # Sessions, store & rollout
 
-Session state lives in a pluggable thread store (sqlite, json, or remote) while
-every meaningful action is appended to a rollout event log. The log is what makes
-replay, forking, and tracing possible — it is the record, not a cache of one.
+A session is one continuous conversation with the agent: your messages, its
+replies, every tool call in between. This page is about what happens to that
+conversation *after* it scrolls off your screen — where it is written, how it is
+loaded back, and how it survives a Ctrl+C, a laptop reboot, or a fork.
 
-## On this page (coming soon)
+In the [memory layer vocabulary](/internals/memory#which-memory-is-this) this is
+the **episodic** layer: specific past events, stored with their timestamps, in the
+order they happened. It is the one layer that keeps everything and forgets
+nothing — which is exactly why it needs three different shapes on disk.
 
-- The session manager, service, and store
-- Thread store backends and when each is used
-- The rollout recorder and its event types
-- History and replay
-- Message normalization
-- Interrupts and mid-turn cancellation
+## Three logs, three readers
+
+The same turn gets written down three times. That sounds wasteful until you ask
+who reads each copy:
+
+| Log | Reader | Shape | Mutable? |
+| --- | --- | --- | --- |
+| `messages.jsonl` | **the model** — replayed into the next prompt | conversation messages with parts | yes, rewritten by compaction |
+| Thread store (`freecode.db`) | **the UI** — "list my sessions", search | relational: threads → turns → tool calls | yes, normal CRUD |
+| `events.jsonl` | **you, debugging** — replay, traces, analytics | append-only event log | **never** |
+
+The distinction that matters most is the last column. The message log must be
+*editable*, because [compaction](/internals/compaction) trims old turns out of it
+so the next request is smaller. The rollout log must be *append-only*, because its
+whole value is being the record of what actually happened — including the turns
+compaction later erased. One file cannot be both, so there are two.
+
+```
+~/.freecode/
+├── sessions/<project-dir>/<sessionId>/
+│   ├── meta.json            title, provider, model, status, counts
+│   ├── messages.jsonl       one message per line, appended as produced
+│   └── context-cache.json   files requested across turns
+├── state/
+│   ├── freecode.db          SQLite: threads, turns, tool_calls
+│   └── store.json           JSON fallback when SQLite is unavailable
+└── rollout/sessions/<sessionId>/
+    └── events.jsonl         append-only audit log
+```
+
+Everything lives under `~/.freecode/`, never in the project directory. Sessions
+then survive `git clean`, don't need `.gitignore` entries, and one backup covers
+every project.
+
+### Why project directories have those strange names
+
+`sessions/` is keyed by a flattened project path (`store/path-formatter.ts`):
+
+```
+/home/ayan/Project/opencode     → home__ayan__Project__opencode
+/home/ayan/Project/my-project   → home__ayan__Project__my_h_project
+C:\Users\john\projects\myapp    → C__Users__john__projects__myapp
+```
+
+Segments join with `__`, literal hyphens escape to `_h_`, and Windows-illegal
+characters (`< > : " | ? *`) are stripped — which is what turns `C:\` into `C`.
+The escaping exists so the transform is **reversible**: `parseSessionDirName()`
+recovers the original path, so a directory listing is enough to answer "which
+project was this?" without opening any file.
+
+> Contrast this with persistent memory, which keys on `path.basename()` and
+> therefore collides between two projects named `api`. Sessions use the full path
+> and do not have that bug.
+
+## A session's life
+
+| Step | IPC method | What happens |
+| --- | --- | --- |
+| Start | `session.start` | UUID, `meta.json` written, empty `messages.jsonl` created (`server.ts:341`) |
+| Send | `session.send` | the loop runs; each message is appended as it is produced |
+| Resume | `session.resume` | metadata + full message log returned; the loop reloads them into history |
+| Switch | `session.switch` | changes which session is current; nothing is loaded |
+| Fork | `session.fork` | copies the log into a new session with `parentId` set |
+| Archive / delete | `session.archive` / `session.delete` | status changes only |
+| Share | `session.export` / `import` / `upload` / `download` | JSON payload to a sync endpoint or local remote dir |
+
+Two behaviours in that table are worth knowing before you trust them:
+
+**Delete is a soft delete.** `deleteSession()` sets `status: "deleted"`
+(`session/store.ts:337`) and leaves the files in place; `list()` filters those
+rows out unless you ask for them explicitly. Nothing on disk is removed, which is
+recoverable but also means "delete" does not reclaim space or erase content.
+
+**Resume restores the model, not just the messages.** `SessionMeta.model` is
+carried into `SessionContext` and back into the live session (`server.ts:889`),
+because a resumed session silently reverting to the provider's default model is a
+change you would only notice in the bill.
+
+### What a message looks like
+
+```jsonc
+{"id":"msg-1","role":"user","parts":[{"type":"text","content":"hello"}],"timestamp":1700000000000}
+{"id":"msg-2","role":"assistant","parts":[{"type":"tool","tool":{"name":"read","args":{"path":"/foo.ts"}},"result":"…"}],"timestamp":1700000001500}
+```
+
+Parts are `text`, `code`, `tool`, or `image`. Two optional fields carry meaning:
+
+- **`interrupted`** — set on the message that was in flight when you hit Ctrl+C.
+- **`usage`** — the provider's token counts for the request that produced this
+  message. It is present on **at most one message per provider response**
+  (`session/store.ts:45`), because the loop persists a single response as several
+  messages — text, then one per tool call. Attaching usage to each would multiply
+  the session's apparent cost; attaching it to one makes a plain sum correct.
+  Per-request cache-hit ratios cannot be reconstructed from a daily total, which
+  is why they are stored per message at all.
+
+### Loading it back
+
+`loadHistory()` (`loop.ts:338`) maps stored messages back into the loop's
+in-memory `Message[]`. One line in there is load-bearing:
+
+```ts
+id: `tool-${msg.id}-${partIndex}`,
+```
+
+The provider's original `tool_use` id is not persisted, so it has to be
+re-derived. It must include the part index: one assistant message can carry
+several tool calls, and keying them all `tool-<msgId>` made those ids **collide**,
+which history pruning then read as a single result and applied one decision to all
+of them. The derivation is deterministic, so ids stay stable across reloads —
+which matters, because pruning state is keyed by them.
+
+The same function guards `args`: a bare string is truthy, so `part.tool?.args ||
+{}` happily let malformed arguments from an older session round-trip back to the
+provider. It now checks for a plain object instead.
+
+## Interrupts
+
+`InterruptHandler` (`session/interrupt.ts`) owns SIGINT:
+
+- **First Ctrl+C** → the in-flight assistant message is marked `interrupted` and
+  the session status becomes `interrupted`.
+- **Second Ctrl+C within 1 second** → `process.exit(1)`, no cleanup.
+
+The interrupt target is set when the assistant message is appended
+(`loop.ts:2575`), so the mark always lands on the message that was actually being
+written rather than on whatever is last in the file.
+
+On the next `resume`, if the last message carries `interrupted`, the manager
+appends a synthetic user message — *"Continue from where you left off."*
+(`session/manager.ts:101`) — so the model gets an explicit instruction instead of
+being handed a truncated transcript and left to guess.
+
+## Compaction rewrites the log
+
+Compaction is the one thing allowed to edit `messages.jsonl`, and it does so
+through `applyCompaction()` (`session/compact-apply.ts`):
+
+1. `MemoryService.compact()` produces a summary, which lives in the system prompt.
+2. The stored log is trimmed to the last *N* user turns and rewritten in place via
+   `replaceMessages()`.
+
+`keepLastNUserTurns()` slices from a **user** message, never mid-turn. A history
+that begins with an assistant reply to a question the model can no longer see is
+not a valid conversation, and some providers reject it outright. The trim is what
+makes compaction persist: without it, the next turn's `loadHistory()` would load
+the full log again and undo the work.
+
+The rollout log is untouched by any of this — `compact.occurred` is recorded there
+with before/after token counts, so the erased turns remain reconstructible.
+
+## Forking
+
+`fork()` (`session/store.ts:436`) creates a new session, sets `parentId`, copies
+`turnCount`, and replays every message into the new log. A full copy, not a
+reference: the two histories diverge from that point and neither can corrupt the
+other. Cheap, because sessions are text.
+
+## Rollout: the append-only record
+
+Everything the agent does emits an event to
+`~/.freecode/rollout/sessions/<id>/events.jsonl`. Every event shares a base shape
+(`rollout/types.ts:16`):
+
+| Field | Purpose |
+| --- | --- |
+| `id` | ULID — timestamp-prefixed, so lexical order is chronological order |
+| `seq` | sequence within the aggregate, resumed from the file's line count on restart so it stays unique across process restarts |
+| `aggregateID` | what this is a record *of* — usually the session |
+| `timestamp` | wall clock |
+
+Sixteen event types, grouped by what they record:
+
+| Group | Events |
+| --- | --- |
+| Turn | `turn.started`, `turn.aborted` |
+| Tools | `function.call`, `function.output` |
+| Model | `model.request`, `model.first_token`, `model.response`, `model.error` |
+| Context | `compact.occurred`, `context.overflow` |
+| Extensions | `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`, `hook.blocked` |
+| Failure | `parse.error` |
+
+### The one ordering decision that matters
+
+**`model.request` is written *before* the provider call**, not after
+(`recorder.ts:339`). That is deliberate, and it is the difference between an
+observable agent and an opaque one.
+
+Before these events existed, a stalled request left `turn.started` with no
+successor — which is *indistinguishable in the log* from a turn that simply ended.
+"The agent is hung" and "the agent is done" looked identical after the fact. With
+the request written first, **an unterminated request is itself the evidence**: a
+`model.request` with no matching `model.response` or `model.error` is a hang, and
+`model.first_token` separates "the provider never started" from "it died
+mid-stream".
+
+`model.error` carries a `kind` for the same reason: `stall` (went silent past its
+budget), `abort` (you cancelled), or `provider` (it returned an error) are three
+different problems that used to look like one.
+
+### Reading it back
+
+`replaySession()` (`rollout/replay.ts:44`) folds the event stream back into
+structured state — turns, their tool calls, outputs, durations, compaction totals,
+parse errors. It is a pure fold over an append-only log, which is the property
+that makes event sourcing worth the extra file: the reconstruction is total and
+repeatable, and a new question about old sessions can be answered by writing a new
+fold rather than by having logged the answer at the time.
+
+`rollout/trace.ts` is the second fold, producing spans and marking any unterminated
+request `in_flight` or (past the hang threshold) `hung`. That is what
+`freecode trace` renders — see [Tracing & observability](/guides/tracing).
+
+Recording is on by default and disabled wholesale in tests
+(`effect/layers.ts:158`), so a test run never litters `~/.freecode`.
+
+## The thread store
+
+`store/` is a relational view of the same data: threads → turns → tool calls,
+behind a `ThreadStore` interface with two implementations.
+
+```
+getThreadStore()
+  ├── try SQLite (better-sqlite3, then sql.js)  → ~/.freecode/state/freecode.db
+  └── otherwise JSON file                       → ~/.freecode/state/store.json
+```
+
+The fallback exists because SQLite is a native module: it fails to build on some
+platforms and is awkward inside a single-file compiled binary. Rather than make
+the agent unusable there, the store degrades to a JSON file with the same
+interface — slower and unindexed, but sessions still work. Selection happens once,
+lazily, at first use (`thread-store.ts:28`), and the dynamic `import()` means the
+SQLite module is never even loaded when it isn't needed.
+
+> **Currently thin.** The full API — turns, tool calls, `searchThreads`,
+> `getTurnItemsView`, goal tracking — is implemented on both backends, but the
+> live path only ever calls `threadStore.create()` when a session starts
+> (`session/manager.ts:76`). Nothing writes turns or tool calls through it today;
+> session listing reads `meta.json` files instead. Treat the schema as built and
+> waiting, not as a source of truth.
+
+## Remote sync
+
+`session.export` POSTs `{ meta, messages }` to a sync endpoint (configurable via
+`syncEndpoint` in `~/.freecode/config.json`, default `https://sync.freecode.dev`)
+and returns a URL with an expiry; `session.import` pulls one back and recreates it
+locally as a new session. `store/remote.ts` implements a local variant of the same
+export format under `~/.freecode/remote/`, and can carry memory entries alongside
+the transcript.
+
+Nothing syncs automatically. Export is an explicit action, because a session
+transcript contains file contents and command output from your machine.
+
+## Known gaps
+
+1. **The thread store is written but not used** (above). Two systems answer "what
+   sessions exist?"; only one of them is consulted.
+2. **Delete leaves everything on disk.** A status flag is not erasure, which
+   matters if a transcript captured something sensitive.
+3. **`session/normalize/` is dead code.** Those provider-response normalizers
+   (ChatGPT/Claude/Gemini raw shapes) date from the browser-automation era and
+   have no callers — normalization now lives in `providers/streaming.ts`.
+4. **Session end is not a signal.** There is no "session finished" event, which is
+   why persistent memory has no end-of-session flush
+   ([Memory](/internals/memory#known-gaps)) and why `status` only ever changes
+   through an explicit archive, delete, or interrupt.
+
+## Where to look
+
+| You want | File |
+| --- | --- |
+| Session files, meta, JSONL append/replace | `apps/core/src/session/store.ts` |
+| Start / resume / fork / export | `apps/core/src/session/manager.ts` |
+| Ctrl+C handling | `apps/core/src/session/interrupt.ts` |
+| The compaction rewrite | `apps/core/src/session/compact-apply.ts` |
+| Project-path flattening | `apps/core/src/store/path-formatter.ts` |
+| Backend selection, thread API | `apps/core/src/store/thread-store.ts` |
+| Event definitions | `apps/core/src/rollout/types.ts` |
+| Writing events | `apps/core/src/rollout/recorder.ts` |
+| Reading and folding them | `apps/core/src/rollout/history.ts`, `replay.ts`, `trace.ts` |
+| Loading history into the loop | `apps/core/src/agent/loop.ts` (`loadHistory`) |
+
+Related: [Compaction](/internals/compaction) for what trims the message log,
+[Memory](/internals/memory) for the semantic layer built on top of these episodes,
+and [Tracing & observability](/guides/tracing) for reading the rollout log.

@@ -1,19 +1,436 @@
 ---
 title: "Memory"
-description: "Persistent notes: how they are stored, written, and injected."
+description: "How FreeCode remembers things across sessions — the files, the write path, and the prompt blocks."
 ---
 
 # Memory
 
-Memory is a folder of small markdown files, one fact per file, and those files are
-the source of truth — readable, diffable, and editable without FreeCode running.
-Everything else built on top of them (see
-[knowledge graph](/internals/knowledge-graph)) is a rebuildable derivative.
+A language model does not remember you. Every request is answered from whatever
+text is in front of it; close the session and the model is exactly as ignorant as
+it was the first time. **Memory** is the small system that makes something survive
+that reset: a folder of markdown notes that FreeCode writes during a session and
+reads back into the prompt in later ones.
 
-## On this page (coming soon)
+That is the entire trick, and it is worth saying plainly before the detail
+starts, because "AI memory" usually sounds like a mysterious model capability:
 
-- The store: file layout, frontmatter, and the typed kinds
-- The query layer and how retrieved memories reach the prompt
-- The write path: the `memory` tool
-- Automatic extraction from finished turns, and the policy that gates it
-- Turning extraction off: settings and environment
+> Nothing is stored *inside* the model. Memory is files on your disk, plus rules
+> about when to write one and which ones to paste back into the prompt.
+
+Everything below is those two rules — the **write path** and the **read path** —
+and the reasons each of them is shaped the way it is.
+
+## Which memory is this?
+
+"Memory" in agent systems is four different things wearing one word. The standard
+split is by *what kind of thing is stored*, and it is worth learning once because
+every memory paper, library, and blog post assumes it:
+
+| Layer | Stores | Lifespan | Example |
+| --- | --- | --- | --- |
+| **Working** | current task state | the session | "editing `loop.ts` right now" |
+| **Episodic** | specific past events | until pruned or consolidated | "on Aug 12 the deploy failed with OOM" |
+| **Semantic** | general facts and rules | durable, revisable | "this host OOMs above two instances" |
+| **Procedural** | reusable know-how | durable, revisable | "steps to diagnose a crash loop" |
+
+All four exist in FreeCode. Only one of them is this page:
+
+| Layer | In FreeCode | Where | Learned automatically? |
+| --- | --- | --- | --- |
+| Working | in-session history, summary, compaction | [Compaction](/internals/compaction) (`compaction/service.ts:36`) | n/a — session-scoped |
+| Episodic | rollout event sourcing + thread store: every turn durably logged, replayable, resumable | [Sessions, store & rollout](/internals/sessions) | logged, never distilled |
+| **Semantic** | **the markdown memory store + its graph** | **this page**, plus [Knowledge graph](/internals/knowledge-graph) | **yes** — tool + extraction |
+| Procedural | skills and custom commands | [Skills](/guides/skills), [Custom commands](/guides/custom-commands) | no — hand-authored |
+
+> **A name collision worth knowing before you read the code.** The class called
+> `MemoryService` (`compaction/service.ts:36`) is *working* memory — the message
+> history the loop compacts. The system on this page is `MemoryStore` +
+> `MemoryGraphService`. Two different layers, similar names, no relationship.
+
+The healthy flow in that model is **working → episodic → semantic + procedural**:
+something happens, it gets logged as an episode, and only after episodes repeat
+does *consolidation* distill a durable fact or a reusable method. FreeCode does
+the first arrow and skips the second — extraction reads the live transcript, not
+the episode log, and nothing promotes old episodes into facts. That is a real gap,
+revisited at the end of this page.
+
+## The shape of the whole thing
+
+```
+                         ┌──────────────────────────────┐
+   WRITE                 │   markdown files on disk     │             READ
+                         │   (the source of truth)      │
+  memory tool ──────────▶│                              │──────▶ MemoryGraphService
+  (the model decides)    │  memory/<type>/<name>.md     │        .prepareMemories()
+                         │  memory/MEMORY.md            │               │
+  extract.ts ───────────▶│                              │               ▼
+  (turn-end mining)      └──────────────┬───────────────┘      "# Relevant memories"
+                                        │                        system block
+                          onMemoryChange │ (fire-and-forget)
+                                        ▼
+                         ┌──────────────────────────────┐
+                         │  .graph/ — derived sidecar   │
+                         │  embeddings.bin · graph.json │
+                         │  DELETE IT ANY TIME          │
+                         └──────────────────────────────┘
+```
+
+**The invariant that makes the rest safe: the markdown files are the only source
+of truth.** `MemoryStore.list()` reads the filesystem directly
+(`mem-store.ts:146`), so anything that writes a valid file — including you, in
+your editor — is picked up on the next sync. The `.graph/` sidecar that makes
+retrieval smart is *derived*: corruption, a schema change, or a swapped embedding
+model are all fixed by deleting it and letting it rebuild. That half is documented
+separately in [Knowledge graph](/internals/knowledge-graph); this page is the
+files and the paths in and out of them.
+
+## What a memory is
+
+One fact per file. Small, human-readable, diffable:
+
+```markdown
+---
+name: prefers-tables
+description: User wants comparisons rendered as tables
+type: feedback
+tags: style, formatting
+supersedes: old-formatting-note
+---
+Render comparisons as markdown tables.
+
+**Why:** easier to scan than prose.
+**How to apply:** any time you compare 2+ options. See [[response-style]].
+```
+
+| Field | Required | Does |
+| --- | --- | --- |
+| `name` | yes | kebab-case identity. Saving the same name **updates** that memory |
+| `description` | yes | one line; this is what relevance is judged against later |
+| `type` | yes | one of four, below |
+| `tags` | no | topic tags → `HasTag` edges in the graph |
+| `supersedes` | no | names this memory replaces → `Supersedes` edges |
+| body | yes | the fact itself; `[[wikilinks]]` become `RelatesTo` edges for free |
+
+`tags` and `supersedes` were added later and are parsed back-compatibly — absent
+means none (`mem-types.ts:100`). Frontmatter parsing is a deliberate ~50 lines of
+string handling rather than a YAML dependency, and the list parser accepts both
+`a, b` and `[a, b]` because different providers emit different shapes.
+
+### The four types
+
+The type is not decoration; it is the directory the file lives in, and it is how
+the model is taught what deserves saving at all. All four are *semantic* in the
+sense above — timeless claims, not dated events — though `feedback` leans
+procedural, since a **How to apply:** line is a small piece of know-how rather
+than a fact.
+
+| Type | Holds | Example |
+| --- | --- | --- |
+| `user` | who they are, how they like to work | "Prefers TypeScript strict mode everywhere" |
+| `feedback` | guidance they gave you, with **Why:** and **How to apply:** | "Don't add comments unless asked" |
+| `project` | decisions, constraints, deadlines *not derivable from the code* | "We chose SQLite over Postgres because the CLI must run offline" |
+| `reference` | pointers to external systems | "Dashboards live at grafana.internal/freecode" |
+
+The negative rule matters more than the positive one, and it is stated in the
+system prompt (`mem-prompt.ts:116`): **do not save what the repo already
+records.** Code structure, how a bug was fixed, git history, `CLAUDE.md` content —
+all of that is re-derivable by reading the project, so storing it buys nothing and
+costs prompt space forever. Nor should anything be saved that stops mattering when
+the current task ends.
+
+### Where it lives
+
+```
+~/.freecode/projects/<project-name>/memory/
+├── user/*.md
+├── feedback/*.md
+├── project/*.md
+├── reference/*.md
+├── MEMORY.md          generated index — never hand-edit
+└── .graph/            derived, rebuildable
+```
+
+> **Known limitation.** The project key is `path.basename(projectPath)`, sanitized
+> — not the full path (`mem-store.ts:31`). Two projects both called `api` in
+> different parent directories **share one memory store**.
+
+`MEMORY.md` is a regenerated index of names, descriptions, and links, rewritten on
+every save and delete by `updateIndex()` (`mem-store.ts:182`), and truncated at
+200 lines with a visible warning rather than growing without bound.
+
+## The write path
+
+Two things can create a memory, and they exist for different reasons.
+
+### 1. The `memory` tool — the model's deliberate choice
+
+```
+memory(action: "save",   type, name, description, content, tags?, supersedes?)
+memory(action: "delete", type, name)
+memory(action: "list",   type?)
+```
+
+The model could, in principle, just use the `write` tool — memories are only
+markdown files. It doesn't, and the reason is the difference between a file
+existing and a file being *part of the system*:
+
+| via `MemoryStore.save()` | via a raw `write` |
+| --- | --- |
+| frontmatter serialized from a typed entry | model hand-writes YAML; a typo degrades it silently |
+| `updateIndex()` refreshes `MEMORY.md` | the index goes stale |
+| `emitMemoryChange()` → incremental embed + new edges | no event; only self-heals on a later full sync |
+| `containsSecret()` refuses credentials | a token lands on disk in plaintext |
+
+Behaviours worth knowing:
+
+- **Idempotent on `(type, name)`.** Saving an existing name updates it, and the
+  result tells the model it clobbered something, including the previous
+  description (`tools/memory.ts:219`). No accidental duplicates named
+  `prefers-tables-2`.
+- **`list` returns names and descriptions only, never bodies**
+  (`tools/memory.ts:153`). It is a dedup check before saving, not a recall path —
+  recall is the graph's job, and dumping every body would defeat the point of
+  selective retrieval.
+- **Comma-separated `tags`/`supersedes` are coerced, not rejected**
+  (`tools/memory.ts:32`), because providers with strict schema decoding send lists
+  that way.
+- **Blocked in read-only modes.** `memory` declares `file.write` permissions and
+  is deliberately *not* in `READONLY_TOOLS`, so plan, review, and explore modes
+  block it like any other writing tool. Fail-closed was the deliberate choice; the
+  cost is that a preference stated while planning isn't captured.
+
+### 2. Turn-end extraction — the safety net
+
+Users state preferences in passing and never think "save that". So when a run
+finishes naturally — the model answered with no further tool calls — the finished
+transcript is mined for anything durable (`loop.ts:936` → `extract.ts:117`).
+
+```
+completion → shouldExtract() gates → one provider call
+           → JSON array of proposals → validate → cap at 3 → MemoryStore.save()
+```
+
+Four properties keep this from becoming a liability:
+
+1. **Fire-and-forget.** `kickMemoryExtraction` is never awaited
+   (`loop.ts:1212`). Your result returns first; extraction finishes behind it.
+2. **Never throws.** Malformed JSON, a fenced code block, a dead provider, an
+   unknown type — every failure degrades to "saved nothing" (`extract.ts:170`). A
+   memory failure must never surface as a task failure.
+3. **Capped at three saves per run** (`MAX_SAVES_PER_RUN`, `extract.ts:17`).
+   There is no consolidation pass yet, so an unbounded extractor would fill the
+   store faster than anything cleans it.
+4. **Sub-agents never extract.** `executeSubagent` passes
+   `memoryExtraction: false` (`subagent.ts:70`). Their transcript is delegated
+   machine work, and without this every verifier and explorer would fire its own
+   extraction, turning one user turn into several billed calls.
+
+The transcript is text parts only, clipped to 12,000 characters — tool arguments
+and results are the *how*; what's wanted is what was said and concluded. The
+system prompt tells the extractor that returning `[]` is the common, correct
+answer (`extract.ts:36`), because a weak memory is worse than none.
+
+> **Why a one-shot provider call rather than a sub-agent?** `SubagentType` is a
+> closed union with no per-agent tool allowlist, so "allow only the memory tool"
+> isn't expressible. Parsing proposals ourselves is also what makes the cap
+> deterministic rather than a request the model may ignore.
+
+### The gates: when extraction is allowed to run
+
+Extraction is a fresh, full-price provider call. Running one after every turn
+would roughly double the calls in a chatty session for very little gain, so
+`shouldExtract()` (`extract-policy.ts:137`) checks six things, cheapest first:
+
+| # | Gate | Behaviour |
+| - | --- | --- |
+| 1 | `FREECODE_DISABLE_MEMORY_EXTRACTION` | env kill switch |
+| 2 | `memory.autoExtract: false` | settings kill switch |
+| 3 | The model already saved this run | skip **and reset the counter** — paying a second model to second-guess it is the least valuable call available |
+| 4 | Too short (`< 200` chars or `< 2` turns) | "fix the typo" never held a memory |
+| 5 | Topic changed (similarity `< 0.12`) | extract **now**, before the old thread is buried |
+| 6 | Interval (`extractEveryNRuns`, default `8`) | otherwise throttle |
+
+**Throttling loses nothing.** `buildTranscript()` (`loop.ts:1176`) rebuilds from
+the session's whole history, not just the current run, so a skipped run is still
+covered by the next extraction rather than dropped.
+
+**Topic detection is free.** `lexicalSimilarity()` — Jaccard overlap on tokens —
+and the `0.12` threshold are already computed every turn for retrieval, so the
+policy reuses the same function and constant and the two can never disagree.
+Measured over a simulated 20-run session, the gates turn 20 provider calls into 3.
+
+```json
+// .freecode/settings.json (project) beats ~/.freecode/settings.json (user)
+{ "memory": { "autoExtract": true, "extractEveryNRuns": 8 } }
+```
+
+An unparseable settings file falls through to defaults rather than disabling
+memory (`extract-policy.ts:92`) — failing closed there would silently kill the
+feature and nobody would know why.
+
+### Secrets are refused at write time
+
+`containsSecret()` (`graph/secret-filter.ts`) matches private-key headers,
+`sk-ant-*`, `sk-*`, `AKIA*`/`ASIA*`, `ghp_*`, `github_pat_*`, `xox[baprs]-*`,
+`AIza*`, `glpat-*`, and `key=value` assignments with secret-looking names. It is
+enforced in **both** writers — the tool (`tools/memory.ts:190`) and the extractor
+(`extract.ts:137`) — and again before embedding.
+
+Checking only at embed time was a real hole: a secret-bearing memory was never
+vectorized but *was* still written to disk in plaintext and still reachable
+through the keyword fallback. When the tool refuses, the error tells the model
+what to do instead — record *where* the credential lives, not the credential.
+
+## The read path
+
+The write path fills a folder. The read path answers the harder question: with
+500 memories on disk, which ones belong in *this* prompt?
+
+### Two blocks, two places, one reason
+
+| Block | Where it goes | Cached? | Changes when |
+| --- | --- | --- | --- |
+| `buildMemoryGuidanceBlock()` — *how to use memory* | static system prefix (`compiler.ts:164`) | yes | never |
+| `renderRetrievedMemories()` — *the actual memories* | per-session block, rebuilt each turn (`loop.ts:1285`) | no | every turn |
+
+The guidance block takes **no arguments and returns constant text on purpose**
+(`mem-prompt.ts:104`). It sits in the prompt-cache prefix, so if it depended on
+the store, every single save would rewrite the prefix and bust the whole session's
+cache. There is a test that locks this: the block must be byte-identical
+regardless of what the store contains.
+
+For the same reason, **`MEMORY.md` is deliberately never injected.** Loading the
+whole index every turn would make the cached prefix depend on the store, and would
+grow linearly with how much you've told the agent. Semantic retrieval already
+surfaces what's relevant, and `memory(action: "list")` answers "what exists?" on
+demand. Net effect: a user with 0 memories and a user with 500 pay the same ~150
+cached tokens.
+
+### Choosing what to inject
+
+Every turn, the loop asks the graph service for the memories relevant to the last
+user message (`loop.ts:1281`):
+
+```
+seed:    embed(query) → cosine top-10, threshold 0.4
+         └─ no embedder? → keyword scorer (mem-query.ts)
+cascade: walk edges from the seeds, 2 hops, score × edge weight × 0.7 per hop
+result:  top 8 entries → "# Relevant memories"
+```
+
+The scoring, edge weights, and vector storage are the
+[knowledge graph](/internals/knowledge-graph)'s business. Three properties belong
+here, because they are what keeps retrieval out of your way:
+
+- **One turn behind** (`graph/index.ts:455`). A warm turn returns the *previous*
+  set instantly and refreshes in the background; the loop never blocks on
+  retrieval. A cold turn — the session's first message, or right after a topic
+  change cleared the set — waits `COLD_BUDGET_MS = 60`, then gives up and lets the
+  background fill land on the next turn.
+- **Per session, not per project.** Vectors and the graph are shared across a
+  project, but the surfaced set is keyed by `sessionId` and LRU-bounded at 64, so
+  two open sessions never clobber each other's context.
+- **Topic changes clear the stash.** If the new message shares almost nothing with
+  the last one, the old set is dropped rather than injected — stale memories about
+  a finished subject are worse than no memories.
+
+### When the embedder isn't there
+
+Embeddings are optional (a native ONNX dependency that some builds don't ship). If
+it can't load, `available()` flips to `false` permanently and retrieval falls back
+to `findRelevantMemories()` (`mem-query.ts:50`) — a plain keyword scorer: exact
+name match `+10`, description token overlap `+5`, body overlap `+1` — still
+expanded by the tag and wikilink graph walk.
+
+It is dumber. It is also 80 lines, has no dependencies, and cannot fail. **Memory
+never throws into the agent loop**; the worst case is that retrieval gets less
+precise.
+
+## What the user sees
+
+Nothing is ever recorded about you silently. The two write paths surface
+differently on purpose:
+
+| The model saves it | Extraction saves it |
+| --- | --- |
+| A normal tool call: `● Memory — Saved memory feedback/prefers-tables.` | A system notice: *"Remembered 2 things for next time: … — `/graph` to view, `memory.autoExtract: false` to stop."* |
+| Rendered inline in the turn | Names each memory and points at the off switch (`apps/tui/src/index.ts:872`) |
+
+The notice travels on the **bus**, not the turn stream: extraction runs *after*
+the turn's `done`, so the stream is already closed. The bus speaker wire is
+subscribed at startup and writes regardless, so out-of-band notices still arrive
+(`memory.saved` on the bus → `memory_saved` as a `StreamEvent`). Injection is
+announced too — `memory_injected` fires once per user message that gets a hit
+(`loop.ts:1296`), not on every inner-loop turn.
+
+## Surfaces
+
+| Surface | What |
+| --- | --- |
+| Tool | `memory` — save / delete / list |
+| IPC | `memory.list` · `memory.get` · `memory.save` · `memory.delete` · `memory.query` |
+| CLI | `freecode memory graph stats` · `graph rebuild` · `ui-install` |
+| TUI | `/graph` — the optional explorer addon |
+
+## Known gaps
+
+Knowing where a system is thin is more useful than a tour of its strengths. Read
+in the layer vocabulary from the top of the page, the gaps are specific rather
+than vague — and they cluster in the two places the whole field finds hardest:
+consolidation, and revision.
+
+1. **Episodes are logged but never consolidated.** Rollout has every past turn on
+   disk, yet extraction reads the *live* transcript and nothing ever revisits the
+   archive. So a fact that only becomes obvious after the fifth time it happens is
+   never learned — there is no working → episodic → semantic promotion, only
+   working → semantic. This is the largest structural gap.
+2. **Revision is one-directional and untimed.** Entries carry `createdAt` and
+   `updatedAt` — *transaction time*, when we learned something — and `supersedes:`
+   is the entire contradiction story. There is no *valid time*, so "the deploy
+   host ran Apache until March" is not expressible; the old memory can only be
+   replaced, not dated. Two contradictory memories that never reference each other
+   both stay retrievable.
+3. **Procedural memory is authored, not learned.** Skills and custom commands are
+   real procedural memory, but a human writes them. Nothing turns "I did A, B, C
+   and it worked" into a reusable procedure, which is a harder distillation
+   problem than fact extraction because order and preconditions matter.
+4. **No session-end flush.** A session that ends before 8 runs or a topic change
+   never extracts at all, so a one-shot conversation where you state a preference
+   and leave loses it unless the model saved it with the tool. The cheapest of
+   these gaps to close.
+5. **No consolidation within the semantic layer either.** Nothing merges or ages
+   out near-duplicate memories, which is exactly why the three-save cap exists —
+   the cap is a stand-in for a cleaner that does not exist yet.
+6. **Project key collisions.** `basename` means `~/work/api` and `~/side/api`
+   share memories.
+7. **Tuning values are guesses.** Cap 3, interval 8, 200-character minimum —
+   chosen to bound cost, not derived from data.
+
+## Debugging
+
+| Symptom | Check |
+| --- | --- |
+| No memories retrieved | `freecode memory graph stats` — `nodes: 0` means the store is empty, not that retrieval is broken |
+| `embedder: false` | the native embedder failed to load → keyword fallback. Expected in some binary builds |
+| Retrieval feels stale | `freecode memory graph rebuild`, or delete `.graph/` |
+| Nothing is ever saved automatically | check the gates in order: env, `memory.autoExtract`, run count, topic change |
+| Extraction seems to never fire | the debug log line `[MemoryExtract] skipped: <reason>` names the exact gate |
+| Wrong project's memories | the store key is the folder *basename* — two projects with the same folder name collide |
+
+## Where to look
+
+| You want | File |
+| --- | --- |
+| The entry shape and frontmatter | `apps/core/src/memory/mem-types.ts` |
+| Files, the `MEMORY.md` index, change events | `apps/core/src/memory/mem-store.ts` |
+| The keyword fallback | `apps/core/src/memory/mem-query.ts` |
+| Both prompt blocks | `apps/core/src/memory/mem-prompt.ts` |
+| Turn-end mining | `apps/core/src/memory/extract.ts` |
+| The gates and settings | `apps/core/src/memory/extract-policy.ts` |
+| The tool | `apps/core/src/tools/memory.ts` |
+| Call sites in the loop | `apps/core/src/agent/loop.ts` (`kickMemoryExtraction`, `executeTurn`) |
+
+Related: [Knowledge graph](/internals/knowledge-graph) for how relevance is
+actually computed, [Context engine](/internals/context) for what else goes into
+the prompt, and [Compaction](/internals/compaction) for the *other* kind of
+memory — surviving a full context window inside one session.
