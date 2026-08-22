@@ -5,13 +5,209 @@ description: "All 14 events with payloads and return contracts."
 
 # Hook events
 
-Each entry gives the event name, when it fires, its input payload, what it may
-return, and whether returning a block actually stops the action.
+A hook is a command FreeCode runs at a named moment — before a tool executes,
+after a turn ends, when a sub-agent starts. This page is the contract for each of
+those moments: what fires it, what your hook receives, what it may return, and
+whether returning a block actually stops anything. For the design behind it, read
+[lifecycle hooks](/internals/hooks).
 
-## On this page (coming soon)
+Hooks are configured under the `hooks` key of
+[`settings.json`](/reference/settings#hooks):
 
-- Payload and return type per event
-- Blocking vs modifying semantics
-- Matcher syntax
-- Command executor: stdin, stdout, exit codes
-- Callback executor
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      { "name": "format-ts", "matcher": "edit|write", "command": "pnpm prettier --write \"$CLAUDE_TOOL_INPUT\"", "timeout": 30 }
+    ]
+  }
+}
+```
+
+`HOOK_EVENT_NAMES` (`hooks/types.ts:15`) is the single source of truth — an event
+name that is not in the table below is rejected at load time with a warning.
+
+## The 14 events
+
+`toolInput` is the JSON your command reads from `$CLAUDE_TOOL_INPUT`.
+
+| Event | Fires | `toolName` | `toolInput` | Blocking |
+| --- | --- | --- | --- | --- |
+| `PreToolUse` | before a tool runs | the real tool name | the tool's arguments | **enforced** — the tool never runs |
+| `PermissionRequest` | when a call needs approval | the real tool name | the tool's arguments | **enforced** — a block becomes `deny` |
+| `PostToolUse` | after a tool succeeds | the real tool name | the tool's arguments | ignored |
+| `PostToolUseFailure` | after a tool throws | the real tool name | the tool's arguments | ignored |
+| `UserPromptSubmit` | before the prompt is sent | `"UserPromptSubmit"` | `{ promptLength }` | **enforced** |
+| `TurnStart` | before each turn | `"TurnStart"` | `{ turnCount }` | ignored |
+| `TurnEnd` | after each turn | `"TurnEnd"` | `{ turnCount, inputTokens?, outputTokens?, cacheReadInputTokens?, cacheCreationInputTokens? }` | ignored |
+| `SessionStart` | after context collection | `"SessionStart"` | `{ sessionId }` | ignored |
+| `Stop` | when the loop terminates | `"Stop"` | `{ reason }` | reported, **not** enforced |
+| `PreCompact` | before compaction | `"PreCompact"` | `{ historyLength }` | **enforced** — history is left intact |
+| `PostCompact` | after compaction | `"PostCompact"` | `{ success }` | ignored |
+| `SubagentStart` | a sub-agent is spawned | `"SubagentStart"` | `{ name }` | ignored |
+| `SubagentStop` | a sub-agent finishes | `"SubagentStop"` | `{ name }` | ignored |
+| `Notification` | the agent needs attention | `"Notification"` | `{ message }` | ignored — returns `void` |
+
+### What each event does with a successful return
+
+| Event | `modifiedInput` (shell ✅) | `modifiedOutput` (callback only) | `additionalContext` |
+| --- | --- | --- | --- |
+| `PreToolUse` | merged into the tool's arguments | — | appended to context |
+| `PermissionRequest` | carried on the result | — | — |
+| `PostToolUse` | — | **replaces the tool output** | appended |
+| `PostToolUseFailure` | — | — | appended to the error the model sees |
+| `UserPromptSubmit` | — | **replaces the system prompt** | appended |
+| `SessionStart` | — | — | injected; can seed the first user message |
+| `TurnStart` / `TurnEnd` / `PostCompact` / `SubagentStart` / `SubagentStop` / `Stop` | — | — | injected |
+
+**Read that second column carefully.** `modifiedOutput` is the only field a
+*command* hook cannot produce — the shell protocol has no way to express it (see
+[the shell protocol](#the-shell-protocol)). So "PostToolUse replaces the tool
+output" and "UserPromptSubmit rewrites the prompt" are true for in-process
+callback hooks and **not** for anything you can write in `settings.json` today.
+A shell hook can still block, rewrite arguments, and add context.
+
+### Sharp edges
+
+- **`PermissionRequest` has four return values**, and the fourth is the useful
+  one. `passthrough` means *no hook matched* — distinct from `allow`, which means
+  *a hook looked and approved*. Without that distinction, installing a hook that
+  ignores a tool would silently approve it.
+- **A rules `deny` short-circuits before hooks run.** A hook cannot talk a denial
+  into an approval, because it is never asked. Hooks come from `settings.json`, and
+  settings files travel with repositories.
+- **`PreToolUse` runs before the permission check**, so it gets first look at the
+  arguments the rules will be matched against — which is exactly why a rewrite is
+  possible.
+- **`UserPromptSubmit` only receives `promptLength`.** Your hook is told how long
+  the prompt is, not what it says.
+- **A blocked `PreCompact` is not a crash.** The service records the token count it
+  was blocked at and returns `{ success: false, blocked: true }`, so the same block
+  is not retried at the same size.
+- **Matchers only apply to three events.** `PreToolUse`, `PostToolUse`, and
+  `PermissionRequest` filter by matcher; every other event runs all of its hooks.
+  A `matcher` on a `SessionStart` hook does nothing — there is no tool to match.
+
+## The shell protocol
+
+The command is spawned with `bash -c` (or
+`pwsh -NoProfile -NonInteractive -Command`), in the context's `cwd`, with these
+variables added to the environment:
+
+| Variable | Set when |
+| --- | --- |
+| `CLAUDE_SESSION_ID` | always |
+| `CLAUDE_TOOL_NAME` | always |
+| `CLAUDE_TOOL_INPUT` | always — the `toolInput` from the table above, as JSON |
+| `CLAUDE_CWD` | the context carries a `cwd` |
+| `CLAUDE_AGENT_ID`, `CLAUDE_AGENT_TYPE` | inside a sub-agent |
+
+**Nothing is written to your hook's stdin.** The payload is entirely in the
+environment, which is what makes a three-line bash script a complete
+implementation — there is no library to import, and the same script works from any
+language.
+
+### Exit codes
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | continue; stdout is injected as `additionalContext` |
+| `2` | **block**; stderr (else stdout) becomes the reason the model is shown |
+| anything else | **block**, with the reason `Exit code N` |
+
+That third row is fail-*closed*: a typo, a missing binary, or a linter exiting `1`
+blocks the tool. It is the right default for a gate whose job is saying no, but a
+sloppy hook can wedge the agent. Two paths fail *open* instead — a **timeout** and
+a **spawn failure** resolve with an error and no block, because a hook that never
+answered is skipped while a hook that gave an answer is trusted.
+
+Default timeout is 5 minutes. `timeout` in `settings.json` is in **seconds**.
+
+### JSON on stdout
+
+For richer control, print a JSON object. Anything whose trimmed stdout starts with
+`{` is parsed:
+
+```json
+{ "block": false, "modifiedInput": { "path": "src/safe.ts" }, "context": "rewrote path" }
+```
+
+| Field | Effect |
+| --- | --- |
+| `block` | `true` blocks; `reason` is shown to the model |
+| `reason` | the block reason |
+| `modifiedInput` | merged into the tool's arguments (`PreToolUse`) |
+| `context` | becomes `additionalContext` |
+
+Note the precedence: exit code `2` is checked first, then JSON, then the exit
+code. A hook that prints valid JSON **and** exits `1` is treated as its JSON says
+— the non-zero exit is ignored ([known gaps](#known-gaps)).
+
+## Matching
+
+Two independent filters, both in `registry.ts`.
+
+**`matcher`** is tested against the tool *name*, in this order: `*` or empty
+matches everything → exact string → the pattern as a regex → pipe-separated
+alternatives (`"write|edit"`).
+
+**`if`** is tested against the tool *arguments*, parsed as `Tool(pattern)`. The
+tool name must match first, then the argument values are flattened into one
+space-joined string and glob- or regex-matched:
+
+```
+"if": "bash(git *)"      only git commands
+"if": "write(*.ts)"      only TypeScript writes
+```
+
+## Running several hooks
+
+Matching hooks run **sequentially**, and the results fold like this:
+
+- **First block wins** and stops the chain — later hooks are not run.
+- **Last `modifiedInput` wins.** Two hooks rewriting the same field is a
+  configuration mistake; last-write-wins is the predictable resolution.
+- **Every `additionalContext` is kept**, joined with newlines.
+
+Sequential rather than parallel is deliberate: hooks touch the filesystem
+(formatters, linters, git), and racing them on one working tree is how files get
+corrupted.
+
+Each execution publishes `hook.triggered` on the bus; blocks publish
+`hook.blocked` with the reason.
+
+## Other hook kinds
+
+`settings.json` can only create command hooks. Two more kinds exist in-process:
+
+| Kind | Defined by | Returns |
+| --- | --- | --- |
+| `callback` | code shipping with FreeCode (`registerHook(...)`) | `{ action: "continue" }`, `{ action: "block", reason }`, or `{ action: "modify", modifiedInput?, modifiedOutput? }` |
+| `prompt` | a `prompt` + optional `model` | asks a model for `{"decision":"allow"\|"block","reason":string}`; 200 max tokens, 30s default timeout. **Non-JSON replies fail open** |
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **Shell hooks cannot set `modifiedOutput`.** The command executor only ever
+  returns `blocked`, `modifiedInput`, and `additionalContext`, so the two events
+  whose whole purpose is rewriting — `PostToolUse` (tool output) and
+  `UserPromptSubmit` (the prompt) — are inert from `settings.json`. Accepting a
+  `modifiedOutput` key in the JSON stdout form is a few lines and would make the
+  documented capability real.
+- **`PostToolUse` hooks never see the tool's output.** `runPostToolUseHooks`
+  receives the `ToolResult` and drops it, passing only the tool's *input*. A
+  `createPostToolUseInput()` helper that includes `result` exists in the same file
+  and has **zero callers** — the fix appears to have been written and never wired.
+- **`UserPromptSubmit` receives only `promptLength`.** A hook expected to rewrite
+  or veto a prompt cannot read it.
+- **Non-zero exit is ignored when stdout is JSON.** `command.ts` parses JSON before
+  falling through to the exit-code check, so `{"block":false}` + `exit 1` continues.
+  Either honour the exit code or document JSON as overriding it — right now it is
+  neither.
+- **`once` is parsed but never enforced.** The field flows from `settings.json` into
+  the registered hook and nothing reads it.
+- **`hook.triggered` / `hook.blocked` are published with a cast** and are not part
+  of the typed bus union, so no consumer gets checking on them.
+- **Hooks only load under `freecode serve`.** `freecode run` never constructs
+  `HookSettingsManager`, so headless runs silently skip every hook in the file.

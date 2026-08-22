@@ -433,3 +433,97 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Tuning values are guesses** — cap 3, interval 8, 200-char minimum, seed
       threshold 0.4, decay 0.7. Chosen to bound cost, not derived from data.
   and I'll fix it.
+## Docs-audit findings (reference: CLI, settings, env, IPC, hooks — 2026-08-23)
+
+Found while writing `apps/docs/app/reference/{cli,settings,env,ipc-methods,hook-events}`.
+Each is also listed in that page's **Known gaps**. IPC items already covered by the
+earlier audit are not repeated here.
+
+### Real fixes
+
+- [ ] **`freecode run` runs without hooks.** `HookSettingsManager` is constructed
+      only in `startServer()` (`server.ts:1106`), so a headless run loads no
+      `settings.json` hooks and never calls `registerRtkHook()`. Permission *rules*
+      do apply (the loop builds its own `PermissionSettingsManager`,
+      `loop.ts:571`), so the same repo behaves differently under `serve` and under
+      `run` — the formatter that fires after every edit interactively silently does
+      not fire in CI. Move both into a shared bootstrap the `run` handler also calls.
+- [ ] **Headless `build` mode denies everything and says nothing useful.**
+      `askPermission` rejects immediately when no frontend is listening
+      (`bus/index.ts:413`) and `promptForPermission` maps that to deny, while
+      `build`'s mode default for mutating tools is `ask`. So `freecode run "fix the
+      test"` reads fine and is denied every write. Needs a `--yes`/`--allow <rule>`
+      flag, or a one-time explanation on the first headless denial.
+- [ ] **`freecode run --agent` is an unchecked cast** (`run.ts:140`). `--agent buld`
+      falls through `modeDefault`'s `default` branch and runs with **build**
+      semantics. Add yargs `choices`, as `mcp add`'s `type` already has.
+- [ ] **Shell hooks cannot set `modifiedOutput`.** `executeCommandHook` only ever
+      returns `blocked` / `modifiedInput` / `additionalContext`, so the two events
+      whose purpose is rewriting — `PostToolUse` (tool output) and
+      `UserPromptSubmit` (`modifiedPrompt`, `UserPromptSubmit.ts:45`) — are inert
+      from `settings.json`, which is the only place a user can define a hook.
+      Accept a `modifiedOutput` key in the JSON-stdout form.
+- [ ] **`PostToolUse` hooks never see the tool's output.** `runPostToolUseHooks`
+      takes the `ToolResult` and drops it, passing only the tool input
+      (`PostToolUse.ts:23`). `createPostToolUseInput()` in the same file *does*
+      include `result` and has **zero callers** — written, never wired.
+- [ ] **`UserPromptSubmit` receives only `{ promptLength }`** — a hook expected to
+      rewrite or veto a prompt cannot read it.
+- [ ] **Non-zero exit is ignored when a hook prints JSON.** `command.ts` checks exit
+      `2`, then parses JSON, then checks exit `0` — so `{"block":false}` + `exit 1`
+      continues. Honour the exit code or state that JSON overrides it.
+- [ ] **`settings.json` has three loaders and three different merge rules.**
+      `permissions` concatenates both scopes, `hooks` override by `event + name`,
+      `memory` takes the first definition (project → user → default). Nothing states
+      the difference and `/getting-started/configuration` claims a single "project
+      wins" rule that only holds for hooks. One loader that parses the file once and
+      hands each subsystem its section would make one answer true.
+- [ ] **Unknown `settings.json` keys are silently ignored.** `"permission"` for
+      `"permissions"`, or a misspelled hook field, produces no warning — identical
+      from the outside to the feature being broken. Each loader already warns on
+      malformed input.
+- [ ] **No JSON Schema for `settings.json`.** No `$schema`, no generated schema, so
+      editors cannot complete or validate a hand-edited, security-relevant file.
+- [ ] **`FREECODE_HOME` is read in exactly one place** — the updater's
+      `builds/stable/freecode` lookup (`apps/tui/src/entry.ts:101`). Every data path
+      (`config.json`, `sessions/`, `projects/`, `rollout/`, `history.jsonl`) builds
+      from `os.homedir()` directly, so setting it produces a half-relocated install.
+      Honour it through one `freecodeHome()` helper, or rename it.
+- [ ] **Six env vars need a process restart and nothing says so** —
+      `FREECODE_TOOL_RESULT_BUDGET_CHARS` (`loop.ts:152`) and the five
+      `FREECODE_OUTPUT_*` values (`tools/output-store/config.ts`) are module-load
+      consts, while the compaction and cache vars are deliberately read per call.
+- [ ] **`FREECODE_TOOL_RESULT_BUDGET_CHARS=""` silently means 0** — `Number("")` is
+      finite, so an empty export sets the budget to zero instead of falling back to
+      the default like every other numeric variable.
+- [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
+      `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
+- [ ] **`config.get` returns API keys verbatim.** Fine over a local stdio pipe,
+      wrong the moment the backend is reachable another way; no redaction anywhere.
+- [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
+      `~/.freecode` (`cli/utils/config.ts`), so a repository cannot ship the MCP
+      servers its contributors need the way it can ship rules and hooks.
+- [ ] **`freecode session` exposes 2 of 12 session operations.** `fork`, `switch`,
+      `archive`, `export`, `import`, `upload`, `download` are IPC-only, so scripting
+      session management means speaking JSON-RPC by hand.
+- [ ] **`freecode uninstall` deletes user data on one `y`.** It removes all of
+      `~/.freecode` — sessions, rollout logs, memory, history, usage — and the prompt
+      does not say so. No `--keep-data`, no backup.
+- [ ] **No way to print effective configuration.** Diagnosing "why is it compacting
+      so early" means reading source. A `freecode config env` dumping
+      name / default / effective / source would pay for itself.
+
+### Deliberate — do NOT "fix"
+
+- **Hook exit codes fail closed, timeouts fail open.** A hook that answered is
+  trusted; a hook that never answered is skipped. Both directions are intentional.
+- **`permissions` merges rather than overrides across scopes.** Deny is checked
+  first, so a project can neutralize a user-scope allow by adding a deny — it just
+  cannot delete it. That is the safe direction for a file that travels with a repo.
+- **Bash prefix rules refuse compound commands.** `Bash(npm:*)` never matches
+  `npm test && rm -rf /`; the word-boundary and shell-separator checks are the
+  security property, not an oversight.
+- **MCP argument patterns never match.** `mcp__linear(x)` fails closed by design;
+  server-level rules are the supported granularity in v1.
+- **Hook payloads are env vars, not stdin JSON.** A three-line bash script is a
+  complete hook implementation in any language, with nothing to parse.

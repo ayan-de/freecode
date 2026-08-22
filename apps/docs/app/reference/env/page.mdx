@@ -5,13 +5,146 @@ description: "Every FREECODE_* variable and what it changes."
 
 # Environment variables
 
-Environment variables override settings and are the right lever for CI and
-one-off debugging.
+Environment variables are the right lever for two situations a config file
+handles badly: **one-off debugging** (`FREECODE_DEBUG=1 freecode run "…"`) and
+**CI**, where there is no home directory worth persisting to.
 
-## On this page (coming soon)
+Nothing here is required. Every variable has a working default, and the two
+things you might genuinely need — an API key and a model — are better kept in
+`~/.freecode/config.json`.
 
-- Provider API keys
-- `FREECODE_HEADER_TIMEOUT_MS`, `FREECODE_SSE_STALL_TIMEOUT_MS`
-- `FREECODE_DISABLE_MEMORY_EXTRACTION`
-- `FREECODE_BUNDLED`, `FREECODE_BUILD_VERSION`
-- Debug and logging switches
+**Two things to know before using the tables:**
+
+1. **When a variable is read matters.** Most are read *per call*, so exporting one
+   in a long-running `freecode serve` takes effect on the next turn. A few are
+   captured once at process start and need a restart. The "Read" column says which.
+2. **`0` means different things in different rows.** For timeouts it disables the
+   guard; for `FREECODE_READ_DEDUP` and `FREECODE_CACHE_MISS_NOTICES` it turns a
+   feature off; for `FREECODE_IDLE_NUDGE_TOKENS` it disables the nudge. Nothing
+   here treats an unparseable value as `0` — a typo falls back to the default,
+   because silently disabling a cost guard is the worse failure.
+
+## Credentials
+
+| Variable | Used by |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Anthropic provider |
+| `OPENAI_API_KEY` | OpenAI provider |
+| `GEMINI_API_KEY` | Gemini provider |
+| `MINIMAX_API_KEY` | MiniMax (also covers `minimax-coding-plan`) |
+| `DEEPSEEK_API_KEY` | DeepSeek |
+| `ZAI_API_KEY` | Z.ai |
+| `BRAVE_API_KEY` | `websearch` uses the Brave API when set; DuckDuckGo's keyless HTML endpoint otherwise |
+
+**`config.json` wins over the environment.** `getApiKey()` checks
+`providers.<id>.apiKey` first and only then the variable, so if a key is saved in
+the app, exporting a different one changes nothing. A provider suffixed with
+`-coding-plan` falls back to its base provider's key and variable.
+
+## Provider requests
+
+| Variable | Default | Read | Effect |
+| --- | --- | --- | --- |
+| `FREECODE_HEADER_TIMEOUT_MS` | `300000` | per request | how long a provider may take to return response **headers**. Cleared the instant they arrive, so it never caps generation time. `0` disables |
+| `FREECODE_SSE_STALL_TIMEOUT_MS` | `180000` | per request | how long a live stream may be **completely silent**. Not a token budget: a slow model that emits keep-alives is healthy. `0` disables |
+| `FREECODE_CACHE_TTL` | `5m` | per call | `5m` or `1h`. `1h` opts into Anthropic's extended prompt cache. Any other value warns and falls back to `5m` |
+| `FREECODE_CACHE_MISS_NOTICES` | on | per call | set `0` to stop surfacing "prompt cache went cold / missed" notices |
+| `FREECODE_DEBUG_CACHE` | off | per call | `1` logs a fingerprint of every cacheable prompt segment, for diagnosing a low hit rate |
+
+Both timeouts live in a `fetch` wrapper *below* the AI SDK
+(`providers/fetch-timeout.ts`) so every SSE byte counts. Measuring liveness above
+the SDK's normalizer counts only 5 part types and misses `tool-input-delta`,
+which made a large `write` look like a dead stream.
+
+> `FREECODE_FIRST_CHUNK_TIMEOUT_MS`, `FREECODE_STREAM_STALL_TIMEOUT_MS`, and
+> `FREECODE_REQUEST_TIMEOUT_MS` were the previous generation of this guard and no
+> longer exist. If you have them in a shell profile, delete them — they do nothing.
+
+## Context and spend
+
+| Variable | Default | Read | Effect |
+| --- | --- | --- | --- |
+| `FREECODE_COMPACT_TARGET_TOKENS` | `120000` | per call | the cost ceiling compaction aims for. Raise it to keep more history; lower it to compact aggressively on a small quota |
+| `FREECODE_AUTO_COMPACT_TOKENS` | unset | per call | force auto-compaction at N tokens instead of just below the model's window. Mostly a testing lever — the real trigger is unreachable by hand |
+| `FREECODE_MAX_TURN_TOKENS` | unset | per call | per-run spend circuit breaker in billed tokens (input + output). Off by default; this is a backstop for runaway oscillation, not an operating limit |
+| `FREECODE_IDLE_NUDGE_TOKENS` | `100000` | per call (TUI) | context size below which the "your cache has gone cold" nudge never fires. `0` disables it |
+
+Values must be positive integers; anything else logs a warning and keeps the
+default, because a typo here looks exactly like compaction being broken.
+
+## Tools
+
+| Variable | Default | Read | Effect |
+| --- | --- | --- | --- |
+| `FREECODE_TOOL_RESULT_BUDGET_CHARS` | `200000` | **process start** | total characters of tool results kept verbatim in context before older ones are replaced with a marker |
+| `FREECODE_OUTPUT_MAX_CHARS` | `30000` | **process start** | chars of a single tool output shown to the model (head + tail) |
+| `FREECODE_OUTPUT_TAIL_CHARS` | `6000` | **process start** | how much of that budget is spent on the tail. Head is the remainder |
+| `FREECODE_OUTPUT_LINES` | `200` | **process start** | default line window per `output` call |
+| `FREECODE_OUTPUT_STORE_BYTES` | `16777216` | **process start** | per-session output store budget; oldest outputs evict first |
+| `FREECODE_OUTPUT_STORE_SESSIONS` | `50` | **process start** | how many per-session stores stay live |
+| `FREECODE_READ_DEDUP` | on | per call | `0` makes `read` send the full file body every time instead of eliding an unchanged re-read. The only token-efficiency switch that changes what the model *sees* |
+| `FREECODE_LSP_SERVERS` | unset | per call | JSON map of extension → server, e.g. `{".rs":{"command":"rust-analyzer","args":[]}}`. Extends the built-in registry |
+| `FREECODE_RTK` | on | per call | `0` disables the built-in hook that rewrites `ls`-style bash commands into compact `rtk` equivalents |
+
+## Memory
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FREECODE_DISABLE_MEMORY_EXTRACTION` | unset | `1`, `true`, or `yes` turns off automatic extraction. Overrides `memory.autoExtract` in `settings.json` |
+
+## Diagnostics
+
+| Variable | Effect |
+| --- | --- |
+| `FREECODE_DEBUG` | any non-empty value enables `logger.debug` output. All logs go to **stderr** — core speaks JSON-RPC on stdout, so logging there would corrupt the protocol |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | OTLP endpoint used by `freecode trace --otlp` when no URL is passed. Checked before the next row |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | same, the generic form |
+| `OTEL_EXPORTER_OTLP_HEADERS` | comma-separated `k=v` list, per the OTLP spec — this is how you pass a Langfuse or Phoenix auth header |
+
+Traces are exported from the recorded event log, never from the hot path, so a
+slow collector cannot slow down a turn.
+
+## Paths and packaging
+
+| Variable | Set by | Effect |
+| --- | --- | --- |
+| `FREECODE_BUNDLED` | the release binary (`build:bun`) | `1` means "self-contained binary": core is bundled rather than spawned from disk, the update check runs, and the native-library re-exec happens |
+| `FREECODE_BUILD_VERSION` | the build | the version reported by `--version` and the TUI. Falls back to `package.json`, then `unknown` |
+| `FREECODE_ROOT` | you | monorepo root used by the TUI and the VS Code extension to locate core when it is not bundled. Set it if you run a frontend from outside the repo |
+| `FREECODE_HOME` | you | **only** the updater's `builds/stable/freecode` lookup honors this. It does not relocate your data — see [known gaps](#known-gaps) |
+| `CLAUDE_CONFIG_DIR` | you | where Claude Code sessions are read from for the import tab. Defaults to `~/.claude`; read-only, FreeCode never writes there |
+| `CDP_URL` | you | Chrome DevTools endpoint for the legacy browser path. Defaults to `http://localhost:9222` |
+| `FREECODE_BUN_TARGET`, `FREECODE_BUN_OUTFILE` | CI | cross-compile target and output path for `pnpm build:bun`. Contributor-facing only |
+
+`__FREECODE_REEXECED` and `__FREECODE_UPDATE_CHECKED` are internal sentinels the
+binary sets on itself to avoid re-exec loops. Do not set them.
+
+## Not read — exported
+
+Hook commands receive `CLAUDE_SESSION_ID`, `CLAUDE_TOOL_NAME`,
+`CLAUDE_TOOL_INPUT`, `CLAUDE_CWD`, `CLAUDE_AGENT_ID`, and `CLAUDE_AGENT_TYPE` in
+their environment. FreeCode sets those *for* your hook; setting them yourself does
+nothing. See [hook events](/reference/hook-events#the-shell-protocol).
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **`FREECODE_HOME` looks like a data-root override and is not one.** It is read in
+  exactly one place — the updater's `stable` symlink path (`apps/tui/src/entry.ts:101`).
+  Every other path (`config.json`, `sessions/`, `projects/`, `rollout/`,
+  `history.jsonl`) is built from `os.homedir()` directly, so setting it produces a
+  half-relocated install. Either honor it everywhere through one `freecodeHome()`
+  helper, or rename it to what it actually controls.
+- **Six variables need a restart, and nothing says so.** The `tools/output-store`
+  constants and `TOOL_RESULT_BUDGET_CHARS` are module-load `const`s, while the
+  compaction and cache variables are read per call — a deliberate choice there
+  ("the long-lived daemon and the tests can both change it without a module
+  reload") that was simply not applied to the tool budgets.
+- **`FREECODE_TOOL_RESULT_BUDGET_CHARS=""` silently means zero.**
+  `Number("")` is `0`, which is finite, so an empty export sets the budget to 0
+  instead of falling back to the default the way every other numeric variable does.
+- **No `--env`-style listing.** There is no command that prints the effective
+  values, so diagnosing "why is it compacting so early" means reading source. A
+  `freecode config env` that dumps name / default / effective / source would pay
+  for itself.

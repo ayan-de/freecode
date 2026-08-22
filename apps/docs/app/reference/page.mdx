@@ -7,12 +7,68 @@ description: "Exhaustive listings: commands, settings, variables, protocol."
 
 Reference pages are complete and boring by design. If a guide explains *why*, the
 reference tells you *exactly what* — every flag, every key, every method
-signature.
+signature, checked against the code rather than remembered.
 
-## On this page (coming soon)
+If you are new here, read this page first. It answers the question that sends
+most people in circles: **which file does this setting go in?** FreeCode has
+three configuration surfaces and they are not interchangeable.
 
-- Every CLI command and flag
-- Every `settings.json` key
-- Every `FREECODE_*` environment variable
-- Every IPC method and stream event
-- Every hook event and its payload
+## The three surfaces
+
+| Surface | Path | Who writes it | What lives there |
+| --- | --- | --- | --- |
+| **App config** | `~/.freecode/config.json` | FreeCode (via the TUI, `freecode mcp add`) | API keys, current provider + model, MCP servers, fallback providers |
+| **Settings** | `<project>/.freecode/settings.json`, `~/.freecode/settings.json` | **you**, by hand | `permissions`, `hooks`, `memory` |
+| **Environment** | `FREECODE_*` and friends | you, per shell or per CI job | timeouts, budgets, debug switches, API keys |
+
+The split is not arbitrary:
+
+- **`config.json` is machine-written state.** It holds a secret (your API key) and
+  a cursor (the model you last picked). You *can* edit it, but the app rewrites it,
+  so it is a poor place for policy you want to keep.
+- **`settings.json` is hand-written policy.** It has no secrets, so the project
+  copy is meant to be committed and travel with the repository — the permission
+  rules and hooks your team agreed on.
+- **Environment variables are overrides.** They exist for the two cases a file
+  handles badly: one-off debugging (`FREECODE_DEBUG=1 freecode …`) and CI, where
+  there is no home directory worth persisting to.
+
+**Precedence, in one line:** environment beats file, and for the two settings
+files, project beats user — but see the [settings page](/reference/settings), because
+each of the three settings sections merges its two scopes by its *own* rule.
+
+## What else lives in `~/.freecode/`
+
+Not configuration, but you will meet these directories when debugging or backing
+up. Everything FreeCode persists is under one root:
+
+| Path | Contents |
+| --- | --- |
+| `config.json` | provider credentials, current model, MCP servers |
+| `settings.json` | your user-scope permissions / hooks / memory settings |
+| `sessions/` | session metadata and message logs |
+| `rollout/sessions/<id>/` | append-only event log per session (powers `freecode trace`) |
+| `projects/<project>/memories/` | persistent memory files, per project |
+| `history.jsonl` | prompt history for up-arrow recall |
+| `usage.json` | per-day token totals behind `/usage` |
+| `models/`, `cache/` | downloaded embedding model, models.dev cache |
+| `bin/`, `rtk-state.json` | optional `rtk` helper binary and its install state |
+| `addons/graph-ui/` | the optional memory graph explorer (`freecode memory ui-install`) |
+| `builds/` | installed binaries; `builds/stable/freecode` is the symlink the updater rewrites |
+
+`freecode uninstall` deletes this entire directory. That includes your sessions
+and your memory — see [CLI commands](/reference/cli#freecode-uninstall).
+
+## The pages
+
+| Page | Answers |
+| --- | --- |
+| [CLI commands](/reference/cli) | every subcommand, positional, and flag |
+| [settings.json](/reference/settings) | every key FreeCode actually reads, and how scopes merge |
+| [Environment variables](/reference/env) | every variable, its default, and when it is read |
+| [IPC methods](/reference/ipc-methods) | all 49 JSON-RPC methods and the full `StreamEvent` union |
+| [Hook events](/reference/hook-events) | all 14 events, their payloads, and what returning a block actually does |
+
+For the reasoning behind any of it, the [internals](/internals) section is the
+companion: [IPC protocol](/internals/ipc), [lifecycle hooks](/internals/hooks),
+[permission engine](/internals/permissions), [memory](/internals/memory).

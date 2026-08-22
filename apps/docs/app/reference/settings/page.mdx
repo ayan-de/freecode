@@ -6,13 +6,232 @@ description: "Full schema for project and user settings."
 # settings.json
 
 Settings are read from `.freecode/settings.json` (project) and
-`~/.freecode/settings.json` (user), with project taking precedence.
+`~/.freecode/settings.json` (user).
 
-## On this page (coming soon)
+The file is hand-written and holds no secrets, which is the point: the project
+copy is meant to be **committed**, so the permission rules and hooks your team
+agreed on travel with the repository. Credentials, the current model, and MCP
+servers are *not* here — they live in `~/.freecode/config.json`; see
+[the overview](/reference#the-three-surfaces).
 
-- `permissions` — `allow`, `ask`, `deny`
-- `hooks` — event definitions and matchers
-- `memory` — `autoExtract`, `extractEveryNRuns`
-- Provider and model defaults
-- MCP server definitions
-- Precedence rules and merge semantics
+**Exactly three top-level keys are read.** Anything else in the file is ignored
+without comment.
+
+| Key | Read by | Purpose |
+| --- | --- | --- |
+| [`permissions`](#permissions) | `permission/settings.ts` | which tool calls are allowed, asked about, or denied |
+| [`hooks`](#hooks) | `hooks/settings.ts` | shell commands to run at lifecycle events |
+| [`memory`](#memory) | `memory/extract-policy.ts` | automatic memory extraction |
+
+## A complete file
+
+```json
+{
+  "permissions": {
+    "allow": ["Read", "Grep", "Bash(pnpm test:*)"],
+    "ask": ["Bash(git push:*)"],
+    "deny": ["Read(//etc/**)", "Bash(rm -rf:*)", "Write(.env)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "name": "format-ts",
+        "matcher": "edit|write",
+        "command": "pnpm prettier --write \"$CLAUDE_TOOL_INPUT\"",
+        "timeout": 30
+      }
+    ],
+    "PreToolUse": [
+      { "name": "no-force-push", "matcher": "bash", "if": "bash(git push --force*)", "command": "exit 2" }
+    ]
+  },
+  "memory": {
+    "autoExtract": true,
+    "extractEveryNRuns": 8
+  }
+}
+```
+
+## `permissions`
+
+Three arrays of rule strings. Every rule is `Tool` or `Tool(pattern)`; the tool
+name is case-insensitive, so `Bash`, `bash`, and `BASH` are the same rule.
+
+```jsonc
+{
+  "permissions": {
+    "allow": ["Read"],              // this tool, any arguments
+    "ask":   ["Bash(git push:*)"],  // this tool, arguments matching the pattern
+    "deny":  ["Read(//etc/**)"]
+  }
+}
+```
+
+### How a decision is reached
+
+Evaluation order is fixed (`permission/evaluate.ts`):
+
+```
+danger mode?  ─── yes ──▶ allow (rules are never consulted)
+      │ no
+mode enforcement (plan/review/explore are read-only) ──▶ deny
+      │
+deny rules  ──▶ deny        ← absolute; a hook cannot argue with it
+      │
+ask rules   ──▶ ask         ← in explore mode an "ask" becomes deny
+      │
+allow rules ──▶ allow
+      │
+no rule matched ──▶ the agent mode's default
+```
+
+**Deny beats ask beats allow**, regardless of which scope a rule came from. That
+matters for the merge below.
+
+### Pattern syntax by tool family
+
+| Family | Tools | Matched against | Pattern rules |
+| --- | --- | --- | --- |
+| Shell | `bash` | `command` | exact string, or a `prefix:*` rule |
+| Path | `read`, `ls`, `write`, `edit`, `glob`, `grep` | `filePath` \| `path` \| `cwd` | glob |
+| Network | `webfetch`, `websearch` | `url` \| `query` | glob |
+| Sub-agent | `agent` | `agentType` | exact, or `*` |
+| MCP | `mcp__<server>` | — | server-level only |
+
+**Bash prefix rules** are deliberately strict. `Bash(npm:*)` matches `npm test`
+but **not** `npmevil` (a word boundary is required after the prefix) and **not**
+`npm test && rm -rf /` — a command containing any of `|| && ; | newline` backtick
+`$(` never matches a prefix rule. A rule that granted `npm:*` cannot be turned
+into a grant for everything by appending `&& …`. `Bash(:*)` degenerates to
+match-all; write `Bash` if that is what you mean.
+
+**Path patterns** are project-relative unless you say otherwise:
+
+| Pattern | Matches |
+| --- | --- |
+| `src/**` or `./src/**` | paths under `src/` inside the project |
+| `//etc/**` | absolute paths — the leading `//` means "filesystem root" |
+| `~/notes/**` | paths under your home directory |
+| `dir/**` | also matches `dir` itself, so `grep`/`glob` targeting the directory match |
+
+A project-relative pattern never matches a path outside the project root — it
+returns false rather than escaping via `..`.
+
+**MCP rules are server-level.** `mcp__linear` matches every tool that server
+exposes; `mcp__linear(pattern)` matches **nothing** (fail closed) because
+argument patterns for MCP tools are not implemented.
+
+### Scope merge
+
+Both files are read and the tiers are **concatenated**, not overridden:
+
+```
+allow = project.allow + user.allow + in-memory session grants
+ask   = project.ask   + user.ask
+deny  = project.deny  + user.deny
+```
+
+So "project overrides user" is not how this section behaves. A project **cannot
+remove** a rule granted in your user file — but because deny is checked first, it
+can *neutralize* one by adding the corresponding `deny`. Session grants ("allow
+for this session") join the allow tier in memory only and never beat a deny.
+
+Both directories are watched, so edits take effect without a restart. A file that
+does not parse is treated as an **empty** rule set for that scope — it fails
+closed, and logs a warning.
+
+Writes back to these files come from the permission prompt: "always allow"
+appends to the user file, "allow for this project" appends to the project file,
+both under `permissions.<tier>`.
+
+## `hooks`
+
+An object keyed by event name; each value is an array of hook definitions. All 14
+event names are listed on the [hook events](/reference/hook-events) page.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | **required** | unique within the event; also the merge key |
+| `command` | string | **required** | shell command to run |
+| `matcher` | string | all tools | tool-name pattern: `*`, exact, regex, or `write\|edit` |
+| `if` | string | — | argument condition, `Tool(pattern)` — e.g. `bash(git *)`, `write(*.ts)` |
+| `shell` | `"bash"` \| `"powershell"` | `"bash"` | interpreter |
+| `timeout` | number | `300` | **seconds** (multiplied by 1000 internally) |
+| `once` | boolean | `false` | parsed and stored, but **not enforced** — treat as reserved |
+
+An entry missing `name` or `command` is skipped with a warning naming it; an
+unknown event name is skipped with a warning listing the valid ones. Bad
+configuration never takes the agent down.
+
+Claude Code's nested shape is accepted too, so existing config pastes in
+unchanged:
+
+```json
+{ "hooks": { "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "name": "audit", "command": "…" } ] } ] } }
+```
+
+**Scope merge is by `event + name`**: a project hook named `format-ts` *replaces*
+the user hook of the same name rather than running alongside it. Both directories
+are watched with a 300 ms debounce, and each reload unregisters the previous
+generation first, so reloading is idempotent.
+
+The exit-code protocol (`0` continue, `2` block, anything else block) and the JSON
+stdout form are documented under [hook events](/reference/hook-events#the-shell-protocol).
+
+> Hooks are only loaded by `freecode serve` — the backend the TUI and the other
+> frontends spawn. `freecode run` does not load them. See
+> [known gaps](#known-gaps).
+
+## `memory`
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `autoExtract` | boolean | `true` | mine finished turns for facts worth remembering |
+| `extractEveryNRuns` | number | `8` | how often extraction is even considered; values `< 1` are ignored, non-integers are floored |
+
+```json
+{ "memory": { "autoExtract": false } }
+```
+
+Scope merge here is **first definition wins, project → user → default**, per
+field. `FREECODE_DISABLE_MEMORY_EXTRACTION=1` overrides both files. Throttling is
+safe because each extraction rebuilds the transcript from the session's whole
+history, so a skipped run is covered by the next one. Background:
+[memory](/internals/memory).
+
+## Not in this file
+
+| You want | Where it lives |
+| --- | --- |
+| API keys | `~/.freecode/config.json` → `providers.<id>.apiKey`, or `ANTHROPIC_API_KEY` and friends |
+| Current provider + model | `~/.freecode/config.json` → `current` |
+| Fallback providers | `~/.freecode/config.json` → `recovery.fallbackProviders` |
+| MCP servers | `~/.freecode/config.json` → `mcp.servers` (or `freecode mcp add`) |
+| Timeouts, budgets, debug | [environment variables](/reference/env) |
+| Project instructions | `CLAUDE.md` / `AGENTS.md` |
+| Skills, commands | `.freecode/skills/`, `.freecode/commands/` |
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **One file, three loaders, three merge rules.** `permissions` concatenates
+  scopes, `hooks` override by name, `memory` takes the first definition. All three
+  are defensible in isolation, but nothing states the difference, and
+  `/getting-started/configuration` currently claims a single "project wins" rule
+  that is only true for hooks. A shared loader (parse once, hand each subsystem its
+  section) would make one answer true.
+- **Unknown keys are silently ignored.** `"permission"` instead of `"permissions"`,
+  or a hook field typo, produces no warning anywhere — the settings simply do not
+  apply, which is indistinguishable from the feature being broken. Each loader
+  already warns on *malformed* input; warning on unrecognised top-level keys is
+  the same cost.
+- **No published schema.** There is no `$schema` and no generated JSON Schema, so
+  editors cannot complete or validate the file — for a hand-edited security-relevant
+  file that is the highest-value missing piece.
+- **`once` is parsed but never enforced** (`hooks/settings.ts` → `RegisteredHook`).
+  Either implement per-session tracking or reject the field so it cannot look
+  configured when it is not.
+- **Hooks are not loaded in headless runs.** `HookSettingsManager` is constructed
+  only in `startServer()` (`server.ts:1106`), so `freecode run` silently skips every
+  hook in the file.

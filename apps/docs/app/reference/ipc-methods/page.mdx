@@ -6,15 +6,230 @@ description: "JSON-RPC method signatures and the StreamEvent union."
 # IPC methods
 
 Declared in `packages/shared/src/ipc/protocol.ts`; handled in
-`apps/core/src/server.ts`.
+`apps/core/src/server.ts`. For *how* the transport works — the two kinds of line
+sharing one pipe, why streaming is out of band — read
+[the IPC protocol](/internals/ipc). This page is the listing.
 
-## On this page (coming soon)
+**49 methods are implemented. 24 of them are declared in `METHODS`.** The ✓ column
+below marks the declared ones: those are the calls a TypeScript frontend gets
+compile-time checking for. The rest work identically at runtime and are unchecked
+at compile time ([known gaps](#known-gaps)).
 
-- Tools: `tools.list`, `tools.call`
-- Session: `start`, `send`, `stop`, `list`, `resume`, `switch`, `fork`, `archive`, `delete`, `export`, `import`, `upload`, `download`
-- Providers: `providers.list`, `models.list`
-- Config: `config.get`
-- Memory: `list`, `get`, `save`, `delete`, `query`
-- Question: `question.answer`, `question.reject`
-- Usage: `usage.get`
-- The `StreamEvent` union in full
+Every handler reads its params with an unchecked cast, so a missing field arrives
+as `undefined` rather than as an "invalid params" error.
+
+## Errors
+
+| Code | Meaning |
+| --- | --- |
+| `-32601` | method not found |
+| `-32603` | the handler threw; `message` is the error's text |
+| `-32700` | malformed JSON (web transport) |
+| `-32002` | `REQUEST_ALREADY_RESOLVED` — a prompt was answered by someone else first |
+| `-32001` | unauthorized (web transport) |
+
+`-32602` (invalid params) is never emitted. A line that fails to parse on stdin is
+logged to stderr and dropped — it has no `id` to answer.
+
+## Tools
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+| ✓ | `tools.list` | — | `ToolListItem[]` |
+| ✓ | `tools.call` | `{ name, args }` | `ToolResult` — throws on failure |
+
+`tools.call` runs a tool directly, outside the agent loop and outside the
+permission engine, with `cwd = process.cwd()`.
+
+## Session lifecycle
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+| ✓ | `session.start` | `SessionConfig` — `{ projectPath, provider, model?, agentMode? }` | `{ sessionId }` |
+| ✓ | `session.send` | `{ sessionId, message, images?, model?, agentMode? }` | `LoopResult`, or `{ queued: true, id }` |
+| ✓ | `session.stop` | `{ sessionId }` | `void` |
+| ✓ | `session.dequeue` | `{ sessionId, id }` | `{ removed: boolean }` |
+| ✓ | `session.compact` | `{ sessionId }` | `{ compacted, tokensBefore, tokensAfter, reason? }` |
+| ✓ | `session.list` | `{ projectPath?, status? }` | `SessionMeta[]` |
+| ✓ | `session.resume` | `{ sessionId }` | `{ sessionId, messages }` |
+|  | `session.switch` | `{ sessionId }` | `void` |
+|  | `session.fork` | `{ sessionId }` | `string` — the new session id |
+|  | `session.archive` | `{ sessionId }` | `void` |
+|  | `session.delete` | `{ sessionId }` | `void` |
+|  | `session.getInterrupted` | — | `{ sessionId, messageId } \| null` |
+
+Notes that bite people:
+
+- **`session.start` silently falls back to `process.cwd()`** when `projectPath` is
+  missing or does not exist.
+- **`session.send` is the long call.** If a turn is already running for that
+  session the prompt is *queued*, not raced, and the call resolves immediately with
+  `{ queued: true, id }` plus a `message_queued` event. Queuing a message with
+  images throws instead — dropping them silently would be data loss.
+- **`session.stop` aborts the turn, not the session.** The mapping is kept so the
+  conversation stays continuable after `Ctrl+C`.
+- **`session.resume` seeds provider and model from `config.json`** when the stored
+  session has none, and throws if neither has one.
+- **`session.delete` disposes six per-session caches.** It is the only place that
+  does, which is why ending a session any other way leaks them.
+- **`session.list` never carries transcripts.** The handler's type says
+  `SessionContext[]`, but `messages` is hard-coded to `[]` (`manager.list()`), so
+  the declared `SessionMeta[]` is the honest shape. Use `session.resume` to get
+  messages.
+
+## Session transfer
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+|  | `session.export` | `{ sessionId }` | `ExportedSession` |
+|  | `session.import` | `{ url }` | `{ sessionId }` |
+|  | `session.upload` | `{ sessionId, endpoint, apiKey? }` | `string` — the remote URL |
+|  | `session.download` | `{ url, endpoint?, apiKey? }` | `string` |
+
+## Claude Code import
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+| ✓ | `session.claudeList` | `{ projectPath?, limit? }` | `ClaudeSessionMeta[]` |
+| ✓ | `session.claudeTranscript` | `{ sessionId }` | `ClaudeTranscript` |
+
+Read-only: core never writes to `$CLAUDE_CONFIG_DIR`.
+
+## Providers and models
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+| ✓ | `providers.list` | — | `{ id, name, description, hasApiKey }[]` |
+|  | `models.list` | `{ providerId }` | provider model list |
+|  | `models.contextLimit` | `{ provider, model }` | `number` |
+
+`hasApiKey` is the whole reason `providers.list` is shaped this way — the key
+itself never crosses the pipe.
+
+## Config
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+|  | `config.get` | — | the parsed `~/.freecode/config.json` |
+|  | `config.setApiKey` | `{ provider, apiKey, model? }` | `void` |
+|  | `config.getCurrentModel` / `config.setCurrentModel` | — / `{ provider, model }` | current pair / `void` |
+|  | `config.getLastAgentMode` / `config.setLastAgentMode` | — / `{ mode }` | mode / `void` |
+
+`config.get` returns the file as-is, **API keys included**. It is fine over a
+stdio pipe to a local frontend; it is worth knowing about before exposing the
+backend any other way.
+
+## Memory
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+|  | `memory.list` | `{ projectPath?, type? }` | `MemoryEntry[]` |
+|  | `memory.get` | `{ name, type, projectPath? }` | `MemoryEntry \| null` |
+|  | `memory.save` | `{ entry, projectPath? }` | `void` |
+|  | `memory.delete` | `{ name, type, projectPath? }` | `boolean` |
+|  | `memory.query` | `{ query, projectPath?, limit?, types? }` | `MemoryEntry[]` — relevance-ranked |
+|  | `memory.buildPrompt` | `{ projectPath?, types?, limit?, all? }` | `string` — the whole memory block, unranked |
+|  | `memory.graph.stats` | `{ projectPath? }` | graph stats |
+|  | `memory.graph.rebuild` | `{ projectPath? }` | graph stats, after rebuilding |
+| ✓ | `graph.explore` | — | `{ url }` or `{ error: "not-installed" }` |
+
+`projectPath` defaults to `process.cwd()` everywhere here. `memory.query` routes
+through the graph service (semantic top-k, then a graph walk), falling back to the
+keyword scorer when embeddings are unavailable. Note the odd one out:
+`graph.explore` is the only memory method **not** under the `memory.` prefix, and
+it ignores `projectPath` entirely.
+
+## Prompts
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+| ✓ | `question.answer` | `{ requestId, answers }` | `void` |
+| ✓ | `question.reject` | `{ requestId }` | `void` |
+| ✓ | `permission.answer` | `{ requestId, decision, editedRule? }` | `void` |
+| ✓ | `permission.reject` | `{ requestId }` | `void` |
+
+`decision` is one of `allow-once`, `allow-session`, `allow-project`,
+`allow-always`, `deny`. The last two write a rule into `settings.json`
+(project and user scope respectively). Answering a request that someone else
+already answered returns `-32002`, not a generic failure — with two frontends
+watching one session, losing the race is state, not an error.
+
+Unanswered prompts time out after **30 minutes**, and a timeout resolves to deny.
+If no frontend is listening at all, the ask is rejected immediately — headless
+never means silent allow.
+
+## Everything else
+
+| ✓ | Method | Params | Result |
+| --- | --- | --- | --- |
+| ✓ | `commands.list` | `{ projectPath }` | `CommandInfo[]` |
+| ✓ | `commands.resolve` | `{ name, args, projectPath }` | `{ prompt }` — throws if unknown |
+| ✓ | `skills.list` | `{ projectPath? }` | `{ name, description?, scope }[]` |
+| ✓ | `mcp.status` | `{ name? }` | `{ name, type, enabled, status, toolCount, tools }[]` |
+| ✓ | `history.list` | — | `string[]` |
+| ✓ | `history.append` | `{ text }` | `void` |
+| ✓ | `usage.get` | — | `{ date, tokencount }[]` |
+
+## Stream events
+
+Emitted during `session.send`, one JSON object per line, no JSON-RPC envelope.
+`sessionId` is stamped by the bus bridge on every variant; a client driving one
+session can ignore it, a client multiplexing several cannot.
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `tool_start` | `toolCallId`, `toolName`, `args` | a tool call begins |
+| `tool_output` | `toolCallId`, `content` | incremental tool output |
+| `tool_complete` | `toolCallId`, `toolName`, `result`, `success`, `duration_ms?` | a tool call ends |
+| `text_delta` | `delta` | incremental assistant text (streaming) |
+| `text` | `content` | full assistant text at turn end |
+| `thinking_delta` | `delta` | incremental reasoning |
+| `thinking` | `content` | full reasoning at turn end |
+| `done` | `content` | the turn finished |
+| `error` | `content` | the turn failed |
+| `notice` | `level` (`info` \| `warn`), `content` | advisory that does not fail the turn |
+| `message_queued` | `id`, `content` | a send arrived mid-turn and was parked |
+| `message_dequeued` | `id` | a queued message was removed or started |
+| `memory_saved` | `memories[{ type, name }]` | a memory was written **without** being asked — never for the `memory` tool |
+| `memory_injected` | `memories[{ type, name }]` | retrieval put memories into this turn's prompt; once per user message, not per inner turn |
+| `cache_status` | `state` (`cold` \| `warm` \| `miss`), `message?`, `cacheReadTokens?`, `cacheWriteTokens?` | prompt-cache awareness. `miss` is the alarm: the prefix broke with no recorded cause |
+| `usage_totals` | `totalInputTokens`, `totalOutputTokens`, `totalCacheReadTokens`, `totalCacheWriteTokens?` | once per completed turn |
+| `compaction_start` | `trigger` (`auto` \| `manual`) | compaction began |
+| `compaction_complete` | `trigger`, `compacted`, `tokensBefore`, `tokensAfter`, `reason?` | compaction ended |
+| `question_asked` | `requestId`, `questions[]` | the agent needs an answer — reply with `question.answer` |
+| `permission_asked` | `requestId`, `toolName`, `args`, `description`, `suggestedRule?`, `reason?` | approval needed — reply with `permission.answer` |
+
+Two rendering rules worth encoding once in a client:
+
+- **`text` and `text_delta` are not additive.** On the streaming path you get the
+  deltas *and* a final `text` snapshot; concatenating both duplicates the turn.
+- **`memory_saved` arrives after `done`.** Extraction is fire-and-forget, so treat
+  it as an out-of-band notice rather than part of the turn.
+
+`totalInputTokens` already includes cache writes — `totalCacheWriteTokens` is the
+same tokens broken out for the hit-rate display, so summing them double-counts.
+
+The older `StreamResponse` union (`text` / `code` / `tool` / `done` / `error`)
+still exists in `protocol.ts` for backward compatibility. Prefer `StreamEvent`.
+
+## Known gaps
+
+Also tracked in `TODO.md`; the first three are shared with
+[the IPC internals page](/internals/ipc#known-gaps).
+
+- **`METHODS` declares 24 of 49 methods.** All of `memory.*`, `config.*`,
+  `models.*`, and half of `session.*` are missing, so the map `CLAUDE.md` describes
+  as the source of truth is not yet one.
+- **`METHODS["session.send"]` is wrong.** It declares
+  `StreamResponse | { queued, id }`; the handler resolves a `LoopResult`. Its
+  declared params also omit `model` and `agentMode`, both of which the handler
+  reads — a typed client cannot pass them without a cast.
+- **No `-32602` validation.** Every handler casts `params` unchecked, so a mistyped
+  field surfaces as a confusing `-32603` from deep inside instead of an invalid-params
+  error at the boundary.
+- **`graph.explore` breaks the naming convention** and hard-codes `process.cwd()`
+  while every neighbouring memory method takes `projectPath`. It should be
+  `memory.graph.explore` with the same parameter.
+- **`config.get` returns API keys.** Fine for a local stdio frontend, wrong the
+  moment the backend is reachable any other way; the web transport gates `/api` but
+  the method itself does no redaction.

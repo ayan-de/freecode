@@ -8,16 +8,251 @@ description: "Every freecode subcommand and flag."
 `freecode` with no subcommand launches the terminal UI. Everything else is a
 subcommand.
 
-## On this page (coming soon)
+Every command lives in one yargs chain (`apps/core/src/cli/create-cli.ts`), with
+one file per command under `cli/commands/`. The chain is `.strict()`, so an
+unknown command or an unknown flag is an error rather than something silently
+ignored — if a flag is not on this page, it does not exist.
 
-- `freecode` — launch the TUI
-- `freecode run` — one-shot, non-interactive execution
-- `freecode serve` — run the backend as a server
-- `freecode web` — HTTP/WS bridge plus web UI
-- `freecode mobile` — remote access setup wizard
-- `freecode session list|delete`
-- `freecode memory graph|ui-install`
-- `freecode mcp add|list|remove|start|stop|status`
-- `freecode trace [id] [--follow|--slow|--list|--json|--otlp]`
-- `freecode uninstall`
-- Global flags: `--version`, `--help`
+Two commands are injected by the binary rather than by core (`apps/tui/src/entry.ts`):
+the default `$0` TUI command and `update`. That is why `freecode --help` from the
+installed binary shows two more commands than the core package does.
+
+## Global flags
+
+| Flag | Alias | Effect |
+| --- | --- | --- |
+| `--help` | `-h` | print the logo, then the command list or a command's options |
+| `--version` | `-v` | print the version |
+
+The version comes from `FREECODE_BUILD_VERSION` when set (baked into release
+binaries), otherwise from `package.json`, otherwise the literal string `unknown`.
+
+## `freecode` — the TUI
+
+```bash
+freecode [project] [--resume [id]]
+```
+
+| Argument | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `project` | positional | current directory | directory to open; a missing directory exits `1` |
+| `--resume`, `-r` | string | — | resume a session by id; pass the flag with **no** id to open the session picker |
+
+The project path is resolved and `chdir`'d into before anything else starts, so
+project-scoped settings, skills, and commands are read from there.
+
+In a release binary this is also where the **update check** happens: one GitHub
+API call with a 3-second timeout, and if a newer release exists the installer runs
+and the process re-execs through `~/.freecode/builds/stable/freecode` so the TUI
+you end up in is the new version. Any failure — offline, rate-limited, install
+error — is swallowed and the current version opens.
+
+## `freecode run` — one-shot, headless
+
+```bash
+freecode run [message..] [--model <p/m>] [--agent <mode>] [--continue] [--session <id>]
+```
+
+| Flag | Alias | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `message` | — | positional (variadic) | `[]` | the prompt; words are joined with spaces |
+| `--model` | `-m` | string | config's current model | `provider/model`, e.g. `anthropic/claude-opus-4`. Without a slash it changes only the model |
+| `--agent` | — | string | `build` | `plan` \| `build` \| `review` \| `explore` \| `danger` |
+| `--continue` | `-c` | boolean | `false` | continue the most recent *active* session for this directory |
+| `--session` | `-s` | string | — | continue a specific session id |
+
+If no message positional is given and stdin is not a TTY, the prompt is read from
+stdin — `echo "explain this repo" | freecode run` works.
+
+**Streams split across two file descriptors.** Assistant text goes to **stdout**;
+tool activity, thinking, and errors go to **stderr**. That is what makes
+`freecode run "summarize the diff" > out.md` produce a clean file. Exit code is
+`0` when the turn succeeded, `1` otherwise (including "no message provided" and
+"no provider configured").
+
+The turn is **unbounded** — there is no `--max-turns`. Use
+`FREECODE_MAX_TURN_TOKENS` if you need a spend ceiling in CI.
+
+> **Read this before scripting `run`.** In headless mode nobody can answer a
+> permission prompt, and an unanswerable prompt resolves to **deny**, never to a
+> silent allow. In the default `build` mode every mutating tool (`write`, `edit`,
+> `bash`) defaults to *ask*, so a bare `freecode run "fix the test"` can read your
+> repository but will be denied every write. Make it work by granting the rules up
+> front in `.freecode/settings.json` (`"allow": ["Edit", "Write", "Bash(pnpm test:*)"]`)
+> — or, if you genuinely accept the risk in a sandbox, `--agent danger`, which
+> bypasses evaluation entirely. See [known gaps](#known-gaps).
+
+## `freecode serve` — the backend alone
+
+```bash
+freecode serve
+```
+
+No flags. Starts the JSON-RPC 2.0 backend on stdin/stdout — the same process the
+TUI spawns internally, and what any other frontend attaches to. See
+[IPC methods](/reference/ipc-methods).
+
+This is also the only entry point that loads `settings.json` **hooks** and
+registers the built-in `rtk` rewrite hook.
+
+## `freecode web` — browser frontend
+
+```bash
+freecode web [--port 4096] [--host 127.0.0.1] [--open] [--require-auth]
+```
+
+| Flag | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--port` | number | `4096` | port to listen on |
+| `--host` | string | `127.0.0.1` | interface to bind |
+| `--open` | boolean | `true` | open the browser; `--no-open` to suppress |
+| `--require-auth` | boolean | `false` | demand the bearer token even on loopback |
+
+Auth is bind-dependent: on a non-loopback host a token is always required, and
+`--require-auth` extends that to loopback too. The process then blocks forever —
+`Ctrl+C` is how you stop it.
+
+## `freecode mobile` — phone pairing wizard
+
+```bash
+freecode mobile [--port 4096]
+```
+
+The guided version of `freecode web --host <tailnet-name>`: checks, installs,
+starts and signs into Tailscale, resolves the MagicDNS hostname, mints a token,
+prints a pairing QR code, and confirms when a device actually connects. If the
+Tailscale setup does not complete, nothing is started and the exit code is `1`.
+
+## `freecode session`
+
+```bash
+freecode session list [--project <path>]
+freecode session delete <sessionId>
+```
+
+| Command | Argument | Meaning |
+| --- | --- | --- |
+| `list` | `--project <path>` | list sessions, optionally filtered to one project path |
+| `delete` | `<sessionId>` (required) | delete a session |
+
+Sub-commands are required — `freecode session` alone prints the help and exits
+non-zero. Fork, archive, export, and import exist in the backend but have no CLI
+surface yet ([known gaps](#known-gaps)).
+
+## `freecode memory`
+
+```bash
+freecode memory graph stats   [--project <path>]
+freecode memory graph rebuild [--project <path>]
+freecode memory ui-install    [--addon-version <tag>]
+freecode memory ui-uninstall
+```
+
+| Command | Meaning |
+| --- | --- |
+| `graph stats` | node/edge/vector counts for the derived memory graph |
+| `graph rebuild` | rebuild vectors and graph from the memory files on disk |
+| `ui-install` | download the optional graph explorer addon into `~/.freecode/addons/graph-ui/` |
+| `ui-uninstall` | remove that addon |
+
+`--project` defaults to the current directory. The explorer is an opt-in
+(~280 KB) download, which is why `graph.explore` over IPC answers
+`{ error: "not-installed" }` rather than starting an empty server. Background:
+[memory knowledge graph](/internals/knowledge-graph).
+
+## `freecode trace`
+
+```bash
+freecode trace [sessionId] [--follow] [--slow <ms>] [--tools] [--json] [--list] [--otlp <url>]
+```
+
+| Flag | Alias | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `sessionId` | — | positional | most recent session | which session to render |
+| `--follow` | `-f` | boolean | — | re-render live as the session runs |
+| `--slow` | — | number | — | only show model calls slower than N ms |
+| `--tools` | — | boolean | `true` | include tool calls in the waterfall; `--no-tools` for model calls only |
+| `--json` | — | boolean | — | emit the assembled trace as JSON |
+| `--list` | — | boolean | — | list recorded sessions instead of tracing one |
+| `--otlp` | — | string | `$OTEL_EXPORTER_OTLP_ENDPOINT` | ship the trace to an OTLP collector (Langfuse, Phoenix, Jaeger) |
+
+The trace is folded from the rollout event log, so it works on sessions that have
+already finished — and on ones that hung, which is the point: a `model.request`
+with no matching response *is* the evidence. See [tracing](/guides/tracing).
+
+## `freecode mcp`
+
+```bash
+freecode mcp list
+freecode mcp add <name> <local|remote> <command-or-url>
+freecode mcp remove <name>
+freecode mcp start <name>
+freecode mcp stop <name>
+freecode mcp status <name>
+```
+
+| Command | Arguments | Notes |
+| --- | --- | --- |
+| `list` | — | reads config only; it does not connect. The output says so |
+| `add` | `<name> <type> <command>` | `type` is `local` or `remote`. For `local` the command string is split on spaces; for `remote` it is the URL |
+| `remove` | `<name>` | |
+| `start` / `stop` / `status` | `<name>` | |
+
+Servers are written to `~/.freecode/config.json` under `mcp.servers`, with
+`enabled: true` and `timeout: 5000` defaults. There is no project-scoped MCP
+config ([known gaps](#known-gaps)).
+
+## `freecode update`
+
+Runs `curl -fsSL https://freecode.website/install | bash` and exits with the
+installer's status. Injected by the binary, so it is not present when running core
+from source.
+
+## `freecode uninstall`
+
+```bash
+freecode uninstall [--force]
+```
+
+| Flag | Alias | Default | Meaning |
+| --- | --- | --- | --- |
+| `--force` | `-f` | `false` | skip the confirmation prompt |
+
+Removes `~/.freecode` **entirely**, plus a `freecode` binary found in
+`/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or `~/.cargo/bin`. It prints the
+list first and asks `y/n` unless `--force` is given. Exit code is `1` if any
+removal failed.
+
+That directory is not just the binary: it contains your sessions, rollout logs,
+memory, prompt history, and usage data. There is no `--keep-data`, and nothing is
+backed up. Copy `~/.freecode/projects/` and `~/.freecode/sessions/` first if you
+might want them back.
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **`freecode run` runs without hooks.** `HookSettingsManager` is constructed only
+  in `startServer()` (`server.ts:1106`), so a headless run never loads
+  `settings.json` hooks and never registers the built-in `rtk` hook. Permission
+  *rules* do apply (the loop builds its own `PermissionSettingsManager`), so the
+  same command behaves differently under `serve` and under `run` — the formatter
+  you rely on after every edit silently does not run in CI.
+- **Headless `build` mode is a trap.** Every unanswerable "ask" resolves to deny
+  (`permission/prompt.ts:44`), and `build` defaults mutating tools to ask, so the
+  common first command produces a turn full of denials with no hint that a rule
+  would fix it. A `--yes`/`--allow <rule>` flag, or a one-line explanation on the
+  first denial, would remove the whole class of confusion.
+- **`--agent` is not validated.** `argv.agent as AgentMode` is an unchecked cast
+  (`run.ts:140`); `--agent buld` falls through `modeDefault`'s `default` branch and
+  silently runs with **build** semantics. yargs `choices` would catch it at parse
+  time, as `mcp add`'s `type` already does.
+- **`session` CLI covers 2 of 12 operations.** `fork`, `switch`, `archive`,
+  `export`, `import`, `upload`, `download` all exist over IPC and none has a CLI
+  surface, so scripting session management means speaking JSON-RPC by hand.
+- **MCP config is user-scope only.** `getConfigDir()` is hard-wired to
+  `~/.freecode`, so a repository cannot ship the MCP servers its contributors need
+  the way it can ship permission rules and hooks.
+- **`uninstall` deletes user data with one `y`.** No `--keep-data`, no backup, and
+  the prompt does not spell out that sessions and memory are inside the directory
+  being removed.
