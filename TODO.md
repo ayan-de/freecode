@@ -338,6 +338,33 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Session delete is a status flag** — files stay on disk
       (`session/store.ts:337`). Recoverable by design, but a transcript holds file
       contents and command output; add `--purge` rather than changing the default.
+- [ ] **7 of 16 rollout event types have no emitter** — `turn.aborted`,
+      `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
+      `context.overflow`, `parse.error` are defined and recordable, but no live
+      call site invokes their `record*` method. Replay is silent about sub-agents,
+      skills, aborts and overflows. The loop already knows each of these moments —
+      `context.overflow` at `loop.ts:1003`, subagent start/stop in `tools/agent.ts`,
+      `hook.triggered` alongside the existing `recordHookBlocked` (`loop.ts:2069`).
+- [ ] **Compaction summaries never see tool activity** — `MemoryService` records
+      only user prompts and assistant text; a tool-calling turn is stored as the
+      stub `[Executed N tools]` (`loop.ts:1567`). The transcript handed to the
+      summarizer contains none of the edits, commands, or errors that were the
+      actual work. **Biggest quality gap in compaction.**
+- [ ] **Two heuristic-summarizer paths are consequently dead** —
+      `extractToolCalls()` scans for `Tool <name>:` (`summarizer.ts:106`) and
+      `normalizeContent()` truncates content starting with `"Tool "`
+      (`service.ts:63`); no message ever has that shape, so the **Decisions**
+      section is always `(none)` and `maxToolOutputChars` never applies.
+- [ ] **Dead export: `renderPromptMemoryContext()`** (`selector.ts:64`) —
+      referenced only by `loop.ts` comments explaining why it must not be used.
+- [ ] **`getContextLimit(model)` ignores its argument** (`tokens.ts:20`) and
+      returns the constant floor. Rename or drop the parameter.
+- [ ] **Blocked-compaction retry threshold is hardcoded** — fixed 5,000 tokens
+      (`service.ts:34`, flagged `ponytail` in-code); make it a `CompactionConfig`
+      field if a hook ever needs tighter control.
+
+        One thing I checked and didn't report as a bug: manual /compact builds its own MemoryService separate from the loop's. That would be a divergence risk,
+  except a fresh loop (and service) is constructed per turn at server.ts:199 and reloads state from disk, so they stay consistent.
 
 ### B. Deliberate — do NOT "fix"
 
@@ -352,6 +379,14 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
   duplication; it is the reason compaction can trim history without destroying the
   record of what happened.
 - **Cascade skips `Contradicts`; tag/cluster nodes relay but never score.**
+- **Compaction fires on a cost target (120K), not on window fit.** Fit-only left a
+  1M-window session re-sending 270K every turn — 48.1M input tokens in one
+  7-message session. Raising `FREECODE_COMPACT_TARGET_TOKENS` reverts that.
+- **Tool-result pruning freezes anything already sent whole.** It looks wasteful;
+  it is what keeps the prompt-cache prefix byte-stable. Do not replace it with a
+  sliding window.
+- **`MAX_OVERFLOW_COMPACTIONS = 3`, and the retry is not re-wrapped.** A second
+  overflow in one turn means compaction isn't converging; looping burns quota.
 - **k-means determinism (`SEED = 42`, id-sorted points).** Non-deterministic
   clustering means the same store retrieving different memories on different days.
 

@@ -270,14 +270,21 @@ transcript contains file contents and command output from your machine.
 
 ## Known gaps
 
-1. **The thread store is written but not used** (above). Two systems answer "what
+1. **Seven of the sixteen event types have no emitter.** `turn.aborted`,
+   `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
+   `context.overflow`, and `parse.error` are defined, typed, and recordable — but
+   nothing in the live path calls their `record*` method. A replay therefore shows
+   turns, tool calls, model calls, compactions, and blocked hooks, and is silent
+   about sub-agents, skills, aborts, and overflows. The recorder methods exist;
+   they just need call sites at the moments the loop already knows about.
+2. **The thread store is written but not used** (above). Two systems answer "what
    sessions exist?"; only one of them is consulted.
-2. **Delete leaves everything on disk.** A status flag is not erasure, which
+3. **Delete leaves everything on disk.** A status flag is not erasure, which
    matters if a transcript captured something sensitive.
-3. **`session/normalize/` is dead code.** Those provider-response normalizers
+4. **`session/normalize/` is dead code.** Those provider-response normalizers
    (ChatGPT/Claude/Gemini raw shapes) date from the browser-automation era and
    have no callers — normalization now lives in `providers/streaming.ts`.
-4. **Session end is not a signal.** There is no "session finished" event, which is
+5. **Session end is not a signal.** There is no "session finished" event, which is
    why persistent memory has no end-of-session flush
    ([Memory](/internals/memory#known-gaps)) and why `status` only ever changes
    through an explicit archive, delete, or interrupt.
