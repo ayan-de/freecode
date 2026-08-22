@@ -611,6 +611,12 @@ that page's **Known gaps**.
       `--max-turns` option that was never added. So an unattended `freecode run`
       has no turn cap at all — only loop-health and the gates. Add the flag, or fix
       both comments.
+- [ ] **The spend circuit breaker is off by default** (`loop.ts:812`,
+      `compaction/tokens.ts:105`). `FREECODE_MAX_TURN_TOKENS` is unset unless the
+      user sets it, so nothing caps actual spend. Combined with the item above, an
+      unattended run has neither a turn cap nor a token cap, and loop-health only
+      *warns* on the stuck patterns most likely to burn quota (stagnation never
+      stops at all). Consider a default ceiling for headless runs.
 
 ### Deliberate — do NOT "fix"
 
@@ -634,3 +640,121 @@ that page's **Known gaps**.
   re-sends the whole conversation for a guaranteed rejection.
 - **Provider errors are stringified before they reach logs or the bus.** The SDK
   error carries the entire request on `requestBodyValues`.
+
+## Docs-audit findings (provider layer — 2026-08-23)
+
+Found while writing `apps/docs/app/internals/providers`. Each is also listed in
+that page's **Known gaps**.
+
+### Real fixes
+
+- [ ] **Gemini's provider id doesn't exist on models.dev — highest-impact item
+      here.** FreeCode registers `gemini`; models.dev calls it `google` (verified
+      against the cached catalogue: `google` has 39 models, `gemini` is absent).
+      So every lookup fails for the provider with the largest windows:
+      `getModelContextLimit` → `0`, so `resolveContextLimit` returns `undefined`
+      and compaction budgets against the 100K offline floor instead of 1M;
+      `models.list` → `[]`, so the picker shows no Gemini models;
+      `modelSupportsImages` → `false`, so images are never sent to Gemini and the
+      user is advised to "switch to a vision model (e.g. an Anthropic, OpenAI, or
+      Gemini model)". The other five ids resolve. Fix with an id-mapping table in
+      `models-dev.ts` (`gemini → google`), and check the reverse direction before
+      adding any future provider.
+- [ ] **`providers.list` returns models.dev's whole catalogue, not FreeCode's
+      providers.** `server.ts:618` calls `getProviders()` — 200+ entries such as
+      `hpc-ai`, `qiniu-ai`, `zenifra` — and runs `hasApiKey` against ids the
+      registry cannot instantiate, so choosing one fails with
+      `Provider "X" not registered`. The registry's own `listProviders()` is
+      imported at `server.ts:14` and never used. Either return the registry list
+      (joined with models.dev metadata) or filter the catalogue by registered id.
+- [ ] **`getProvider()` builds a fresh SDK client per call and reads config from
+      disk each time.** `registry.ts:24` calls `def.create("")` on every lookup;
+      each adapter's factory calls `getApiKey()`, which does a synchronous
+      `readFileSync` + `JSON.parse` of `~/.freecode/config.json`. That is a
+      blocking disk read at least once per turn (`callProviderOnce`) plus once per
+      compaction (`compactOptions`). Memoize per provider id, invalidating when
+      config changes.
+- [ ] **`readConfig()` throws on a malformed `config.json`** (`config.ts:39`,
+      bare `JSON.parse`). It propagates out of `createRecoveryManagerFromConfig()`
+      during loop construction, so a stray comma takes down the session rather
+      than degrading. Every other settings loader warns and falls back.
+- [ ] **`summarizeCache`'s hit ratio is both wrong and unused.**
+      `read / (read + inputTokens)` (`cache-awareness.ts:71`) treats `inputTokens`
+      as the fresh portion, but `NormalizedUsage.inputTokens` is inclusive of
+      cache reads and writes — so reads are double-counted in the denominator.
+      Nothing outside `cache-awareness.test.ts:38` reads `hitRatio` (the loop
+      destructures only `readTokens`/`writeTokens`), and the test asserts the old
+      non-inclusive semantics. Either fix to
+      `read / (read + nonCachedInputTokens + write)` and use it, or delete it.
+- [ ] **A total cache failure is invisible to the miss detector.**
+      `emitCacheWarm` returns before `checkCacheHealth` when reads and writes are
+      both zero (`loop.ts:1910`), and `checkCacheUsage`'s `!reportsCache` branch
+      would bail anyway (`cache-miss.ts:82`) — so `expected_read_missing` is
+      reachable only when a write happened. "Caching stopped entirely" is the case
+      most worth alarming on.
+- [ ] **Only `anthropic` is treated as a caching provider for the cold warning.**
+      `CACHING_PROVIDERS` (`cache-awareness.ts:24`) is a one-element set, but
+      `minimax` and `zai` use the same Anthropic endpoint shape and carry the same
+      `cacheControl` markers, so their users never see the cold-cache warning.
+- [ ] **A changing tool set busts the prompt cache with nothing in the
+      journal.** `invalidateToolDefs()` (`tools/defs-cache.ts:49`) fires on
+      `tools.changed` / `mcp.tools.changed`; the tools array sits inside the
+      cached prefix, so the next request necessarily misses. No
+      `recordInvalidation` call, so the detector reports an unexplained bust —
+      the false positive the journal exists to prevent.
+- [ ] **`ProviderRegistryTag` has no consumer.** Defined at
+      `effect/context.ts:60` and wired into both live and test layers
+      (`effect/layers.ts:68`, `:182`), but nothing resolves it — the loop calls
+      `getProvider()` directly, so the seam that would let a test swap providers
+      is inert.
+- [ ] **`ProviderDefinition.create(apiKey)` ignores its argument.** All six
+      adapters take `_apiKey` and call `getApiKey()` themselves; `getProvider`
+      passes `""`. Drop the parameter or actually thread the key through it.
+- [ ] **`ExecuteResult.thinking` is dead for every provider.** All six set
+      `thinking: undefined` in `execute()`; reasoning reaches the loop only as
+      `thinking_delta` on the streaming path, so a non-streaming turn loses
+      extended thinking silently. Related: there is no thinking-budget or
+      reasoning-effort field anywhere in `ExecuteOptions`.
+- [ ] **`ProviderInfo.maxOutputTokens`'s doc comment is stale** (`types.ts:10`).
+      It says compaction subtracts it; compaction subtracts
+      `resolveMaxOutputTokens()` (models.dev ∧ `OUTPUT_TOKEN_CAP`). The field is
+      only a fallback for callers that omit `maxTokens`, and it is 4096 for four
+      of the six providers.
+- [ ] **`session/normalize/` is unreachable dead code.** The v4 spec describes a
+      `ProviderResponseNormalizer` layer with per-provider modules; nothing
+      imports it. Real normalization is `streaming.ts` + `mapUsage`. It also holds
+      a second `[TOOL_CALLS]` parser duplicating `loop.ts:1959`.
+- [ ] **`browser/` has zero importers.** `CLAUDE.md` calls the Playwright path
+      "legacy / not wired into the primary path"; it is actually unreachable — no
+      file outside the directory imports it, and `chatgpt` is not registered.
+      Decide: delete it, or wire it behind a flag and say so.
+
+### Deliberate — do NOT "fix"
+
+- **`PROVIDER_MAX_RETRIES = 0`.** The SDK's own retries multiply with
+  `RecoveryManager`'s (3 × 5 = up to 15 full-conversation round trips per turn)
+  and it treats an unpayable quota 429 as retryable.
+- **Cache markers are set for every provider flavour at once.** The SDK routes
+  `providerOptions` by key and ignores the rest, so a model reached through a
+  gateway caches as well as a direct one, for free.
+- **`ttl` is omitted at 5m rather than sent explicitly.** 5m is the server-side
+  default, so omitting it keeps request bytes identical to the pre-knob build —
+  the default path cannot regress.
+- **The read anchor is the message *before* the newest assistant message, not
+  `.slice(-2)`.** `convertToCoreMessages` expands one turn into two messages, so
+  the two-back rule lands on two messages that are both new (measured: reads
+  pinned at ~7K while input grew to 81K).
+- **The last tool carries a cache breakpoint.** Anthropic caches up to and
+  including a marked block, so one marker caches the whole tools array; the
+  name-sorted tool list is what keeps "last" stable.
+- **Malformed tool arguments fail the turn instead of being cast.** The AI SDK
+  emits the raw JSON string as `input`; storing it poisons the session
+  permanently, because it is re-sent every turn and rejected before reaching the
+  model.
+- **Timeouts sit at the fetch layer, never around `ProviderChunk`s.**
+  `normalizeAiSdkStream` drops `tool-input-delta`, so a large tool call looks
+  like a dead stream from above it.
+- **`mapUsage` returns `undefined` rather than `0` for unknown counts**, so "no
+  usage data" stays distinguishable from a real zero.
+- **`modelSupportsImages` fails closed on an unknown model.** An image part sent
+  to a text-only model is a hard 400.
