@@ -22,8 +22,8 @@ interface WriteParams {
 const writeSchema: JsonSchema = {
   type: "object",
   properties: {
-    content: { description: "The content to write to the file" },
-    filePath: { description: "The absolute path to the file to write" },
+    content: { type: "string", description: "The content to write to the file" },
+    filePath: { type: "string", description: "The absolute path to the file to write" },
   },
   required: ["content", "filePath"],
 };

@@ -31,22 +31,26 @@ interface GrepParams {
 const grepSchema: JsonSchema = {
   type: "object",
   properties: {
-    pattern: { description: "Regular expression pattern to search for" },
-    path: { description: "Directory to search in (defaults to cwd)" },
-    include: { description: 'File pattern filter (e.g. "*.ts", "*.{ts,tsx}")' },
-    glob: { description: "Glob pattern to include/exclude" },
+    pattern: { type: "string", description: "Regular expression pattern to search for" },
+    path: { type: "string", description: "Directory to search in (defaults to cwd)" },
+    include: {
+      type: "string",
+      description: 'File pattern filter (e.g. "*.ts", "*.{ts,tsx}")',
+    },
+    glob: { type: "string", description: "Glob pattern to include/exclude" },
     "-n": { type: "boolean", description: "Show line numbers in output" },
     "-i": { type: "boolean", description: "Case insensitive search" },
     "-C": { type: "number", description: "Show N lines of context before and after matches" },
     "-B": { type: "number", description: "Show N lines of context before matches" },
     "-A": { type: "number", description: "Show N lines of context after matches" },
     output_mode: {
+      type: "string",
       description: "Output format: content, files_with_matches, or count",
       enum: ["content", "files_with_matches", "count"],
     },
     head_limit: { type: "number", description: "Maximum number of matches to return" },
-    type: { description: "Filter by file type (e.g. 'ts', 'js')" },
-    cwd: { description: "Current working directory" },
+    type: { type: "string", description: "Filter by file type (e.g. 'ts', 'js')" },
+    cwd: { type: "string", description: "Current working directory" },
   },
   required: ["pattern"],
 };

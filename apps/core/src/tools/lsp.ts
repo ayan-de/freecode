@@ -56,6 +56,7 @@ const lspSchema: JsonSchema = {
   type: "object",
   properties: {
     operation: {
+      type: "string",
       description:
         "Operation: 'documentSymbol' (list symbols defined in a file, needs filePath), 'workspaceSymbol' (find symbols by name across the repo, needs query), 'diagnostics' (a file's errors/warnings), or 'hover'/'definition'/'references' at a position (need line & character). documentSymbol/workspaceSymbol use tree-sitter and need no language server; the others require the host language server.",
       enum: OPERATIONS,

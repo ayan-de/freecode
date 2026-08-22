@@ -13,7 +13,7 @@
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
-import { coerceNumber } from "./read.js";
+import { coerceNumber } from "./coerce-args.js";
 import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
 import { DEFAULT_LINES } from "./output-store/config.js";
 

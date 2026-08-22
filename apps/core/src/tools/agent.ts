@@ -12,7 +12,7 @@ import { BusEvents } from "../bus/index.js";
 import type { HookContext } from "../agent/types.js";
 import type { HookRuntime } from "../hooks/runtime.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
-import { coerceBoolean } from "./read.js";
+import { coerceBoolean } from "./coerce-args.js";
 
 interface AgentParams {
   task: string;
@@ -28,9 +28,10 @@ interface AgentParams {
 const agentSchema: JsonSchema = {
   type: "object",
   properties: {
-    task: { description: "Brief description of the task for the sub-agent" },
-    prompt: { description: "The actual prompt/instruction for the sub-agent" },
+    task: { type: "string", description: "Brief description of the task for the sub-agent" },
+    prompt: { type: "string", description: "The actual prompt/instruction for the sub-agent" },
     agentType: {
+      type: "string",
       description: "Optional: AI provider to use (e.g., 'chatgpt', 'claude')",
     },
     forkContext: {

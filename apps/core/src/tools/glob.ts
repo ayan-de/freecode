@@ -27,10 +27,11 @@ const globSchema: JsonSchema = {
   type: "object",
   properties: {
     pattern: {
+      type: "string",
       description: "Glob pattern to match (e.g. '**/*.ts', 'src/**/*.js')",
     },
-    path: { description: "Directory to search in (defaults to cwd)" },
-    cwd: { description: "Current working directory" },
+    path: { type: "string", description: "Directory to search in (defaults to cwd)" },
+    cwd: { type: "string", description: "Current working directory" },
   },
   required: ["pattern"],
 };

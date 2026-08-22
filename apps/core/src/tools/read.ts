@@ -8,6 +8,7 @@ import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import { getReadState, canDedup } from "./read-state.js";
+import { coerceNumber, coerceBoolean, isPositiveInt } from "./coerce-args.js";
 
 interface ReadParams {
   filePath: string;
@@ -109,38 +110,6 @@ const readSchema: JsonSchema = {
   },
   required: ["filePath"],
 };
-
-// Some providers (notably MiniMax via the Anthropic-compat endpoint) serialize
-// numeric tool args as strings ("260"). Accept a number or a numeric string;
-// return undefined for anything else so callers fall back to their default.
-export function coerceNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const n = Number(value);
-    if (Number.isFinite(n)) return n;
-  }
-  return undefined;
-}
-
-// A 1-based line number or count: whole, and at least 1. Accepts the numeric
-// strings coerceNumber does, so a provider that stringifies args is not punished
-// for it.
-export function isPositiveInt(value: unknown): boolean {
-  const n = coerceNumber(value);
-  return n !== undefined && Number.isInteger(n) && n >= 1;
-}
-
-// Same story for booleans: "true"/"false" arrive as strings from the same
-// providers, and `params.asImage === true` would silently read a PNG as text.
-export function coerceBoolean(value: unknown): boolean | undefined {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const v = value.trim().toLowerCase();
-    if (v === "true") return true;
-    if (v === "false") return false;
-  }
-  return undefined;
-}
 
 // =============================================================================
 // Input validation

@@ -21,8 +21,12 @@ interface WebFetchParams {
 const webfetchSchema: JsonSchema = {
   type: "object",
   properties: {
-    url: { description: "The URL to fetch content from (http:// or https://)" },
+    url: {
+      type: "string",
+      description: "The URL to fetch content from (http:// or https://)",
+    },
     format: {
+      type: "string",
       description:
         "Return format: 'text', 'markdown', or 'html'. Defaults to markdown.",
       enum: ["text", "markdown", "html"],

@@ -34,7 +34,7 @@ function getSkillsManager(ctx: ToolContext): SkillsManager {
 const skillSchema: JsonSchema = {
   type: "object",
   properties: {
-    name: { description: "The name of the skill to load" },
+    name: { type: "string", description: "The name of the skill to load" },
   },
   required: ["name"],
 };

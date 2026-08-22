@@ -25,9 +25,9 @@ const MAX_OUTPUT_BYTES = 500_000;
 const bashSchema: JsonSchema = {
   type: "object",
   properties: {
-    command: { description: "The shell command to execute" },
+    command: { type: "string", description: "The shell command to execute" },
     timeout: { type: "number", description: "Timeout in milliseconds (default: 60000)" },
-    workdir: { description: "Working directory for the command" },
+    workdir: { type: "string", description: "Working directory for the command" },
   },
   required: ["command"],
 };

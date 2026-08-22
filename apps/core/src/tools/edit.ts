@@ -33,9 +33,9 @@ const MULTIPLE_CANDIDATES_THRESHOLD = 0.3;
 const editSchema: JsonSchema = {
   type: "object",
   properties: {
-    filePath: { description: "Absolute path to the file to edit" },
-    oldString: { description: "The exact text to replace" },
-    newString: { description: "The replacement text" },
+    filePath: { type: "string", description: "Absolute path to the file to edit" },
+    oldString: { type: "string", description: "The exact text to replace" },
+    newString: { type: "string", description: "The replacement text" },
     replaceAll: {
       type: "boolean",
       description: "Replace all occurrences (default: false)",

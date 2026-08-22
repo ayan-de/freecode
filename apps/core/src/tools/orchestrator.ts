@@ -18,6 +18,7 @@ import { isToolAllowed, type PermissionProfile } from "../permission/index.js";
 import type { Tool } from "./tool.types.js";
 import { isTransientError } from "../agent/recovery/manager.js";
 import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
+import { coerceArgs } from "./coerce-args.js";
 import { logger } from "../utils/logger.js";
 
 // =============================================================================
@@ -137,7 +138,7 @@ export function createToolOrchestrator(
       call: ToolCall,
       ctx: ToolContext = defaultToolContext,
     ): Promise<ToolResult> {
-      const { id: toolId, tool, args } = call;
+      const { id: toolId, tool } = call;
 
       // 0. Permission check (orchestrator level)
       if (permissionProfile) {
@@ -164,6 +165,12 @@ export function createToolOrchestrator(
           error: `Tool '${tool}' not found`,
         };
       }
+
+      // 1.5 Normalize quoted scalars ("30" → 30) against the declared schema,
+      // before validation and permissions so every downstream step sees the
+      // same coerced args. Without this a provider that stringifies numbers is
+      // rejected by validateToolInput and re-sends the identical call.
+      const args = coerceArgs(toolDef.schemas?.parameters, call.args);
 
       // 2. Per-tool input validation
       const validationResult = validateToolInput(toolDef, args);

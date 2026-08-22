@@ -20,7 +20,7 @@ interface WebSearchParams {
 const websearchSchema: JsonSchema = {
   type: "object",
   properties: {
-    query: { description: "The search query" },
+    query: { type: "string", description: "The search query" },
     count: {
       description: `Number of results to return (default ${DEFAULT_COUNT}, max ${MAX_COUNT})`,
       type: "number",
