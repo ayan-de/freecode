@@ -362,6 +362,25 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Blocked-compaction retry threshold is hardcoded** — fixed 5,000 tokens
       (`service.ts:34`, flagged `ponytail` in-code); make it a `CompactionConfig`
       field if a hook ever needs tighter control.
+- [ ] **`METHODS` declares 24 of 49 implemented IPC methods** — all of `memory.*`,
+      `config.*`, `models.*`, and `session.{fork,switch,archive,delete,export,
+      import,upload,download,getInterrupted}` exist in `server.ts` but not in
+      `packages/shared/src/ipc/protocol.ts`. Frontends calling them get zero
+      compile-time checking, which is the entire purpose of that map.
+      (`CLAUDE.md` describes it as the source of truth — it isn't yet.)
+- [ ] **`METHODS["session.send"]` is wrong** — declares
+      `StreamResponse | { queued, id }` as the result; the handler resolves a
+      `LoopResult` (`agent/types.ts:309`). Declared params also omit `model` and
+      `agentMode`, both read by the handler (`server.ts:376`).
+- [ ] **No `-32602` invalid-params validation** — every handler does
+      `params as { … }` with no runtime check, so a missing or mistyped field
+      becomes `undefined` deep inside and surfaces as a confusing `-32603`.
+      A one-line guard per handler (or a shared validator keyed off `METHODS`)
+      would move the failure to the boundary where it belongs.
+- [ ] **TUI client can only stream one session at a time** — single
+      `activeStreamId` + single `onStreamEvent` slot (`apps/tui/src/ipc/client.ts:46`),
+      even though `bus/bridge.ts` stamps `sessionId` specifically to allow
+      multiplexing. Blocks any multi-session UI over one core process.
 
         One thing I checked and didn't report as a bug: manual /compact builds its own MemoryService separate from the loop's. That would be a divergence risk,
   except a fresh loop (and service) is constructed per turn at server.ts:199 and reloads state from disk, so they stay consistent.
@@ -387,6 +406,14 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
   sliding window.
 - **`MAX_OVERFLOW_COMPACTIONS = 3`, and the retry is not re-wrapped.** A second
   overflow in one turn means compaction isn't converging; looping burns quota.
+- **Stream events are bare `{type,…}` objects, not JSON-RPC notifications.** The
+  envelope-free shape is intentional; changing it breaks all four clients at once.
+  (Standardising on notifications is still worth considering — listed under fixes.)
+- **`-32002` is a distinct code, not a generic internal error.** Two frontends
+  answering one prompt is a race, not a failure; the loser renders "already
+  answered" as state.
+- **Web auth gates `/api` and `/events` but not the static SPA.** Gating the page
+  would block the page that delivers the token.
 - **k-means determinism (`SEED = 42`, id-sorted points).** Non-deterministic
   clustering means the same store retrieving different memories on different days.
 
