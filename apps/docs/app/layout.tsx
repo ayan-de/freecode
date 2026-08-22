@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { Layout, Navbar } from "nextra-theme-docs";
 import { getPageMap } from "nextra/page-map";
 import "nextra-theme-docs/style.css";
@@ -10,7 +11,9 @@ export const metadata = {
 
 const navbar = (
   <Navbar
-    logo={<strong>FreeCode</strong>}
+    logo={
+      <Image src="/logo.svg" alt="FreeCode" width={143} height={30} priority />
+    }
     projectLink="https://github.com/thisisayande/freecode"
   />
 );
