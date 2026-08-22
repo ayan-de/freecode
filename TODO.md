@@ -527,3 +527,110 @@ earlier audit are not repeated here.
   server-level rules are the supported granularity in v1.
 - **Hook payloads are env vars, not stdin JSON.** A three-line bash script is a
   complete hook implementation in any language, with nothing to parse.
+
+## Docs-audit findings (agent loop — 2026-08-23)
+
+Found while writing `apps/docs/app/internals/agent-loop`. Each is also listed in
+that page's **Known gaps**.
+
+### Real fixes
+
+- [ ] **`PruneState` doesn't survive the user turn, so it invalidates the cache it
+      exists to protect.** It is a private field (`loop.ts:315`) and a fresh
+      `AgentLoop` is constructed per user message (`server.ts:199`), so on message
+      N+1 every tool result is `fresh` again and a result previously sent as a
+      marker is re-sent at full size — mutating the prefix at message granularity
+      instead of turn granularity. Candidate ids are derived deterministically from
+      persisted message ids (`loop.ts:379`), so keying the state by `sessionId` —
+      as `read-state` and `cache-awareness` already do — fixes it without changing
+      the algorithm.
+- [ ] **The `Stop` hook never fires on a normal finish.** Only `stop()`
+      (`loop.ts:2455`) runs it: iteration cap, loop-health stop, spend budget. The
+      `"Done"` path returns straight from `complete()` (`loop.ts:938`) and `fail()`
+      doesn't call it either, so "notify me when the agent is done" only fires when
+      it ends badly. `/internals/hooks` currently describes it as "when the loop
+      terminates".
+- [ ] **`SessionStart` fires per user message, not per session** (`loop.ts:593`,
+      inside `run()`). Either rename it or gate it on the session's first run.
+- [ ] **The tree watcher can't reach the prompt.** `run()` calls `ensureWatching`
+      (`loop.ts:564`) to keep project context fresh, but the prompt reads
+      `getFrozenSessionContext` (`context/session-context.ts:39`), which snapshots
+      once per session; `getProjectContext` has no other caller. The freeze is
+      correct for cache stability — so the watcher is pure cost today, and a long
+      session's file tree is permanently the one from its first turn. Either drop
+      the watcher or give the freeze an explicit refresh point (e.g. after
+      compaction, which rebuilds the prefix anyway).
+- [ ] **`ToolContext.projectPath` is never set by the loop.** `executeTool` builds
+      `{ cwd: process.cwd(), sessionId, abort }` (`loop.ts:2199`), so relative paths
+      resolve against core's working directory rather than `state.projectPath`, and
+      `lsp` / `memory` (which read `ctx.projectPath ?? ctx.cwd`) act on the wrong
+      project whenever core was launched elsewhere.
+- [ ] **The `agent` tool spawns subagents on an unregistered provider.**
+      `provider: params.agentType || "chatgpt"` (`tools/agent.ts:126`) while
+      `initProviders` registers only anthropic/openai/gemini/minimax/deepseek/zai
+      (`providers/registry.ts:35`), so `getProvider` throws on the subagent's first
+      turn unless the model puts a real provider id in a field whose description
+      calls it an agent type. It also drops the parent's model and omits
+      `memoryExtraction: false`, which `agent/subagent.ts:70` sets for the same
+      reason.
+- [ ] **Loop-health heuristic D was never implemented.** `recentReasoning`
+      (`loop.ts:276`) is declared and never written, `repeatedReasoningScore` is
+      permanently 0, and `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
+      (`agent/types.ts:206`) have no reader. Implement it or delete the fields —
+      right now the spec advertises four heuristics and three exist.
+- [ ] **"No progress" is invisible.** `stagnantTurns` increments per *tool call*
+      rather than per turn (`loop.ts:2344`), can only produce `warn`, and the warn
+      goes to `logger.debug` (`loop.ts:714`).
+- [ ] **Loop health is implemented twice.** `effect/loop-health.ts`
+      (`createLoopHealthEvaluator`) duplicates `AgentLoop.evaluateLoopHealth`; it is
+      imported by `effect/layers.ts` but never resolved by the loop, and its own
+      comment says the two are kept in sync by hand.
+- [ ] **The provider tool list ignores agent mode.** `getToolDefs()`
+      (`tools/defs-cache.ts:30`) takes no mode, so a plan-mode session advertises
+      `write`/`edit`/`bash` and then hard-denies them (`mode-policy.ts:77`) — one
+      wasted round trip to learn something the harness already knew.
+- [ ] **`validateParams` in the orchestrator is dead** (`tools/orchestrator.ts:64`)
+      — defined, never called. Required-argument checking therefore happens only in
+      a tool's own `validateInput`.
+- [ ] **`RecoveryManager.shouldRetryTool` has no production caller.** The
+      orchestrator re-implements the rule inline (`tools/orchestrator.ts:202`); the
+      interface method is exercised only by `recovery/manager.test.ts`.
+- [ ] **`generateSessionTitle` is dead code** (`agent/title-generator.ts:43`).
+      `server.ts:232` uses the `SESSION_TITLE:` regex plus
+      `generateTitleFromPrompt`, so the LLM-backed titler is never reached.
+- [ ] **`turn.started` is recorded after the model responds** (`loop.ts:1411`), so
+      it cannot bracket the call it names; `model.request` is the real turn start.
+- [ ] **`[TOOL_CALLS]` parsing exists twice** with independent implementations —
+      `loop.ts:1959` and `session/normalize/index.ts:77`.
+- [ ] **`estimatePromptChars` ignores tool-call arguments** (`loop.ts:218`) — it
+      sums text, code, image and tool *results*, so a large `write` payload is
+      invisible in the trace's `promptChars`.
+- [ ] **Headless runs are unbounded and there is no flag to bound them.**
+      `loop.ts:324` says headless/`-p` invocations pass `maxIterations` explicitly;
+      `cli/commands/run.ts:145` doesn't, and its own comment points at a
+      `--max-turns` option that was never added. So an unattended `freecode run`
+      has no turn cap at all — only loop-health and the gates. Add the flag, or fix
+      both comments.
+
+### Deliberate — do NOT "fix"
+
+- **Dynamic context is a user message at position 0, not a system block.** The
+  static system block stays a stable cacheable prefix only because the tree, git
+  HEAD and clock live below it, with a fixed id and `timestamp: 0`.
+- **The project snapshot and the clock are frozen per session.** A fresher tree
+  costs the entire conversation prefix; an hour-rounded clock exists so position 0
+  doesn't rewrite itself on the hour boundary.
+- **A frozen tool result is never shrunk.** Saving ~250 tokens by replacing a
+  result already in the cached prefix costs a partial invalidation worth far more.
+- **Oscillation scores inverse edits, not repeated edits.** Editing one file many
+  times is what real work on a large file looks like.
+- **Loop-health braking is two-tier (warn at 1×, stop at 2×).** Long legitimate
+  tasks routinely breach the first threshold.
+- **Memory extraction is fired without `await`.** The user's result must not wait
+  on it, and a memory failure must never surface as a task failure.
+- **`compactAndRetry` does not re-wrap its retry.** A second overflow in one turn
+  means compaction isn't converging; looping burns quota.
+- **A quota-exhausted 429 is never retried.** Waiting cannot help, and each retry
+  re-sends the whole conversation for a guaranteed rejection.
+- **Provider errors are stringified before they reach logs or the bus.** The SDK
+  error carries the entire request on `requestBodyValues`.
