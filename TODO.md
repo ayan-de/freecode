@@ -758,3 +758,117 @@ that page's **Known gaps**.
   usage data" stays distinguishable from a real zero.
 - **`modelSupportsImages` fails closed on an unknown model.** An image part sent
   to a text-only model is a hard 400.
+
+## Docs-audit findings (tool system — 2026-08-23)
+
+Found while writing `apps/docs/app/internals/tools`. Each is also listed in that
+page's **Known gaps**.
+
+### Real fixes
+
+- [ ] **An ambiguous `edit` silently rewrites the LAST occurrence.** For a
+      non-`replaceAll` edit, `applyEdit` iterates every candidate and skips until
+      `startIndex === content.lastIndexOf(match)` (`edit.ts:543`), so an
+      `oldString` occurring three times is applied to the third with no error and
+      no warning. The model has usually just read the top of a file and means the
+      first. Claude Code and opencode both hard-fail ("found N matches, provide
+      more context"); do the same when `simpleReplacer` yields more than one
+      candidate and `replaceAll` is false.
+- [ ] **`bash` and `agent` declare `isDestructive: false`** (`bash.ts:293`,
+      `agent.ts:233`). Only `edit` and `write` declare `true`, and four consumers
+      read the flag: the verify gate (`filesMutatedThisRun`) — so a run that edits
+      via `sed -i`, `git apply` or a codemod never triggers typecheck; the
+      verifier gate (`mutatedFiles` stays empty); loop-health stagnation — so
+      bash-only work always looks like no progress; and the orchestrator's retry
+      rule (`orchestrator.ts:202`), whose own comment says "re-running a
+      write/edit/bash is not safe" while the data makes bash retryable. It also
+      contradicts `permission/mode-policy.ts`, which correctly treats both as
+      mutating. Fix the flags, or split "mutates the filesystem" from "unsafe to
+      re-run" into two fields.
+- [ ] **Mutating MCP tools are marked concurrency-safe.** `convertMcpTool` sets
+      `isConcurrencySafe: true` unconditionally (`convert-tool.ts:36`) while
+      deriving `isDestructive` from `readOnlyHint` two lines below, so a batch of
+      MCP mutations runs in parallel via `planToolBatches`. Should be
+      `isConcurrencySafe: isReadOnly`.
+- [ ] **MCP schema conversion loses `required`, `items` and nested
+      `properties`.** `convertJsonSchema` returns `{ type, properties }` with no
+      `required`, and `convertProperty` keeps only `description`/`type`/`enum`
+      (`convert-tool.ts:79-111`). Consequences: required fields are never declared
+      to the provider; array element types are gone; `coerceArgs` cannot descend
+      into object/array parameters; and any schema that isn't a plain
+      object-with-properties (`$ref`, `allOf`, `oneOf`) collapses to
+      `{ type: "object" }`, telling the model the tool takes no parameters.
+- [ ] **`validateParams` is dead** (`orchestrator.ts:64`) — defined, never
+      called. Together with the item above, a missing required argument on an MCP
+      tool is validated nowhere and surfaces as `undefined` inside the remote
+      call. (Also listed in the agent-loop audit.)
+- [ ] **Four `Tool` metadata fields have zero readers.**
+      `behavior.maxResultSizeChars` (set by every tool and by MCP; truncation
+      actually uses the global 30K `adaptiveTruncate` budget),
+      `behavior.interruptBehavior`, `permissions.operations`, and
+      `permissions.requiresApproval` — `bash.ts:290` sets the last to `true` and
+      nothing consults it. Either wire them or delete them; right now they read as
+      a working permission model that isn't.
+- [ ] **`getPath` and `isSearchOrReadCommand` are implemented widely and read
+      nowhere.** `getPath` is shadowed by `extractTarget` + `PATH_TOOLS`
+      (`permission/rules.ts`), which is what `CLAUDE.md`'s registration checklist
+      tells contributors to update — two independent answers to "which path does
+      this tool touch", one of them live. `isSearchOrReadCommand` has no consumer
+      at all.
+- [ ] **`checkPermissions` has no implementers.** The orchestrator calls it when
+      present (`orchestrator.ts:107`); no tool defines it.
+- [ ] **Permission profiles are unreachable.** `createToolOrchestrator()` is
+      called with no arguments at all three production sites (`loop.ts:331`,
+      `effect/layers.ts:63`, `:179`), so `permissionProfile` is always `undefined`
+      and the `isToolAllowed` branch (`orchestrator.ts:145`, `:286`) never runs.
+      `CLAUDE.md` says profiles are "used for subagents" — they are used nowhere.
+      Either pass a profile when spawning a subagent or drop `profiles.ts`.
+- [ ] **The todo list is in-memory only** (`todo.ts:25`). It survives compaction
+      (re-rendered from the store each turn rather than read out of history) but
+      not a restart or `session.resume` — and the loop's todo-completion gate
+      reads the same store, so a resumed session's plan is silently empty and the
+      gate can never fire. Persist it next to the session, like the rollout log.
+- [ ] **`executeTool` in `factory.ts:88` is dead code**, exported and re-exported
+      from `tools/index.ts` but called by nothing; it also implements a different
+      result contract from the orchestrator's.
+- [ ] **`tool_complete` streams the full untruncated output over IPC.** The
+      event carries `result.stdout` (`loop.ts:2280`), correct for rendering but
+      uncapped — a 10 MB `bash` result crosses the boundary in one message.
+      Consider a display cap with a "show more" fetch, mirroring the `output`
+      tool.
+- [ ] **`read`'s image path pays before the visibility check.** The tool
+      base64-encodes any supported image up to 10 MB and returns it as
+      `metadata.image`; whether the model can see images is only decided later in
+      the loop (`loop.ts:1525`). A text-only model pays the full read and gets a
+      "not sent" notice. Push `modelSupportsImages` into the tool, or pass the
+      capability through `ToolContext`.
+
+### Deliberate — do NOT "fix"
+
+- **Coercion is narrow: only an unambiguous numeric literal or exactly
+  `"true"`/`"false"`.** `Number()`/truthiness turns `""` into `0` and `"false"`
+  into `true`, hiding a malformed call instead of letting the validator surface
+  it.
+- **Coercion lives at the orchestrator boundary, not in each `execute()`.** The
+  declared schema `type` is already the single source of truth, and MCP schemas
+  can't be patched per tool.
+- **Truncation keeps a head *and* a tail.** Build errors, stack traces and
+  summaries live at the end; head-only threw away exactly what was needed.
+- **Both truncation cuts snap to line boundaries.** A raw character index lands
+  mid-token and the model reads a half-identifier as whole.
+- **An `OutputStore` miss returns a message, never an error.** Degrading to
+  "re-run the tool" is always recoverable.
+- **`edit`/`write` record read-state but are excluded from dedup.** They record
+  content the model has never been shown; deduping against it would claim "you
+  already have this" while the transcript holds the pre-edit text.
+- **Read dedup has a kill switch (`FREECODE_READ_DEDUP=0`).** It is the only
+  token-efficiency measure that changes what the model *sees*.
+- **An unannotated MCP tool is treated as mutating.** An absent `readOnlyHint`
+  says nothing about the tool; guessing "harmless" is how `create_issue` gets
+  re-run.
+- **Tool defs are sorted by name.** `buildToolsParam` marks the last tool with a
+  cache breakpoint, so a stable order is what keeps the tools block cacheable.
+- **A `bash` timeout resolves as a failure, not a slow success**, with partial
+  output attached — otherwise the loop concludes the command worked.
+- **Tools return data, never markup.** Four frontends render the same
+  `StreamEvent`s their own way.

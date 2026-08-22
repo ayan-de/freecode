@@ -1,20 +1,414 @@
 ---
 title: "Tool system"
-description: "Factory, orchestrator, and batching."
+description: "Factory, orchestrator, batching, and the budget that keeps results affordable."
 ---
 
 # Tool system
 
-Every tool — built-in or MCP — is constructed by `buildTool` with parameters,
-behavior, and permissions, then executed through the orchestrator. The batcher
-groups concurrency-safe calls to run together and forces mutating calls to run
-alone, in order.
+A tool is the only way the model touches anything. It is also the only part of a
+turn whose cost keeps being paid *after* it runs: a 40,000-character `grep`
+result is re-sent on every subsequent request until the conversation is
+compacted. So this subsystem has two jobs that pull in opposite directions —
+give the model real capability, and stop its output from eating the context
+window.
 
-## On this page (coming soon)
+The layer splits cleanly in two:
 
-- `factory.ts`: parameters, behavior, permissions
-- The orchestrator's execution contract
-- How batches are planned
-- Tool output storage and truncation
-- Registering MCP tools at runtime
-- Why tools never render — core emits events, frontends draw
+| Half | Question it answers | Lives in |
+| --- | --- | --- |
+| **Definition** | what a tool is, what it accepts, how it behaves | `tools/<name>.ts` + `factory.ts` |
+| **Execution** | validate, permit, run, shape the result | `orchestrator.ts` + `batching.ts` |
+
+Sixteen tools ship built in: `read`, `write`, `edit`, `ls`, `glob`, `grep`,
+`bash`, `lsp`, `todowrite`, `question`, `skill`, `agent`, `webfetch`,
+`websearch`, `memory`, `output`. MCP servers add more at runtime through the
+same registry.
+
+## Anatomy of a tool
+
+Every tool is built by `buildTool` (`factory.ts:43`), which fills in defaults so
+a tool file only declares what is unusual about it.
+
+```ts
+export const ReadTool: Tool<ReadParams> = buildTool({
+  id: "read",
+  description: "…",
+  schemas: { parameters: readSchema },
+  permissions: { operations: ["file.read"] },
+  behavior: { isConcurrencySafe: true, isDestructive: false, userFacingName: "Read File" },
+  execute: executeRead,
+  validateInput: validateReadInput,
+});
+```
+
+| Field | Default | What actually reads it |
+| --- | --- | --- |
+| `behavior.isConcurrencySafe` | `false` | the batcher — parallel iff every tool in the run is safe |
+| `behavior.isDestructive` | `false` | the loop's verify gate + stagnation counter, and the orchestrator's retry rule |
+| `behavior.userFacingName` | the id | UI labels |
+| `behavior.maxResultSizeChars` | 500,000 | *nothing* — see [Known gaps](#known-gaps) |
+| `behavior.interruptBehavior` | `"await"` | *nothing* |
+| `permissions.operations` | `[]` | *nothing* |
+| `permissions.requiresApproval` | `false` | *nothing* |
+| `validateInput` | — | the orchestrator, before execute |
+| `checkPermissions` | — | the orchestrator — but no tool implements it |
+| `getPath` | — | *nothing* — the permission layer uses its own `PATH_TOOLS` |
+| `isSearchOrReadCommand` | — | *nothing* |
+
+Defaults fail closed in the direction that matters: an unfamiliar tool is
+sequential and non-destructive, so it gets its own batch and never claims to
+have changed a file.
+
+The schema is a plain JSON Schema object, sent to the provider as a native tool
+definition. **Declare a `type` on every property.** Several providers stringify
+scalars, and the coercion pass keys off the declared type — a property with no
+`type` can't be repaired.
+
+## The registry
+
+```
+tools/index.ts   ── tools = { read, write, … }        (16, static)
+                 ── mcpTools = {}                      (dynamic)
+                        ▲
+                        │ registerMcpTool / unregisterMcpTools
+                        │
+getTool(id)  ── built-in first, then MCP
+listTools()  ── both, built-in first
+                        │
+defs-cache.ts  ── getToolDefs(): { name, description, parameters }[]
+                  memoized, sorted by name,
+                  invalidated on tools.changed / mcp.tools.changed
+```
+
+The sort is not cosmetic. `buildToolsParam` marks the **last** tool with a
+prompt-cache breakpoint, so a stable order is what keeps the tools block inside
+the cached prefix — see [the provider layer](/internals/providers#building-a-request).
+
+### Registering a tool
+
+`buildTool` + a line in `index.ts` is **not** enough. Several tables key off the
+tool *name*, and missing one fails closed — the tool gets blocked in read-only
+modes, or prompts for permission on every call.
+
+| Step | File | Consequence of skipping it |
+| --- | --- | --- |
+| 1. Define it | `tools/<name>.ts` | — |
+| 2. Register it | `tools/index.ts` | the model never sees it |
+| 3. If read-only, add to `READONLY_TOOLS` | `permission/mode-policy.ts` | treated as mutating ⇒ denied in plan/review/explore |
+| 4. Add to `PATH_TOOLS` or `URL_TOOLS` | `permission/rules.ts` | path- and url-scoped allow/deny rules never match |
+| 5. Add to `DISPLAY_NAMES` | `permission/suggest.ts` | the permission prompt shows a raw id |
+
+Frontends need no change — both TUIs have catch-all renderers.
+
+## Execution
+
+`orchestrator.execute(call, ctx)` (`orchestrator.ts:137`) is the single path
+every tool call takes, built-in or MCP:
+
+```
+0. profile check      isToolAllowed(tool, profile)   — only if a profile was passed
+1. lookup             getTool(name)                  — unknown ⇒ error result
+2. coerce             coerceArgs(schema, args)       — "30" → 30, "false" → false
+3. validate           tool.validateInput(args)
+4. permission hook    tool.checkPermissions(args, ctx)
+5. execute            tool.execute(args, ctx)        — retried once if non-destructive
+6. shape              store full output, truncate the model's copy
+```
+
+Note what is *not* here: the mode/rule permission gauntlet and the
+`PreToolUse`/`PostToolUse` hooks. Those run one level up, in the loop
+(`loop.ts:2045`) — see [Permission engine](/internals/permissions) and
+[Lifecycle hooks](/internals/hooks). The orchestrator is the mechanical half.
+
+### Coercion before validation
+
+```ts
+const args = coerceArgs(toolDef.schemas?.parameters, call.args);
+```
+
+Tool inputs are model-generated JSON, and several providers quote scalars —
+`{"head_limit": "30"}` instead of `{"head_limit": 30}` (MiniMax through the
+Anthropic-compatible endpoint is the reliable offender). Without this the
+validator rejects with "must be a number", the model re-sends the identical
+call, and the turn burns context in a reject-loop.
+
+It belongs at the boundary rather than inside each `execute()` because the
+declared `type` is already the single source of truth — one pass covers every
+tool at once, **including MCP tools, whose schemas nobody here owns**.
+
+It is deliberately narrow: only an unambiguous numeric literal
+(`/^-?\d+(\.\d+)?$/`) or exactly `"true"`/`"false"` converts. `Number()` and
+truthiness are the wrong fix — they turn `""` into `0` and `"false"` into
+`true`, hiding a genuinely malformed call instead of letting the validator
+surface it.
+
+### The retry rule
+
+```ts
+const maxAttempts = toolDef.behavior?.isDestructive === false ? 2 : 1;
+```
+
+A non-mutating tool retries one transient failure (200ms × attempt); a mutating
+one never does, because re-running a write is not safe. The rule is sound; its
+inputs are not — `bash` and `agent` both declare `isDestructive: false`, so both
+are eligible for a silent second run. See [Known gaps](#known-gaps).
+
+### Shaping the result
+
+A successful `execute()` returns `{ title, output, metadata }`. The orchestrator
+turns that into a `ToolResult` carrying **three different views** of the same
+output, and confusing them is how context windows get blown:
+
+| Field | Contents | Goes to |
+| --- | --- | --- |
+| `displayOutput` | the full output | the UI |
+| `modelOutput` | head + tail, capped at 30K chars | the provider, and the session log |
+| `stdout` | the full output (legacy alias) | the UI, via `tool_complete` |
+| `structuredData` | `metadata` | the loop (e.g. `metadata.image`) |
+
+The loop writes **only `modelOutput`** into history and persists only that
+(`loop.ts:1516`). Re-sending untruncated stdout on every turn is what used to
+overflow provider context windows.
+
+## Batching
+
+```
+planToolBatches([read, read, grep, edit, read])
+  → [ {0..3, parallel} , {3..4, solo} , {4..5, solo} ]
+```
+
+`planToolBatches` (`batching.ts:22`) walks the calls in order and greedily
+groups runs of concurrency-safe tools. Anything else — including any tool whose
+behavior is unknown — gets a batch of its own, preserving ordering guarantees
+around writes, edits, and shell commands. A "parallel" batch of one is marked
+sequential, so `Promise.all` is only paid for when it buys something.
+
+Post-processing in the loop is always in the **original** order regardless of
+who finished first, so results are deterministic.
+
+## Output budgets
+
+Tool output is bounded in three independent places, and each solves a different
+problem.
+
+```
+full output ──▶ OutputStore.put(toolCallId, output)      16 MB/session, byte-LRU
+            └─▶ adaptiveTruncate(output, toolCallId)     30K chars: 24K head + 6K tail
+                     │
+                     └──▶ marker naming the id, so the model can page the middle
+```
+
+**`adaptiveTruncate`** (`output-store/truncate.ts`) keeps a head *and* a tail.
+The earlier head-only cap threw away exactly what the model most needs — build
+errors, stack traces and summaries live at the *end* of output. Both cuts snap
+to line boundaries: a raw character index lands mid-token, and the model reads a
+half-identifier as though it were whole.
+
+**`OutputStore`** keeps the whole thing, keyed by `toolCallId`, so the `output`
+tool can retrieve the omitted middle by line window or by regex instead of
+re-running the command. It is a byte-LRU inside a session-LRU (50 sessions), and
+a miss is never an error — it degrades to "re-run the tool". It is **in-memory
+only**, so a resumed session's older outputs are gone.
+
+| Budget | Default | Env |
+| --- | --- | --- |
+| Model-visible output | 30,000 chars | `FREECODE_OUTPUT_MAX_CHARS` |
+| …of which tail | 6,000 chars | `FREECODE_OUTPUT_TAIL_CHARS` |
+| Store per session | 16 MB | `FREECODE_OUTPUT_STORE_BYTES` |
+| Live sessions | 50 | `FREECODE_OUTPUT_STORE_SESSIONS` |
+| `output` lines per call | 200 | `FREECODE_OUTPUT_LINES` |
+| `read` window | 2,000 lines / 50 KB | — |
+| `read` max file | 10 MB | — |
+| `bash` output | 500 KB | — |
+| `bash` timeout | 60s | `timeout` param |
+
+All five `FREECODE_OUTPUT_*` values are read at module load, so changing them
+needs a restart.
+
+Above all of this sits the loop's history-wide budget: 200,000 chars of tool
+results across the *whole conversation*, enforced by prefix-stable pruning
+(see [the agent loop](/internals/agent-loop#2-prune-then-send)).
+
+## Not sending the same file twice
+
+`read` keeps a per-session record of what it has shown (`read-state.ts`). An
+identical re-read — same file, same window, unchanged `mtime` and `size` — is
+answered with a pointer instead of the content:
+
+> `<unchanged>` This file is byte-for-byte identical to the copy already shown
+> earlier in this conversation — scroll up rather than re-reading.
+
+Two conditions make that safe rather than merely cheap:
+
+1. **The record must come from a `read`.** `edit` and `write` also record state
+   (so `edit` can detect a file that changed underneath the model), but they
+   record content the model has *never been shown* — deduping against one would
+   claim "you already have this" while the transcript holds the pre-edit text.
+   They leave `offset`/`limit` undefined, which excludes them from dedup.
+2. **The earlier copy must still be in the request.** Pruning can replace a
+   large read result with a marker; the loop then calls `markReadPruned`, which
+   clears `inContext` so dedup stops pointing at something that is no longer
+   there.
+
+This is the only token-efficiency measure that changes what the model *sees*
+rather than what it is billed for, so it is the only one with a kill switch:
+`FREECODE_READ_DEDUP=0`.
+
+## Two tools worth reading
+
+### `edit` — a cascade of matchers
+
+`applyEdit` (`edit.ts:502`) tries nine replacers in order and takes the first
+that produces a candidate:
+
+`simple` → `lineTrimmed` → `blockAnchor` → `whitespaceNormalized` →
+`indentationFlexible` → `escapedNormalized` → `trimmedBoundary` →
+`contextAware` → `multiOccurrence`
+
+The interesting one is **`blockAnchor`**: for a 3+ line `oldString` it matches on
+the first and last lines alone, then scores the middle by Levenshtein similarity.
+That is what lets an edit land when the model reproduced the surrounding block
+with slightly wrong indentation or a stale comment — the single most common
+cause of a failed edit. With one anchor candidate it accepts unconditionally;
+with several it takes the best above 0.3 similarity.
+
+Line endings are normalized to whatever the file already uses, so editing a CRLF
+file doesn't silently rewrite every line.
+
+After a successful match, `edit` compares the file's `mtime` against the read
+record and appends a warning — not a block — if it changed. The edit already
+matched `oldString`, so it isn't blind, just possibly out of date.
+
+### `bash` — deliberately plain
+
+Spawns through `/bin/bash -c` with a 60s default timeout, a 500 KB output cap,
+and combined stdout/stderr. A timeout resolves as a **failure**, not a slow
+success, with the partial output attached — otherwise the loop concludes the
+command worked.
+
+There is no allowlist and no command parsing here. Command-level safety lives
+entirely in [the permission layer](/internals/permissions), whose prefix rules
+refuse compound commands by design.
+
+## MCP tools
+
+`convertMcpTool` (`mcp/convert-tool.ts:22`) wraps a remote tool in the same
+`Tool` shape, so nothing downstream knows the difference:
+
+- **Name:** `mcp__<server>__<tool>`, the format the permission rules match on.
+- **`isDestructive: !readOnlyHint`.** Only an explicit `readOnlyHint: true`
+  counts. An absent annotation says nothing about the tool, and guessing
+  "harmless" is how a `create_issue` call gets silently retried.
+- **Schema:** converted property-by-property, keeping `description`, `type` and
+  `enum`.
+- **Result:** MCP's `content[]` flattened to text.
+
+Servers register and unregister tools as they connect and disconnect, each time
+emitting `mcp.tools.changed`, which invalidates the tool-defs cache.
+
+## Why tools never render
+
+A tool returns data. It never returns markup, colour, or layout.
+
+That is what keeps four frontends honest: core emits `tool_start`,
+`tool_output`, and `tool_complete` as `StreamEvent`s, and the TUI, VS Code
+webview, web app, and Tauri app each draw them their own way
+(`apps/tui/src/components/tool-result-message.ts`). A tool that formatted its
+own output would look right in exactly one of them.
+
+The one structured exception is `metadata`, which travels as `structuredData`:
+`read` uses `metadata.image` to hand back a base64 image that the loop lifts
+into an image message part — the base64 never goes in `output`, because that
+string is the tool result the model reads as text.
+
+## Known gaps
+
+1. **An ambiguous `edit` silently changes the last occurrence.** For a
+   non-`replaceAll` edit, `applyEdit` skips candidates until
+   `startIndex === content.lastIndexOf(match)` (`edit.ts:543`) — so an
+   `oldString` appearing three times is applied to the *third*, with no error.
+   The model has usually just read the top of the file and means the first.
+   Claude Code and opencode both hard-fail with "found N matches, add more
+   context"; this should too.
+2. **`bash` and `agent` declare `isDestructive: false`.** Only `edit` and
+   `write` declare `true`, and four things read that flag:
+   the verify gate (a run that edits via `sed -i` or `git apply` never
+   triggers typecheck), the verifier gate (`mutatedFiles` stays empty), the
+   stagnation counter (bash-only work always looks like no progress), and the
+   orchestrator's retry rule — whose own comment says "re-running a
+   write/edit/bash is not safe" while the data says bash may be re-run. It also
+   disagrees with `permission/mode-policy.ts`, which correctly treats both as
+   mutating.
+3. **Mutating MCP tools are marked concurrency-safe.**
+   `convertMcpTool` sets `isConcurrencySafe: true` unconditionally
+   (`convert-tool.ts:36`) while deriving `isDestructive` from `readOnlyHint`. So
+   a batch of MCP mutations runs in parallel — exactly what the batcher exists
+   to prevent, and in the same object that carefully avoids re-running
+   `create_issue`.
+4. **MCP schema conversion drops `required`, `items`, and nested
+   `properties`.** `convertJsonSchema` returns `{ type, properties }` with no
+   `required` array, and `convertProperty` keeps only
+   `description`/`type`/`enum` (`convert-tool.ts:79`). Required fields are
+   therefore never declared to the provider, array element types are lost, and
+   `coerceArgs` cannot reach inside an object or array parameter. A schema that
+   isn't a plain object-with-properties (`$ref`, `allOf`, `oneOf`) collapses to
+   `{ type: "object" }` — the model is told the tool takes no parameters.
+5. **`validateParams` is dead** (`orchestrator.ts:64`) — defined, never called.
+   Combined with gap 4, a missing required argument on an MCP tool is caught
+   nowhere and surfaces as `undefined` inside the remote call.
+6. **Four `Tool` fields have no readers at all.** `behavior.maxResultSizeChars`
+   (every tool sets it; truncation uses a global 30K budget instead),
+   `behavior.interruptBehavior`, `permissions.operations`, and
+   `permissions.requiresApproval` — `bash` sets the last one to `true` and
+   nothing consults it.
+7. **`getPath` and `isSearchOrReadCommand` are implemented by many tools and
+   read by none.** `getPath` is shadowed by `extractTarget` +`PATH_TOOLS` in
+   `permission/rules.ts`, which is what the registration checklist actually
+   tells you to update — two independent answers to "which path does this tool
+   touch", only one of them live.
+8. **`checkPermissions` has no implementers.** The orchestrator calls it if
+   present (`orchestrator.ts:107`); no tool defines it.
+9. **Permission profiles are unreachable.** `createToolOrchestrator()` is called
+   with no arguments in all three production sites (`loop.ts:331`,
+   `effect/layers.ts:63`, `:179`), so `permissionProfile` is always `undefined`
+   and the `isToolAllowed` branch never runs. `CLAUDE.md` describes profiles as
+   "used for subagents"; they are not used at all.
+10. **The todo list is in-memory only** (`todo.ts:25`). It survives compaction
+    (it is re-rendered from the store each turn rather than read out of history)
+    but not a restart or a `session.resume` — and the loop's todo-completion
+    gate reads that same store, so a resumed session's plan is silently empty.
+11. **`executeTool` in `factory.ts:88` is dead.** It is exported and re-exported
+    from `tools/index.ts`, but the orchestrator does its own result shaping;
+    nothing calls it. It also implements a *different* result contract.
+12. **`tool_complete` streams the full output to the frontend.** The event
+    carries `result.stdout` (untruncated), which is right for rendering but
+    means a 10 MB `bash` result crosses the IPC boundary in one message with no
+    cap of its own.
+13. **`read`'s image path bypasses the model-visibility check.** The tool
+    returns `metadata.image` for any supported extension; whether the model can
+    actually see images is decided later, in the loop. A text-only model
+    therefore pays for a full base64 read (up to 10 MB) before being told the
+    image was dropped.
+
+## Where to look
+
+| You want | File |
+| --- | --- |
+| The `Tool` interface and every metadata field | `apps/core/src/tools/tool.types.ts` |
+| `buildTool` and the defaults | `apps/core/src/tools/factory.ts` |
+| The registry, MCP registration | `apps/core/src/tools/index.ts` |
+| Provider-facing definitions + cache | `apps/core/src/tools/defs-cache.ts` |
+| Validation, coercion, retry, result shaping | `apps/core/src/tools/orchestrator.ts` |
+| Quoted-scalar repair | `apps/core/src/tools/coerce-args.ts` |
+| Parallel grouping | `apps/core/src/tools/batching.ts` |
+| Head+tail truncation, full-output store | `apps/core/src/tools/output-store/` |
+| Re-read dedup | `apps/core/src/tools/read-state.ts` |
+| The nine-replacer edit cascade | `apps/core/src/tools/edit.ts` |
+| MCP → `Tool` conversion | `apps/core/src/mcp/convert-tool.ts` |
+| How the TUI draws a result | `apps/tui/src/components/tool-result-message.ts` |
+
+Related: [Agent loop](/internals/agent-loop) for the hooks and permission
+gauntlet wrapped around every call, [Permission engine](/internals/permissions)
+for the rules that decide allow/ask/deny, [MCP](/guides/mcp) for where remote
+tools come from, and [Adding a tool](/contributing/adding-a-tool) for the
+contributor-facing walkthrough.
