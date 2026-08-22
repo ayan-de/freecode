@@ -7,6 +7,7 @@ import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
+import { BASH_DESCRIPTION } from "./bash-prompt.js";
 
 interface BashParams {
   command: string;
@@ -279,7 +280,7 @@ export async function _executeBash(
 
 export const BashTool: Tool<BashParams> = buildTool({
   id: "bash",
-  description: "Execute shell commands",
+  description: BASH_DESCRIPTION,
   schemas: {
     parameters: bashSchema,
   },
