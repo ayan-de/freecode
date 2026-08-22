@@ -48,7 +48,11 @@ const grepSchema: JsonSchema = {
       description: "Output format: content, files_with_matches, or count",
       enum: ["content", "files_with_matches", "count"],
     },
-    head_limit: { type: "number", description: "Maximum number of matches to return" },
+    head_limit: {
+      type: "number",
+      description:
+        "Maximum matches per file (ripgrep --max-count, default 100) — not a total across the search",
+    },
     type: { type: "string", description: "Filter by file type (e.g. 'ts', 'js')" },
     cwd: { type: "string", description: "Current working directory" },
   },
@@ -229,7 +233,13 @@ async function executeGrep(
 
 export const GrepTool: Tool<GrepParams> = buildTool({
   id: "grep",
-  description: "Search file contents using regex patterns",
+  description: `Search file contents with a regular expression, backed by ripgrep. This is the tool for "where is X used, defined, or referenced" — never run \`grep\` or \`rg\` through bash.
+
+- Pattern syntax is ripgrep's (Rust regex), not PCRE: no backreferences or lookaround, and literal braces need escaping (\`interface\\{\\}\` to find \`interface{}\`). A pattern matches within a single line — there is no multiline mode, so target a distinctive line rather than a construct that spans several.
+- Narrow before you widen. output_mode "files_with_matches" returns paths only and is the cheapest way to see how large the problem is; switch to "content" (the default) once you know which files matter. Add -C/-B/-A only when you actually need the surrounding lines — each one multiplies the output.
+- Scope the search with glob/include ("*.ts", "*.{ts,tsx}") or type ("ts", "py") instead of scanning the repo and reading past the noise.
+- head_limit caps matches PER FILE (default 100). Hidden files, .gitignore'd paths, and binaries are skipped.
+- To locate a symbol by name rather than by text, \`lsp\` workspaceSymbol is more precise. For an open-ended hunt needing several rounds of grep and glob, delegate to \`agent\` so the intermediate output never enters this conversation.`,
   schemas: {
     parameters: grepSchema,
   },

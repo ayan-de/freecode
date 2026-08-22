@@ -141,7 +141,11 @@ async function executeWrite(
 
 export const WriteTool: Tool<WriteParams> = buildTool({
   id: "write",
-  description: "Create or overwrite files",
+  description: `Create a file, or overwrite an existing one — the previous contents are gone.
+
+- To change part of a file, use \`edit\`. Reach for \`write\` only for a genuinely new file or a deliberate full rewrite, and read the file first if it already exists.
+- Parent directories are created for you.
+- Don't create documentation, READMEs, or example files unless the user asked for them.`,
   schemas: {
     parameters: writeSchema,
   },

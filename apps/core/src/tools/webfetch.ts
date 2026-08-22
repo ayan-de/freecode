@@ -147,8 +147,9 @@ async function executeWebFetch(
 
 export const WebFetchTool: Tool<WebFetchParams> = buildTool({
   id: "webfetch",
-  description:
-    "Fetch content from a URL over HTTP(S) and return it as markdown (default), plain text, or raw HTML",
+  description: `Fetch a URL over HTTP(S) and return the page as markdown (default), plain text, or raw HTML.
+
+Use it when you already have a URL — from the user, a search result, or a link in a page you fetched. To find pages in the first place, use \`websearch\`. Stay on markdown unless you specifically need the markup: raw HTML costs several times more tokens for the same content.`,
   schemas: { parameters: webfetchSchema },
   permissions: { operations: ["network"] },
   behavior: {

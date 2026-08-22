@@ -190,7 +190,7 @@ async function executeSkill(
 
 export const SkillTool: Tool<SkillParams> = buildTool({
   id: "skill",
-  description: "Load a specialized skill by name",
+  description: `Load a skill by name — a packaged set of instructions for a particular kind of task. When the work matches one of the available skills, load it before falling back to your default approach; the instructions come back as the tool result for you to follow.`,
   schemas: {
     parameters: skillSchema,
   },

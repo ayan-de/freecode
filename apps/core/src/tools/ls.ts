@@ -235,7 +235,9 @@ async function executeLs(
 
 export const LsTool: Tool<LsParams> = buildTool({
   id: "ls",
-  description: "List directory contents",
+  description: `List a directory as an indented tree, recursing up to 5 levels and capped at 100 entries. \`ignore\` adds patterns on top of the defaults.
+
+Use it to orient yourself in a directory you have not seen. Once you know what you are after, \`glob\` (by name) or \`grep\` (by content) answers directly and returns far less — don't walk a repo with \`ls\` looking for a file.`,
   schemas: {
     parameters: lsSchema,
   },

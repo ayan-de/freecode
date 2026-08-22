@@ -214,7 +214,13 @@ async function executeAgent(
 
 export const AgentTool: Tool<AgentParams> = buildTool({
   id: "agent",
-  description: "Spawn a sub-agent to handle an independent task in parallel",
+  description: `Run a task in a sub-agent with its own context window and get back a single summary.
+
+Use it when the work would otherwise burn a lot of context you have no further use for — "find everywhere feature X is wired up", "work out why this test is flaky" — since only the final answer returns to this conversation. Don't use it for work you can do directly: reading a known file, a single grep, or an edit you already understand is faster inline.
+
+- Put everything it needs in \`prompt\`. It starts cold and cannot see this conversation unless you set forkContext: true, which forks the current session into it.
+- Say exactly what you want back, and whether it should investigate only or actually change code.
+- Its result is not shown to the user — relay what matters yourself.`,
   schemas: {
     parameters: agentSchema,
   },

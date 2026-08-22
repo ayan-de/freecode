@@ -667,7 +667,13 @@ async function executeEdit(
 
 export const EditTool: Tool<EditParams> = buildTool({
   id: "edit",
-  description: "Edit files in-place using old_string/new_string replacement",
+  description: `Replace an exact string in an existing file. This is the tool for changing code — prefer it over \`write\`, which rewrites the file whole.
+
+- Read the file first. Editing text you have not seen is how you clobber a change you didn't know about; if the file moved on disk since you last read it, the result carries a staleness warning.
+- oldString must be unique. Matching is tried exactly first, then with progressively looser whitespace handling — and if several places still match, the LAST one is edited rather than reported. Include enough surrounding context (a line or two either side) to pin the occurrence you mean.
+- When copying oldString out of \`read\` output, drop the "N: " line-number prefix; everything after that space is file content.
+- replaceAll: true replaces every occurrence — right for a rename, wrong for a one-off.
+- Prefer several small edits to one large one. A big block is likelier to mismatch, and a failed edit costs a whole retry.`,
   schemas: {
     parameters: editSchema,
   },

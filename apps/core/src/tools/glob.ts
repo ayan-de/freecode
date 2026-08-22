@@ -144,7 +144,12 @@ async function executeGlob(
 
 export const GlobTool: Tool<GlobParams> = buildTool({
   id: "glob",
-  description: "Find files matching glob patterns",
+  description: `Find files by path pattern. Returns absolute paths, files only — never directories.
+
+- Patterns are fast-glob syntax: "**/*.ts", "src/**/*.{ts,tsx}", "**/test_*.py". A bare directory ("src/utils") expands to everything beneath it.
+- Use \`glob\` when you know something about the name or location, \`grep\` when you know something about the contents, and \`ls\` when you want the shape of a directory you have not looked at yet.
+- node_modules and .git are always skipped. Results cap at 200; if you hit the cap, narrow the pattern rather than paging through it.
+- Batch it — several globs and greps in one message cost far less than one per turn.`,
   schemas: {
     parameters: globSchema,
   },
