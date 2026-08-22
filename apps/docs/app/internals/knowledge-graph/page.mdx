@@ -1,0 +1,22 @@
+---
+title: "Knowledge graph"
+description: "The derived index over memory: embeddings, edges, and cascade retrieval."
+---
+
+# Knowledge graph
+
+The graph is a `.graph/` sidecar derived from the [memory](/internals/memory)
+files — delete it and it rebuilds. Memories are embedded locally, wired together
+by tags, wikilinks, and supersede edges, then retrieved by seeding from the
+current message and cascading outward with per-hop decay, one turn behind so the
+hot path never waits on it.
+
+## On this page (coming soon)
+
+- Local ONNX embeddings and the content-hash vector cache
+- Edge derivation and deterministic clustering
+- Cascade retrieval: seeds, hops, decay, caps
+- The secret filter: what never gets embedded
+- Keyword fallback when the embedder is unavailable
+- `freecode memory graph stats` / `rebuild`
+- The graph explorer addon

@@ -1,22 +1,19 @@
 ---
-title: "Memory & knowledge graph"
-description: "Persistent notes, and the derived index over them."
+title: "Memory"
+description: "Persistent notes: how they are stored, written, and injected."
 ---
 
-# Memory & knowledge graph
+# Memory
 
-Markdown files are the source of truth; the graph is a rebuildable `.graph/`
-sidecar. Memories are embedded locally, wired into a graph by tags, wikilinks, and
-supersede edges, then retrieved by seeding from the current message and cascading
-outward with per-hop decay — one turn behind, so the hot path never waits.
+Memory is a folder of small markdown files, one fact per file, and those files are
+the source of truth — readable, diffable, and editable without FreeCode running.
+Everything else built on top of them (see
+[knowledge graph](/internals/knowledge-graph)) is a rebuildable derivative.
 
 ## On this page (coming soon)
 
-- The store, the query layer, and prompt injection
-- The write path: the `memory` tool plus gated auto-extraction
-- Local ONNX embeddings and the content-hash vector cache
-- Edge derivation and deterministic clustering
-- Cascade retrieval: seeds, hops, decay, caps
-- The secret filter
-- Keyword fallback when the embedder is unavailable
-- The graph explorer addon
+- The store: file layout, frontmatter, and the typed kinds
+- The query layer and how retrieved memories reach the prompt
+- The write path: the `memory` tool
+- Automatic extraction from finished turns, and the policy that gates it
+- Turning extraction off: settings and environment
