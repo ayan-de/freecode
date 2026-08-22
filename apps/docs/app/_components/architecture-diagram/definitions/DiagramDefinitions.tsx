@@ -53,6 +53,20 @@ export function DiagramDefinitions() {
           <feMergeNode in="SourceGraphic" />
         </feMerge>
       </filter>
+      <filter id="glow-rose" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="6" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+      <filter id="glow-teal" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="6" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
 
       {/* Line Gradients */}
       <linearGradient id="grad-task" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -83,6 +97,14 @@ export function DiagramDefinitions() {
       <linearGradient id="grad-llm" x1="0%" y1="0%" x2="100%" y2="0%">
         <stop offset="0%" stopColor="#f97316" />
         <stop offset="55%" stopColor="#38bdf8" />
+        <stop offset="100%" stopColor="#60a5fa" />
+      </linearGradient>
+      <linearGradient id="grad-compact-out" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stopColor="#60a5fa" />
+        <stop offset="100%" stopColor="#2dd4bf" />
+      </linearGradient>
+      <linearGradient id="grad-compact-in" x1="100%" y1="0%" x2="0%" y2="0%">
+        <stop offset="0%" stopColor="#2dd4bf" />
         <stop offset="100%" stopColor="#60a5fa" />
       </linearGradient>
     </defs>

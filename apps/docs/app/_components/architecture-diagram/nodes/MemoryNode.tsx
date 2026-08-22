@@ -76,39 +76,14 @@ export function MemoryNode({ selectedNode, onSelectNode }: MemoryNodeProps) {
         </text>
       </g>
 
-      {/* Compaction arrows */}
-      <g transform="translate(825, 475)">
-        <circle
-          r="22"
-          fill="rgba(245,158,11,0.08)"
-          stroke="rgba(245,158,11,0.3)"
-          strokeWidth="1"
-          strokeDasharray="3 3"
-        />
-        {/* compacting arrows */}
-        <path
-          d="M -10,-10 L 0,-3 L 10,-10 M -10,10 L 0,3 L 10,10 M -12,0 H 12"
-          stroke="#f59e0b"
-          strokeWidth="2"
-          fill="none"
-        />
-        <text
-          x="0"
-          y="-28"
-          className={styles.dbCompactLabel}
-          textAnchor="middle"
-        >
-          auto-compacts
-        </text>
-        <text
-          x="0"
-          y="34"
-          className={styles.dbCompactLabel}
-          textAnchor="middle"
-        >
-          when full
-        </text>
-      </g>
+      <text
+        x="760"
+        y="583"
+        className={styles.dbCompactLabel}
+        textAnchor="middle"
+      >
+        cross-session
+      </text>
     </g>
   );
 }

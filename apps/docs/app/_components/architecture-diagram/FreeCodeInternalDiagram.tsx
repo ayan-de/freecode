@@ -12,12 +12,15 @@ import { MemoryFlow } from "./flows/MemoryFlow";
 import { HooksFlow } from "./flows/HooksFlow";
 import { ResultFlow } from "./flows/ResultFlow";
 import { ProviderFlow } from "./flows/ProviderFlow";
+import { CompactionFlow } from "./flows/CompactionFlow";
 import { ClientsNode } from "./nodes/ClientsNode";
 import { AgentNode } from "./nodes/AgentNode";
 import { SubagentsNode } from "./nodes/SubagentsNode";
 import { ContextNode } from "./nodes/ContextNode";
 import { MemoryNode } from "./nodes/MemoryNode";
 import { HooksNode } from "./nodes/HooksNode";
+import { PermissionNode } from "./nodes/PermissionNode";
+import { CompactionNode } from "./nodes/CompactionNode";
 import { ToolsNode } from "./nodes/ToolsNode";
 import { ProviderNode } from "./nodes/ProviderNode";
 import { BusNode } from "./nodes/BusNode";
@@ -30,6 +33,8 @@ export type NodeType =
   | "context"
   | "memory"
   | "hooks"
+  | "permission"
+  | "compaction"
   | "tools"
   | "provider"
   | "bus";
@@ -73,6 +78,7 @@ export function FreeCodeInternalDiagram({
           <HooksFlow />
           <ResultFlow />
           <ProviderFlow />
+          <CompactionFlow />
 
           {/* ==================== NODES / INTERACTIVE CARDS ==================== */}
           <BusNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
@@ -91,6 +97,14 @@ export function FreeCodeInternalDiagram({
           />
           <MemoryNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
           <HooksNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
+          <PermissionNode
+            selectedNode={selectedNode}
+            onSelectNode={onSelectNode}
+          />
+          <CompactionNode
+            selectedNode={selectedNode}
+            onSelectNode={onSelectNode}
+          />
           <ToolsNode selectedNode={selectedNode} onSelectNode={onSelectNode} />
           <ProviderNode
             selectedNode={selectedNode}
