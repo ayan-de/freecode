@@ -283,3 +283,13 @@ Need a feature like this
 (Partial exceptions exist — OpenAI's Responses API can store state server-side via previous_response_id, Gemini has explicit cache objects — but your loop treats providers uniformly and resends, which is the right call for portability.)
 
 6) Subagent UI
+
+
+##Memory
+
+1. The thread store is created but never written to. threadStore.create() at session/manager.ts:76 is its only live call site — no turns, no tool
+  calls, and session listing reads meta.json files instead. The full CRUD/search API exists on both backends and is unused.
+  2. session/normalize/ is dead code — the ChatGPT/Claude/Gemini response normalizers have zero callers; normalization lives in providers/streaming.ts
+  now. Left in place per your "mention, don't delete" rule.
+  3. CLAUDE.md lists session/service.ts, which doesn't exist. Not a docs-page issue, but the table in CLAUDE.md is stale on that row — say the word
+  and I'll fix it.
