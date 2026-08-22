@@ -1,0 +1,20 @@
+---
+title: "Event bus"
+description: "Pub/sub inside core, one egress to the frontend."
+---
+
+# Event bus
+
+Nothing inside core talks to a frontend directly. Modules publish events to a bus;
+a bridge maps them to `StreamEvent`s and drops internal-only ones; a single
+`subscribeAll` egress writes them to stdout (terminal) and SSE (web). Two-way
+events — questions and permission asks — park a promise keyed by request id until
+the answer comes back.
+
+## On this page (coming soon)
+
+- Publish, wildcard subscribe, and the bridge
+- Event families: stream, session, tool, subagent, question, permission, mcp
+- Why there is exactly one egress (no double-emit)
+- Ask/answer round trips and the headless default
+- Event ordering guarantees

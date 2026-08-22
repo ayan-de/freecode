@@ -1,4 +1,4 @@
-import { Footer, Layout, Navbar } from "nextra-theme-docs";
+import { Layout, Navbar } from "nextra-theme-docs";
 import { getPageMap } from "nextra/page-map";
 import "nextra-theme-docs/style.css";
 import "./globals.css";
@@ -15,12 +15,6 @@ const navbar = (
   />
 );
 
-const footer = (
-  <Footer>
-    {new Date().getFullYear()} © FreeCode. MIT License.
-  </Footer>
-);
-
 export default async function RootLayout({
   children,
 }: {
@@ -31,7 +25,6 @@ export default async function RootLayout({
       <body>
         <Layout
           navbar={navbar}
-          footer={footer}
           pageMap={await getPageMap()}
         >
           {children}

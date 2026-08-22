@@ -1,0 +1,19 @@
+---
+title: "Sub-agents"
+description: "Delegating subtasks to isolated nested agent loops."
+---
+
+# Sub-agents
+
+The `agent` tool spawns a fresh agent loop with its own session id, tool set, and
+iteration budget, fully isolated from the parent's history. Read-only roles run in
+`explore` mode and write-capable roles in `build` mode; only the final result
+comes back to the parent turn.
+
+## On this page (coming soon)
+
+- The four roles: explorer, reviewer, tester, summarizer
+- Why isolation keeps the parent's context small
+- Iteration budgets and capability profiles
+- Watching progress via `subagentStarted` / `subagentCompleted`
+- When delegation helps and when it just costs tokens

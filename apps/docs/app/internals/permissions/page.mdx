@@ -1,0 +1,20 @@
+---
+title: "Permission engine"
+description: "The exact order a tool call is evaluated in."
+---
+
+# Permission engine
+
+Six steps decide every tool call: danger bypass, mode enforcement, `PreToolUse`,
+the rules engine, `PermissionRequest`, then the interactive prompt. Mode
+enforcement runs before rules, which is why a read-only mode cannot be unlocked by
+an allow rule; and a rules `deny` is absolute, which is why no hook can undo one.
+
+## On this page (coming soon)
+
+- The six evaluation steps in order
+- Rule matching: `PATH_TOOLS`, `URL_TOOLS`, prefix patterns
+- Settings merge across project, user, and session scopes
+- Capability profiles: minimal, readonly, standard, elevated, admin
+- How profiles constrain sub-agents
+- Prompt suggestion and rule display names

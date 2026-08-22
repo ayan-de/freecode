@@ -1,0 +1,17 @@
+---
+title: "Effect runtime & DI"
+description: "Layers, services, and loop health."
+---
+
+# Effect runtime & DI
+
+Core is wired with Effect: services are declared as context tags and composed
+into layers, so the loop depends on interfaces rather than concrete modules. That
+is what makes the store, the provider, and the memory backend swappable in tests.
+
+## On this page (coming soon)
+
+- Context tags and service definitions
+- Layer composition and the runtime entry point
+- Loop-health as a service
+- Testing against layers instead of mocks

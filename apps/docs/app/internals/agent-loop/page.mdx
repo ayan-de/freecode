@@ -1,0 +1,22 @@
+---
+title: "Agent loop"
+description: "The stateful, turn-based cycle at the centre of FreeCode."
+---
+
+# Agent loop
+
+The loop is a stateful, turn-based cycle. Each turn it compiles a system prompt
+(project tree, git HEAD, memory), makes a **single** streamed provider call, and
+lets the model drive by emitting native tool calls. Those run — in parallel
+batches where safe — and their results fold into the next turn. It stops when a
+turn comes back with no tool calls, a health check trips a stuck pattern, or the
+iteration cap is hit.
+
+## On this page (coming soon)
+
+- The 13 steps of a turn, from `run(UserInput)` to `complete()`
+- Context collection and system-block compilation
+- Loop-health: repeated calls, stagnant turns, oscillation
+- `maxIterations` and abort handling
+- The recovery layer: retries and the fallback provider chain
+- Where each hook fires

@@ -1,0 +1,21 @@
+---
+title: "Agent modes"
+description: "plan, build, review, explore, and danger."
+---
+
+# Agent modes
+
+A mode is a coarse policy over what the agent may do, applied *before* any
+permission rule is consulted. **plan**, **review**, and **explore** are read-only
+and hard-deny mutations — an allow rule cannot override them. **build** is the
+default and lets rules decide. **danger** bypasses rules, hooks, and prompts
+entirely, and is an explicit per-session opt-in.
+
+## On this page (coming soon)
+
+- What each mode permits, and how it differs from the others
+- Why mode enforcement beats an allow rule
+- `explore` never prompts: any `ask` becomes `deny`
+- `review`'s bash carve-out (e.g. `Bash(git diff:*)`)
+- When `danger` is justified, and the risk you accept
+- Which mode sub-agents run in

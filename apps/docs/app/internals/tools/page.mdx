@@ -1,0 +1,20 @@
+---
+title: "Tool system"
+description: "Factory, orchestrator, and batching."
+---
+
+# Tool system
+
+Every tool — built-in or MCP — is constructed by `buildTool` with parameters,
+behavior, and permissions, then executed through the orchestrator. The batcher
+groups concurrency-safe calls to run together and forces mutating calls to run
+alone, in order.
+
+## On this page (coming soon)
+
+- `factory.ts`: parameters, behavior, permissions
+- The orchestrator's execution contract
+- How batches are planned
+- Tool output storage and truncation
+- Registering MCP tools at runtime
+- Why tools never render — core emits events, frontends draw

@@ -1,0 +1,23 @@
+---
+title: "Slash commands"
+description: "Built-in commands available in the terminal UI."
+---
+
+# Slash commands
+
+Slash commands split in two. UI commands (`/clear`, `/model`, `/exit`) change
+frontend state and are implemented per frontend. Prompt commands (`/init` and
+friends) are really prompt templates sent to the agent, and live in core so every
+frontend gets them.
+
+## On this page (coming soon)
+
+- `/help`, `/clear`, `/exit`
+- `/model` — switch provider or model mid-session
+- `/resume` — reopen a previous session
+- `/compact` — summarize older turns on demand
+- `/cost` — token spend and prompt-cache hit rate
+- `/usage` — daily token usage heatmap
+- `/skills` — list available skills
+- `/graph` — open the memory knowledge graph
+- Writing your own — see [custom commands](/guides/custom-commands)

@@ -1,0 +1,18 @@
+---
+title: "Sub-agent runtime"
+description: "Nested loops, isolation, and result handoff."
+---
+
+# Sub-agent runtime
+
+A sub-agent is a full agent loop with its own session id, capability profile, and
+iteration budget. The parent sees only the final result, which is what keeps
+delegation from flooding the parent's context.
+
+## On this page (coming soon)
+
+- Spawning from the `agent` tool
+- Role definitions and their modes
+- Tool-set restriction by capability profile
+- Bus events and progress reporting
+- Iteration budgets and failure handling

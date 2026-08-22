@@ -1,0 +1,20 @@
+---
+title: "Compaction"
+description: "Token math, selection, and summarization."
+---
+
+# Compaction
+
+Compaction is three pieces: a token estimate and a threshold check, a selector
+that decides what to preserve, and a summarizer that folds the rest. It is
+triggered by the loop, gated by `PreCompact`, written atomically, and announced
+with `PostCompact`.
+
+## On this page (coming soon)
+
+- Token estimation and the auto-compact buffer
+- `selectForCompaction`: preserve recent, summarize old
+- The LLM summarizer and its heuristic fallback
+- Back-off after a `PreCompact` veto
+- Atomic persistence
+- The configuration knobs and their defaults

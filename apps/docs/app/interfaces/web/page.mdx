@@ -1,0 +1,17 @@
+---
+title: "Web UI"
+description: "Browser access via `freecode web`."
+---
+
+# Web UI
+
+`freecode web` starts an HTTP/WebSocket bridge in front of the same backend and
+serves a Next.js UI. Stream events reach the browser over SSE instead of stdout;
+everything else — tools, permissions, sessions — is unchanged.
+
+## On this page (coming soon)
+
+- Starting the server and choosing a port
+- Authentication and pairing
+- How streaming differs from stdio (SSE + buffering)
+- When to use the web UI over the terminal

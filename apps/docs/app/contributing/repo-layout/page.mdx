@@ -1,0 +1,18 @@
+---
+title: "Repo layout"
+description: "What lives where in the monorepo."
+---
+
+# Repo layout
+
+`apps/core` is the backend and holds every subsystem. `apps/tui`, `apps/vscode`,
+`apps/web`, and `apps/web-app` are presentation only. `packages/shared` holds
+domain types and the IPC protocol — and nothing else.
+
+## On this page (coming soon)
+
+- `apps/` — core, tui, vscode, web, web-app, docs, tui-rs
+- `packages/` — shared, ui, eslint-config, typescript-config
+- `docs/superpowers/` — specs and plans
+- The boundary table: what may live where
+- File naming conventions

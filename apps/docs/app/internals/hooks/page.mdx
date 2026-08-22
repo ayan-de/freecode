@@ -1,0 +1,21 @@
+---
+title: "Lifecycle hooks"
+description: "All 14 events, by phase, with what each can do."
+---
+
+# Lifecycle hooks
+
+`HOOK_EVENT_NAMES` defines 14 hooks across six phases — session, turn, tool call,
+compaction, sub-agent, and attention. Each is a shell command, an internal
+callback, or an LLM prompt, matched to tools by pattern, and each is declared
+either blocking or modifying.
+
+## On this page (coming soon)
+
+- Session: `SessionStart`, `Stop`
+- Turn: `TurnStart`, `UserPromptSubmit`, `TurnEnd`
+- Tool call: `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`
+- Compaction: `PreCompact`, `PostCompact`
+- Sub-agent: `SubagentStart`, `SubagentStop`
+- Attention: `Notification`
+- The runtime, the registry, and the two executors

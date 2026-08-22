@@ -1,0 +1,19 @@
+---
+title: "MCP servers"
+description: "Connect external tools over the Model Context Protocol."
+---
+
+# MCP servers
+
+FreeCode is an MCP *client*: it connects to MCP servers, converts their tools into
+native FreeCode tools, and registers them at runtime so they go through the same
+permission checks and orchestrator as the built-ins.
+
+## On this page (coming soon)
+
+- `freecode mcp add` / `list` / `remove`
+- `freecode mcp start` / `stop` / `status`
+- Transports and server configuration
+- How MCP tools are named and permission-scoped
+- Reacting to `mcp.tools.changed`
+- Not supported: exposing FreeCode's own tools as an MCP server

@@ -1,0 +1,21 @@
+---
+title: "Permissions & rules"
+description: "allow / ask / deny rules and how a tool call is decided."
+---
+
+# Permissions & rules
+
+Every tool call is matched against user-editable rules like
+`Bash(npm run test:*)` or `Read(./secrets/**)`, merged from project and user
+settings plus in-session grants. Precedence is **deny > ask > allow**, first match
+wins, and a `deny` is absolute — no hook and no allow rule can override it.
+Unmatched calls fall through to the mode default.
+
+## On this page (coming soon)
+
+- Rule syntax: tools, path scopes, URL scopes, `:*` prefixes
+- The full evaluation order, step by step
+- The decision matrix: the same call across all five modes
+- The interactive prompt and its four grant scopes
+- Headless behaviour: an unanswered `ask` resolves to `deny`, never `allow`
+- How `PermissionRequest` hooks can override an `ask`

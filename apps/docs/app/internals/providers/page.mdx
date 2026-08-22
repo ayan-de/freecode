@@ -1,0 +1,20 @@
+---
+title: "Provider layer"
+description: "One interface, six providers, no special cases in the loop."
+---
+
+# Provider layer
+
+Every provider implements `AIProvider` and self-registers into the registry, so
+the loop never names a provider. Calls go through the Vercel AI SDK; streaming,
+tool calls, extended thinking, prompt caching, and usage are normalized into a
+single chunk stream before the loop ever sees them.
+
+## On this page (coming soon)
+
+- The `AIProvider` interface and the registry
+- Stream normalization in `streaming.ts`
+- Prompt caching, cache awareness, and what invalidates a cache
+- Timeouts at the fetch layer, and why they cannot live higher up
+- Recovery: retry policy and fallback chain
+- The legacy browser-automation path, and why it is not the default

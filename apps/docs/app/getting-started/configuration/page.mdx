@@ -1,0 +1,20 @@
+---
+title: "Configuration"
+description: "Project and user settings, and how they merge."
+---
+
+# Configuration
+
+FreeCode reads settings from two scopes: `.freecode/settings.json` in the
+project (commit it — it is your team's policy) and `~/.freecode/settings.json` for
+your machine. Project settings win where they overlap, and in-session grants layer
+on top of both without being written to disk unless you ask.
+
+## On this page (coming soon)
+
+- The two scopes and their precedence
+- Permission rules: `allow` / `ask` / `deny`
+- Provider and model defaults
+- Memory options, including turning auto-extraction off
+- Hook definitions
+- Full schema — see the [settings reference](/reference/settings)

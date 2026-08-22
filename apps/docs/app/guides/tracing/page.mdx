@@ -1,0 +1,19 @@
+---
+title: "Tracing & observability"
+description: "See what the agent did, and where it got stuck."
+---
+
+# Tracing & observability
+
+Every model call is recorded to the session's event log — the request *before* it
+is sent, so an unterminated request is itself the evidence of a hang. `freecode
+trace` folds that log into spans you can follow live, sort by duration, or export
+as OTLP.
+
+## On this page (coming soon)
+
+- `freecode trace [id]` and `--follow`
+- `--slow`, `--list`, `--json`
+- `--otlp` — exporting to an OpenTelemetry collector
+- Reading a trace: `in_flight` vs `hung`
+- The timeouts that protect the loop, and how to change them

@@ -1,0 +1,17 @@
+---
+title: "Interfaces"
+description: "The frontends that talk to the FreeCode backend."
+---
+
+# Interfaces
+
+Every FreeCode frontend is a thin client: it renders and it speaks JSON-RPC,
+and that is all. No frontend calls a provider, reads a file, or executes a tool.
+That means the terminal UI, the VS Code extension, the web UI, the desktop app,
+and a phone on your Tailnet all get identical behaviour from the same backend.
+
+## On this page (coming soon)
+
+- What 'thin client' means in practice, and why it is enforced
+- Picking an interface for a given workflow
+- Sharing sessions between interfaces

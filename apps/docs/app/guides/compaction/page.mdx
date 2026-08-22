@@ -1,0 +1,20 @@
+---
+title: "Long conversations"
+description: "How FreeCode keeps a session from overflowing the context window."
+---
+
+# Long conversations
+
+When a conversation approaches the model's context limit, FreeCode folds older
+turns into a structured summary and keeps the most recent turns verbatim. It
+fires slightly *before* the window is full so there is always headroom for the
+reply, and a `PreCompact` hook can defer it.
+
+## On this page (coming soon)
+
+- When compaction triggers (limit minus a safety buffer)
+- What is preserved verbatim and what gets summarized
+- The summary's structure: Goal · Done · In Progress · Blocked · Decisions · Files · Next Steps
+- Forcing it early with `/compact`
+- The fallback when the summarizing call fails
+- Tuning the knobs — see [compaction internals](/internals/compaction)

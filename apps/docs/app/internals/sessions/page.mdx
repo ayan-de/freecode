@@ -1,0 +1,19 @@
+---
+title: "Sessions, store & rollout"
+description: "Persistence and event sourcing."
+---
+
+# Sessions, store & rollout
+
+Session state lives in a pluggable thread store (sqlite, json, or remote) while
+every meaningful action is appended to a rollout event log. The log is what makes
+replay, forking, and tracing possible — it is the record, not a cache of one.
+
+## On this page (coming soon)
+
+- The session manager, service, and store
+- Thread store backends and when each is used
+- The rollout recorder and its event types
+- History and replay
+- Message normalization
+- Interrupts and mid-turn cancellation

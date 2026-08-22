@@ -1,0 +1,19 @@
+---
+title: "Adding a tool"
+description: "The registration checklist — miss a step and the tool fails closed."
+---
+
+# Adding a tool
+
+Building the tool and adding it to the registry is not enough. Several permission
+and UI tables key off the tool *name*; if a new tool is missing from one, it is
+silently blocked in read-only modes or prompts on every single call.
+
+## On this page (coming soon)
+
+- Write the tool with `buildTool` — and declare a `type` on every schema property
+- Register it in `tools/index.ts`
+- Add it to `READONLY_TOOLS` if it only reads
+- Add it to `PATH_TOOLS` or `URL_TOOLS` so scoped rules match
+- Add a display name for permission prompts
+- Optional: a frontend icon or custom result rendering

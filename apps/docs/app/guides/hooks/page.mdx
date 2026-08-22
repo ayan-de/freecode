@@ -1,0 +1,21 @@
+---
+title: "Hooks"
+description: "Intercept the agent at 14 lifecycle points."
+---
+
+# Hooks
+
+Hooks are interception points around the session, each turn, each tool call,
+compaction, and sub-agents. They are the supported way to change the agent's
+behaviour without editing the loop: a hook can be a shell command, an internal
+callback, or an LLM prompt, and depending on the event it can block the action or
+rewrite its input, output, or context.
+
+## On this page (coming soon)
+
+- The 14 events, grouped by phase
+- Which can block and which can modify
+- Defining hooks in `settings.json`
+- Matching hooks to tools by pattern, e.g. `Bash(git *)`
+- Worked examples: format on write, block force-push, notify on idle
+- Hooks vs the permission rules engine — they are not the same thing

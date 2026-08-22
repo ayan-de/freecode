@@ -1,0 +1,18 @@
+---
+title: "Adding a provider"
+description: "Implement AIProvider and self-register."
+---
+
+# Adding a provider
+
+Copy an existing adapter. A provider implements `AIProvider`, self-registers on
+import, and normalizes its stream so the loop needs no knowledge of it.
+
+## On this page (coming soon)
+
+- Implementing the interface
+- Self-registration and the init list
+- Normalizing the stream: text, thinking, tool calls, usage
+- Prompt caching support
+- Model metadata and context limits
+- Quirks to expect (e.g. stringified numeric tool arguments)

@@ -1,0 +1,20 @@
+---
+title: "Context engine"
+description: "Tree cache, prompt compiler, and instruction loading."
+---
+
+# Context engine
+
+`tree-cache.ts` builds a cached `ProjectContext` — name, path, file tree, git
+HEAD — keyed by HEAD and invalidated after any mutating tool. The `PromptCompiler`
+assembles the system prompt from the mode preamble, instructions, project summary
+and tree, and session memory, as cacheable blocks.
+
+## On this page (coming soon)
+
+- Building and invalidating the tree cache
+- The tree watcher
+- Instruction resolution: `CLAUDE.md` → `AGENTS.md`
+- Compiling `SystemBlock[]` for prompt caching
+- Context strategies
+- The repo map

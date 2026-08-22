@@ -1,0 +1,18 @@
+---
+title: "Building & releasing"
+description: "The distributable binary, and the dev-only one."
+---
+
+# Building & releasing
+
+`pnpm build:bun` produces the only distributable binary: self-contained, bundles
+core, runs anywhere. `pnpm build:sea` is a TUI-shell-only dev artifact that spawns
+core from disk and works only inside the monorepo — never install it as a release.
+
+## On this page (coming soon)
+
+- `build:bun` vs `build:sea`
+- What the release workflow publishes
+- Version baking and `~/.freecode/builds/versions/`
+- Shipping the graph explorer bundle
+- Changelog and release conventions

@@ -1,0 +1,20 @@
+---
+title: "Providers & API keys"
+description: "Configure Anthropic, OpenAI, Gemini, MiniMax, DeepSeek, or Z.ai."
+---
+
+# Providers & API keys
+
+Six providers are registered out of the box: **Anthropic**, **OpenAI**,
+**Gemini**, **MiniMax**, **DeepSeek**, and **Z.ai**. Each implements the same
+`AIProvider` interface and self-registers, so switching provider or model is a
+setting — never a code change. All of them go through the Vercel AI SDK with real
+streaming, native tool calling, and usage accounting.
+
+## On this page (coming soon)
+
+- Where each provider reads its API key from
+- Choosing a default provider and model
+- Switching mid-session with `/model`
+- Which providers support extended thinking and prompt caching
+- Fallback chains: what happens when a provider errors or rate-limits

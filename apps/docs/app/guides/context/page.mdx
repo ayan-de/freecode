@@ -1,0 +1,19 @@
+---
+title: "Context & instructions"
+description: "What the agent knows about your project on every turn."
+---
+
+# Context & instructions
+
+Each turn, FreeCode compiles a system prompt from the mode preamble, your
+instructions file (`CLAUDE.md`, falling back to `AGENTS.md`), a cached project
+file tree, git HEAD, and relevant memory. The tree is cached by HEAD and
+invalidated after any mutating tool, so it is cheap but never stale.
+
+## On this page (coming soon)
+
+- Writing an instructions file the agent actually follows
+- `CLAUDE.md` vs `AGENTS.md` precedence
+- What the file tree includes, and how ignore patterns apply
+- The repo map
+- Why context is collected up front instead of asked for file by file

@@ -1,0 +1,18 @@
+---
+title: "IPC protocol"
+description: "JSON-RPC 2.0 over stdin/stdout, plus the stream event union."
+---
+
+# IPC protocol
+
+Frontends speak JSON-RPC 2.0 to core over stdin/stdout. Method signatures are
+declared once in `packages/shared`; `session.send` streams `StreamEvent` values
+back rather than returning a single result.
+
+## On this page (coming soon)
+
+- Method groups: tools, session, providers, config, memory, question, usage
+- The `StreamEvent` union
+- Streaming vs request/response
+- The legacy `StreamResponse` union
+- The HTTP/WS bridge used by the web UI
