@@ -5,16 +5,142 @@ description: "Configure Anthropic, OpenAI, Gemini, MiniMax, DeepSeek, or Z.ai."
 
 # Providers & API keys
 
-Six providers are registered out of the box: **Anthropic**, **OpenAI**,
-**Gemini**, **MiniMax**, **DeepSeek**, and **Z.ai**. Each implements the same
-`AIProvider` interface and self-registers, so switching provider or model is a
-setting — never a code change. All of them go through the Vercel AI SDK with real
+Six providers are built in. Each one implements the same interface and registers
+itself, so switching provider or model is a setting — never a code change, and
+never a different agent. All six go through the Vercel AI SDK with real
 streaming, native tool calling, and usage accounting.
 
-## On this page (coming soon)
+| Provider | Provider id | API key variable | Default model |
+| --- | --- | --- | --- |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-5` |
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4o` |
+| Gemini | `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| MiniMax | `minimax` | `MINIMAX_API_KEY` | `MiniMax-M2` |
+| Z.ai | `zai` | `ZAI_API_KEY` | `glm-5.2` |
 
-- Where each provider reads its API key from
-- Choosing a default provider and model
-- Switching mid-session with `/model`
-- Which providers support extended thinking and prompt caching
-- Fallback chains: what happens when a provider errors or rate-limits
+The default model only applies when nothing else specifies one; in practice your
+pick from `/model` is pinned to the session from its first turn.
+
+## Setting a key
+
+The way you are meant to do it is `/model` in the TUI: pick a provider, pick a
+model, paste the key into the masked field. That writes both halves of what a
+session needs — the credential *and* the choice — to `~/.freecode/config.json`:
+
+```json
+{
+  "providers": {
+    "anthropic": { "apiKey": "sk-ant-…" }
+  },
+  "current": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-5"
+  }
+}
+```
+
+You can write that file by hand. Keep it to yourself: it is the one file in
+FreeCode that holds a secret, which is exactly why permissions and hooks live
+somewhere else that is safe to commit.
+
+### Lookup order
+
+`getApiKey` (`providers/config.ts:59`) tries four places in order:
+
+1. `config.json` → `providers.<id>.apiKey`
+2. `config.json` → the **base** provider, stripping a `-coding-plan` suffix, so
+   `minimax-coding-plan` reuses the `minimax` key
+3. the provider's environment variable
+4. the base provider's environment variable
+
+If all four miss it throws a message naming both the config path and the
+variable. Note what this order means in practice: **`config.json` wins over the
+environment.** A key you pasted months ago silently takes precedence over the
+one you just exported.
+
+> An environment variable alone will not get an interactive session started. It
+> supplies a credential, not a choice of provider, and a session with no
+> `current.provider` refuses to start rather than guessing. Either run `/model`
+> once, or pass the provider explicitly: `freecode run --model anthropic/claude-sonnet-4-5 "…"`.
+
+## Switching models
+
+| Where | How |
+| --- | --- |
+| TUI | `/model`, any time — the mode line shows what is active |
+| Headless | `freecode run --model <provider>/<model>` (no slash changes only the model) |
+| Everywhere | edit `current` in `~/.freecode/config.json` |
+
+The model is pinned to the session at creation and persisted with it
+(`server.ts:269`). That is deliberate: leaving it unset used to let each turn
+fall through to the provider's *default* model, which is how a session
+configured for one MiniMax model quietly ran on a smaller one and overflowed a
+window the meter said was 20% full.
+
+## Where the model list comes from
+
+FreeCode does not ship a model table. Model ids, context windows, output limits,
+and whether a model accepts images all come from
+[models.dev](https://models.dev), fetched once and cached in
+`~/.freecode/cache/models-dev.json` with a 5-minute TTL and an indefinite
+on-disk fallback (`models-dev.ts:9`). Offline, you keep working from the cache.
+
+This matters more than a model picker: the context window it reports is what
+[compaction](/guides/compaction) budgets against, and the vision flag is what
+decides whether an attached image is sent at all.
+
+## Failing over to another provider
+
+When a provider exhausts its retry budget or hits a fatal error, FreeCode can
+move the run to another one:
+
+```json
+{
+  "recovery": {
+    "fallbackProviders": ["openai", "deepseek"]
+  }
+}
+```
+
+Tried in order, each with its own retry budget (`agent/recovery/manager.ts:381`).
+A 429 that means *quota exhausted* is never retried against the same provider —
+waiting cannot help, and each retry re-sends the whole conversation for a
+guaranteed rejection — so a fallback chain is the only thing that keeps a long
+run alive when your plan runs out mid-task.
+
+There is no UI for this; it is a hand-edit in `config.json`.
+
+## What differs between providers
+
+Not much reaches the agent loop. The one real fork is how the system prompt is
+shaped: Anthropic-shaped providers (Anthropic, MiniMax, Z.ai — the latter two
+speak the Anthropic Messages format at a different base URL) receive system
+*blocks* that can carry individual prompt-cache breakpoints, while OpenAI-shaped
+providers get those blocks joined into one string because their caching is
+automatic and there is nothing to mark.
+
+Expect vendor quirks below that line. MiniMax stringifies numeric tool
+arguments, which is why every tool schema declares an explicit `type` and the
+orchestrator coerces on the way in. The full picture is in
+[the provider layer](/internals/providers).
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`. Two are
+carried over from [the provider internals page](/internals/providers#known-gaps)
+because they are what a new user hits first:
+
+- **The provider picker lists every provider models.dev knows about, not the six
+  that exist.** `providers.list` (`server.ts:618`) returns the whole catalogue —
+  200+ entries — and picking one FreeCode cannot instantiate fails with
+  `Provider "X" not registered`. The registry's own `listProviders()` is imported
+  into `server.ts` and never called.
+- **Gemini's models never load.** FreeCode registers the id `gemini`; models.dev
+  calls it `google`, so every lookup misses: the model picker shows an empty
+  list, the context window reads as `0`, and images are never sent. It needs an
+  id-mapping table in `models-dev.ts`.
+- **`config.json` silently outranks the environment.** For a tool whose other two
+  configuration surfaces let the environment override the file, having the
+  stored key win is the opposite of what a `FOO_API_KEY=… freecode` invocation
+  implies. Nothing surfaces which of the four sources a key came from.

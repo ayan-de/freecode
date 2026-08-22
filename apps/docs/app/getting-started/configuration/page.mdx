@@ -5,16 +5,148 @@ description: "Project and user settings, and how they merge."
 
 # Configuration
 
-FreeCode reads settings from two scopes: `.freecode/settings.json` in the
-project (commit it — it is your team's policy) and `~/.freecode/settings.json` for
-your machine. Project settings win where they overlap, and in-session grants layer
-on top of both without being written to disk unless you ask.
+Most of FreeCode needs no configuration. What you do configure falls into two
+buckets, and confusing them is the usual source of "why is this not applying?"
 
-## On this page (coming soon)
+| File | Written by | Commit it? |
+| --- | --- | --- |
+| `~/.freecode/config.json` | the app (`/model`, `freecode mcp add`) | never — it holds your API key |
+| `.freecode/settings.json` | you, by hand | **yes** — it is your team's policy |
+| `~/.freecode/settings.json` | you, by hand | it is per-machine, so nothing to commit |
 
-- The two scopes and their precedence
-- Permission rules: `allow` / `ask` / `deny`
-- Provider and model defaults
-- Memory options, including turning auto-extraction off
-- Hook definitions
-- Full schema — see the [settings reference](/reference/settings)
+`config.json` is *state*: a credential and a cursor. `settings.json` is *policy*:
+what the agent is allowed to do, what should run around it, and what it should
+remember. Policy has no secrets in it, which is what makes committing the project
+copy safe and useful — everyone who clones the repository gets the same rules.
+
+Environment variables are the third surface, for the two cases a file handles
+badly: one-off debugging and CI. They are listed in full under
+[environment variables](/reference/env).
+
+## What settings.json holds
+
+Exactly three top-level keys are read. Anything else in the file is ignored
+without comment.
+
+```json
+{
+  "permissions": {
+    "allow": ["Read", "Grep", "Bash(pnpm test:*)"],
+    "ask": ["Bash(git push:*)"],
+    "deny": ["Read(//etc/**)", "Bash(rm -rf:*)", "Write(.env)"]
+  },
+  "hooks": {
+    "PostToolUse": [
+      { "name": "format-ts", "matcher": "edit|write", "command": "pnpm prettier --write \"$CLAUDE_TOOL_INPUT\"" }
+    ]
+  },
+  "memory": {
+    "autoExtract": true,
+    "extractEveryNRuns": 8
+  }
+}
+```
+
+| Key | Does what |
+| --- | --- |
+| `permissions` | which tool calls are allowed outright, which ask, which are refused |
+| `hooks` | shell commands to run at lifecycle events — formatters, linters, audit logs |
+| `memory` | whether finished turns are mined for durable facts, and how often |
+
+Every key is documented field by field in the
+[settings reference](/reference/settings).
+
+## The permission rules are the point
+
+Answering the same prompt twenty times is the thing people quit over, and the
+fix is three lines. Rules are `Tool` or `Tool(pattern)`, and the tool name is
+case-insensitive:
+
+```json
+{
+  "permissions": {
+    "allow": ["Read", "Grep", "Glob", "Bash(pnpm test:*)"],
+    "deny": ["Write(.env)", "Bash(git push:*)"]
+  }
+}
+```
+
+Two behaviours are worth internalising before you write your own:
+
+- **Deny is absolute and checked first.** Not even a hook can argue with it.
+- **Bash prefix rules are strict on purpose.** `Bash(npm:*)` matches `npm test`,
+  but not `npmevil`, and not `npm test && rm -rf /` — a command containing any
+  shell chaining never matches a prefix rule. A narrow grant cannot be widened by
+  appending `&& …`.
+
+Answering "always allow" in the permission picker writes into these same
+files — project scope for "this project", user scope for "everywhere" — so the
+prompts you answer become a policy you can read and revert.
+
+## How the two scopes combine
+
+There is no single precedence rule, which is the part that surprises people:
+**each section merges by its own.**
+
+| Section | Merge |
+| --- | --- |
+| `permissions` | **concatenated.** `allow = project + user + session grants`, same for `ask` and `deny` |
+| `hooks` | **replaced by `event + name`.** A project hook named `format-ts` replaces the user hook of that name |
+| `memory` | **first definition wins**, project → user → default |
+
+So a project cannot *remove* a rule your user file grants — but because deny is
+evaluated first, it can neutralise one by adding the matching `deny`. Both
+directories are watched, so edits apply without restarting.
+
+A file that does not parse is treated as **empty** for that scope. It fails
+closed and logs a warning rather than falling back to something permissive.
+
+## Telling the agent about your project
+
+Separate from settings, and probably the highest-value thing on this page:
+FreeCode reads instruction files into the system prompt.
+
+| Location | File |
+| --- | --- |
+| `<project>/` | `CLAUDE.md`, or `AGENTS.md` if the first is absent |
+| `~/.freecode/` | same pair, applied to every project |
+
+Per location the first non-empty match wins, global comes first in the prompt,
+and the two are capped at 40,000 characters combined
+(`context/instructions.ts:15`). Only the root of the project is read — there is
+no walk-up for monorepo subdirectories and no `@import`.
+
+`/init` will write a first draft by reading the repository. Treat what it
+produces as a starting point: this file is where "run `pnpm check-types`, not
+`tsc`" and "don't touch `apps/legacy`" belong.
+
+## The rest of `.freecode/`
+
+The project directory holds more than settings, all of it committable:
+
+| Path | Contents |
+| --- | --- |
+| `.freecode/settings.json` | permissions, hooks, memory |
+| `.freecode/skills/<name>/SKILL.md` | [skills](/guides/skills) — instructions loaded on demand |
+| `.freecode/commands/<name>.md` | [custom slash commands](/guides/custom-commands) |
+
+Skills are also picked up from `.claude/skills/` and `.agents/skills/` in the
+project, and from the matching directories under your home — so an existing
+Claude Code setup mostly works as-is.
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **Hooks only load under `freecode serve`.** The hook settings manager is
+  constructed in `startServer()` (`server.ts:1106`), so a headless `freecode run`
+  never loads them: the formatter you rely on after every edit silently does not
+  run in CI, while permission rules from the same file *do* apply. Same file,
+  same repository, two behaviours.
+- **MCP servers cannot be configured per project.** They live in
+  `~/.freecode/config.json` and `getConfigDir()` is hard-wired to the home
+  directory, so a repository can ship the permission rules and hooks its
+  contributors need, but not the MCP servers.
+- **Instruction files are root-only.** `context/instructions.ts` reads exactly two
+  directories, so in a monorepo the rules for `apps/web` have nowhere to live
+  except the root file that every other package also pays for in tokens.

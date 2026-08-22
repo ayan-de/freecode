@@ -552,14 +552,17 @@ that page's **Known gaps**.
       terminates".
 - [ ] **`SessionStart` fires per user message, not per session** (`loop.ts:593`,
       inside `run()`). Either rename it or gate it on the session's first run.
-- [ ] **The tree watcher can't reach the prompt.** `run()` calls `ensureWatching`
-      (`loop.ts:564`) to keep project context fresh, but the prompt reads
-      `getFrozenSessionContext` (`context/session-context.ts:39`), which snapshots
-      once per session; `getProjectContext` has no other caller. The freeze is
-      correct for cache stability — so the watcher is pure cost today, and a long
-      session's file tree is permanently the one from its first turn. Either drop
-      the watcher or give the freeze an explicit refresh point (e.g. after
-      compaction, which rebuilds the prefix anyway).
+- [ ] **The tree watcher can't reach the current session's prompt.** `run()` calls
+      `ensureWatching` (`loop.ts:564`) to keep project context fresh, but the
+      prompt reads `getFrozenSessionContext` (`context/session-context.ts:39`),
+      which snapshots once per session. The freeze is correct for cache
+      stability, so the watcher's only real payoff is a fresh snapshot for the
+      *next* session — and that payoff is itself cancelled for up to 5 minutes by
+      `PromptCompiler`'s `fileTreeCache` (keyed on git HEAD, value derived from
+      the tree; see the context-engine audit below). Meanwhile a long session's
+      file tree is permanently the one from its first turn. Fix the compiler cache
+      key first, then consider giving the freeze an explicit refresh point (e.g.
+      after compaction, which rebuilds the prefix anyway).
 - [ ] **`ToolContext.projectPath` is never set by the loop.** `executeTool` builds
       `{ cwd: process.cwd(), sessionId, abort }` (`loop.ts:2199`), so relative paths
       resolve against core's working directory rather than `state.projectPath`, and
@@ -872,3 +875,150 @@ page's **Known gaps**.
   output attached — otherwise the loop concludes the command worked.
 - **Tools return data, never markup.** Four frontends render the same
   `StreamEvent`s their own way.
+
+## Docs-audit findings (getting started — 2026-08-23)
+
+Found while writing `apps/docs/app/getting-started` (installation, quickstart,
+providers, configuration). Each is also listed in that page's **Known gaps**.
+Items already tracked elsewhere (`providers.list` returning models.dev's whole
+catalogue, the `gemini`/`google` id mismatch, hooks not loading under
+`freecode run`, MCP being user-scope only, root-only instruction files) are cited
+on the pages but not repeated here.
+
+### Real fixes
+
+- [ ] **First run has no path to a working session that the product itself
+      teaches.** A fresh `config.json` has no `current.provider`, so the first
+      prompt dies with `No provider configured. Set current.provider in
+      ~/.freecode/config.json, or pass \`provider\` to session.start`
+      (`server.ts:281`) — a message written for an integrator. It names a file to
+      hand-edit and never mentions `/model`, which is the only supported path.
+      Detect a missing `current` at TUI startup and open the model picker.
+- [ ] **`ANTHROPIC_API_KEY` (etc.) looks sufficient and is not.** `hasApiKey`
+      reads the environment (`providers/config.ts:116`) so the key resolves, but
+      the session still refuses to start without `current.provider`. Env-only
+      configuration works headlessly (`--model anthropic/…` supplies the
+      provider) and never interactively — which is backwards from every other CLI
+      that reads a `*_API_KEY`.
+- [ ] **`config.json` silently outranks the environment for API keys.**
+      `getApiKey` (`providers/config.ts:59`) checks the stored key first, so
+      `ANTHROPIC_API_KEY=… freecode` does *not* override a key pasted months ago,
+      and nothing reports which of the four sources was used. The other two
+      configuration surfaces let the environment win.
+- [ ] **The auto-update cannot be disabled and no version can be pinned.**
+      `checkForUpdate` (`apps/tui/src/entry.ts:56`) gates only on
+      `FREECODE_BUNDLED` and a per-process sentinel — no flag, no env var, no
+      config key. Running an older binary from `builds/versions/<old>/` installs
+      the latest and re-execs into it, so the versioned layout that makes
+      rollback look supported cannot actually hold a version. `FREECODE_NO_UPDATE=1`
+      would be a one-line fix.
+- [ ] **`freecode uninstall` ignores the variables the installer honours.** The
+      handler hard-codes `~/.freecode` plus four Unix bin paths
+      (`cli/commands/uninstall.ts:44`), while `install.sh` supports
+      `FREECODE_HOME` and `FREECODE_INSTALL_DIR` and `install.ps1` installs the
+      launcher to `%LOCALAPPDATA%\freecode\bin`. On Windows the command reports
+      success while leaving the binary on PATH.
+- [ ] **Nothing removes the PATH lines the installer appended.** `install.sh`
+      writes an `export PATH=…` block into `~/.zshenv`, `~/.bashrc`,
+      `~/.profile`, fish's `config.fish`, and any existing `~/.zshrc` /
+      `~/.zprofile` / `~/.bash_profile`; uninstalling leaves every one of them
+      pointing at a directory that no longer exists.
+- [ ] **`apps/tui/src/models.ts` is stale dead code.** `AVAILABLE_MODELS`
+      hard-codes three Anthropic model ids and is imported by
+      `commands/built-in.ts:2` without being used — the picker gets its list from
+      `models.list` over IPC. A hard-coded model table in a frontend that is not
+      allowed to have one.
+- [ ] **`TODO.md`'s own entry for user-defined commands is stale.** "User-defined
+      prompt commands loader — **Status:** Not started" is contradicted by
+      `commands/loader.ts:113`, which already loads `.freecode/commands/` from
+      project and user scope with precedence. Same for the extensibility item 2.
+
+## Docs-audit findings (context engine — 2026-08-23)
+
+Found while writing `apps/docs/app/internals/context`. Each is also listed in
+that page's **Known gaps**.
+
+### Real fixes
+
+- [ ] **The git HEAD never reaches the model.** It is computed with an `execSync`
+      per cache miss (`tree-cache.ts:38`), carried on `ProjectContext`, frozen per
+      session, threaded through `run()` → `callProviderOnce` →
+      `compileDynamicContext` — and `compileProjectSummary` uses it only as a
+      **cache key**. The rendered section is `Project` / `Path` / `File tree` and
+      nothing else (`compiler.ts:115`). `CLAUDE.md` ("file tree, git head") and
+      several in-code comments claim otherwise. Either render it or stop computing
+      it.
+- [ ] **`PromptCompiler.fileTreeCache` is keyed on something its value doesn't
+      depend on.** Key is `projectPath:gitHead:ignorePatterns` (`compiler.ts:59`);
+      the cached string is built from `tree`, which changes independently of HEAD
+      (any new top-level file). A second session started within the 5-minute TTL
+      renders the *first* session's tree even though the tree-watcher just
+      refreshed `tree-cache` — cancelling the watcher's only remaining benefit.
+      The cache saves a four-line string concat, so the simplest fix is to delete
+      it; otherwise key it on the tree itself.
+- [ ] **`collector.ts` + `context/types.ts` + `context/strategies/` are
+      unreachable.** `collectContext()` resolves a strategy from a registry that
+      only `createDefaultStrategies()` fills, and that function has no callers — so
+      the lookup would fail even if something invoked it. Nothing does:
+      `AgentLoop.collectContext` (`loop.ts:2295`) is a private method calling
+      `getFrozenSessionContext`. Delete the trio, or wire it and drop `tree-cache`'s
+      parallel implementation.
+- [ ] **`FileTreeStrategy` implements the design the project explicitly
+      rejected** — depth-3 walk reading the **full contents of every file** into
+      `files` (`strategies/file-tree.ts:90`), i.e. the "collect files then send
+      them" pre-pass the single-agentic-loop architecture exists to avoid. Dead,
+      but 126 lines of dead code that reads like the intended design. It also
+      builds keys with `path.relative(process.cwd(), …)` instead of the project
+      path.
+- [ ] **`ProjectContext` is declared twice with different fields** —
+      `context/types.ts:5` (dead: `{ projectPath, name, tree, files, metadata }`)
+      and `context/tree-cache.ts:14` (live: `{ name, projectPath, tree, gitHead }`).
+- [ ] **Editing `CLAUDE.md` mid-session busts the prompt cache with nothing in
+      the invalidation journal.** `compileInstructionsSection` re-reads from disk
+      every turn and feeds the `cache: true` block, so an edit moves the first
+      breakpoint. Legitimate, but no `recordInvalidation` call — so the miss
+      detector reports an unexplained bust. Same shape as the MCP tool-set gap in
+      the provider-layer audit; both want a `recordInvalidation` at the site that
+      changes the prefix.
+- [ ] **The 40,000-char instruction cap truncates mid-file, after joining, with
+      global first** (`instructions.ts:46`). A large global `CLAUDE.md` can push
+      the project's own instructions out of the prompt entirely, and the marker
+      names the character count but not which file was cut. Cap per file, or at
+      least name the casualty.
+- [ ] **`invalidateSymbolCache` has no callers** (`repo-map/index.ts:196`). The
+      whole-project symbol cache relies on git HEAD + a 5-minute TTL, so
+      uncommitted edits inside that window return stale `workspaceSymbol` results.
+      The tree-watcher already detects the relevant changes and could call it.
+- [ ] **`compileDynamicContext`'s `memoryContext` and `ignorePatterns` are
+      permanently dead parameters** (`compiler.ts:185`). Both are always passed
+      empty by the only caller. `memoryContext` is load-bearing in reverse — the
+      comment explaining why it must never be used is the real documentation — so
+      keep the comment, drop the parameter.
+- [ ] **The prompt's "file tree" is a single non-recursive `readdirSync` of the
+      project root** (`tree-cache.ts:29`). That is a defensible floor, but the word
+      "tree" in `CLAUDE.md`, in the compiler's own output header, and in the docs
+      oversells it. Rename it, or make the depth a knob.
+
+### Deliberate — do NOT "fix"
+
+- **The project snapshot is one level deep.** The model has `ls`/`glob`/`grep`; a
+  recursive monorepo listing would cost thousands of tokens *every turn* to say
+  what one tool call can answer.
+- **The snapshot and clock are frozen per session.** A fresher tree rewrites
+  position 0 and invalidates the entire conversation prefix.
+- **Dynamic context is `messages[0]`, not a system block.** The static system
+  block stays cacheable only because everything that moves lives below it.
+- **`memoryContext` is never rendered into position 0.** It rendered
+  `recentMessages`, which grow every turn and are already in the history verbatim.
+- **Skills are advertised as name + description only, sorted.** Full bodies load
+  on demand via the `skill` tool; the sort keeps identical skill sets producing
+  identical bytes.
+- **Nothing from `repo-map/` is injected into the prompt.** The pull model means
+  symbols cost tokens only when the model asks for them.
+- **`getFileSymbols` parses fresh rather than reading the project cache.**
+  Single-file results must never be stale.
+- **The tree-watcher runs `persistent: false`.** A watcher that keeps the process
+  alive hangs every short-lived CLI invocation that ran one turn.
+- **The system-prompt loader tries disk before the embedded copy.** Dev picks up
+  `system.md` edits without a rebuild; the compiled binary has no disk copy to
+  find.

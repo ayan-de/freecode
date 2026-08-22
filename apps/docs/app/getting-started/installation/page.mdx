@@ -5,16 +5,167 @@ description: "Install the FreeCode binary on macOS, Linux, or Windows."
 
 # Installation
 
-FreeCode ships as a single self-contained binary built with Bun, installed by
-`scripts/install.sh` (macOS/Linux) or `scripts/install.ps1` (Windows). Installed
-versions live under `~/.freecode/builds/versions/`, so upgrades and rollbacks are
-just a directory swap. `freecode uninstall` removes it again.
+One command, one binary, no runtime to install first.
 
-## On this page (coming soon)
+```bash
+curl -fsSL https://freecode.website/install | bash
+```
 
-- One-line install for macOS and Linux
-- PowerShell install for Windows
-- Verifying the install: `freecode --version`
-- Upgrading, pinning a version, and rolling back
-- Running from a clone of the monorepo instead
-- Uninstalling with `freecode uninstall`
+On Windows, use PowerShell — the bash installer detects Git Bash / MSYS and
+tells you to switch rather than installing something that will not work:
+
+```powershell
+irm https://freecode.website/install.ps1 | iex
+```
+
+Then, in any project:
+
+```bash
+freecode
+```
+
+If the shell cannot find it, open a new terminal (the installer edits your shell
+rc files, and the current shell has already read them) or run
+`export PATH="$HOME/.local/bin:$PATH"`.
+
+## What the installer actually does
+
+Worth knowing, because it decides where your versions live and how rollback
+works (`scripts/install.sh`, `scripts/install.ps1`):
+
+1. **Detects your platform** and picks one release artifact — `linux-x86_64`,
+   `linux-aarch64`, `macos-aarch64`, `macos-x86_64`, or `windows-x86_64`.
+2. **Resolves the latest release** through the GitHub API.
+3. **Downloads an archive, not a bare binary.** The `.tar.gz` (`.zip` on
+   Windows) holds the executable *and* the ONNX Runtime shared library the
+   memory-graph embedder loads at runtime — `bun build --compile` cannot embed a
+   native `.so`/`.dylib`, so it ships beside the binary.
+4. **Unpacks into a versioned directory** and repoints a symlink:
+
+   ```
+   ~/.freecode/builds/
+     versions/0.25.16/freecode  ← the real binary for this version
+     stable/freecode            → symlink to versions/<latest>/freecode
+     stable-version             ← plain-text version marker
+   ~/.local/bin/freecode        → symlink to builds/stable/freecode
+   ```
+
+5. **Clears the macOS quarantine flag** on the unpacked directory, so Gatekeeper
+   does not block the binary or the `.dylib` it loads.
+6. **Adds the install directory to PATH** by appending an export line to
+   `~/.zshenv`, `~/.bashrc`, `~/.profile`, and fish's `config.fish` — plus
+   `~/.zshrc`, `~/.zprofile`, and `~/.bash_profile` if they already exist. It
+   checks for the directory first, so re-running does not duplicate lines.
+
+Because installs are versioned directories and `stable` is just a symlink, an
+upgrade is a symlink swap and the previous version is still on disk.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FREECODE_HOME` | `~/.freecode` | where versions and all app state live |
+| `FREECODE_INSTALL_DIR` | `~/.local/bin` (`%LOCALAPPDATA%\freecode\bin` on Windows) | where the launcher symlink goes |
+
+Both are read by the installer only. Set them for every install, or not at all —
+`freecode uninstall` ignores them ([known gaps](#known-gaps)).
+
+## Verifying
+
+```bash
+freecode --version
+which freecode        # should be the launcher in your install dir
+```
+
+The version string comes from `FREECODE_BUILD_VERSION`, baked in at build time.
+If it prints `unknown`, you are not running a release binary — most likely a
+build from a clone.
+
+## Updating
+
+Three things update FreeCode, and the third one is the one to know about:
+
+```bash
+freecode update                                  # re-runs the installer
+curl -fsSL https://freecode.website/install | bash  # identical, without the binary
+```
+
+**FreeCode also updates itself on launch.** A release binary checks the GitHub
+API once per start with a 3-second timeout; if a newer release exists it runs
+the installer and re-execs through `~/.freecode/builds/stable/freecode`, so the
+TUI you land in is already the new version (`apps/tui/src/entry.ts:56`). Any
+failure — offline, rate-limited, install error — is swallowed and your current
+version opens.
+
+The re-exec goes through the `stable` symlink rather than the path of the
+running binary, deliberately: the kernel resolves symlinks at exec time, so
+re-running your own `process.execPath` would launch the *old* version again and
+you would have to quit and retype `freecode` to actually get the update.
+
+This check does not run when you are working from a clone — there is no release
+to compare against.
+
+## Rolling back
+
+Old versions are still in `~/.freecode/builds/versions/`. To go back, run one
+directly:
+
+```bash
+ls ~/.freecode/builds/versions
+~/.freecode/builds/versions/0.25.15/freecode
+```
+
+Be aware that this does not *stick*: that binary performs the same update check
+at launch, so it will install the latest release and re-exec you into it. There
+is currently no way to pin a version ([known gaps](#known-gaps)).
+
+## Running from a clone instead
+
+If you want to change FreeCode itself, install the monorepo rather than the
+binary — the backend is spawned from disk, so your edits take effect on the next
+run. See [development setup](/contributing/development).
+
+One rule from that world is worth repeating here: **never copy a `pnpm
+build:sea` artifact into `~/.freecode/builds/versions/`.** That build is a TUI
+shell that does not bundle the backend and only works inside the monorepo;
+dropping it where the installer expects a release binary gives you a `freecode`
+that works in the repo root and is broken everywhere else.
+
+## Uninstalling
+
+```bash
+freecode uninstall          # asks first
+freecode uninstall --force  # does not
+```
+
+It prints what it will remove, then deletes `~/.freecode` **entirely** plus a
+`freecode` binary found in `/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or
+`~/.cargo/bin`.
+
+> **That directory is not just the binary.** Your sessions, rollout logs,
+> per-project memory, prompt history, and usage data all live under
+> `~/.freecode/`. There is no `--keep-data` and nothing is backed up. Copy
+> `~/.freecode/projects/` and `~/.freecode/sessions/` first if you might want
+> them later.
+
+There is also `curl -fsSL https://freecode.website/uninstall | bash`, for when
+the binary itself is broken.
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **The auto-update cannot be turned off, and there is no way to pin a
+  version.** `checkForUpdate` (`apps/tui/src/entry.ts:56`) gates only on
+  `FREECODE_BUNDLED` and a per-process sentinel — no flag, no environment
+  variable, no config key. Running an older binary out of
+  `builds/versions/<old>/` re-installs the latest and re-execs into it, so the
+  versioned directories that make rollback *look* supported cannot actually hold
+  you on a version. A `FREECODE_NO_UPDATE=1` check would be a one-line fix.
+- **`freecode uninstall` ignores the variables the installer honours.** The
+  handler hard-codes `~/.freecode` and a fixed list of four Unix bin paths
+  (`cli/commands/uninstall.ts:44`). An install done with `FREECODE_HOME` or
+  `FREECODE_INSTALL_DIR` set is not removed, and the Windows launcher in
+  `%LOCALAPPDATA%\freecode\bin` is not in the list at all — on Windows the
+  command reports success while leaving the binary on PATH.
+- **Nothing removes the PATH lines the installer wrote.** Four or more rc files
+  get an `export PATH=…` block appended; uninstalling leaves every one of them
+  pointing at a directory that no longer exists.

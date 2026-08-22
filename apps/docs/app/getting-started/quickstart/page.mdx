@@ -5,16 +5,166 @@ description: "Your first FreeCode session, end to end."
 
 # Quickstart
 
-Run `freecode` inside a project and you get the terminal UI: a prompt, a
-streaming transcript, and an agent that reads and edits files by calling tools.
-This page walks one real task from prompt to applied diff, including the
-permission prompt you will hit the first time the agent wants to write.
+This page walks one real task from an empty terminal to an applied diff. It
+assumes FreeCode is [installed](/getting-started/installation) and that you have
+an API key for one provider.
 
-## On this page (coming soon)
+## 1. Pick a model before you prompt
 
-- Starting a session in a project directory
-- What the agent sees on turn one (file tree, git HEAD, your instructions file)
-- Watching tool calls stream in
-- Approving a write: allow once / this session / this project / always
-- Interrupting a run, and resuming it later with `/resume`
-- Checking what the turn cost with `/cost`
+```bash
+cd ~/code/my-project
+freecode
+```
+
+You get a prompt, a mode line reading `BUILD (shift+tab to cycle)`, and a hint
+in the header: `/help` for help, `/model` to change.
+
+**Do `/model` first.** A fresh install has no provider selected, and FreeCode
+deliberately refuses to guess one — `createSession` throws
+`No provider configured` rather than sending your prompt somewhere you never
+chose (`server.ts:280`). An API key in the environment is not enough on its own;
+it is a credential, not a choice of provider.
+
+`/model` walks three steps:
+
+1. **Provider** — pick one of the providers you have a key for.
+2. **Model** — pick from that provider's catalogue.
+3. **API key** — if FreeCode does not already have one, paste it. The field is
+   masked (`components/masked-input.ts`), and the key is written to
+   `~/.freecode/config.json` under `providers.<id>.apiKey`.
+
+Your choice is saved as `current` in the same file, so this is a one-time step —
+every later session opens on the same model, and the mode line always shows
+which one.
+
+## 2. Send a prompt
+
+Type in plain language and press Enter:
+
+```
+add a --json flag to the status command and update its test
+```
+
+There is no separate "select the files" step. FreeCode hands the model a set of
+tools and lets it go find things.
+
+### What the model actually receives on turn one
+
+| Piece | Where it comes from |
+| --- | --- |
+| System prompt | built in, plus anything a [hook](/guides/hooks) injects |
+| Project context | name, absolute path, file tree, git HEAD, hour-rounded clock |
+| Your instructions | `CLAUDE.md` or `AGENTS.md` from the project root, and from `~/.freecode/` |
+| Tools | `read`, `write`, `edit`, `bash`, `grep`, `glob`, `todowrite`, and the rest |
+| Memory | anything relevant that earlier sessions saved |
+
+The project context is **snapshotted once per session**, not rebuilt every turn.
+That looks like staleness and is actually a cost decision: the tree sits in the
+conversation's first message, and prompt caching matches on an exact byte
+prefix, so re-rendering it because a build dropped a file into `dist/` would
+re-bill the entire conversation. [The agent loop](/internals/agent-loop) explains
+the full reasoning.
+
+Instruction files are capped at 40,000 characters across both locations
+(`context/instructions.ts:15`); past that the section is truncated with a note.
+
+If you have no `CLAUDE.md` yet, `/init` asks the model to read the repository and
+write one.
+
+## 3. Watch it work
+
+Tool calls stream as they run, and independent ones run in parallel — a turn
+that greps three patterns fires all three at once rather than in sequence.
+
+You are watching for two things: whether it is reading the right files, and
+whether the plan it wrote with `todowrite` matches what you asked for. If not,
+interrupt (below) — a wrong plan gets more expensive every turn.
+
+## 4. The first write asks permission
+
+The first time the agent wants to change a file, the turn pauses on a picker
+(`components/permission-picker.ts`):
+
+| Choice | What it does | Where it is written |
+| --- | --- | --- |
+| **Allow once** | this call only | nowhere |
+| **Allow for this session** | until you quit | memory only |
+| **Always allow (this project)** | adds an allow rule | `<project>/.freecode/settings.json` |
+| **Always allow (everywhere)** | adds an allow rule | `~/.freecode/settings.json` |
+| **Deny** | refuses, and tells the model to try another way | nowhere |
+
+The two "always" options edit real files you can read and revert
+(`permission/settings.ts:88`). The rule offered is a *suggestion* you can edit
+before accepting — `Bash(pnpm test:*)` rather than a blanket `Bash` — which is
+the difference between granting one command family and granting your shell.
+
+A denial is not a failure: the model is told permission was refused and that it
+may continue without that action or try a different approach, so the run keeps
+going.
+
+Which tools ask in the first place depends on the mode in the mode line. `build`
+(the default) asks before mutating anything. `plan`, `review`, and `explore` are
+read-only and deny writes outright. `danger` skips permission evaluation
+entirely. **shift+tab** cycles them; see [agent modes](/guides/agent-modes).
+
+## 5. Interrupting
+
+**Ctrl+C while a turn is streaming cancels that turn** and nothing else — the
+press is consumed deliberately so you cannot quit by accident right after
+stopping a long run (`interrupt-controller.ts:54`). The provider request and any
+in-flight tool are aborted immediately, and the conversation so far is kept.
+
+**Ctrl+C while idle** arms an exit and prints "press again"; a second press
+within 800ms quits and prints the id you can resume with.
+
+## 6. Picking it back up
+
+```bash
+freecode --resume            # session picker
+freecode --resume <id>       # straight into one
+```
+
+or `/resume` from inside a session. History comes back from
+`~/.freecode/sessions/`, and the model gets the same conversation it had before
+— sessions survive restarts by design ([sessions](/guides/sessions)).
+
+## 7. Seeing what it cost
+
+| Command | Shows |
+| --- | --- |
+| `/cost` | this session's token spend and prompt-cache hit rate |
+| `/usage` | a heatmap of daily token totals |
+| `/compact` | summarize older turns now, instead of waiting for the automatic pass |
+
+Cache hit rate is the number worth watching. A healthy long session reads most
+of its prompt from cache; a hit rate near zero usually means something is
+invalidating the prefix every turn.
+
+## Where to go next
+
+- [Providers & API keys](/getting-started/providers) — switching models, fallbacks
+- [Configuration](/getting-started/configuration) — the files to commit
+- [Permissions](/guides/permissions) — writing rules instead of answering prompts
+- [Slash commands](/interfaces/slash-commands) — everything `/help` lists
+
+## Known gaps
+
+Found while writing this page; each is also tracked in `TODO.md`.
+
+- **Nothing tells a new user to run `/model` before their first prompt.** With a
+  fresh `config.json`, the first Enter fails with `No provider configured. Set
+  current.provider in ~/.freecode/config.json, or pass provider to
+  session.start` (`server.ts:281`) — a message written for an integrator, not for
+  the person who just installed the binary. It names a file to hand-edit and
+  never mentions `/model`, which is the supported path. Detecting a missing
+  `current` at startup and opening the model picker would remove the worst first
+  five minutes in the product.
+- **Setting `ANTHROPIC_API_KEY` looks like it should be enough, and is not.**
+  `hasApiKey` reads the environment (`providers/config.ts:116`), so the key is
+  found, but `current.provider` is still unset and the session refuses to start.
+  The environment variable path only works headlessly, where `--model
+  anthropic/<model>` supplies the provider explicitly.
+- **`apps/tui/src/models.ts` is stale dead code.** `AVAILABLE_MODELS` hard-codes
+  three Anthropic model ids and is imported by `commands/built-in.ts:2` without
+  ever being used — the picker gets its list from `models.list` over IPC. It is a
+  hard-coded model table in a frontend that is not allowed to have one.

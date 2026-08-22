@@ -433,12 +433,16 @@ a restart — unlike the compaction variables, which are read per call.
    when the agent finishes *badly*.
 3. **`SessionStart` fires once per user message, not once per session.** It sits
    inside `run()` (`loop.ts:593`), which is called for every prompt.
-4. **The tree watcher cannot affect the prompt.** `run()` calls `ensureWatching`
-   (`loop.ts:564`) "so the project-context cache doesn't go stale", but the
-   prompt reads `getFrozenSessionContext`, which snapshots once per session and
-   never re-reads — and `getProjectContext` has no other caller. The freeze is
-   deliberate and correct for cache stability; the watcher is then pure cost, and
-   a long session's file tree is permanently the one from its first turn.
+4. **The tree watcher cannot affect the current session's prompt.** `run()` calls
+   `ensureWatching` (`loop.ts:564`) "so the project-context cache doesn't go
+   stale", but the prompt reads `getFrozenSessionContext`, which snapshots once
+   per session and never re-reads. The freeze is deliberate and correct for cache
+   stability, so what the watcher actually buys is a fresh snapshot for the
+   **next** session — and even that is defeated for up to five minutes by the
+   compiler's own `fileTreeCache`, which is keyed on git HEAD while its value
+   depends on the tree. Meanwhile a long session's file tree is permanently the
+   one from its first turn. See
+   [the context engine](/internals/context#three-caches-and-how-they-interact).
 5. **`ToolContext.projectPath` is never set.** `executeTool` builds
    `{ cwd: process.cwd(), sessionId, abort }` (`loop.ts:2199`), so relative paths
    resolve against the core process's working directory rather than

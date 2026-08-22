@@ -5,14 +5,70 @@ description: "Install FreeCode, connect a provider, and run your first session."
 
 # Getting started
 
-Four short pages take you from nothing installed to a working agent session:
-[install the binary](/getting-started/installation), [run your first
-session](/getting-started/quickstart), [pick a provider and set its
-key](/getting-started/providers), and [configure the
-defaults](/getting-started/configuration) you want on every project.
+FreeCode is a single binary you run inside a project directory. It opens a
+terminal UI, sends your prompt to a model you already pay for, and lets that
+model read and edit the repository by calling tools. There is no account to
+create and no service in the middle — the only credential involved is your
+provider's API key, and it stays in a file in your home directory.
 
-## On this page (coming soon)
+Four pages take you from nothing installed to a working session:
 
-- What you need before you start (a shell, a git repo, one provider API key)
-- The difference between the released binary and running from the monorepo
-- Where FreeCode keeps its state (`~/.freecode/`) and per-project config (`.freecode/`)
+| Page | What it covers |
+| --- | --- |
+| [Installation](/getting-started/installation) | the one-line install, what it writes to disk, updating, uninstalling |
+| [Quickstart](/getting-started/quickstart) | your first session, the permission prompt, interrupting, resuming |
+| [Providers & API keys](/getting-started/providers) | the six providers, where each key is read from, switching models |
+| [Configuration](/getting-started/configuration) | the files you edit by hand, and which of them to commit |
+
+## Before you start
+
+You need three things:
+
+1. **A terminal**, on macOS, Linux, or Windows.
+2. **A project directory.** Git is not required, but the agent uses git HEAD as
+   context and every code-editing workflow assumes you can `git diff` what it
+   did. Start somewhere you can throw away changes.
+3. **One provider API key** — Anthropic, OpenAI, Gemini, DeepSeek, MiniMax, or
+   Z.ai. You bring the key; FreeCode calls the API directly from your machine.
+
+Nothing else is a prerequisite. The binary is self-contained: no Node, no
+runtime install, no `npm i -g`.
+
+## Two ways to run it
+
+**The released binary** is what the install script gives you, and what this
+section documents. It is built with Bun, bundles the backend inside the
+executable, and works from any directory.
+
+**A clone of the monorepo** is the other option, and the right one if you plan
+to change FreeCode itself — the backend is spawned from disk, so an edit to
+`apps/core` is picked up on the next run. That path lives in
+[development setup](/contributing/development).
+
+They are not interchangeable, and mixing them breaks things in a way that is
+hard to diagnose: the dev build (`pnpm build:sea`) only works inside the
+monorepo, so copying it into the installer's directory leaves you with a
+`freecode` that works in one folder and nowhere else.
+
+## Where FreeCode keeps things
+
+Two roots, and the split matters more than it looks.
+
+| Root | Scope | Holds |
+| --- | --- | --- |
+| `~/.freecode/` | you, this machine | API keys and current model (`config.json`), sessions, memory, usage, installed binaries |
+| `<project>/.freecode/` | this repository | `settings.json` (permissions, hooks), `skills/`, `commands/` |
+
+The rule of thumb: **`~/.freecode/` is state, `<project>/.freecode/` is policy.**
+State is written by the app and is yours alone. Policy is written by hand, holds
+no secrets, and is meant to be committed so your team gets the same permission
+rules and hooks you do.
+
+A full map of both is in the [reference overview](/reference#the-three-surfaces).
+
+## Then what
+
+Once a session runs, the [guides](/guides) cover the things you will want next —
+[agent modes](/guides/agent-modes), [permissions](/guides/permissions),
+[memory](/guides/memory), [skills](/guides/skills) — and
+[internals](/internals) explains how any of it actually works.
