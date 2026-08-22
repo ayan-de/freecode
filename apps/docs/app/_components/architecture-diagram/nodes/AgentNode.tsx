@@ -53,7 +53,7 @@ export function AgentNode({ selectedNode, onSelectNode }: AgentNodeProps) {
         stroke="rgba(249,115,22,0.5)"
       />
       <text x="480" y="347" className={styles.agentTag} textAnchor="middle">
-        ⚙️ FreeCode AGENT
+        FreeCode AGENT
       </text>
       <text
         x="480"

@@ -30,7 +30,7 @@ export function ToolsNode({ selectedNode, onSelectNode }: ToolsNodeProps) {
         className={styles.nodeHeaderTools}
         textAnchor="middle"
       >
-        🛠️ TOOLS
+        TOOLS
       </text>
       <line x1="710" y1="102" x2="920" y2="102" stroke="rgba(168,85,247,0.3)" />
 

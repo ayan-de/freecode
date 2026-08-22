@@ -24,7 +24,7 @@ export function ContextNode({ selectedNode, onSelectNode }: ContextNodeProps) {
         className={styles.nodeBoxContext}
       />
       <text x="290" y="445" className={styles.nodeHeader} textAnchor="middle">
-        📄 CONTEXT
+        CONTEXT
       </text>
       <line
         x1="225"

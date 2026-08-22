@@ -27,7 +27,7 @@ export function SubagentsNode({
         className={styles.nodeBoxSubagents}
       />
       <text x="290" y="85" className={styles.nodeHeader} textAnchor="middle">
-        💾 SUB-AGENTS
+        SUB-AGENTS
       </text>
       <line x1="225" y1="95" x2="355" y2="95" stroke="rgba(255,255,255,0.1)" />
 
