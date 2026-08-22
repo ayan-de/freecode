@@ -3,12 +3,16 @@ title: "Internals"
 description: "How FreeCode is built."
 ---
 
+import { ArchitectureBlueprint } from "../_components/architecture-diagram/ArchitectureBlueprint";
+
 # Internals
 
 This section is the architecture, not the usage. It follows one request all the
 way down: a prompt enters the loop, becomes a streamed provider call, comes back
 as tool calls, gets gated by permissions and hooks, executes, and folds back into
 the next turn — while the bus narrates the whole thing to your screen.
+
+<ArchitectureBlueprint />
 
 ## On this page (coming soon)
 
