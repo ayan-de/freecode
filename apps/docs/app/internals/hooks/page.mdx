@@ -1,21 +1,412 @@
 ---
 title: "Lifecycle hooks"
-description: "All 14 events, by phase, with what each can do."
+description: "All 14 events, by phase, with what each can do — and why the system is built this way."
 ---
 
 # Lifecycle hooks
 
-`HOOK_EVENT_NAMES` defines 14 hooks across six phases — session, turn, tool call,
-compaction, sub-agent, and attention. Each is a shell command, an internal
-callback, or an LLM prompt, matched to tools by pattern, and each is declared
-either blocking or modifying.
+A **hook** is a piece of code that FreeCode runs at a named moment in the agent's
+life — just before a tool executes, right after a turn finishes, when a sub-agent
+is spawned. The hook can watch what is happening, change it, or stop it.
 
-## On this page (coming soon)
+Hooks are the answer to a question every agent codebase eventually hits: *where do
+I put the special case?* Someone wants a `prettier` run after every edit. Someone
+wants `rm -rf` blocked. Someone wants token spend logged to a dashboard. If each
+of those becomes an `if` in the agent loop, the loop stops being a loop and turns
+into a pile of policy. So the loop stays dumb and unchanged, and it announces what
+it is about to do at 14 fixed points. Anyone who cares about a point registers
+there.
 
-- Session: `SessionStart`, `Stop`
-- Turn: `TurnStart`, `UserPromptSubmit`, `TurnEnd`
-- Tool call: `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`
-- Compaction: `PreCompact`, `PostCompact`
-- Sub-agent: `SubagentStart`, `SubagentStop`
-- Attention: `Notification`
-- The runtime, the registry, and the two executors
+That is the whole idea. The rest of this page is how it is built.
+
+## The four layers
+
+The system is deliberately split so that no single file knows everything. Each
+layer answers exactly one question:
+
+```
+   agent loop / compaction / agent tool         "something is happening"
+                    |
+                    v
+   runtime.ts       HookRuntime facade          "who do I call for this event?"
+                    |
+                    v
+   PreToolUse.ts, TurnEnd.ts, ... (14 files)    "what does THIS event mean?"
+                    |
+          +---------+---------+
+          v                   v
+   registry.ts         executors/               "which hooks match?"  "how do I run one?"
+```
+
+| Layer | File | Responsibility |
+| --- | --- | --- |
+| Facade | `hooks/runtime.ts` | One object, 14 methods. Callers depend on this and nothing else. |
+| Per-event modules | `hooks/PreToolUse.ts`, `hooks/TurnEnd.ts`, … | Turn a generic hook result into the shape *that event* needs. |
+| Registry | `hooks/registry.ts` | Store registered hooks; decide which ones match a call. |
+| Executors | `hooks/executors/` | Actually run a hook — shell process, JS callback, or LLM. |
+
+**Why a facade?** `agent/loop.ts` holds a `HookRuntime` interface
+(`runtime.ts:54`), not a concrete class. Tests hand the loop a fake object with
+the same 14 methods — see `compaction/service.test.ts`, which swaps in a
+`runPreCompact` that always blocks. No process spawning in tests, no mocking
+library.
+
+**Why one file per event?** Every event returns something different. `PreToolUse`
+returns `allowed`. `UserPromptSubmit` returns `modifiedPrompt`. `PermissionRequest`
+returns a four-way `decision`. A single generic `runHook(event)` would return a
+union that every caller has to unwrap. Fourteen small files (30–60 lines each)
+keep the translation local and the call site honest about what it can do with the
+answer.
+
+## One tool call, start to finish
+
+Concretely: the model asks to run `rm -rf build`. Here is every hook it passes
+through, in `agent/loop.ts`.
+
+```ts
+// 1. PreToolUse — can rewrite the args, or refuse outright   (loop.ts:2056)
+const preResult = await this.hooks.runPreToolUse(toolCall, hookContext);
+if (!preResult.allowed) return blockedResult;      // never executed
+
+// 2. hook-supplied edits are merged into the call            (loop.ts:2077)
+if (preResult.modifiedInput) {
+  toolCall = { ...toolCall, args: { ...toolCall.args, ...preResult.modifiedInput } };
+}
+
+// 3. rules engine decides first; a deny here is final        (loop.ts:2096)
+const evaluation = evaluatePermission({ ... });
+if (evaluation.decision === "deny") return denied;  // hooks never consulted
+
+// 4. PermissionRequest — may override the rules outcome      (loop.ts:2122)
+permResult = await this.hooks.runPermissionRequest(toolCall, hookContext);
+const decision =
+  permResult.decision === "passthrough" ? evaluation.decision : permResult.decision;
+
+// 5. Notification — "the agent is waiting on you"            (loop.ts:2144)
+if (decision === "ask") await this.hooks.runNotification(`Permission needed: ...`);
+
+// 6. the tool finally runs
+result = await this.orchestrator.execute(toolCall, context);
+
+// 7a. it threw     → PostToolUseFailure, error text is enriched   (loop.ts:2210)
+// 7b. it succeeded → PostToolUse, output can be replaced/appended (loop.ts:2245)
+```
+
+Two ordering decisions in there are worth stating out loud, because they are the
+security posture of the whole product:
+
+1. **A rules `deny` short-circuits before hooks run** (`loop.ts:2109`). A hook
+   cannot talk a denial into an approval, because it is never asked. Hooks come
+   from `settings.json`, and settings files travel with repositories.
+2. **`PreToolUse` runs *before* the permission check.** It is the extension point
+   for *rewriting* a call, so it must get first look at the arguments the
+   permission rules will be matched against.
+
+## The 14 events
+
+`HOOK_EVENT_NAMES` (`hooks/types.ts:15`) is the single source of truth — the array
+is `as const`, so `HookEventName` is derived from it and an unknown event name is
+a compile error, not a runtime surprise.
+
+### Session
+
+| Event | Fires at | Blocks? | Modifies? |
+| --- | --- | --- | --- |
+| `SessionStart` | `loop.ts:593`, after context is collected | no | injects context, can seed the first user message |
+| `Stop` | `loop.ts:2458`, when the loop terminates | reported, not enforced | replaces the stop reason |
+
+### Turn
+
+| Event | Fires at | Blocks? | Modifies? |
+| --- | --- | --- | --- |
+| `TurnStart` | `loop.ts:727`, before each turn | no | injects per-turn context |
+| `UserPromptSubmit` | `loop.ts:1336`, before the prompt is sent | yes | rewrites the joined system prompt |
+| `TurnEnd` | `loop.ts:740`, after each turn | no | receives token usage for cost tracking |
+
+`UserPromptSubmit` has a sharp edge documented at the call site: the rewrite is
+applied through `applySystemPromptHookRewrite`, which keeps the static and
+per-session blocks separate. Collapsing them into one cached blob would push
+todos and memory under the prompt-cache breakpoint and bust the cache every turn.
+When a hook does rewrite the prompt, `recordInvalidation` logs *why*, so cache
+misses stay explainable.
+
+### Tool call
+
+| Event | Fires at | Blocks? | Modifies? |
+| --- | --- | --- | --- |
+| `PreToolUse` | `loop.ts:2056` | **yes** | merges into tool args |
+| `PermissionRequest` | `loop.ts:2122` | **yes** (`deny`) | returns `allow` / `deny` / `ask` / `passthrough` |
+| `PostToolUse` | `loop.ts:2245` | no | replaces or appends to tool output |
+| `PostToolUseFailure` | `loop.ts:2210` | no | appends context to the error the model sees |
+
+`PermissionRequest` is the only event with a four-value return, and the fourth
+value is the interesting one. `"passthrough"` means *no hook matched* — it is
+distinct from `"allow"`, which means *a hook looked and approved*. Without that
+distinction, "nobody was listening" and "somebody said yes" would be the same
+answer, and installing a hook that ignores a tool would silently approve it. The
+sentinel is returned at `PermissionRequest.ts:39` and unwrapped at `loop.ts:2124`.
+
+### Compaction
+
+| Event | Fires at | Blocks? | Modifies? |
+| --- | --- | --- | --- |
+| `PreCompact` | `compaction/service.ts:139` | **yes** | — |
+| `PostCompact` | `compaction/service.ts:197` | no | injects context, receives `success` |
+
+A blocked compaction is not a crash: the service records
+`blockedAtTokenCount` and returns `{ success: false, blocked: true }`, so the
+caller knows history was left intact and the same block will not be retried at
+the same size.
+
+### Sub-agent
+
+| Event | Fires at | Blocks? | Modifies? |
+| --- | --- | --- | --- |
+| `SubagentStart` | `tools/agent.ts:104` | no | injects context into the child |
+| `SubagentStop` | `tools/agent.ts:138` | no | collects results |
+
+### Attention
+
+| Event | Fires at | Blocks? | Modifies? |
+| --- | --- | --- | --- |
+| `Notification` | `loop.ts:2144` | no | returns `void` — fire and forget |
+
+`runNotification` is the only method returning `Promise<void>`. Nothing downstream
+consumes its result, so the type says so.
+
+## Three kinds of hook
+
+A hook is *what to run*. Three implementations, one `HookExecutionResult` out of
+each (`executors/index.ts:60` dispatches on `type`).
+
+### Command hooks — a shell command
+
+The everyday case, and the only kind `settings.json` can create.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "name": "format-ts",
+        "matcher": "edit|write",
+        "command": "pnpm prettier --write \"$CLAUDE_TOOL_INPUT\"",
+        "timeout": 30
+      }
+    ]
+  }
+}
+```
+
+The command is spawned with `bash -c` (or `pwsh -NoProfile -NonInteractive
+-Command`) at `executors/command.ts:59`, with these variables added to the
+environment:
+
+| Variable | Always set? |
+| --- | --- |
+| `CLAUDE_SESSION_ID` | yes |
+| `CLAUDE_TOOL_NAME` | yes |
+| `CLAUDE_TOOL_INPUT` | yes — the tool args as JSON |
+| `CLAUDE_CWD` | when the context carries a `cwd` |
+| `CLAUDE_AGENT_ID`, `CLAUDE_AGENT_TYPE` | inside a sub-agent |
+
+The exit code *is* the protocol. There is no library for a hook to import — a
+three-line bash script is a complete implementation, and the same script works
+from any language.
+
+| Exit | Meaning (`executors/command.ts:76`) |
+| --- | --- |
+| `0` | continue; stdout is injected as extra context |
+| `2` | **block**; stderr (else stdout) becomes the reason the model is shown |
+| anything else | **block**, reason `Exit code N` |
+
+For richer control, print a JSON object to stdout. Anything starting with `{` is
+parsed:
+
+```json
+{ "block": false, "modifiedInput": { "path": "src/safe.ts" }, "context": "rewrote path" }
+```
+
+**Note the third row of that table.** A hook that crashes — typo, missing binary,
+non-zero exit from a linter — blocks the tool. That is fail-*closed*, and it is
+the right default for a gate whose purpose is saying no, but it means a sloppy
+hook can wedge the agent. Timeouts and spawn failures behave the opposite way:
+they resolve with `error` and `blocked` unset (`command.ts:52`, `command.ts:133`),
+so an unreachable hook fails *open* rather than freezing every tool call. A hook
+that gave an answer is trusted; a hook that never answered is skipped.
+
+Default timeout is 5 minutes (`command.ts:13`). `timeout` in `settings.json` is in
+**seconds** — `executors/index.ts:69` multiplies by 1000.
+
+### Callback hooks — an in-process function
+
+For code that ships with FreeCode. No process spawn, no serialization.
+
+```ts
+registerHook("PreToolUse", "rtk-rewrite",
+  { type: "callback", callback: rtkPreToolUse, internal: true },
+  "settings",
+  { matcher: "bash" },
+);
+```
+
+A callback returns one of three actions (`types.ts:113`), which the executor maps
+onto the same `HookExecutionResult` the shell path produces:
+
+```ts
+{ action: "continue" }
+{ action: "block", reason: "no rm -rf outside the project" }
+{ action: "modify", modifiedInput: { command: "rtk ls" } }
+```
+
+The built-in `rtk-rewrite` hook (`hooks/builtin/rtk-rewrite.ts`) is a good model
+for the genre: it rewrites `ls` into the more compact `rtk ls` so the model reads
+fewer tokens, resolves the binary lazily on first use so startup stays fast and
+offline-safe, and returns `{ action: "continue" }` on every failure path.
+
+### Prompt hooks — ask a model
+
+`executors/prompt.ts` sends the tool call to a provider with a fixed system
+prompt demanding `{"decision":"allow"|"block","reason":string}`, 200 max tokens,
+30-second default timeout. Non-JSON replies **fail open** (`prompt.ts:119`) — the
+prompt is user-authored and may not hold the contract, and a malformed answer is
+not evidence of danger.
+
+## Matching: which hooks run
+
+Two independent filters, both in `registry.ts`.
+
+**`matcher`** is tested against the tool *name* (`registry.ts:24`), in order:
+`*` or empty matches everything → exact string match → the pattern as a regex →
+pipe-separated alternatives (`"write\|edit"`).
+
+**`if`** is tested against the tool *arguments*. It is parsed as `Tool(pattern)`
+(`registry.ts:59`); the tool name must match first, then the argument values are
+flattened into one space-joined string and glob- or regex-matched:
+
+```
+if: "bash(git *)"        only git commands
+if: "write(*.ts)"        only TypeScript writes
+```
+
+One detail that surprises people: **matchers only apply to tool-shaped events.**
+`PreToolUse`, `PostToolUse` and `PermissionRequest` call `getMatchingHooks`;
+every other event calls `getHooksForEvent` and runs all of them. There is nothing
+to match against when `TurnEnd` fires — there is no tool. Setting a `matcher` on a
+`SessionStart` hook does nothing.
+
+## Running several hooks
+
+`executeHooks` (`executors/index.ts:109`) runs matching hooks **sequentially** and
+folds the results:
+
+- **First block wins** and stops the chain (`index.ts:126`). Later hooks are not
+  run — a blocked call is decided, and running more shell commands against a
+  decision already made only costs time.
+- **Last `modifiedInput` wins.** Two hooks rewriting the same field is a
+  configuration mistake, and last-write-wins is the predictable resolution.
+- **Every `additionalContext` is kept**, joined with newlines.
+
+Sequential, not parallel, is a deliberate choice: hooks touch the filesystem
+(formatters, linters, git). Racing them against each other on the same working
+tree is how you get corrupted files.
+
+Each execution publishes `hook.triggered` on the bus, and blocks publish
+`hook.blocked` with the reason (`index.ts:26`), so the whole system stays
+observable without any hook opting in. These two are currently published with a
+cast and are not yet part of the typed bus union.
+
+## Configuring hooks
+
+`HookSettingsManager` (`hooks/settings.ts:214`) loads hooks from two files:
+
+```
+~/.freecode/settings.json      user scope     (loaded first, lower priority)
+<project>/.freecode/settings.json   project scope  (overrides by name)
+```
+
+The merge is by `event + name` (`settings.ts:249`) — a project hook named
+`format-ts` replaces the user hook named `format-ts` rather than running
+alongside it. Name-keyed rather than index-keyed, so a project can override one
+hook without restating the rest.
+
+**Bad config never takes the agent down.** An unknown event name logs a warning
+listing the valid ones and is skipped (`settings.ts:85`); a hook missing `name` or
+`command` is skipped with a warning naming the offender (`settings.ts:166`); an
+unreadable or malformed file logs and returns empty (`settings.ts:106`), while a
+merely absent file (`ENOENT`) is silent, because not having hooks is the normal
+case.
+
+Both directories are watched, with a 300 ms debounce (`settings.ts:300`) —
+editors write settings files in several bursts, and reloading per burst would
+register the same hooks repeatedly. On reload, `unregisterAllHooks("settings")`
+clears the previous generation before re-registering, so reloading is idempotent
+rather than additive. Wiring lives in `server.ts:1106`, and the watchers are
+`unref`'d so they never keep the process alive.
+
+Two shapes are accepted for each entry — a flat object, and Claude Code's nested
+`{ matcher, hooks: [...] }` form (`settings.ts:132`), so existing Claude Code
+configurations can be pasted in unchanged.
+
+> The `once` field ("run only once per session") is parsed and carried through to
+> the registered hook, but nothing enforces it yet. Treat it as reserved.
+
+## Registering hooks from code
+
+```ts
+import { registerHook, getHookRuntime } from "./hooks/index.js";
+
+registerHook(
+  "PreToolUse",          // event
+  "no-force-push",       // name — the key for override and unregistration
+  { type: "callback", callback: async (input) =>
+      String(input.toolInput.command).includes("--force")
+        ? { action: "block", reason: "force push is disabled here" }
+        : { action: "continue" },
+  },
+  "session",             // source — settings | plugin | skill | session
+  { matcher: "bash" },
+);
+```
+
+`source` exists so that whole generations of hooks can be dropped at once:
+`unregisterAllHooks("skill")` when a skill unloads, `unregisterAllHooks("settings")`
+on a settings reload. Without it, reloading would mean tracking every registered
+name by hand.
+
+The registry itself is a module-level `Map<HookEventName, RegisteredHook[]>`
+(`registry.ts:18`) and the runtime is a lazily-created singleton
+(`runtime.ts:361`). YAGNI: FreeCode is one process serving one workspace, so
+per-instance registries would be ceremony with no reader. `resetHookRuntime()`
+exists for tests.
+
+## Adding a new event
+
+Follow the shape and it is roughly 20 lines:
+
+1. Add the name to `HOOK_EVENT_NAMES` (`types.ts:15`). Everything downstream is
+   derived from that array, so `settings.json` validation picks it up for free.
+2. Create `hooks/<Event>.ts` exporting `run<Event>Hooks(...)` — fetch with
+   `getMatchingHooks` (tool-shaped) or `getHooksForEvent` (everything else), call
+   `executeHooks`, translate the aggregate into the return shape the caller needs.
+3. Add the method to the `HookRuntime` interface and implementation
+   (`runtime.ts:54`, `runtime.ts:160`), and re-export from `hooks/index.ts`.
+4. Call it from the one place in the loop that owns that moment, and handle the
+   block/modify result there — the loop, not the hook layer, decides what
+   "blocked" means for that event.
+
+## Where to look
+
+| You want | File |
+| --- | --- |
+| The list of events | `apps/core/src/hooks/types.ts` |
+| What a hook may return | `apps/core/src/hooks/types.ts` (`HookExecutionResult`, `HookResult`) |
+| Matching rules | `apps/core/src/hooks/registry.ts` |
+| Shell protocol | `apps/core/src/hooks/executors/command.ts` |
+| Aggregation across hooks | `apps/core/src/hooks/executors/index.ts` |
+| `settings.json` loading | `apps/core/src/hooks/settings.ts` |
+| Every call site in the loop | `apps/core/src/agent/loop.ts` |
+
+Related: [Permission engine](/internals/permissions) for how `PermissionRequest`
+sits inside the six-step evaluation, and [Sub-agent runtime](/internals/subagents)
+for the sub-agent pair.
