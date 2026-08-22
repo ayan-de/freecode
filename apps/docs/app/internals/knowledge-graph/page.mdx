@@ -1,29 +1,340 @@
 ---
 title: "Knowledge graph"
-description: "The derived index over memory: embeddings, edges, and cascade retrieval."
+description: "The derived index over memory: embeddings, edges, clusters, and cascade retrieval."
 ---
 
 # Knowledge graph
 
-The graph is a `.graph/` sidecar derived from the [memory](/internals/memory)
-files — delete it and it rebuilds. Memories are embedded locally, wired together
-by tags, wikilinks, and supersede edges, then retrieved by seeding from the
-current message and cascading outward with per-hop decay, one turn behind so the
-hot path never waits on it.
+Once the agent has 200 memories, the interesting question stops being "how do we
+store this?" and becomes **"which five of these belong in the next prompt?"**
+Injecting all of them defeats the purpose — you'd pay for the whole store on every
+turn, and bury the relevant note among 199 irrelevant ones.
 
-In the [layer vocabulary](/internals/memory#which-memory-is-this), this is the
-*index over the semantic layer* — the part that answers "which of these facts
-matters right now?". Semantic memory is usually indexed one of three ways: a
-vector store of standalone statements (simple, weak at multi-hop), a fact graph of
-typed edges (structured, blind to paraphrase), or a hybrid. FreeCode is the
-hybrid: vectors pick the seeds, the graph expands them.
+The knowledge graph is the machinery that answers that question. It is a `.graph/`
+sidecar derived from the [memory](/internals/memory) files — delete it and it
+rebuilds — and in the
+[layer vocabulary](/internals/memory#which-memory-is-this) it is the *index over
+the semantic layer*.
 
-## On this page (coming soon)
+Semantic memory is usually indexed one of three ways: a vector store of standalone
+statements (simple, weak at multi-hop), a fact graph of typed edges (structured,
+blind to paraphrase), or a hybrid. FreeCode is the hybrid: **vectors pick the
+seeds, the graph expands them.**
 
-- Local ONNX embeddings and the content-hash vector cache
-- Edge derivation and deterministic clustering
-- Cascade retrieval: seeds, hops, decay, caps
-- The secret filter: what never gets embedded
-- Keyword fallback when the embedder is unavailable
-- `freecode memory graph stats` / `rebuild`
-- The graph explorer addon
+## First, embeddings
+
+If you have never worked with embeddings, this is the whole idea:
+
+> An **embedding** turns a piece of text into a list of numbers — here, 384 of
+> them — positioned so that texts with similar *meaning* end up pointing in
+> similar directions. Comparing two texts becomes comparing two arrows.
+
+"Render comparisons as tables" and "use markdown tables when comparing options"
+share no distinctive keyword, but their arrows point almost the same way. That is
+why the search is *semantic*: it matches meaning, not spelling.
+
+The comparison itself is **cosine similarity** — how aligned two arrows are,
+ignoring length. Because every vector is stored pre-normalized to length 1
+(`vector-store.ts:48`), cosine similarity collapses to a plain dot product:
+multiply the pairs, add them up. One number, `1.0` = identical direction, `0` =
+unrelated. That normalization is why the hot loop is four lines of arithmetic
+(`vector-store.ts:199`) instead of a library call.
+
+### Why vectors alone aren't enough
+
+Vectors find memories that *sound like* the query. They cannot find the memory
+that matters *because it's connected to* the one that sounds like the query — the
+one sharing a tag, the one the first memory explicitly links to, the note that
+replaced it.
+
+So retrieval runs in two stages:
+
+```
+                    ┌──────────────────────────────────────────┐
+  "how should I     │  1. SEED    embed(query) → cosine top-10 │
+   format this?" ──▶│             (or keyword scorer if the    │
+                    │              embedder is unavailable)    │
+                    └───────────────────┬──────────────────────┘
+                                        ▼
+                    ┌──────────────────────────────────────────┐
+                    │  2. CASCADE  walk the graph 2 hops from  │
+                    │              the seeds, decaying score   │
+                    │              at each hop                 │
+                    └───────────────────┬──────────────────────┘
+                                        ▼
+                                  top 8 memories
+```
+
+## What is on disk
+
+```
+<memory>/.graph/
+├── embeddings.bin   packed float32, one row per memory
+├── meta.json        schemaVersion, modelId, dims, id→hash map, checksum
+└── graph.json       nodes + edges
+```
+
+All three are **derived**. Nothing here is a source of truth, which is what makes
+the aggressive error handling below safe: every failure path is "drop it and
+rebuild from the markdown".
+
+## The embedder
+
+| Property | Value |
+| --- | --- |
+| Model | `all-MiniLM-L6-v2` via `fastembed` (ONNX) |
+| Dimensions | 384 — **read from the model at runtime**, never hard-coded |
+| Cached at | `~/.freecode/models/` (~87 MB, downloaded on first use) |
+| Loaded | lazily, on the first `embed()` call |
+| Network | **none** — vectors never leave the machine |
+
+Two decisions in there matter more than they look.
+
+**Lazy loading.** The model is loaded on first embed, not at startup
+(`embedder.ts:31`). A CLI that spent a second loading an ONNX model before
+printing `--help` would be a worse CLI for everyone who never touches memory.
+
+**Dims are read, not assumed.** Swapping the model changes the vector width, and a
+hard-coded `384` would silently corrupt the store. `meta.json` records the model
+id; a mismatch on load drops the sidecar and triggers a rebuild
+(`vector-store.ts:77`).
+
+> The native-addon story is genuinely awkward in the compiled binary:
+> `bun build --compile` embeds the ONNX binding but not the shared library it
+> `dlopen()`s, and the loader only reads `LD_LIBRARY_PATH` at process start. The
+> build ships the library beside the binary and `entry.ts` re-execs the process
+> with the variable set — see the comment at `embedder.ts:11`.
+
+## The vector store
+
+One packed `embeddings.bin` — `rows.length × dims × 4` bytes, no per-vector
+files — with `meta.json` holding the parallel id/hash list.
+
+**The content-hash cache is why saving a memory is cheap.** Each entry is keyed by
+`sha256(name + description + content)`; before embedding anything, `hasFresh(id,
+hash)` asks whether this exact text already has a vector (`vector-store.ts:129`).
+Editing one memory re-embeds one memory. Restarting re-embeds nothing.
+
+**Torn writes are detected, not tolerated.** Both files are written
+temp-then-rename, and `meta.json` carries a checksum of the vector blob. The write
+order is deliberate — vectors first, then meta — so a crash in between leaves the
+checksum pointing at the old blob, and the mismatch is caught on load
+(`vector-store.ts:122`). Length is checked too, because a same-size torn write
+would otherwise pass. Any inconsistency means "start empty and rebuild".
+
+## The graph
+
+Three node kinds and five edge kinds (`graph-types.ts`):
+
+| Node | Id | Comes from |
+| --- | --- | --- |
+| `Memory` | `feedback/prefers-tables` | one per markdown file |
+| `Tag` | `tag:style` | one per distinct tag |
+| `Cluster` | `cluster:3` | k-means over embeddings |
+
+| Edge | Weight | Built from |
+| --- | --- | --- |
+| `Supersedes` | 0.9 | `supersedes:` frontmatter |
+| `HasTag` | 0.8 | `tags:` frontmatter |
+| `RelatesTo` | 0.7 | `[[wikilinks]]` in the body |
+| `InCluster` | 0.6 | k-means assignment |
+| `Contradicts` | 0 | **nothing yet** — reserved; see gaps |
+
+The base layer — every node and edge except clusters — is built by `deriveGraph()`
+(`builder.ts:38`), which is **fully deterministic and model-free**. Tags, links and
+supersedes come straight out of the file; no LLM is asked what relates to what.
+That is what makes a rebuild reproducible and free.
+
+Three details worth knowing:
+
+- **Dangling links are skipped silently.** A `[[name]]` with no matching memory
+  produces no edge (`builder.ts:78`), which is what makes "write the link now,
+  write the memory later" safe.
+- **Name collisions resolve by type order.** If `user/foo` and `project/foo` both
+  exist, a bare `[[foo]]` binds to whichever comes first in `MEMORY_TYPES` — an
+  arbitrary rule, but a *stable* one, so rebuilds don't flip.
+- **Traversal is undirected.** `set()` links both directions (`graph-store.ts:64`),
+  so if A links to B, B's context can surface A. Relatedness is symmetric even
+  when the syntax isn't.
+
+Rebuilds are gated by a cheap **signature** over just the graph-relevant fields —
+ids, tags, supersedes, wikilinks (`builder.ts:93`). Editing a memory's prose
+doesn't rewrite `graph.json`; adding a tag does.
+
+## Clusters
+
+Tags and wikilinks only connect memories someone *thought* to connect. Clustering
+adds edges nobody wrote down: two memories about deployment that share no tag land
+in the same cluster and can relay score to each other.
+
+`computeClusters()` (`clusters.ts:88`) is spherical k-means, and every knob exists
+to make it **deterministic**:
+
+| Knob | Value | Why |
+| --- | --- | --- |
+| `SEED` | 42, via mulberry32 | same input ⇒ same clusters, always |
+| Point order | sorted by id | insertion order can't perturb the result |
+| `k` | `√(n/2)`, min 2 | grows slowly; 50 memories → 5 clusters |
+| `MIN_POINTS` | 6 | below this, clustering is noise |
+| `MAX_ITERS` | 25 | bounded work on a background path |
+
+Vectors are already normalized, so "nearest centroid" is max dot product and a
+centroid is the renormalized mean of its members. Non-deterministic clustering
+would mean the same store retrieving different memories on different days, which
+is precisely the kind of bug nobody can reproduce.
+
+## Cascade retrieval
+
+`cascadeRetrieve()` (`cascade.ts:30`) is a breadth-first walk from the seeds,
+2 hops deep, multiplying score by the edge weight and a **0.7 decay** at each hop.
+
+Worked example. The query is *"how should I format this comparison?"*:
+
+```
+seed:   feedback/prefers-tables            0.71   (cosine)
+hop 1:  ──HasTag(0.8)──▶ tag:style         0.71 × 0.8 × 0.7 = 0.40   (relay only)
+hop 2:  ──HasTag(0.8)──▶ feedback/response-style   0.40 × 0.8 × 0.7 = 0.22
+```
+
+`response-style` is returned even though it may not resemble the query at all —
+it earned its place by being one tag-hop from something that did.
+
+Three rules make that walk behave:
+
+1. **Tag and cluster nodes relay but never score.** They're hubs, not answers:
+   traversed to reach their members, never returned (`cascade.ts:66`). This is
+   also why `maxDepth: 2` is the useful default — one hop reaches a hub, two
+   reaches its members.
+2. **`Contradicts` is skipped entirely** (`cascade.ts:59`). A contradiction is a
+   *negative* signal; boosting a memory because something disagrees with it would
+   be backwards.
+3. **Each node is visited once**, and results sort by score with an id tiebreak,
+   so equal scores don't shuffle between runs.
+
+Seeds come from `cosineTopK(10, threshold 0.4)`, or — if the embedder is
+unavailable — from the keyword scorer with synthetic descending scores so the
+cascade still has something meaningful to expand (`graph/index.ts:253`). The
+final result is capped at 8 entries.
+
+## Staying in sync
+
+The graph must never make a save slow, and must never corrupt itself when two
+saves race.
+
+```
+MemoryStore.save() ──emit──▶ onChange()      incremental: embed this one entry
+                                  │
+                                  ├─ secret? drop any stale vector, skip
+                                  ├─ hash unchanged? skip
+                                  └─ enqueue(put)   single-flight write queue
+
+retrieve() ────────────────▶ sync(entries)   reconciles everything:
+                                  ├─ syncBase()      signature changed? rederive
+                                  ├─ syncVectors()   embed new, drop deleted
+                                  └─ syncClusters()  fingerprint changed? recluster
+```
+
+`onChange` is fire-and-forget and swallows everything (`graph/index.ts:167`) —
+eventual consistency, because the next `sync()` reconciles from files anyway. All
+writes funnel through a single-flight promise queue (`graph/index.ts:130`) so
+concurrent saves can't interleave into a corrupt sidecar.
+
+Each layer is gated by its own signature: the base graph by tags/links, clusters
+by the vector fingerprint. Editing prose touches neither.
+
+Services are per-project, held in an LRU of 16 (`graph/index.ts:547`); evicting
+one calls `dispose()` so its change listener doesn't leak. Per-session retrieval
+stashes live inside the service, capped at 64.
+
+## Degradation and secrets
+
+**If the embedder can't load, nothing breaks.** `available()` flips to `false`
+permanently, seeds come from the keyword scorer, and the tag/wikilink walk still
+runs — dumber, but it cannot fail. Memory never throws into the agent loop.
+
+**Secrets are never embedded** (`graph/index.ts:156`, `:215`). A memory matching
+`containsSecret()` has any stale vector dropped and is skipped. Note precisely
+what that does and doesn't do: it keeps credentials out of the derived index, but
+the memory still exists as a graph node and is still reachable by keyword — which
+is why the [write path](/internals/memory#secrets-are-refused-at-write-time)
+refuses to save it in the first place. The embed-time filter is the second line,
+not the first.
+
+## The explorer
+
+`/graph` opens a local viewer for all of this — an **opt-in addon**, downloaded to
+`~/.freecode/addons/graph-ui/` rather than baked into the binary, checked at
+request time so no restart is needed after installing.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/graph` | `{ id, kind, label }` per node + edges — enough to draw, nothing to read |
+| `GET /api/node?id=` | the stored entry behind a node, plus its neighbours |
+| `GET /api/search?q=` | the real retrieval pipeline, with `via` (which edge carried the score) and `seedMode` |
+
+The split between the first two endpoints is the interesting one: the graph dump
+stays small no matter how much you've stored, and content is fetched per click.
+`/api/search` returns the *walked path*, so the UI can show you why a memory
+surfaced — the honest answer to "where did that come from?".
+
+Bound to `127.0.0.1` only, with a port walk from 4097 upward and path-traversal
+protection on the static file server (`graph-explorer/server.ts:56`).
+
+```bash
+freecode memory graph stats     # vectors, dims, nodes, edges, clusters, embedder
+freecode memory graph rebuild   # clear and re-derive from the markdown files
+freecode memory ui-install      # fetch the explorer addon
+```
+
+`stats` is the first thing to run when retrieval feels wrong: `nodes: 0` means the
+store is empty rather than the index being broken, and `embedder: unavailable`
+explains fuzzy matching that stopped working.
+
+## Known gaps
+
+1. **`Contradicts` is reserved but never produced.** The edge kind, its zero
+   weight, and the cascade's skip are all implemented and tested, but nothing
+   creates one — no code detects that two memories disagree. Contradiction
+   handling today is `supersedes:` alone, which requires the *writer* to know what
+   it is replacing.
+2. **Every vector write rewrites the whole file.** `put()` and `remove()` call
+   `persist()`, which re-serializes all vectors and rewrites both files
+   (`vector-store.ts:181`). At 500 memories that is ~768 KB rewritten per save.
+   Fine now; an append/dirty-flag would fix it before it isn't.
+3. **Lookups are linear scans.** `hasFresh`, `has`, and `remove` all
+   `find()` over the entry array, and `syncVectors()` calls them per entry — O(n²)
+   on a full sync. An id→index `Map` is the obvious fix.
+4. **`cosineTopK` scans every vector.** Exact and simple, and correct for
+   hundreds of memories; there is no approximate-nearest-neighbour index, so this
+   is the scaling ceiling.
+5. **Cluster ids are positional.** `cluster:0`…`cluster:k` are stable for a fixed
+   embedding set, but adding one memory can renumber every cluster, so cluster
+   identity doesn't survive a rebuild. Anything the UI persists about a cluster is
+   meaningless afterwards.
+6. **The embedder never retries.** One failure sets `broken = true` for the
+   process lifetime (`embedder.ts:66`). Correct for a missing native library —
+   which is fatal and permanent — but a transient failure also downgrades the rest
+   of the run to keyword search until restart.
+7. **Dangling wikilinks are invisible.** Skipping them is right; never surfacing
+   them means a typo'd `[[link]]` silently never connects anything. The explorer
+   is the natural place to list unresolved links.
+8. **`nodeDetailForExplorer` is O(nodes + edges) per click** — it rebuilds a node
+   map and scans all edges on every request (`graph/index.ts:394`).
+
+## Where to look
+
+| You want | File |
+| --- | --- |
+| Lazy ONNX embedder | `apps/core/src/memory/graph/embedder.ts` |
+| Packed vectors, cosine top-k, hash cache | `apps/core/src/memory/graph/vector-store.ts` |
+| Files → nodes and edges | `apps/core/src/memory/graph/builder.ts` |
+| Adjacency and `graph.json` | `apps/core/src/memory/graph/graph-store.ts` |
+| Deterministic k-means | `apps/core/src/memory/graph/clusters.ts` |
+| The BFS with decay | `apps/core/src/memory/graph/cascade.ts` |
+| Credential patterns | `apps/core/src/memory/graph/secret-filter.ts` |
+| The facade tying it together | `apps/core/src/memory/graph/index.ts` |
+| Explorer API and server | `apps/core/src/graph-explorer/` |
+
+Related: [Memory](/internals/memory) for the files this indexes and the write path
+that fills them, and [Agent loop](/internals/agent-loop) for where the retrieved
+block enters the prompt.

@@ -285,11 +285,89 @@ Need a feature like this
 6) Subagent UI
 
 
-##Memory
+## Docs-audit findings (memory, sessions, knowledge graph — 2026-08-23)
 
-1. The thread store is created but never written to. threadStore.create() at session/manager.ts:76 is its only live call site — no turns, no tool
-  calls, and session listing reads meta.json files instead. The full CRUD/search API exists on both backends and is unused.
-  2. session/normalize/ is dead code — the ChatGPT/Claude/Gemini response normalizers have zero callers; normalization lives in providers/streaming.ts
-  now. Left in place per your "mention, don't delete" rule.
-  3. CLAUDE.md lists session/service.ts, which doesn't exist. Not a docs-page issue, but the table in CLAUDE.md is stale on that row — say the word
+Found while writing `apps/docs/app/internals/{memory,sessions,knowledge-graph}`.
+Each is also listed in that page's **Known gaps** section. Sorted by kind: the
+second group must NOT be "fixed" — they are deliberate and load-bearing.
+
+### A. Real fixes
+
+- [ ] **Dead code: `apps/core/src/session/normalize/`** — the ChatGPT/Claude/Gemini
+      response normalizers (236 lines) have zero callers; normalization lives in
+      `providers/streaming.ts`. Delete.
+- [ ] **Stale `CLAUDE.md` row** — the subsystem table lists `session/service.ts`,
+      which does not exist.
+- [ ] **Thread store is written but never read** — `threadStore.create()`
+      (`session/manager.ts:76`) is its only live call site. No turns, no tool calls;
+      session listing reads `meta.json` instead. Two answers to "what sessions
+      exist?" — either wire turns through `store/`, or delete it and keep the JSONL.
+- [ ] **Memory project key collides** — `mem-store.ts:31` keys on
+      `path.basename()`, so `~/work/api` and `~/side/api` share one memory store.
+      Sessions already solved this with `store/path-formatter.ts` (full reversible
+      path). Reuse it; needs a rename migration for existing `~/.freecode/projects/`.
+- [ ] **No session-end signal** — `disposeSessionMemory` has one call site
+      (`server.ts:967`, inside `session.delete`), so it never fires on switch, archive,
+      stop, or exit. Six per-session caches hang off that one handler
+      (`disposeSessionMemory`, `resetExtractPolicy`, `disposeOutputStore`,
+      `disposeReadState`, `disposeCacheAwareness`, `disposeFrozenSessionContext`),
+      so all six leak for any session that ends any other way. Blocks the memory
+      end-of-session flush, the cheapest fix for "short session states a preference
+      and loses it". **Do this first.**
+- [ ] **`Contradicts` edges are never produced** — the kind, its zero weight, and
+      the cascade skip are implemented and tested (`graph-types.ts:17`,
+      `cascade.ts:59`), but nothing detects that two memories disagree. Contradiction
+      handling is `supersedes:` only, which requires the writer to already know.
+- [ ] **VectorStore rewrites everything on every write** — `put()`/`remove()` call
+      `persist()`, re-serializing all vectors + both files (`vector-store.ts:181`).
+      ~768 KB rewritten per save at 500 memories.
+- [ ] **VectorStore lookups are linear scans** — `hasFresh`/`has`/`remove` `find()`
+      over the array (`vector-store.ts:129`), and `syncVectors()` calls them per
+      entry → O(n²) per full sync. Add an id→index `Map`.
+- [ ] **Cluster ids are positional** — adding one memory can renumber every
+      cluster (`clusters.ts:139`), so cluster identity doesn't survive a rebuild and
+      anything the explorer persists about one is meaningless afterwards.
+- [ ] **Embedder never retries** — one failure sets `broken = true` for the process
+      lifetime (`embedder.ts:66`). Right for a missing native lib; wrong for a
+      transient failure, which silently downgrades the rest of the run to keyword.
+- [ ] **`nodeDetailForExplorer` is O(nodes + edges) per click** —
+      rebuilds a node map and scans all edges per request (`graph/index.ts:394`).
+- [ ] **Dangling wikilinks are invisible** — skipped correctly (`builder.ts:78`),
+      but a typo'd `[[link]]` never surfaces anywhere. The explorer should list
+      unresolved links.
+- [ ] **Session delete is a status flag** — files stay on disk
+      (`session/store.ts:337`). Recoverable by design, but a transcript holds file
+      contents and command output; add `--purge` rather than changing the default.
+
+### B. Deliberate — do NOT "fix"
+
+- **`MEMORY.md` is never injected.** Injecting it makes the cached system prefix
+  depend on the store, so every save busts the session's prompt cache. Locked by a
+  test in `mem-prompt.test.ts` (guidance block must be byte-identical).
+- **`memory` is blocked in plan/review/explore.** Fail-closed was chosen knowingly;
+  the cost is that a preference stated while planning isn't captured.
+- **`MAX_SAVES_PER_RUN = 3` and the extraction gates.** The cap stands in for a
+  consolidation pass that doesn't exist. Raise it only after consolidation ships.
+- **Two logs — `messages.jsonl` mutable, `events.jsonl` append-only.** Looks like
+  duplication; it is the reason compaction can trim history without destroying the
+  record of what happened.
+- **Cascade skips `Contradicts`; tag/cluster nodes relay but never score.**
+- **k-means determinism (`SEED = 42`, id-sorted points).** Non-deterministic
+  clustering means the same store retrieving different memories on different days.
+
+### C. Roadmap (needs a spec first, not a fix)
+
+- [ ] **Consolidation / episodic → semantic promotion.** `rollout/` has every past
+      turn on disk; nothing mines it. Extraction only ever sees the live transcript,
+      so a fact that only becomes clear on the fifth repetition is never learned.
+- [ ] **Bi-temporal validity** — valid-time vs transaction-time, so "the host ran
+      Apache until March" is expressible instead of only replaceable. Entries carry
+      `createdAt`/`updatedAt` (transaction time) only.
+- [ ] **Learned procedural memory** — skills and `.freecode/commands/` are real
+      procedural memory, but hand-authored. Nothing distills a successful sequence
+      into a reusable procedure with preconditions.
+- [ ] **ANN index for vectors** — `cosineTopK` scans every vector
+      (`vector-store.ts:199`). Exact and correct for hundreds; this is the ceiling.
+- [ ] **Tuning values are guesses** — cap 3, interval 8, 200-char minimum, seed
+      threshold 0.4, decay 0.7. Chosen to bound cost, not derived from data.
   and I'll fix it.
