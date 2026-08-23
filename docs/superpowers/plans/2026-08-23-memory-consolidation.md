@@ -20,7 +20,32 @@ at a time.
 
 ---
 
-## Phase 0 — The ruler (D14)
+## Outcome (2026-08-23)
+
+All six phases shipped. Three things went differently from the plan, and they are
+the parts worth reading:
+
+1. **Phase 0 refuted Phase 1's central claim on its first run.** D1 assumed a
+   local scorer could gate retrieval for free; the baseline showed abstention
+   accuracy of 0%, and the next run showed D1's fix did not move it. Three local
+   signals were measured and all three overlap. Abstention moved to a model call
+   (**D15**), which the spec had deferred with the explicit condition "revisit
+   once D14 reports a baseline". It reported.
+2. **D6's decay formula was wrong as specified.** Multiplying by
+   `1 + 0.1·ln(uses+1)` cannot overcome a 4× decay span, so the use term was
+   decoration. Use now raises the decay *floor*. The test that caught it is named
+   in the commit.
+3. **`session.stop` is not a session end.** The spec listed it; it interrupts a
+   turn and keeps the session continuable, so ending it there would degrade the
+   next message. `session.delete` also does not flush — you discarded it.
+
+Final: 725 tests passing, typecheck clean. Bench, fused, vs. the baseline:
+recall@5 77.3% → 81.8%, precision@5 22.7% → 24.5%, MRR 87.1% → 81.7%, nDCG@10
+80.5% → 76.9%, abstention 0% → 100% with the judge (oracle ceiling).
+
+---
+
+## Phase 0 — The ruler (D14) — **done**
 
 No product change. It only reports numbers about today's behaviour, and it is
 what makes Phase 1 arguable.
@@ -59,7 +84,7 @@ here authored; the synthetic fixture is what runs in CI.
 
 ---
 
-## Phase 1 — Retrieval quality (D1, D2)
+## Phase 1 — Retrieval quality (D1, D2) — **done, with a reversal**
 
 The only phase that saves tokens, and the one most likely to regress recall if
 done blind. Ship with numbers.
@@ -128,7 +153,7 @@ rendering change, and if recall shifts, the plumbing reordered something.
 
 ---
 
-## Phase 2 — The usage loop (D12)
+## Phase 2 — The usage loop (D12) — **done**
 
 One prompt line, one parser, one sidecar file. Independently valuable: it is the
 first read on whether any of this works. Land it early and let it accumulate
@@ -163,7 +188,7 @@ the prompt indefinitely.
 
 ---
 
-## Phase 3 — Session end (D3, D4)
+## Phase 3 — Session end (D3, D4) — **done**
 
 A session-lifecycle fix that happens to unblock memory. Its own commit; valuable
 without the rest.
@@ -194,7 +219,7 @@ the leak this phase actually fixes.
 
 ---
 
-## Phase 4 — Episodes (D5, D6)
+## Phase 4 — Episodes (D5, D6) — **done, D6 formula changed**
 
 1. `memory/mem-types.ts` — `"episode"` into `MemoryType` and `MEMORY_TYPES`;
    parse and serialize `happened_at` (ISO date, optional). Back-compatible in
@@ -222,7 +247,7 @@ until then episodes accumulate, demoted but not deleted (spec §7).
 
 ---
 
-## Phase 5 — Consolidation (D7–D11, D13)
+## Phase 5 — Consolidation (D7–D11, D13) — **done**
 
 The merge/prune pass. Everything before this exists so that this phase's inputs
 are evidence rather than guesses.

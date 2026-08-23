@@ -318,7 +318,7 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
       the cascade skip are implemented and tested (`graph-types.ts:17`,
       `cascade.ts:59`), but nothing detects that two memories disagree. Contradiction
       handling is `supersedes:` only, which requires the writer to already know.
-- [ ] **Keyword fallback overrides a confident vector miss** — `seed()`
+- [x] **Keyword fallback overrides a confident vector miss** — `seed()`
       (`graph/index.ts:253`) falls back to `findRelevantMemories()` whenever
       `cosineTopK(10, 0.4)` returns nothing, and `retrieve()` does it again
       (`out.length > 0 ? out : fallback()`). The keyword floor is `score > 0`, and
@@ -327,7 +327,7 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
       **The fix is not "gate the fallback off"** — see the prior-art section
       below; it is BM25 + rank fusion with the floor applied after fusion.
       Spec: `specs/2026-08-23-memory-consolidation.md` D1 (revised 2026-08-23).
-- [ ] **The injected memory block has no byte ceiling** —
+- [x] **The injected memory block has no byte ceiling** —
       `renderRetrievedMemories()` (`mem-prompt.ts:128`) emits full bodies for up to
       8 entries with `cache: false` (`loop.ts:1325`). A count cap can't see "one
       memory with a 4 KB body"; claude-code caps its entrypoint at
@@ -1081,7 +1081,7 @@ D12–D14). These are actionable independently of that spec's phases.
 
 ### Real fixes
 
-- [ ] **The keyword scorer has no IDF and no length normalization** —
+- [x] **The keyword scorer has no IDF and no length normalization** —
       `mem-query.ts:19` awards +5 per description token pair and +1 per content
       token pair for substring overlap in either direction. A long memory
       therefore outranks a precise short one on stopword-ish overlap, and a term
@@ -1091,20 +1091,20 @@ D12–D14). These are actionable independently of that spec's phases.
       puts BM25-only at 95.0% P@5 / 95.5% MRR vs dual-stream 90.0% / 95.4%, so
       lexical retrieval done properly is a peer of the vector path, not a
       degraded stand-in. Spec D1.
-- [ ] **`retrieve()` discards the cascade score** — it walks scored output
+- [x] **`retrieve()` discards the cascade score** — it walks scored output
       (`graph/index.ts:288`) and returns bare `MemoryEntry[]`, which
       `prepareMemories` stashes. Any score-ordered rendering (the byte-cap
       degradation in spec D2) and any per-memory usage attribution (D12) needs a
       `{ entry, score }` shape plumbed through `retrieve` → `prepareMemories` →
       the session stash → `renderRetrievedMemories`.
-- [ ] **Injected memories are never attributed** — the loop knows exactly which
+- [x] **Injected memories are never attributed** — the loop knows exactly which
       memories it surfaced (`loop.ts:1297` emits `memory_injected`) and discards
       it. No memory carries a use count or a last-used date, so consolidation
       candidate selection, retention, and any claim that memory helps are all
       unfalsifiable. codex closes this with citations →
       `usage_count`/`last_usage` (`read/src/citations.rs`,
       `state/migrations/0016_memory_usage.sql`). Spec D12.
-- [ ] **No recall benchmark** — nothing measures retrieval quality, so every
+- [x] **No recall benchmark** — nothing measures retrieval quality, so every
       tuning constant is permanent guesswork and no change to `seed()` can be
       defended. jcode's `src/bin/memory_recall_bench.rs` is a working model:
       three cached stages (queries → pool → metrics), runs the *production*
@@ -1147,3 +1147,47 @@ D12–D14). These are actionable independently of that spec's phases.
   everything; we decay episodes only. Demoting "user prefers tables" for being
   old is how a system forgets a standing instruction. Use is recorded for all
   types, but only episodes' scores are multiplied.
+
+
+## Memory consolidation — shipped 2026-08-23
+
+Spec `specs/2026-08-23-memory-consolidation.md`, plan
+`plans/2026-08-23-memory-consolidation.md`, results
+`apps/core/src/memory/bench/README.md`. Six phases, 725 tests passing.
+
+Three findings worth keeping, because each contradicts something the spec said:
+
+- **The free abstention gate does not exist.** Top cosine for on-topic queries
+  (0.674–0.932) overlaps irrelevant ones (0.588–0.719); a within-query z-score
+  overlaps too. Bi-encoder similarity between short texts has a high,
+  corpus-dependent floor. Abstention needs a reader (D15). `bench/probe.ts`
+  reproduces the table — run it before proposing any new local floor.
+- **BM25 + RRF trades ordering for coverage.** recall@5 and precision@5 up, MRR
+  and nDCG down. Right for a block the model reads whole; wrong if retrieval is
+  ever used somewhere that only reads the first result.
+- **A log-scaled use boost cannot overcome exponential decay.** `1 + 0.1·ln(u+1)`
+  tops out near 1.5× against a 4× decay span. Use raises the decay floor instead.
+
+### Still open
+
+- [ ] **Project key collision** — now the highest-value memory fix.
+      `mem-store.ts` keys on `path.basename()`, so `~/work/api` and `~/side/api`
+      share a store. Actively wrong for episodes. `store/path-formatter.ts`
+      already solves it for sessions; reuse it plus a rename migration.
+- [ ] **Wire up LongMemEval-S** (`bench/longmemeval.ts`). The committed corpus
+      was written by the same people who wrote the retriever; it catches
+      regressions and proves nothing about absolute quality. LongMemEval-S uses
+      `all-MiniLM-L6-v2`, the embedder we already run, so agentmemory's published
+      numbers are a directly comparable baseline.
+- [ ] **Measure the judge with a real model.** Every judge figure so far is from
+      `--judge=oracle`, a perfect reader, and is therefore a ceiling.
+- [ ] **Watch the judge degradation rate.** It fails closed, so a provider
+      outage silently turns memory off. `isDegradation()` marks the cases; if
+      they fire often, revisit the direction.
+- [ ] **Backfill the rollout archive.** Hundreds of historical session
+      directories have never been mined; the end-of-session flush only covers
+      live sessions.
+- [ ] **`Contradicts` edges are still never produced.** Consolidation emits
+      `Supersedes` (the writer-knows case) only.
+- [ ] **VectorStore id→index `Map`.** O(n²) full sync matters more now that
+      consolidation does pairwise-cosine candidate selection.

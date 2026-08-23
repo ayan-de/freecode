@@ -116,13 +116,13 @@ means none (`mem-types.ts:100`). Frontmatter parsing is a deliberate ~50 lines o
 string handling rather than a YAML dependency, and the list parser accepts both
 `a, b` and `[a, b]` because different providers emit different shapes.
 
-### The four types
+### The five types
 
 The type is not decoration; it is the directory the file lives in, and it is how
-the model is taught what deserves saving at all. All four are *semantic* in the
-sense above — timeless claims, not dated events — though `feedback` leans
+the model is taught what deserves saving at all. The first four are *semantic* in
+the sense above — timeless claims, not dated events — though `feedback` leans
 procedural, since a **How to apply:** line is a small piece of know-how rather
-than a fact.
+than a fact. The fifth is the episodic layer.
 
 | Type | Holds | Example |
 | --- | --- | --- |
@@ -130,6 +130,20 @@ than a fact.
 | `feedback` | guidance they gave you, with **Why:** and **How to apply:** | "Don't add comments unless asked" |
 | `project` | decisions, constraints, deadlines *not derivable from the code* | "We chose SQLite over Postgres because the CLI must run offline" |
 | `reference` | pointers to external systems | "Dashboards live at grafana.internal/freecode" |
+| `episode` | what happened, when — one sentence, with a `happened_at` date | "2026-08-23 — settled on a 180s SSE stall timeout at the fetch layer" |
+
+**Episodes are machine-written.** The `memory` tool refuses `type: "episode"` on
+save and points at the four durable types; only consolidation creates them. The
+model can read its own history and delete from it, but not author it — a model
+narrating its sessions into memory is the noise failure mode the whole
+consolidation design exists to prevent.
+
+Episodes also decay, and the other four do not. An episode's retrieval score is
+multiplied by `max(floor, 0.5 ^ (ageDays / 30))`, where use raises the floor:
+`min(0.9, 0.25 + 0.15·ln(uses + 1))`. So an old episode nobody needed sinks,
+while one the user keeps hitting stays reachable. "User prefers tables" is never
+decayed — demoting a durable fact for being old is how a system forgets a
+standing instruction.
 
 The negative rule matters more than the positive one, and it is stated in the
 system prompt (`mem-prompt.ts:116`): **do not save what the repo already
@@ -254,6 +268,14 @@ would roughly double the calls in a chatty session for very little gain, so
 the session's whole history, not just the current run, so a skipped run is still
 covered by the next extraction rather than dropped.
 
+**A session that ends before the interval still extracts.** Ending a session —
+switching away, archiving, or quitting — runs one final pass with `force`, which
+bypasses gate 6 and **nothing else**: both kill switches, "the model already
+saved", and the too-short gate all still apply, because a kill switch a code path
+can bypass is not a kill switch. Deleting a session deliberately does *not*
+flush; you discarded it, so mining it is the one case where a write is clearly
+unwanted.
+
 **Topic detection is free.** `lexicalSimilarity()` — Jaccard overlap on tokens —
 and the `0.12` threshold are already computed every turn for retrieval, so the
 policy reuses the same function and constant and the two can never disagree.
@@ -261,12 +283,69 @@ Measured over a simulated 20-run session, the gates turn 20 provider calls into 
 
 ```json
 // .freecode/settings.json (project) beats ~/.freecode/settings.json (user)
-{ "memory": { "autoExtract": true, "extractEveryNRuns": 8 } }
+{
+  "memory": {
+    "autoExtract": true,
+    "extractEveryNRuns": 8,
+    "retrievalJudge": true,
+    "autoConsolidate": true,
+    "consolidateMinHours": 24,
+    "consolidateMinSessions": 5
+  }
+}
 ```
 
 An unparseable settings file falls through to defaults rather than disabling
 memory (`extract-policy.ts:92`) — failing closed there would silently kill the
 feature and nobody would know why.
+
+### 3. Consolidation — the pass that shrinks the store
+
+At most once per project per day, and only after five sessions have finished
+since the last run, one cheap-model call is handed the memory index, a **git diff
+of everything written since last time**, and the ~20 memories most likely to need
+attention. It returns merges, an optional episode, and promotions.
+
+The memory directory is a git repository (`.graph/` is gitignored, being derived
+state). Each successful run commits and moves a baseline tag, so "what changed
+since we last looked" costs one `git diff` and comes with content and deletions
+included. A failed run does not commit, so the next diff spans both windows —
+nothing written during a failed window is missed. A bad merge is one `git revert`
+in a directory whose entire history is memory edits.
+
+**There is no delete verb.** A memory can only be removed as the `supersedes`
+list of a merge, and only if the model was actually shown that name. An
+unconstrained delete on a cheap model running unattended against your memory is
+the one failure a retry cannot undo. This also makes consolidation the first
+writer in the system's history to emit `supersedes:` — the `Supersedes` edges the
+graph has always supported finally have something to describe.
+
+Off with `memory.autoConsolidate: false` or
+`FREECODE_DISABLE_MEMORY_CONSOLIDATION=1`. It is mutually exclusive with
+extraction, so there is at most **one** memory-related provider call per
+completion, ever.
+
+### Citations — how the store learns what earned its place
+
+The loop knows exactly which memories it surfaced, so the only missing half was
+whether any of them helped. The injected block now ends with an instruction to
+mark what was used:
+
+```
+<memory-used>project/sse-stall-timeout</memory-used>
+```
+
+The loop strips the tag before anything renders or persists, and credits only ids
+that were actually injected — a model can name a memory it was never shown.
+Counters land in `.graph/usage.json`: `useCount`, `lastUsedAt`, and
+`injectedCount`. That third field is the point of the design, because `useCount`
+alone cannot distinguish *never useful* from *never shown*; the ratio is a
+per-memory precision estimate. `freecode memory graph usage` prints it.
+
+Counters live in the sidecar rather than the memory files because writing one
+into a file would bump its `updatedAt`, dirty the git baseline every turn, and
+change the content hash that gates re-embedding. Delete `.graph/` and retention
+falls back to age.
 
 ### Secrets are refused at write time
 
@@ -312,14 +391,20 @@ Every turn, the loop asks the graph service for the memories relevant to the las
 user message (`loop.ts:1281`):
 
 ```
-seed:    embed(query) → cosine top-10, threshold 0.4
-         └─ no embedder? → keyword scorer (mem-query.ts)
+seed:    embed(query) → cosine top-10, threshold 0.4     ┐
+         BM25 over the same entries → top-10             ┘ fused by rank (RRF)
 cascade: walk edges from the seeds, 2 hops, score × edge weight × 0.7 per hop
-result:  top 8 entries → "# Relevant memories"
+judge:   a cheap model keeps only what is actually relevant (or nothing)
+render:  ≤ 2 KB → "# Relevant memories"
 ```
 
+Vector and lexical retrieval are **peers, not a primary and a fallback**. Their
+*ranks* are combined with reciprocal rank fusion — ranks, because a cosine
+similarity and a BM25 score have no common scale, and any weighted sum of them
+would be a hidden calibration constant nobody ever revisits.
+
 The scoring, edge weights, and vector storage are the
-[knowledge graph](/internals/knowledge-graph)'s business. Three properties belong
+[knowledge graph](/internals/knowledge-graph)'s business. Four properties belong
 here, because they are what keeps retrieval out of your way:
 
 - **One turn behind** (`graph/index.ts:455`). A warm turn returns the *previous*
@@ -333,18 +418,43 @@ here, because they are what keeps retrieval out of your way:
 - **Topic changes clear the stash.** If the new message shares almost nothing with
   the last one, the old set is dropped rather than injected — stale memories about
   a finished subject are worse than no memories.
+- **The block has a hard 2 KB ceiling.** Entries render in relevance order; once
+  the budget is spent the rest degrade to a one-line `name — description`, and
+  past that they drop. A count cap could not fix the failure that matters — one
+  memory with a 4 KB body, injected uncached on every turn.
+
+#### Why there is a model call in the read path
+
+Retrieval scores cannot tell *relevant* from *merely nearby*, and this was
+measured rather than assumed. On the benchmark corpus, the top cosine for
+on-topic queries spans 0.674–0.932 and for irrelevant ones 0.588–0.719 — they
+overlap, so no threshold separates them. A within-query z-score overlaps too:
+"write a haiku about the sea" outscores 13 of 22 genuinely on-topic queries. The
+cause is structural, not a bad constant — bi-encoder similarity between short
+texts has a high, corpus-dependent floor.
+
+So a cheap model decides, and it is affordable because of *where* it runs: on the
+background prefetch the loop already never waits for, behind a cadence carry that
+fires it on a topic change rather than on every message. It **fails closed** — on
+a dead provider or an unparseable verdict the candidates are dropped rather than
+surfaced, because a missed memory costs one turn while an injected irrelevant one
+biases the answer invisibly. Every outcome is a named variant, so a silent
+degradation is countable rather than invisible.
+
+Off with `memory.retrievalJudge: false` or `FREECODE_DISABLE_MEMORY_JUDGE=1`.
 
 ### When the embedder isn't there
 
 Embeddings are optional (a native ONNX dependency that some builds don't ship). If
 it can't load, `available()` flips to `false` permanently and retrieval falls back
-to `findRelevantMemories()` (`mem-query.ts:50`) — a plain keyword scorer: exact
-name match `+10`, description token overlap `+5`, body overlap `+1` — still
+to lexical retrieval alone — BM25 over name, description, and body, still
 expanded by the tag and wikilink graph walk.
 
-It is dumber. It is also 80 lines, has no dependencies, and cannot fail. **Memory
-never throws into the agent loop**; the worst case is that retrieval gets less
-precise.
+It used to be much dumber: the original scorer awarded points for any substring
+overlap, with no IDF and no length normalization, so a term in every memory
+counted as much as a rare one and a long memory beat a precise one. BM25 is ~40
+lines, has no dependencies, and cannot fail. **Memory never throws into the agent
+loop**; the worst case is that retrieval gets less precise.
 
 ## What the user sees
 
@@ -379,32 +489,46 @@ in the layer vocabulary from the top of the page, the gaps are specific rather
 than vague — and they cluster in the two places the whole field finds hardest:
 consolidation, and revision.
 
-1. **Episodes are logged but never consolidated.** Rollout has every past turn on
-   disk, yet extraction reads the *live* transcript and nothing ever revisits the
-   archive. So a fact that only becomes obvious after the fifth time it happens is
-   never learned — there is no working → episodic → semantic promotion, only
-   working → semantic. This is the largest structural gap.
+1. **Consolidation is unproven in the field.** It merges near-duplicates, writes
+   episodes, and emits the first `supersedes:` this system has ever produced —
+   but at most once per project per day, so real stores accumulate evidence
+   slowly. Its value claim (better recall at constant token cost) is testable
+   with `pnpm bench:recall` and has not been tested against a real store yet.
 2. **Revision is one-directional and untimed.** Entries carry `createdAt` and
    `updatedAt` — *transaction time*, when we learned something — and `supersedes:`
    is the entire contradiction story. There is no *valid time*, so "the deploy
    host ran Apache until March" is not expressible; the old memory can only be
    replaced, not dated. Two contradictory memories that never reference each other
-   both stay retrievable.
+   both stay retrievable: consolidation emits `Supersedes` (the writer-knows
+   case), but nothing *detects* that two independently-written memories disagree.
 3. **Procedural memory is authored, not learned.** Skills and custom commands are
    real procedural memory, but a human writes them. Nothing turns "I did A, B, C
    and it worked" into a reusable procedure, which is a harder distillation
-   problem than fact extraction because order and preconditions matter.
-4. **No session-end flush.** A session that ends before 8 runs or a topic change
-   never extracts at all, so a one-shot conversation where you state a preference
-   and leave loses it unless the model saved it with the tool. The cheapest of
-   these gaps to close.
-5. **No consolidation within the semantic layer either.** Nothing merges or ages
-   out near-duplicate memories, which is exactly why the three-save cap exists —
-   the cap is a stand-in for a cleaner that does not exist yet.
+   problem than fact extraction because order and preconditions matter. codex's
+   consolidation writes `skills/`; ours does not.
+4. **The rollout archive is still never mined.** The end-of-session flush closes
+   the "short session loses a preference" case, but hundreds of historical
+   session directories under `~/.freecode/rollout/sessions/` have never been read
+   and nothing goes back for them. codex's answer is a bounded, leased, parallel
+   backfill at startup.
+5. **Retention is enforced only by consolidation.** If it never fires, episodes
+   accumulate — demoted by decay, but never deleted.
 6. **Project key collisions.** `basename` means `~/work/api` and `~/side/api`
-   share memories.
-7. **Tuning values are guesses.** Cap 3, interval 8, 200-character minimum —
-   chosen to bound cost, not derived from data.
+   share memories. This was tolerable for "user prefers tables" and is actively
+   wrong for episodes, which are the most project-specific thing the store holds.
+7. **Citation is self-reported.** Usage counts come from the model saying which
+   memories it used. A model may credit one it ignored or use one silently, so
+   `useCount` is a biased but directional signal. It ranks and retains; nothing
+   deletes on it alone.
+8. **Tuning values are guesses.** Cap 3, interval 8, 200-character minimum,
+   `minHours 24`, `minSessions 5`, `MAX_EPISODES 50`. The *retrieval-side*
+   constants are no longer guesses — `RRF_K`, the episode half-life, and the
+   BM25 parameters can be swept by the benchmark — but the consolidation-side
+   ones remain unmeasured.
+9. **The benchmark corpus is self-written.** It catches regressions well and
+   proves little about absolute quality, because the people who wrote the
+   retriever wrote the queries. LongMemEval-S is the intended external corpus and
+   is not wired up yet.
 
 ## Debugging
 

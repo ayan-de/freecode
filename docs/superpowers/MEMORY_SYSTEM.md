@@ -13,7 +13,10 @@
 > write side `specs/2026-08-09-memory-write-path.md` ·
 > viewer `specs/2026-08-04-memory-graph-explorer-design.md`
 >
-> Last updated 2026-08-09.
+> Last updated 2026-08-23 — consolidation, episodes, the retrieval judge, the
+> citation loop, and the recall benchmark all landed. Spec:
+> `specs/2026-08-23-memory-consolidation.md`; results and method:
+> `apps/core/src/memory/bench/README.md`.
 
 ---
 
@@ -216,11 +219,31 @@ but the user text doesn't change, so `lastMemoryQueryText` skips the round trip.
 ### 4.2 Retrieval itself
 
 ```
-seed:    embed(query) → cosineTopK(K_INITIAL=10, threshold 0.4)
-         └─ embedder unavailable? → findRelevantMemories() keyword scorer
+seed:    embed(query) → cosineTopK(K_INITIAL=10, threshold 0.4)   ┐ fused by
+         Bm25Index.search(query, 10)                              ┘ rank (RRF_K=60)
 cascade: BFS from seeds, maxDepth 2, score × edge.weight × DECAY(0.7) per hop
-result:  top 8 entries
+decay:   episodes only — × max(floor(uses), 0.5^(ageDays/30))
+judge:   cheap model keeps the relevant ones, or none (D15)
+render:  ≤ MAX_MEMORY_BLOCK_BYTES (2048), degrading to one-line summaries
 ```
+
+**Vector and lexical are peers, not primary and fallback.** Their ranks fuse with
+reciprocal rank fusion, which reads positions only — a cosine and a BM25 score
+have no common scale, and any weighted sum would be an invented calibration
+constant. `embedder.available() === false` degrades to lexical-only, which is now
+a good path rather than a tolerated one.
+
+**Why there is a model call here.** An earlier design claimed a local scorer
+could decide "is anything relevant" for free. The benchmark refuted it: on the
+corpus, top cosine spans 0.674–0.932 for on-topic queries and 0.588–0.719 for
+irrelevant ones — overlapping — and a within-query z-score overlaps too. That is
+a property of bi-encoder similarity between short texts, not a bad constant. The
+judge runs on the background prefetch (no added loop latency) behind a cadence
+carry (fires on topic change, not per message) and **fails closed**.
+
+**`RetrievalOutcome`** names every path — `fused`, `lexical_only`,
+`empty_by_floor`, `empty_query`, `empty_store`, `error` — so a silent fallback is
+a countable event. That discipline is what defect 3 was a case of.
 
 Edge weights (`graph-types.ts:30`):
 
@@ -377,28 +400,38 @@ and `tools/memory.ts` are over it too and would decompose cleanly if they grow.
 
 ## 10. Known gaps
 
-> Gaps 1, 3 and 5 — and two retrieval defects not listed here (a keyword fallback
-> that overrides a confident vector miss, and an uncapped injected block) — have a
-> design: `specs/2026-08-23-memory-consolidation.md`. Proposed, not built.
+> Everything the 2026-08-23 spec set out to fix is built. What remains is listed
+> honestly below, including two things that spec created.
 
-1. **No session-end flush.** The throttle means a session ending before 8 runs
-   or a topic change **never extracts at all** — a one-shot session where the
-   user states a preference and leaves loses it unless the model saved it with
-   the tool. The obvious hook doesn't work: `disposeSessionMemory` has exactly
-   one call site (`server.ts:964`, `session.delete`), so it never fires on
-   `session.switch`, `session.archive`, `session.stop`, or process exit. Needs a
-   genuine session-end signal. **This is the most valuable next thing to build.**
-2. **Project key collisions.** `basename` means `~/work/api` and `~/side/api`
-   share memories (§2).
-3. **No consolidation.** claude-code has `autoDream`; jcode has ambient mode. We
-   have neither, which is why the 3-save cap exists.
-4. **No automated test for save → retrieve.** Verified by hand only: a scratch
-   run gives `{vectors:1, dims:384, nodes:1, embedder:true}` and retrieves the
-   saved memory from a paraphrased query.
-5. **Tuning values are guesses.** `MAX_SAVES_PER_RUN = 3`, interval `8`,
-   `MIN_TRANSCRIPT_CHARS = 200`. Chosen to bound cost, not derived from data.
-6. **`memory` blocked in plan mode** (D7) — a preference stated while planning
-   isn't captured. Fail-closed was the deliberate choice.
+1. **Project key collisions.** `basename` means `~/work/api` and `~/side/api`
+   share memories (§2). Tolerable for "user prefers tables", actively wrong for
+   episodes, which are the most project-specific thing the store holds.
+   **The most valuable next thing to build.**
+2. **`Contradicts` edges are still never produced.** Consolidation emits
+   `Supersedes` — the writer-knows case. Detecting that two independently-written
+   memories disagree needs pairwise reasoning nothing does.
+3. **The rollout archive is never mined.** The end-of-session flush covers live
+   sessions; hundreds of historical session directories have never been read and
+   nothing goes back for them. codex's answer is a bounded, leased, parallel
+   backfill at startup.
+4. **Consolidation is unmeasured in the field.** Its value claim — better recall
+   at constant token cost — is testable with `pnpm bench:recall` and has not been
+   tested against a real store.
+5. **The benchmark corpus is self-written.** It catches regressions and proves
+   little about absolute quality. LongMemEval-S is the intended external corpus
+   and is not wired up.
+6. **The judge's real-model accuracy is unknown.** Every judge figure in the spec
+   comes from `--judge=oracle`, a perfect reader, and is therefore a ceiling.
+7. **Citation is self-reported** and therefore biased — a model may credit a
+   memory it ignored. It ranks and retains; nothing deletes on it alone.
+8. **Consolidation-side tuning values are guesses.** `minHours 24`,
+   `minSessions 5`, `MAX_EPISODES 50`, caps 5/3/1. The retrieval-side ones
+   (`RRF_K`, the episode half-life, BM25 `k1`/`b`) are now sweepable.
+9. **`memory` blocked in plan mode** (write-path D7) — a preference stated while
+   planning isn't captured. Fail-closed was the deliberate choice.
+10. **Usage counters are per-machine.** A user on two machines splits the
+    evidence. Consistent with the store itself, noted because D12 is the first
+    part where *history* matters rather than current state.
 
 ---
 
