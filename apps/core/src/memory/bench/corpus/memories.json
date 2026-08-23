@@ -1,0 +1,284 @@
+[
+  {
+    "type": "user",
+    "name": "prefers-tables",
+    "description": "User wants comparisons rendered as markdown tables rather than prose",
+    "tags": ["style", "formatting"],
+    "content": "When comparing two or more options, render the comparison as a markdown table. Prose comparisons get skimmed and the distinctions are lost."
+  },
+  {
+    "type": "user",
+    "name": "terse-summaries",
+    "description": "User wants short summaries at the end of a task, not a recap of every step",
+    "tags": ["style"],
+    "content": "End a task with two or three sentences on what changed and what to watch. Do not re-narrate the steps; they were visible while they happened."
+  },
+  {
+    "type": "user",
+    "name": "timezone-ist",
+    "description": "User works in IST (UTC+5:30); schedule and deadline discussion assumes that zone",
+    "tags": ["scheduling"],
+    "content": "All dates and times discussed default to Asia/Kolkata unless stated otherwise."
+  },
+  {
+    "type": "user",
+    "name": "background-rust",
+    "description": "User is fluent in Rust and TypeScript, learning Go",
+    "tags": ["expertise"],
+    "content": "Rust and TypeScript need no explanation of language basics. For Go, briefly explain idioms that differ from Rust, especially error handling and interfaces."
+  },
+  {
+    "type": "user",
+    "name": "reviews-diffs-closely",
+    "description": "User reads every line of a diff and dislikes unrelated formatting churn",
+    "tags": ["style", "review"],
+    "content": "Keep diffs surgical. Reformatting an untouched block, reordering imports, or fixing an unrelated typo all cost review time and hide the real change."
+  },
+  {
+    "type": "feedback",
+    "name": "no-speculative-abstraction",
+    "description": "Do not add configurability or interfaces that were not asked for",
+    "tags": ["architecture", "style"],
+    "content": "**Why:** every unused extension point is code that must be read, tested, and kept working.\n**How to apply:** write the single-use version. Extract an abstraction on the second caller, not the first."
+  },
+  {
+    "type": "feedback",
+    "name": "ask-before-migrations",
+    "description": "Always confirm before writing a database migration",
+    "tags": ["database", "safety"],
+    "content": "**Why:** migrations are hard to reverse once they run against a shared environment.\n**How to apply:** show the SQL and the rollback path, then wait for an explicit go-ahead."
+  },
+  {
+    "type": "feedback",
+    "name": "confirm-before-db-schema-change",
+    "description": "Check with the user before altering database schema",
+    "tags": ["database", "safety"],
+    "content": "**Why:** a schema change against the shared dev database blocks everyone.\n**How to apply:** describe the change and its rollback before applying it."
+  },
+  {
+    "type": "feedback",
+    "name": "tests-before-fix",
+    "description": "Write a failing test that reproduces a bug before fixing it",
+    "tags": ["testing"],
+    "content": "**Why:** a fix without a reproduction cannot be shown to have fixed anything.\n**How to apply:** reproduce, watch it fail, fix, watch it pass."
+  },
+  {
+    "type": "feedback",
+    "name": "no-emoji-in-code",
+    "description": "Never put emoji in source files, commit messages, or log output",
+    "tags": ["style"],
+    "content": "**Why:** they break terminal alignment and grep.\n**How to apply:** plain ASCII in code and commits. Emoji are fine in chat."
+  },
+  {
+    "type": "feedback",
+    "name": "explain-tradeoffs-first",
+    "description": "State the tradeoff before recommending an approach",
+    "tags": ["style"],
+    "content": "**Why:** a recommendation without its cost cannot be evaluated.\n**How to apply:** one sentence on what the approach gives up, then the recommendation."
+  },
+  {
+    "type": "feedback",
+    "name": "commit-messages-imperative",
+    "description": "Commit subject lines use the imperative mood and stay under 72 characters",
+    "tags": ["git", "style"],
+    "content": "**Why:** matches the existing history and reads correctly in `git log --oneline`.\n**How to apply:** \"add retry to fetch\", not \"added\" or \"adding\"."
+  },
+  {
+    "type": "project",
+    "name": "sse-stall-timeout",
+    "description": "Settled on a 180s SSE stall timeout at the fetch layer rather than a total-duration cap",
+    "tags": ["streaming", "timeouts"],
+    "content": "A silence timeout on live SSE streams, not a cap on total duration. A large tool call legitimately produces a long quiet stretch and a duration cap read it as a dead stream. The timeout lives at the fetch layer so it sees raw bytes; moving it above stream normalization drops tool-input deltas and reintroduces the bug."
+  },
+  {
+    "type": "project",
+    "name": "header-timeout-300s",
+    "description": "Response headers must arrive within 300 seconds or the request is abandoned",
+    "tags": ["streaming", "timeouts"],
+    "content": "Separate from the stall timeout: this one covers a provider that accepts a connection and never responds at all."
+  },
+  {
+    "type": "project",
+    "name": "sqlite-over-postgres",
+    "description": "Chose SQLite for the thread store because deployments are single-machine",
+    "tags": ["database", "architecture"],
+    "content": "No deployment runs more than one backend process, so the operational cost of Postgres buys nothing. Revisit if a hosted multi-tenant mode ships."
+  },
+  {
+    "type": "project",
+    "name": "thread-store-sqlite",
+    "description": "The thread store is backed by SQLite, not Postgres",
+    "tags": ["database"],
+    "content": "Single-machine deployments only. A JSON store exists as a fallback for environments without the native module."
+  },
+  {
+    "type": "project",
+    "name": "frontends-are-dumb",
+    "description": "All business logic lives in the backend; frontends only render and speak IPC",
+    "tags": ["architecture"],
+    "content": "TUI, VS Code, and web are presentation layers. No provider calls, no file reading, no tool execution in a frontend. The rule exists because logic duplicated across four frontends drifts within a release."
+  },
+  {
+    "type": "project",
+    "name": "no-browser-automation",
+    "description": "The Playwright browser path is legacy and must not be extended",
+    "tags": ["architecture", "legacy"],
+    "content": "API providers are the default execution path. The browser controller stays for compatibility but takes no new features."
+  },
+  {
+    "type": "project",
+    "name": "release-binary-is-bun",
+    "description": "The only distributable binary is the bun build; the SEA build is a dev artifact",
+    "tags": ["build", "release"],
+    "content": "The bun build bundles the backend and sets a flag so it runs from anywhere. The SEA build ships only the terminal shell and spawns the backend from disk, so it works exclusively inside the monorepo. Copying a SEA build into the installed versions directory breaks the command everywhere except the repository root."
+  },
+  {
+    "type": "project",
+    "name": "file-limit-150-lines",
+    "description": "Files over roughly 150 lines should be decomposed",
+    "tags": ["style", "architecture"],
+    "content": "The agent loop is an explicit exception; it is a cohesive state machine and splitting it would scatter one flow across files."
+  },
+  {
+    "type": "project",
+    "name": "prompt-cache-prefix-stability",
+    "description": "The static system prefix must not change between turns or the prompt cache misses",
+    "tags": ["caching", "tokens"],
+    "content": "Anything that varies per turn goes after the cached prefix with caching disabled. This is why the retrieved-memory block sits at the tail of the system array: moving it into the prefix would rewrite the cache on every save."
+  },
+  {
+    "type": "project",
+    "name": "parallel-tool-batching",
+    "description": "Read-only tool calls are executed in parallel batches; mutating calls run serially",
+    "tags": ["tools", "performance"],
+    "content": "Batching is decided by whether a tool declares itself read-only. A tool missing from the read-only list is treated as mutating, which is the safe default but silently serialises it."
+  },
+  {
+    "type": "project",
+    "name": "auth-tokens-in-keychain",
+    "description": "Provider API keys are stored in the OS keychain, never in the settings file",
+    "tags": ["security", "auth"],
+    "content": "Settings files get committed by accident and shared in bug reports. The keychain is read at startup and the value never lands on disk in plaintext."
+  },
+  {
+    "type": "project",
+    "name": "rate-limit-backoff-jitter",
+    "description": "Retries on 429 use exponential backoff with full jitter",
+    "tags": ["providers", "reliability"],
+    "content": "Without jitter, every concurrent request retries at the same instant and the second wave fails identically."
+  },
+  {
+    "type": "project",
+    "name": "compaction-threshold-120k",
+    "description": "History is compacted at 120k tokens rather than at the model's full window",
+    "tags": ["tokens", "compaction"],
+    "content": "Running near the window edge made every turn expensive for no quality gain. The threshold is configurable by environment variable."
+  },
+  {
+    "type": "project",
+    "name": "hooks-fail-open",
+    "description": "A hook that errors or times out never blocks the tool call it wraps",
+    "tags": ["hooks", "reliability"],
+    "content": "A broken hook must degrade the feature it implements, not the agent. The only exception is an explicit deny decision, which is the hook working correctly."
+  },
+  {
+    "type": "project",
+    "name": "graph-sidecar-is-derived",
+    "description": "The memory graph sidecar is derived state and can be deleted at any time",
+    "tags": ["memory", "architecture"],
+    "content": "Markdown files are the only source of truth. Corruption, schema changes, and embedding-model changes are all resolved by deleting the sidecar and rebuilding it."
+  },
+  {
+    "type": "project",
+    "name": "memory-injected-uncached",
+    "description": "The retrieved-memory block is injected with caching disabled at the tail of the system array",
+    "tags": ["memory", "caching"],
+    "content": "It varies per turn by construction, so it cannot live in the cached prefix."
+  },
+  {
+    "type": "project",
+    "name": "q3-launch-deadline",
+    "description": "The desktop build must ship before the end of Q3",
+    "tags": ["deadline"],
+    "content": "Signed installers for macOS and Windows are the blocking item; the Linux build already works."
+  },
+  {
+    "type": "project",
+    "name": "no-mcp-server-mode",
+    "description": "Serving our own tools over MCP is deliberately not built",
+    "tags": ["mcp", "scope"],
+    "content": "An MCP client exists. Exposing tools as an MCP server is out of scope until someone asks for it."
+  },
+  {
+    "type": "project",
+    "name": "lockfile-is-pnpm",
+    "description": "The repository uses pnpm workspaces; npm and yarn lockfiles must not be committed",
+    "tags": ["build"],
+    "content": "A stray package-lock.json makes CI resolve a different dependency tree than local development."
+  },
+  {
+    "type": "project",
+    "name": "old-compaction-at-window-edge",
+    "description": "Superseded: compaction used to trigger at the model's full context window",
+    "tags": ["tokens", "compaction"],
+    "supersedes": [],
+    "content": "Replaced by the 120k threshold. Kept only as a record of why the change was made."
+  },
+  {
+    "type": "project",
+    "name": "old-keys-in-settings-file",
+    "description": "Superseded: API keys used to live in the settings JSON file",
+    "tags": ["security", "auth"],
+    "supersedes": [],
+    "content": "Replaced by keychain storage after a key was pasted into a public bug report."
+  },
+  {
+    "type": "reference",
+    "name": "provider-status-page",
+    "description": "Provider incident status dashboard",
+    "tags": ["providers", "ops"],
+    "content": "Check this first when every request to one provider starts failing at once. It lags real incidents by a few minutes."
+  },
+  {
+    "type": "reference",
+    "name": "design-specs-directory",
+    "description": "Architecture specifications live under the superpowers specs directory",
+    "tags": ["docs"],
+    "content": "The v4 architecture spec supersedes v3. Topical specs cover the agent loop, providers, memory, MCP, hooks, and observability."
+  },
+  {
+    "type": "reference",
+    "name": "onboarding-runbook",
+    "description": "New-contributor setup runbook",
+    "tags": ["docs", "onboarding"],
+    "content": "Covers toolchain versions, the native module build, and how to run the backend against a local frontend."
+  },
+  {
+    "type": "reference",
+    "name": "perf-dashboard",
+    "description": "Latency and token-cost dashboard for production sessions",
+    "tags": ["ops", "performance"],
+    "content": "Broken down by provider and model. Token cost is estimated, not billed, so it drifts from the invoice."
+  },
+  {
+    "type": "reference",
+    "name": "issue-tracker-project",
+    "description": "The issue tracker board for this project",
+    "tags": ["ops"],
+    "content": "Bugs go in the triage column; anything with a customer impact gets the escalation label."
+  },
+  {
+    "type": "reference",
+    "name": "embedding-model-card",
+    "description": "Model card for the local sentence-embedding model used by memory retrieval",
+    "tags": ["memory", "docs"],
+    "content": "384 dimensions, runs locally, no API key. Documents the sequence-length limit that truncates long memories before embedding."
+  },
+  {
+    "type": "reference",
+    "name": "sqlite-wal-docs",
+    "description": "Upstream documentation for SQLite write-ahead logging",
+    "tags": ["database", "docs"],
+    "content": "Explains the checkpoint behaviour that made the store appear to leak disk space under heavy write load."
+  }
+]

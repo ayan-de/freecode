@@ -1,0 +1,101 @@
+[
+  {
+    "query": "why did we pick a 180 second silence timeout for streaming responses",
+    "relevant": ["project/sse-stall-timeout", "project/header-timeout-300s"]
+  },
+  {
+    "query": "the stream looks dead during a long tool call",
+    "relevant": ["project/sse-stall-timeout"]
+  },
+  {
+    "query": "what database are we using for sessions",
+    "relevant": ["project/sqlite-over-postgres", "project/thread-store-sqlite"]
+  },
+  {
+    "query": "can I add a column to the users table",
+    "relevant": ["feedback/ask-before-migrations", "feedback/confirm-before-db-schema-change"]
+  },
+  {
+    "query": "should the vscode extension call the provider directly",
+    "relevant": ["project/frontends-are-dumb"]
+  },
+  {
+    "query": "how do I build a release binary to give someone",
+    "relevant": ["project/release-binary-is-bun"]
+  },
+  {
+    "query": "our prompt cache keeps missing between turns",
+    "relevant": [
+      "project/prompt-cache-prefix-stability",
+      "project/memory-injected-uncached"
+    ]
+  },
+  {
+    "query": "where do api keys get stored",
+    "relevant": ["project/auth-tokens-in-keychain", "project/old-keys-in-settings-file"]
+  },
+  {
+    "query": "requests are getting 429 rate limited",
+    "relevant": ["project/rate-limit-backoff-jitter", "reference/provider-status-page"]
+  },
+  {
+    "query": "when does the conversation history get summarised",
+    "relevant": [
+      "project/compaction-threshold-120k",
+      "project/old-compaction-at-window-edge"
+    ]
+  },
+  {
+    "query": "a hook is throwing and I want to know if it blocks the tool",
+    "relevant": ["project/hooks-fail-open"]
+  },
+  {
+    "query": "can I delete the graph directory to fix corrupt embeddings",
+    "relevant": ["project/graph-sidecar-is-derived", "reference/embedding-model-card"]
+  },
+  {
+    "query": "compare the two approaches for me",
+    "relevant": ["user/prefers-tables", "feedback/explain-tradeoffs-first"]
+  },
+  {
+    "query": "I am about to refactor this into a generic interface",
+    "relevant": ["feedback/no-speculative-abstraction", "project/file-limit-150-lines"]
+  },
+  {
+    "query": "found a bug in the retry logic, going to patch it",
+    "relevant": ["feedback/tests-before-fix"]
+  },
+  {
+    "query": "write the commit message for this change",
+    "relevant": ["feedback/commit-messages-imperative", "feedback/no-emoji-in-code"]
+  },
+  {
+    "query": "explain go error handling to me",
+    "relevant": ["user/background-rust"]
+  },
+  {
+    "query": "when is the desktop app due",
+    "relevant": ["project/q3-launch-deadline", "user/timezone-ist"]
+  },
+  {
+    "query": "I want to expose our tools over mcp",
+    "relevant": ["project/no-mcp-server-mode"]
+  },
+  {
+    "query": "why is this tool call not running in parallel with the others",
+    "relevant": ["project/parallel-tool-batching"]
+  },
+  {
+    "query": "should I run npm install here",
+    "relevant": ["project/lockfile-is-pnpm"]
+  },
+  {
+    "query": "you reformatted a block I did not touch",
+    "relevant": ["user/reviews-diffs-closely", "user/terse-summaries"]
+  },
+  { "query": "what is 2 + 2", "relevant": [] },
+  { "query": "explain how quicksort partitioning works", "relevant": [] },
+  { "query": "write a haiku about the sea", "relevant": [] },
+  { "query": "convert 50 miles to kilometres", "relevant": [] },
+  { "query": "what is the capital of Portugal", "relevant": [] }
+]
