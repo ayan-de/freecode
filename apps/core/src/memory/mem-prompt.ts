@@ -122,18 +122,32 @@ export function buildMemoryGuidanceBlock(): string {
   ].join("\n");
 }
 
+// Hard ceiling on the injected block (spec D2). A count cap cannot see the
+// failure mode that matters — one memory with a 4 KB body — and this block is
+// injected uncached on every turn, so its size is paid every time.
+export const MAX_MEMORY_BLOCK_BYTES = 2048;
+
+const bytes = (s: string): number => Buffer.byteLength(s, "utf-8");
+
 // Lean per-turn block for memories the graph service surfaced as relevant to
 // the current context. Kept compact (no full usage preamble) since it is
 // injected every turn; the "how to use memory" guidance lives elsewhere.
+//
+// Entries are rendered in the order given, which is cascade-score order
+// (`retrieveScored`). Once the byte budget is spent, the remainder degrade to a
+// one-line `- name — description`, and past that they are dropped: a weakly
+// relevant memory is worth its description even when it is not worth its body.
 export function renderRetrievedMemories(entries: MemoryEntry[]): string {
   if (entries.length === 0) return "";
 
-  const lines: string[] = [
+  const header = [
     "# Relevant memories",
     "",
     "Memories surfaced as relevant to the current request (verify before relying on them):",
   ];
 
+  // Group by type for readability, but keep each group in the order it arrived
+  // so the byte budget still sheds the least relevant entries first.
   const byType = new Map<MemoryType, MemoryEntry[]>();
   for (const entry of entries) {
     const list = byType.get(entry.type) ?? [];
@@ -141,6 +155,20 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
     byType.set(entry.type, list);
   }
 
+  // Decide per entry whether it gets its body, before rendering anything: the
+  // budget is spent in relevance order across the whole block, not per section,
+  // otherwise the last section would always be the one that degrades.
+  const full = new Set<MemoryEntry>();
+  let budget = MAX_MEMORY_BLOCK_BYTES - bytes(header.join("\n"));
+  for (const entry of entries) {
+    const cost = bytes(`\n\n### ${entry.name}\n${entry.content}`);
+    if (cost <= budget) {
+      full.add(entry);
+      budget -= cost;
+    }
+  }
+
+  const lines = [...header];
   for (const type of [
     "user",
     "feedback",
@@ -153,9 +181,19 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
     lines.push("");
     lines.push(`## ${type.charAt(0).toUpperCase() + type.slice(1)}`);
     for (const entry of typeEntries) {
-      lines.push("");
-      lines.push(`### ${entry.name}`);
-      lines.push(entry.content);
+      if (full.has(entry)) {
+        lines.push("");
+        lines.push(`### ${entry.name}`);
+        lines.push(entry.content);
+      } else {
+        const summary = `- ${entry.name} — ${entry.description}`;
+        // A summary line still has to fit; past that, drop silently. The model
+        // is told these are "surfaced as relevant", not "all of them".
+        if (bytes(summary) + 1 <= budget) {
+          lines.push(summary);
+          budget -= bytes(summary) + 1;
+        }
+      }
     }
   }
 
