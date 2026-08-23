@@ -377,6 +377,10 @@ and `tools/memory.ts` are over it too and would decompose cleanly if they grow.
 
 ## 10. Known gaps
 
+> Gaps 1, 3 and 5 — and two retrieval defects not listed here (a keyword fallback
+> that overrides a confident vector miss, and an uncapped injected block) — have a
+> design: `specs/2026-08-23-memory-consolidation.md`. Proposed, not built.
+
 1. **No session-end flush.** The throttle means a session ending before 8 runs
    or a topic change **never extracts at all** — a one-shot session where the
    user states a preference and leaves loses it unless the model saved it with

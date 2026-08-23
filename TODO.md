@@ -318,6 +318,22 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
       the cascade skip are implemented and tested (`graph-types.ts:17`,
       `cascade.ts:59`), but nothing detects that two memories disagree. Contradiction
       handling is `supersedes:` only, which requires the writer to already know.
+- [ ] **Keyword fallback overrides a confident vector miss** — `seed()`
+      (`graph/index.ts:253`) falls back to `findRelevantMemories()` whenever
+      `cosineTopK(10, 0.4)` returns nothing, and `retrieve()` does it again
+      (`out.length > 0 ? out : fallback()`). The keyword floor is `score > 0`, and
+      `score()` awards +1 for any 3-char *substring* overlap (`add`↔`address`), so
+      "what's 2+2" against a populated store injects up to 8 irrelevant memories.
+      The keyword path is specified as the **embedder-unavailable** fallback (KG
+      spec D6); it is also acting as the **no-good-match** fallback, which is a
+      different question. Split the two conditions — a vector miss is an answer.
+      Spec: `specs/2026-08-23-memory-consolidation.md` D1.
+- [ ] **The injected memory block has no byte ceiling** —
+      `renderRetrievedMemories()` (`mem-prompt.ts:128`) emits full bodies for up to
+      8 entries with `cache: false` (`loop.ts:1325`). A count cap can't see "one
+      memory with a 4 KB body"; claude-code caps its entrypoint at
+      `MAX_ENTRYPOINT_BYTES = 25_000` for exactly this. Add a byte budget with
+      degradation to `name — description`. Spec: same doc, D2.
 - [ ] **VectorStore rewrites everything on every write** — `put()`/`remove()` call
       `persist()`, re-serializing all vectors + both files (`vector-store.ts:181`).
       ~768 KB rewritten per save at 500 memories.
