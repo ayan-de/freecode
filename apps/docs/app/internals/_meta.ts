@@ -15,5 +15,6 @@ export default {
   sessions: "Sessions, store & rollout",
   compaction: "Compaction",
   ipc: "IPC protocol",
-  runtime: "Effect runtime & DI"
+  runtime: "Effect runtime & DI",
+  eval: "Eval harness"
 } satisfies MetaRecord;

@@ -180,6 +180,30 @@ The trace is folded from the rollout event log, so it works on sessions that hav
 already finished — and on ones that hung, which is the point: a `model.request`
 with no matching response *is* the evidence. See [tracing](/guides/tracing).
 
+## `freecode eval`
+
+```bash
+freecode eval [suite] [--trials <n>] [--model <p/m>] [--gate] [--json] [--quarantine-report]
+```
+
+| Flag | Alias | Type | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `suite` | — | positional | `trajectory` | suite name, resolved as `evals/<suite>.jsonl` |
+| `--trials` | — | number | `1` | runs per case; `3` enables majority-of-3 gating |
+| `--model` | `-m` | string | config's current model | `provider/model` override for cases that don't pin one |
+| `--gate` | — | boolean | `false` | exit `1` on regression against the recorded baseline |
+| `--json` | — | boolean | `false` | emit `{ report, verdict }` instead of the per-case lines |
+| `--quarantine-report` | — | boolean | `false` | print quarantine promotion/demotion proposals and exit without running anything |
+
+Each case **drives a real agent turn against a real provider**, so this costs
+money and takes minutes. Results are written to `~/.freecode/eval_report.json`
+(last run) and appended to `~/.freecode/eval_runs.jsonl` (history);
+`FREECODE_EVAL_HOME` relocates both.
+
+The suite path is resolved relative to the **current working directory**, so this
+only works from the repo root unless `FREECODE_EVALS_DIR` is set
+([known gaps](#known-gaps)). See [eval harness](/internals/eval).
+
 ## `freecode mcp`
 
 ```bash
@@ -250,6 +274,13 @@ Found while writing this page; each is also tracked in `TODO.md`.
 - **`session` CLI covers 2 of 12 operations.** `fork`, `switch`, `archive`,
   `export`, `import`, `upload`, `download` all exist over IPC and none has a CLI
   surface, so scripting session management means speaking JSON-RPC by hand.
+- **`eval` only works from the repo root.** `evalsDir()` is
+  `path.resolve("evals")` (`eval/dataset.ts:19`), so the suite is found relative
+  to the current working directory and `freecode eval` from anywhere else fails
+  with "no such suite". The shipped cases also reference FreeCode's own source
+  paths, which nothing in `--help` says.
+- **`eval --gate` does not imply `--trials 3`.** The default is one trial, which
+  is `pass@1` — the statistic the gate's own design calls too noisy to block on.
 - **MCP config is user-scope only.** `getConfigDir()` is hard-wired to
   `~/.freecode`, so a repository cannot ship the MCP servers its contributors need
   the way it can ship permission rules and hooks.

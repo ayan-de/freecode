@@ -1045,6 +1045,17 @@ spec's §12; these are the parts that are actionable independently of it.
 
 ### Real fixes
 
+- [x] **The trace fold discards tool call arguments** — ✅ DONE (Phase 0).
+      `ToolSpan.args` is carried through (`rollout/trace.ts:58,149,158`) and
+      `scorers/trajectory.ts` scores `expectInArgs` off it. Original finding:
+      (`rollout/trace.ts:137-139`).
+      `FunctionCallEvent` carries `args: Record<string, unknown>`, but the
+      `function.call` case folds it into nothing but a timestamp in `pendingTools`,
+      so `ToolSpan` is `{ tool, startedAt, duration_ms }` and the args are gone.
+      The log recorded the right thing and the fold throws it away. Carrying
+      `args` through is ~3 lines, makes `freecode trace --json` materially more
+      useful, and is a hard prerequisite for the eval harness's `expect_in_args`
+      (spec §5.1, Phase 0).
 - [ ] **There is no cost accounting in USD anywhere.** `usage/tracker.ts` records
       tokens and `usage.get` serves them, but a price table exists in exactly one
       file — `providers/minimax.ts`. A shared `providers/pricing.ts` keyed by
@@ -1062,6 +1073,58 @@ spec's §12; these are the parts that are actionable independently of it.
       `2026-08-08-continual-harness-design.md` lets the agent rewrite its own
       harness with no way to measure whether the rewrite helped. Both are blocked
       on the eval spec's Phase 1, and both should say so.
+
+### Docs findings (writing `/internals/eval` — 2026-08-23)
+
+- [ ] **A closed gate records its own baseline, so a regression is forgiven on the
+      next run.** `runSuite` calls `writeReport(report)` unconditionally
+      (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
+      (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
+      opens, because both the count and `greenIds` now come from the 14/20 run.
+      The delta rule is only honest if a closed gate refuses to become the
+      baseline (or history records a `gated` flag that `baselineFor` skips).
+- [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
+      (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
+      say which model produced a baseline, and a cheap local run compared against
+      a CI baseline from another model looks like a regression with no way to see
+      why. Record `RunnerConfig`'s resolved `provider/model` instead. Related:
+      **none of the 20 shipped cases pins `model`**, though spec §11 requires it.
+- [ ] **`evalsDir()` is CWD-relative** (`eval/dataset.ts:19`,
+      `path.resolve("evals")`), so `freecode eval` fails with "no such suite"
+      anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
+      cases also reference FreeCode's own source paths, so the suite is
+      repo-specific and nothing in `--help` says so.
+- [ ] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
+      statistic spec §9.1 argues is too noisy to block on. Either default
+      `--trials` to 3 when `--gate` is set, or warn.
+- [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+      only documented invocation from a source checkout is a raw `tsx` command.
+
+### Docs findings (writing `/internals/eval` — 2026-08-23)
+
+- [ ] **A closed gate records its own baseline, so a regression is forgiven on the
+      next run.** `runSuite` calls `writeReport(report)` unconditionally
+      (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
+      (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
+      opens, because both the count and `greenIds` now come from the 14/20 run.
+      The delta rule is only honest if a closed gate refuses to become the
+      baseline (or history records a `gated` flag that `baselineFor` skips).
+- [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
+      (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
+      say which model produced a baseline, and a cheap local run compared against
+      a CI baseline from another model looks like a regression with no way to see
+      why. Record `RunnerConfig`'s resolved `provider/model` instead. Related:
+      **none of the 20 shipped cases pins `model`**, though spec §11 requires it.
+- [ ] **`evalsDir()` is CWD-relative** (`eval/dataset.ts:19`,
+      `path.resolve("evals")`), so `freecode eval` fails with "no such suite"
+      anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
+      cases also reference FreeCode's own source paths, so the suite is
+      repo-specific and nothing in `--help` says so.
+- [ ] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
+      statistic spec §9.1 argues is too noisy to block on. Either default
+      `--trials` to 3 when `--gate` is set, or warn.
+- [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+      only documented invocation from a source checkout is a raw `tsx` command.
 
 ### Deliberate — do NOT "fix"
 
