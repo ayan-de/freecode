@@ -38,8 +38,8 @@ All four exist in FreeCode. Only one of them is this page:
 | Layer | In FreeCode | Where | Learned automatically? |
 | --- | --- | --- | --- |
 | Working | in-session history, summary, compaction | [Compaction](/internals/compaction) (`compaction/service.ts:36`) | n/a — session-scoped |
-| Episodic | rollout event sourcing + thread store: every turn durably logged, replayable, resumable | [Sessions, store & rollout](/internals/sessions) | logged, never distilled |
-| **Semantic** | **the markdown memory store + its graph** | **this page**, plus [Knowledge graph](/internals/knowledge-graph) | **yes** — tool + extraction |
+| **Episodic** | **dated `episode` memories, one sentence each** — plus rollout event sourcing underneath, which logs every turn verbatim | **this page**, and [Sessions, store & rollout](/internals/sessions) for the raw log | **yes** — written by consolidation |
+| **Semantic** | **the markdown memory store + its graph** | **this page**, plus [Knowledge graph](/internals/knowledge-graph) | **yes** — tool + extraction + consolidation |
 | Procedural | skills and custom commands | [Skills](/guides/skills), [Custom commands](/guides/custom-commands) | no — hand-authored |
 
 > **A name collision worth knowing before you read the code.** The class called
@@ -49,10 +49,17 @@ All four exist in FreeCode. Only one of them is this page:
 
 The healthy flow in that model is **working → episodic → semantic + procedural**:
 something happens, it gets logged as an episode, and only after episodes repeat
-does *consolidation* distill a durable fact or a reusable method. FreeCode does
-the first arrow and skips the second — extraction reads the live transcript, not
-the episode log, and nothing promotes old episodes into facts. That is a real gap,
-revisited at the end of this page.
+does *consolidation* distill a durable fact or a reusable method.
+
+FreeCode now does both arrows. A finished session is mined for durable facts
+(**extraction**), and roughly once a day a separate pass reads what has
+accumulated, merges near-duplicates, records what happened as a dated `episode`,
+and promotes anything the period made clear (**consolidation**). What is still
+missing is narrower than it used to be: consolidation reads *recent* memory, not
+the rollout archive, so hundreds of historical sessions have never been distilled
+and nothing goes back for them. The procedural arrow is also still manual —
+nothing turns a successful tool sequence into a skill. Both are revisited under
+[Known gaps](#known-gaps).
 
 ## The shape of the whole thing
 
@@ -64,13 +71,17 @@ revisited at the end of this page.
   (the model decides)    │  memory/<type>/<name>.md     │        .prepareMemories()
                          │  memory/MEMORY.md            │               │
   extract.ts ───────────▶│                              │               ▼
-  (turn-end mining)      └──────────────┬───────────────┘      "# Relevant memories"
-                                        │                        system block
-                          onMemoryChange │ (fire-and-forget)
-                                        ▼
-                         ┌──────────────────────────────┐
-                         │  .graph/ — derived sidecar   │
-                         │  embeddings.bin · graph.json │
+  (turn-end mining)      │                              │        retrieval judge
+                         │                              │               │
+  consolidate.ts ───────▶│                              │               ▼
+  (daily merge/prune)    └──────────────┬───────────────┘      "# Relevant memories"
+                                        │                        system block (≤2 KB)
+                          onMemoryChange │ (fire-and-forget)             │
+                                        ▼                                │
+                         ┌──────────────────────────────┐                │
+                         │  .graph/ — derived sidecar   │◀── citations ──┘
+                         │  embeddings.bin · graph.json │   (what got used)
+                         │  usage.json · consolidation  │
                          │  DELETE IT ANY TIME          │
                          └──────────────────────────────┘
 ```
@@ -106,13 +117,15 @@ Render comparisons as markdown tables.
 | --- | --- | --- |
 | `name` | yes | kebab-case identity. Saving the same name **updates** that memory |
 | `description` | yes | one line; this is what relevance is judged against later |
-| `type` | yes | one of four, below |
+| `type` | yes | one of five, below |
 | `tags` | no | topic tags → `HasTag` edges in the graph |
 | `supersedes` | no | names this memory replaces → `Supersedes` edges |
+| `happened_at` | no | ISO date; episodes only — what the entry is *about*, not when it was written |
 | body | yes | the fact itself; `[[wikilinks]]` become `RelatesTo` edges for free |
 
-`tags` and `supersedes` were added later and are parsed back-compatibly — absent
-means none (`mem-types.ts:100`). Frontmatter parsing is a deliberate ~50 lines of
+`tags`, `supersedes`, and `happened_at` were all added after the first version
+and are parsed back-compatibly — absent means none (`mem-types.ts:100`), so every
+file written before they existed still parses unchanged. Frontmatter parsing is a deliberate ~50 lines of
 string handling rather than a YAML dependency, and the list parser accepts both
 `a, b` and `[a, b]` because different providers emit different shapes.
 
@@ -160,8 +173,10 @@ the current task ends.
 ├── feedback/*.md
 ├── project/*.md
 ├── reference/*.md
+├── episode/*.md       written by consolidation, not by the model
 ├── MEMORY.md          generated index — never hand-edit
-└── .graph/            derived, rebuildable
+├── .git/              baseline for consolidation's "what changed" diff
+└── .graph/            derived, rebuildable (gitignored)
 ```
 
 > **Known limitation.** The project key is `path.basename(projectPath)`, sanitized
@@ -174,7 +189,9 @@ every save and delete by `updateIndex()` (`mem-store.ts:182`), and truncated at
 
 ## The write path
 
-Two things can create a memory, and they exist for different reasons.
+Three things can create a memory, and they exist for different reasons: one is
+the model choosing, one is a safety net for when it doesn't, and one is
+housekeeping over what the other two left behind.
 
 ### 1. The `memory` tool — the model's deliberate choice
 
@@ -479,15 +496,17 @@ announced too — `memory_injected` fires once per user message that gets a hit
 | --- | --- |
 | Tool | `memory` — save / delete / list |
 | IPC | `memory.list` · `memory.get` · `memory.save` · `memory.delete` · `memory.query` |
-| CLI | `freecode memory graph stats` · `graph rebuild` · `ui-install` |
+| CLI | `freecode memory graph stats` · `graph usage` · `graph rebuild` · `ui-install` |
+| Bench | `pnpm bench:recall` — recall@k / MRR / nDCG / abstention over a fixed corpus |
 | TUI | `/graph` — the optional explorer addon |
 
 ## Known gaps
 
 Knowing where a system is thin is more useful than a tour of its strengths. Read
-in the layer vocabulary from the top of the page, the gaps are specific rather
-than vague — and they cluster in the two places the whole field finds hardest:
-consolidation, and revision.
+in the layer vocabulary from the top of the page, these are specific rather than
+vague. Consolidation used to head this list; now that it exists, what remains
+clusters around **revision** (contradiction, valid time) and **evidence** — most
+of what follows is "we built it and have not yet measured it in the wild".
 
 1. **Consolidation is unproven in the field.** It merges near-duplicates, writes
    episodes, and emits the first `supersedes:` this system has ever produced —
@@ -538,7 +557,10 @@ consolidation, and revision.
 | `embedder: false` | the native embedder failed to load → keyword fallback. Expected in some binary builds |
 | Retrieval feels stale | `freecode memory graph rebuild`, or delete `.graph/` |
 | Nothing is ever saved automatically | check the gates in order: env, `memory.autoExtract`, run count, topic change |
-| Extraction seems to never fire | the debug log line `[MemoryExtract] skipped: <reason>` names the exact gate |
+| Extraction seems to never fire | `FREECODE_DEBUG=1`; the line `[MemoryExtract] skipped: <reason>` names the exact gate |
+| Consolidation never runs | `FREECODE_DEBUG=1` → `[MemoryConsolidate] skipped: <reason>`. It needs 5 finished sessions **and** 24h; a failed run also backs off for 10 minutes |
+| Memories are surfaced but `usage` shows `0/n` | the model is not emitting `<memory-used>`. Retention still works, on age alone |
+| A scripted `freecode run` never consolidates | expected — the process exits before fire-and-forget background work lands |
 | Wrong project's memories | the store key is the folder *basename* — two projects with the same folder name collide |
 
 ## Where to look
@@ -547,10 +569,16 @@ consolidation, and revision.
 | --- | --- |
 | The entry shape and frontmatter | `apps/core/src/memory/mem-types.ts` |
 | Files, the `MEMORY.md` index, change events | `apps/core/src/memory/mem-store.ts` |
-| The keyword fallback | `apps/core/src/memory/mem-query.ts` |
+| Lexical retrieval (BM25) | `apps/core/src/memory/bm25.ts`, `mem-query.ts` |
+| Rank fusion | `apps/core/src/memory/graph/fusion.ts` |
+| The retrieval judge | `apps/core/src/memory/judge.ts` |
 | Both prompt blocks | `apps/core/src/memory/mem-prompt.ts` |
 | Turn-end mining | `apps/core/src/memory/extract.ts` |
 | The gates and settings | `apps/core/src/memory/extract-policy.ts` |
+| Consolidation | `apps/core/src/memory/consolidate.ts` (the call), `consolidate-run.ts` (the schedule) |
+| The git baseline | `apps/core/src/memory/git-baseline.ts` |
+| Usage counters and citations | `apps/core/src/memory/usage-store.ts`, `citations.ts` |
+| The recall benchmark | `apps/core/src/memory/bench/` (start with its `README.md`) |
 | The tool | `apps/core/src/tools/memory.ts` |
 | Call sites in the loop | `apps/core/src/agent/loop.ts` (`kickMemoryExtraction`, `executeTurn`) |
 
