@@ -12,7 +12,11 @@ import type {
   MemoryIndexEntry,
   MemoryType,
 } from "./mem-types.js";
-import { parseMemoryFrontmatter, serializeMemoryEntry } from "./mem-types.js";
+import {
+  MEMORY_TYPES,
+  parseMemoryFrontmatter,
+  serializeMemoryEntry,
+} from "./mem-types.js";
 
 const MEMORY_INDEX_FILENAME = "MEMORY.md";
 const MEMORY_DIR_NAME = "memory";
@@ -99,7 +103,7 @@ export class MemoryStore {
 
   // Ensure all type directories exist
   private ensureDirs(): void {
-    const types: MemoryType[] = ["user", "feedback", "project", "reference"];
+    const types: readonly MemoryType[] = MEMORY_TYPES;
     for (const type of types) {
       const dir = getTypeDir(this.basePath, type);
       if (!fs.existsSync(dir)) {
@@ -139,14 +143,15 @@ export class MemoryStore {
       updatedAt: stat.mtimeMs,
       tags: parsed.metadata.tags,
       supersedes: parsed.metadata.supersedes,
+      happened_at: parsed.metadata.happened_at,
     };
   }
 
   // List all memory entries, optionally filtered by type
   list(type?: MemoryType): MemoryEntry[] {
-    const types: MemoryType[] = type
-      ? [type]
-      : ["user", "feedback", "project", "reference"];
+    // Every type, from the single source of truth — an omission here makes a
+    // whole memory type invisible to retrieval while still being on disk.
+    const types: readonly MemoryType[] = type ? [type] : MEMORY_TYPES;
     const entries: MemoryEntry[] = [];
 
     for (const t of types) {
@@ -225,6 +230,7 @@ export class MemoryStore {
       "feedback",
       "project",
       "reference",
+      "episode",
     ] as MemoryType[]) {
       const typeEntries = byType.get(type) ?? [];
       if (typeEntries.length === 0) continue;

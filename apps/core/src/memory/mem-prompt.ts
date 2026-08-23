@@ -79,6 +79,7 @@ export function buildMemoryPrompt(
     "feedback",
     "project",
     "reference",
+    "episode",
   ] as MemoryType[]) {
     const typeEntries = byType.get(type) ?? [];
     if (typeEntries.length === 0) continue;
@@ -167,12 +168,16 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
   // Decide per entry whether it gets its body, before rendering anything: the
   // budget is spent in relevance order across the whole block, not per section,
   // otherwise the last section would always be the one that degrades.
+  //
+  // Episodes are never given a body (D5): they are one sentence by
+  // construction, so a full-body render is the same text with extra ceremony.
   const full = new Set<MemoryEntry>();
   let budget =
     MAX_MEMORY_BLOCK_BYTES -
     bytes(header.join("\n")) -
     bytes(footer.join("\n"));
   for (const entry of entries) {
+    if (entry.type === "episode") continue;
     const cost = bytes(`\n\n### ${entry.name}\n${entry.content}`);
     if (cost <= budget) {
       full.add(entry);
@@ -206,6 +211,28 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
           budget -= bytes(summary) + 1;
         }
       }
+    }
+  }
+
+  // Episodes render last and always as one dated line, newest first (D5). They
+  // answer "what happened, when", so the date is the load-bearing part and the
+  // ordering is chronological rather than by relevance.
+  const episodes = (byType.get("episode") ?? [])
+    .slice()
+    .sort((a, b) => (b.happened_at ?? "").localeCompare(a.happened_at ?? ""));
+  if (episodes.length > 0) {
+    const section = ["", "## Episode"];
+    let pending = bytes(section.join("\n"));
+    const rendered: string[] = [];
+    for (const e of episodes) {
+      const line = `- ${e.happened_at ?? "undated"} — ${e.description}`;
+      if (pending + bytes(line) + 1 > budget) break;
+      rendered.push(line);
+      pending += bytes(line) + 1;
+    }
+    if (rendered.length > 0) {
+      lines.push(...section, ...rendered);
+      budget -= pending;
     }
   }
 

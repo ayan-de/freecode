@@ -9,7 +9,11 @@ import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import { getMemoryStore } from "../memory/mem-store.js";
-import { MEMORY_TYPES, type MemoryType } from "../memory/mem-types.js";
+import {
+  AUTHORABLE_MEMORY_TYPES,
+  MEMORY_TYPES,
+  type MemoryType,
+} from "../memory/mem-types.js";
 import { containsSecret } from "../memory/graph/secret-filter.js";
 
 type Action = "save" | "delete" | "list";
@@ -25,7 +29,7 @@ interface MemoryParams {
 }
 
 const ACTIONS: Action[] = ["save", "delete", "list"];
-const TYPE_LIST = MEMORY_TYPES.join(", ");
+const TYPE_LIST = AUTHORABLE_MEMORY_TYPES.join(", ");
 
 // Providers with strict schema decoding send lists as comma-separated strings
 // (see the tool checklist in CLAUDE.md), so coerce rather than reject.
@@ -52,7 +56,7 @@ const memorySchema: JsonSchema = {
       type: "string",
       enum: [...MEMORY_TYPES],
       description:
-        "user = who they are and how they like to work; feedback = guidance they gave you; project = non-derivable context like decisions and deadlines; reference = pointers to external systems.",
+        "user = who they are and how they like to work; feedback = guidance they gave you; project = non-derivable context like decisions and deadlines; reference = pointers to external systems. 'episode' is written by consolidation, not by you — you can read and delete episodes but not save them.",
     },
     name: {
       type: "string",
@@ -116,6 +120,17 @@ function validateMemoryInput(
     return { valid: false, error: "name must be a non-empty string" };
   }
   if (action === "delete") return { valid: true };
+
+  // Episodes are machine-written (spec D5). The model narrating its own session
+  // into memory is the noise failure mode consolidation exists to prevent, so
+  // `save` refuses the type while `list`, `delete`, and retrieval treat it
+  // normally — the model can read its history, it just cannot author it.
+  if (type === "episode") {
+    return {
+      valid: false,
+      error: `episodes are written by consolidation, not saved directly. If this is durably true, save it as one of: ${TYPE_LIST}`,
+    };
+  }
 
   if (typeof p.description !== "string" || p.description.trim().length === 0) {
     return {

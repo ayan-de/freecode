@@ -33,6 +33,14 @@ const SEED_THRESHOLD = 0.4; // min cosine for a vector seed
 // giving up and letting it finish in the background (spec D5 first-turn budget).
 const COLD_BUDGET_MS = 60;
 const MAX_SESSIONS = 64; // LRU cap on the per-session cache
+// Episode decay (spec D6). Both are guesses, declared as such in the spec's
+// §10 alongside the rest; unlike most of that list they are measurable —
+// `pnpm bench:recall` can sweep the half-life over a dated corpus.
+const EPISODE_HALF_LIFE_DAYS = 30;
+// How far an unused episode can sink, and how far use can lift that floor. The
+// ceiling stays below 1.0 so a much-used episode is never treated as brand new.
+const EPISODE_DECAY_FLOOR = 0.25;
+const EPISODE_DECAY_CEILING = 0.9;
 
 // How to reach a model for the retrieval judge (spec D15). Supplied by the
 // caller because the graph service knows nothing about providers; omit it and
@@ -403,10 +411,12 @@ export class MemoryGraphService {
         const { type, name } = splitId(id);
         if (types && types.length > 0 && !types.includes(type)) continue;
         const entry = this.store.load(name, type);
-        if (entry) out.push({ entry, score });
-        if (out.length >= limit) break;
+        if (entry) out.push({ entry, score: this.adjustScore(entry, score) });
       }
-      return out;
+      // Decay reorders, so the cap has to come after it — slicing first would
+      // let a stale episode displace a fresher one that scored just below it.
+      out.sort((a, b) => b.score - a.score);
+      return out.slice(0, limit);
     } catch {
       this.lastOutcome = "error";
       // A crash is not evidence about relevance, so this one fallback stays:
@@ -693,6 +703,51 @@ export class MemoryGraphService {
       st.judgedIds = new Set(kept.map((e) => memoryId(e.type, e.name)));
     }
     return kept;
+  }
+
+  /**
+   * Episode decay, with use raising the floor (spec D6).
+   *
+   *   score · max(floor(useCount), 0.5 ^ (ageDays / 30))
+   *   floor(u) = min(0.9, 0.25 + 0.15 · ln(u + 1))
+   *
+   * **This diverges from jcode's formula and from D6 as originally written**,
+   * which multiplied the decayed score by `1 + 0.1·ln(uses+1)`. That cannot do
+   * what D6 claims. The arithmetic: decay spans 4× (a 0.25 floor against an
+   * undecayed 1.0), while the log boost reaches only ~1.5× at 200 citations and
+   * ~1.7× at 1000. A heavily-used year-old episode could never outrank an
+   * ignored recent one, so the use term was decoration. The test that says so
+   * is `episodes.test.ts`, "a heavily used old episode outranks an unused
+   * recent one" — it failed against the original formula.
+   *
+   * Raising the *floor* instead encodes the intended meaning directly: use
+   * protects an episode from sinking into irrelevance, without letting a log
+   * term silently dominate ordering among episodes of similar standing. Age
+   * still decides between two equally-used episodes, which is what recency is
+   * for.
+   *
+   * **Semantic types are untouched.** "User prefers tables" does not get less
+   * true, and demoting a durable fact for being old is how a system forgets a
+   * standing instruction. Use is recorded for every type (D12) — it just does
+   * not move semantic scores.
+   */
+  private adjustScore(entry: MemoryEntry, score: number): number {
+    if (entry.type !== "episode") return score;
+
+    const when = entry.happened_at
+      ? Date.parse(entry.happened_at)
+      : entry.createdAt;
+    // A future or unparseable date must not manufacture a boost.
+    const ageDays = Math.max(0, (Date.now() - when) / 86_400_000);
+    const uses = this.usageFor(entry).useCount;
+    const floor = Math.min(
+      EPISODE_DECAY_CEILING,
+      EPISODE_DECAY_FLOOR + 0.15 * Math.log(uses + 1),
+    );
+    return (
+      score *
+      Math.max(floor, Math.pow(0.5, ageDays / EPISODE_HALF_LIFE_DAYS))
+    );
   }
 
   // The judge's most recent outcome, for the degradation-rate metric (D14/D15).

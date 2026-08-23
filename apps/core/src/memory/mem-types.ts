@@ -3,9 +3,32 @@
 // Inspired by Claude Code's memdir/ memory system
 // =============================================================================
 
-export type MemoryType = "user" | "feedback" | "project" | "reference";
+// `episode` is a fifth *type*, not a second store (spec D5). Everything
+// downstream is then free: frontmatter, MemoryStore, MEMORY.md indexing,
+// incremental embedding, graph nodes and edges, cascade, the explorer, and the
+// memory.* IPC surface all work on it without change. A separate episodic
+// store would mean re-implementing every one of those and would break the
+// "one directory of markdown is the truth" invariant that makes .graph/ safely
+// deletable.
+export type MemoryType =
+  | "user"
+  | "feedback"
+  | "project"
+  | "reference"
+  | "episode";
 
 export const MEMORY_TYPES: readonly MemoryType[] = [
+  "user",
+  "feedback",
+  "project",
+  "reference",
+  "episode",
+];
+
+// The four durable types a writer may author. Episodes are machine-written
+// (D5): the model narrating its own session into memory is the noise failure
+// mode the consolidation spec exists to prevent.
+export const AUTHORABLE_MEMORY_TYPES: readonly MemoryType[] = [
   "user",
   "feedback",
   "project",
@@ -27,6 +50,12 @@ export interface MemoryEntry {
   // tags → HasTag edges, supersedes → Supersedes edges (spec D3).
   tags?: string[];
   supersedes?: string[];
+  /**
+   * ISO date (YYYY-MM-DD) an episode describes. Optional and back-compatible in
+   * exactly the way `tags` and `supersedes` were: absent means undated, and
+   * every existing file parses unchanged.
+   */
+  happened_at?: string;
 }
 
 export interface MemoryIndexEntry {
@@ -58,6 +87,7 @@ export interface ParsedMemory {
     type?: MemoryType;
     tags?: string[];
     supersedes?: string[];
+    happened_at?: string;
   };
   content: string;
 }
@@ -72,6 +102,16 @@ function parseList(value: string | undefined): string[] | undefined {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   return items.length > 0 ? items : undefined;
+}
+
+// Accept only a plain ISO date. Anything else is dropped rather than stored
+// unparsed: a malformed date that reaches the decay maths would silently make
+// an episode look either brand new or ancient.
+function parseIsoDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return undefined;
+  return Number.isNaN(Date.parse(trimmed)) ? undefined : trimmed;
 }
 
 export function parseMemoryFrontmatter(content: string): ParsedMemory {
@@ -99,6 +139,7 @@ export function parseMemoryFrontmatter(content: string): ParsedMemory {
       type: metadata.type && isMemoryType(metadata.type) ? metadata.type : undefined,
       tags: parseList(metadata.tags),
       supersedes: parseList(metadata.supersedes),
+      happened_at: parseIsoDate(metadata.happened_at),
     },
     content: body.trim(),
   };
@@ -117,6 +158,9 @@ export function serializeMemoryEntry(entry: MemoryEntry): string {
   }
   if (entry.supersedes && entry.supersedes.length > 0) {
     lines.push(`supersedes: ${entry.supersedes.join(", ")}`);
+  }
+  if (entry.happened_at) {
+    lines.push(`happened_at: ${entry.happened_at}`);
   }
   lines.push("---");
 
