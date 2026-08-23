@@ -15,6 +15,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | **Memory (all of it)** | **`docs/superpowers/MEMORY_SYSTEM.md`** — start here |
 | MCP client          | `specs/2026-06-08-mcp-client-design.md`                 |
 | Observability       | `specs/2026-08-10-agent-observability.md`               |
+| Eval harness        | `specs/2026-08-23-eval-harness.md` (Phases 0–1 built)   |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
 ## Implemented Subsystems
@@ -39,6 +40,7 @@ The v4 architecture systems are implemented and live in `apps/core/src/`:
 | **Permission**             | `permission/` — per-rule allow/ask/deny layer (`rules.ts`, `evaluate.ts`, `mode-policy.ts`, `settings.ts`, `prompt.ts`; spec `2026-07-18-permission-rules.md`) + `profiles.ts` capability profiles (minimal/readonly/standard/elevated/admin, used for subagents). Agent modes (plan/build/review/explore/danger) live in `agent/types.ts`. |
 | **MCP Client**             | `mcp/client-registry.ts`, `mcp/service.ts`, `mcp/transport.ts`, `mcp/convert-tool.ts`                            |
 | **Context Engine**         | `context/collector.ts`, `context/compiler.ts`, `context/tree-cache.ts`, `context/strategies/`                    |
+| **Eval harness**           | `eval/` — spec `2026-08-23-eval-harness.md`, Phases 0–1. Cases live in `evals/*.jsonl` (one JSON object per line) and **run a real agent turn**; anything that doesn't is a `*.test.ts` and belongs next to its code. Scorers are pure folds over `RunRecord { trace, prompt, response }` — `trace` from the rollout log, text from the caller, because the log deliberately carries no message bodies (OTLP export must stay leak-free). Gate is **majority-of-N + delta vs the last recorded baseline**, never absolute 100% (see spec §9.1 for why: at p=0.93 across 20 cases, pass^3 is green ~1.3% of the time). `evals/quarantine.txt` ships with the gate — flaky cases run and report but never block. **Phase 1 has no sandbox**, so `dataset.ts` refuses `build`/`danger` modes: `forbidTools` only *scores* a mutation, mode enforcement *prevents* it. CLI: `freecode eval [suite] [--trials N] [--gate] [--json] [--quarantine-report]`. |
 
 **Legacy / not wired into the primary path:** `browser/` (Playwright controller + ChatGPT DOM adapter). The default execution path is API providers, not browser automation. Don't extend the browser layer unless explicitly asked.
 
