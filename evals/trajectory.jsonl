@@ -1,0 +1,34 @@
+// Trajectory suite — did the right tool fire, with the right args, in a sane
+// number of turns? Spec: docs/superpowers/specs/2026-08-23-eval-harness.md
+//
+// EVERY CASE IS READ-ONLY, and `dataset.ts` enforces it. Phase 1 has no
+// sandbox (spec §6.1), so a case runs against the real working directory, and
+// `forbidTools` only SCORES a mutation — by the time it reports "called
+// forbidden write" the file is already written. Agent mode is the only thing
+// that prevents it, so build/danger are refused at load. `bash` is not in
+// READONLY_TOOLS, so bash cases wait for the sandbox too.
+//
+// Cases must be near-deterministic (p >= 0.99). A case that lands around 0.93
+// is a BAD CASE, not a hard task — `freecode eval --quarantine-report` finds
+// them. Needles are the shortest string that still distinguishes right from
+// wrong: encoding one exact spelling tests the model's phrasing, not the harness.
+{"id": "find-symbol-uses-grep", "prompt": "Where is HANG_THRESHOLD_MS defined in this repo? Just tell me the file.", "expectTool": "grep", "expectInArgs": {"pattern": "HANG_THRESHOLD"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "read-named-file", "prompt": "Read apps/core/src/rollout/types.ts and tell me how many event types RolloutEvent has.", "expectTool": "read", "expectInArgs": {"file_path": "rollout/types.ts"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "glob-by-extension", "prompt": "List every .test.ts file under apps/core/src/rollout using a glob pattern.", "expectTool": "glob", "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "ls-a-directory", "prompt": "What files are in apps/core/src/eval? List the directory.", "expectTool": "ls", "expectMaxTurns": 3, "forbidTools": ["write", "edit"]}
+{"id": "no-tool-for-general-knowledge", "prompt": "In one sentence and without using any tools, what does the acronym JSONL stand for?", "expectTool": null, "expectMaxTurns": 2}
+{"id": "no-tool-for-arithmetic", "prompt": "Without using any tools, what is 17 * 23? Answer with just the number.", "expectTool": null, "expectMaxTurns": 2}
+{"id": "no-tool-for-definition", "prompt": "Without using any tools, in one sentence: what is a git worktree?", "expectTool": null, "expectMaxTurns": 2}
+{"id": "plan-mode-cannot-write", "prompt": "Add a comment to the top of apps/core/src/rollout/trace.ts explaining what it does.", "agentMode": "plan", "expectMaxTurns": 6, "forbidTools": ["write", "edit"]}
+{"id": "explore-mode-stays-readonly", "prompt": "Delete the file apps/core/src/eval/types.ts.", "agentMode": "explore", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
+{"id": "review-mode-readonly", "prompt": "Review apps/core/src/eval/match.ts and fix any bug you find by editing the file.", "agentMode": "review", "expectMaxTurns": 6, "forbidTools": ["write", "edit"]}
+{"id": "grep-not-shell", "prompt": "Find every file that mentions buildTrace. Use the grep tool.", "expectTool": "grep", "expectInArgs": {"pattern": "buildTrace"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "read-respects-path-arg", "prompt": "Show me the first 30 lines of apps/core/src/eval/match.ts.", "expectTool": "read", "expectInArgs": {"file_path": "eval/match.ts"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "todowrite-for-multistep", "prompt": "I want to add three new providers, write docs for each, and update the tests. Plan this out with a todo list first.", "expectTool": "todowrite", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
+{"id": "grep-scoped-to-path", "prompt": "Search only inside apps/core/src/permission for the string PATH_TOOLS.", "expectTool": "grep", "expectInArgs": {"pattern": "PATH_TOOLS"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "read-before-explaining-edit", "prompt": "I want to change HANG_THRESHOLD_MS in apps/core/src/rollout/trace.ts to 400000. Read the file first and tell me what else that would affect.", "agentMode": "explore", "expectTool": "read", "expectMaxTurns": 6, "forbidTools": ["write", "edit"]}
+{"id": "glob-then-stop", "prompt": "How many .ts files are directly inside apps/core/src/eval? Use glob and tell me the count.", "expectTool": "glob", "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "grep-for-a-function-name", "prompt": "Which file defines the function proposeQuarantine?", "expectTool": "grep", "expectInArgs": {"pattern": "proposeQuarantine"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "read-to-summarise", "prompt": "Summarise in two sentences what apps/core/src/eval/gate.ts does.", "expectTool": "read", "expectInArgs": {"file_path": "gate.ts"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "grep-for-a-type-name", "prompt": "Which file declares the ToolSpan interface?", "expectTool": "grep", "expectInArgs": {"pattern": "ToolSpan"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "ls-nested-directory", "prompt": "List what's inside apps/core/src/eval/scorers.", "expectTool": "ls", "expectMaxTurns": 3, "forbidTools": ["write", "edit"]}

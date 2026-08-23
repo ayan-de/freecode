@@ -1022,3 +1022,51 @@ that page's **Known gaps**.
 - **The system-prompt loader tries disk before the embedded copy.** Dev picks up
   `system.md` edits without a rebuild; the compiled binary has no disk copy to
   find.
+
+## Spec findings (eval harness — 2026-08-23)
+
+From `docs/superpowers/specs/2026-08-23-eval-harness.md`. Phases 0–1 are built;
+these are the parts that remain, plus what building it exposed.
+
+### Real fixes
+
+- [x] **The trace fold discarded tool call arguments** (`rollout/trace.ts`).
+      `FunctionCallEvent` carried `args`, but the `function.call` case folded it
+      into nothing but a timestamp, so `ToolSpan` lost them. ✅ DONE (Phase 0):
+      `ToolSpan.args` is optional — a span whose opening call was lost to a
+      truncated log has none — and `freecode trace --json` now shows them too.
+- [ ] **There is no cost accounting in USD anywhere.** `usage/tracker.ts` records
+      tokens and `usage.get` serves them, but a price table exists in exactly one
+      file — `providers/minimax.ts`. A shared `providers/pricing.ts` keyed by
+      `provider/model` would give `freecode trace`, `usage.get`, and the eval
+      harness's efficiency scorer a real number. Without it, "this change made
+      every turn 18% more expensive" is undetectable.
+- [ ] **OTLP export has no session-level root span** (`rollout/otlp.ts`). Model
+      spans are emitted per call, so a multi-turn session renders in Langfuse as N
+      unrelated LLM calls. An `invoke_agent` root span plus
+      `gen_ai.conversation.id = sessionId` makes it one tree.
+- [ ] **Two specs promise a verifier that does not exist.**
+      `2026-08-10-autonomous-runs-design.md` says the "verifier/evaluator decides
+      completion when configured gates" are set, and
+      `2026-08-08-continual-harness-design.md` lets the agent rewrite its own
+      harness with no way to measure whether the rewrite helped. Phase 1 now
+      gives both something real to call; update those specs to point at it.
+- [ ] **`bash` cases are blocked until the sandbox lands.** `bash` is not in
+      `READONLY_TOOLS` (`permission/mode-policy.ts`), and Phase 1 refuses
+      mutating modes, so no trajectory case can exercise the most-used tool in
+      the product. This is the strongest argument for prioritising Tier 1
+      sandboxing (spec §6.1) over the judge.
+
+### Deliberate — do NOT "fix"
+
+- **Unit tests stay `*.test.ts` under `src/`.** A file under `evals/` runs a real
+  agent turn; anything that doesn't belongs next to the code it tests.
+- **The gate never requires 100%.** Absolute gating is arithmetically incoherent
+  against documented harness variance — see spec §9.1's table before "tightening"
+  it.
+- **Quarantine only ever *proposes*.** A gate that silently quarantines its own
+  failures always passes.
+- **The baseline is the last run, not the best ever.** Best-ever ratchets a flaky
+  suite permanently red.
+- **Prompt and reply text must never enter the rollout log.** OTLP export reads
+  that log, and "no message bodies leave the machine" is load-bearing.

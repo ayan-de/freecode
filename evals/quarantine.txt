@@ -1,0 +1,13 @@
+# Quarantined eval cases — spec §9.3.
+#
+# One case id per line. Quarantined cases still RUN and still REPORT; they just
+# cannot turn the build red. This exists because choosing majority-of-N is
+# itself a flaky-case policy, so the list ships with the gate rather than after.
+#
+# Promotion and demotion are driven by observed pass rate over eval_runs.jsonl,
+# not by opinion:
+#   freecode eval --quarantine-report
+# proposes quarantining below 90% and releasing above 98%. It only proposes —
+# a gate that silently quarantines its own failures always passes.
+#
+# Format:  <case-id>    # why, and when to revisit

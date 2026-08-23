@@ -22,6 +22,7 @@ import { mobileCommand } from "./commands/mobile.js";
 import { serveCommand } from "./commands/serve.js";
 import { runCommand } from "./commands/run.js";
 import { traceCommand } from "./commands/trace.js";
+import { evalCommand } from "./commands/eval.js";
 import { uninstallCommand } from "./commands/uninstall.js";
 
 // ANSI color codes
@@ -93,6 +94,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(serveCommand)
     .command(runCommand)
     .command(traceCommand as CommandModule)
+    .command(evalCommand as CommandModule)
     .command(uninstallCommand)
     .strict();
 
