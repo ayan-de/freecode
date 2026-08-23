@@ -75,6 +75,8 @@ import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { parseCitations } from "../memory/citations.js";
+import { runConsolidationIfDue } from "../memory/consolidate-run.js";
+import { getSessionManager } from "../session/manager.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 import { extractMemories } from "../memory/extract.js";
 import {
@@ -1214,6 +1216,10 @@ export class AgentLoop {
     });
     if (!decision.extract) {
       logger.debug(`[MemoryExtract] skipped: ${decision.reason}`);
+      // Consolidation takes the slot extraction just declined (spec D7). The
+      // two are mutually exclusive by construction, so there is at most one
+      // memory-related provider call per completion, ever.
+      this.kickMemoryConsolidation(provider);
       return;
     }
 
@@ -1228,6 +1234,34 @@ export class AgentLoop {
     }).catch(() => {
       // extractMemories already swallows; this guards the promise itself.
     });
+  }
+
+  // Fire-and-forget consolidation (spec D7). Its own gates run first — at most
+  // once per project per day, and only after enough sessions — so the common
+  // case is a settings read and one `stat`.
+  private kickMemoryConsolidation(provider: string): void {
+    if (!this.memoryExtraction || this.abort.signal.aborted) return;
+
+    void (async () => {
+      try {
+        const manager = await getSessionManager();
+        const metas = await manager.list({
+          projectPath: this.state.projectPath,
+        });
+        await runConsolidationIfDue({
+          projectPath: this.state.projectPath,
+          provider,
+          sessionId: this.state.sessionId,
+          sessions: metas.map((m) => ({
+            id: m.id,
+            lastTurnAt: m.lastTurnAt,
+            turnCount: m.turnCount,
+          })),
+        });
+      } catch (error) {
+        logger.debug("[MemoryConsolidate] could not start", { error });
+      }
+    })();
   }
 
   private async executeTurn(
