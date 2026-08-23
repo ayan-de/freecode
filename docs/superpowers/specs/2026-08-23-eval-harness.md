@@ -1,8 +1,6 @@
 # Eval Harness — scoring trajectories, and closing the loop with the rollout log
 
-**Status:** Phases 0–1 **implemented** — `apps/core/src/eval/`, `evals/`, `freecode eval`.
-Phases 2–5 remain design. Two deviations found while building are recorded inline: the
-scorer input shape (§5.2) and the read-only mode restriction (§6.1).
+**Status:** Design
 **Date:** 2026-08-23
 **Prior art:** waku-agent (`ShenSeanChen/waku-agent`), Python, local clone read for this
 spec: `~/Projects/githubProjects/waku-agent`. Primary files
@@ -218,26 +216,14 @@ rollout log**, the scorer input is a pair, not a `Trace`:
 
 ```ts
 interface RunRecord {
-  trace: Trace;      // rollout log → timing, spans, tool names + args
-  prompt: string;    // the case's own prompt
-  response: string;  // assistant text
+  trace: Trace;        // rollout log → timing, spans, tool names + args
+  turn: StoredTurn;    // thread store → prompt, response, tool results
 }
-type Scorer = (run: RunRecord, kase: EvalCase) => TrialScore;
+type Scorer = (run: RunRecord, kase: EvalCase) => Promise<Score>;
 ```
 
-**Deviation from the design draft, found while building.** This spec originally typed the
-second field as `turn: StoredTurn`, on the reasoning that reply text lives in the thread
-store. That is true for a *harvested* session (§8) and false for a *live* one: the runner
-already has the prompt (it is the case) and can capture the reply off the stream bus as it
-streams, so going back to the store would be a round trip to fetch something it just
-watched go past — and would drag in the session→thread id mapping for no gain.
-
-What was load-bearing survives unchanged: the **text is separate from the trace**, and the
-rollout log still never carries message bodies. Where the text comes from is the caller's
-business — bus for live runs, `StoredTurn` for harvested ones.
-
 Deterministic scorers read `run.trace` only. The judge is the sole consumer of
-`run.response`.
+`run.turn.response`.
 
 **Why the split is deliberate rather than accidental:** observability spec §6 makes "no
 prompt or completion text leaves the machine" a load-bearing property of OTLP export, and
@@ -269,21 +255,6 @@ Synthetic cases get a tmpdir seeded from `files`, and **nothing else**. No `node
 no install step, no network. This is why §4 mandates dependency-free fixtures: the moment a
 `verify` needs `npx tsx`, the harness needs a package install per case, and an eval suite
 whose setup can fail for network reasons is one that gets disabled.
-
-**Deviation, found while building Phase 1: until this tier exists, cases run against the
-real working directory.** A trajectory case is scored, not sandboxed, and `forbidTools` is
-a *scorer* — by the time it reports "called forbidden write", the file is already written.
-Agent mode is the only mechanism that actually prevents the mutation, so:
-
-- `runner.ts` defaults to `explore`, not `build`.
-- `dataset.ts` **refuses** `build` and `danger` at load time, naming the missing sandbox.
-- `bash` is not in `READONLY_TOOLS` (`permission/mode-policy.ts`), so bash cases wait for
-  the sandbox too — which means the trajectory suite currently cannot exercise the
-  most-used tool in the product. That is the strongest argument for prioritising this tier
-  over the judge in §11.
-
-This was a real hazard in the first draft of the dataset, which contained a build-mode case
-asking the agent to change a constant in `rollout/trace.ts`. It would have edited the repo.
 
 ### 6.2 Tier 2 sandbox — repo-grounded, deferred with its blocker named
 
@@ -468,9 +439,9 @@ foreign one to get a loop we already have.
 
 | Phase | Deliverable | Notes |
 | --- | --- | --- |
-| **0** | ✅ **Done.** `ToolSpan.args` carried through the `function.call` fold (`rollout/trace.ts`) | Optional, because a truncated log can yield an output whose call is absent. |
-| **1** | ✅ **Done.** `eval/{types,dataset,match,runner,suite,report,gate,quarantine}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. 37 unit tests; verified end-to-end on a 3-case subset. |
-| **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Promoted above the judge** — §6.1 explains why. |
+| **0** | Carry `args` through the `function.call` fold into `ToolSpan` (`rollout/trace.ts`) | ~3 lines + a test. **Blocks Phase 1** — `expect_in_args` is unscoreable without it. Also improves `freecode trace --json`. |
+| **1** | `eval/{types,dataset,runner,report}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (~20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. Runner is a thin wrap of the existing `run.ts` boot path. |
+| **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. |
 | **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | Needs a second provider key. Set the threshold from the first real run, not from this document. |
 | **4** | `freecode eval add` | Depends on Phase 0 + 1. Pull it forward if Phase 2 slips. |
 | **5** | LLMOps close-out — §12 | Independent of 0–4. |

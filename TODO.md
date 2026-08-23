@@ -324,10 +324,9 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
       (`out.length > 0 ? out : fallback()`). The keyword floor is `score > 0`, and
       `score()` awards +1 for any 3-char *substring* overlap (`add`↔`address`), so
       "what's 2+2" against a populated store injects up to 8 irrelevant memories.
-      The keyword path is specified as the **embedder-unavailable** fallback (KG
-      spec D6); it is also acting as the **no-good-match** fallback, which is a
-      different question. Split the two conditions — a vector miss is an answer.
-      Spec: `specs/2026-08-23-memory-consolidation.md` D1.
+      **The fix is not "gate the fallback off"** — see the prior-art section
+      below; it is BM25 + rank fusion with the floor applied after fusion.
+      Spec: `specs/2026-08-23-memory-consolidation.md` D1 (revised 2026-08-23).
 - [ ] **The injected memory block has no byte ceiling** —
       `renderRetrievedMemories()` (`mem-prompt.ts:128`) emits full bodies for up to
       8 entries with `cache: false` (`loop.ts:1325`). A count cap can't see "one
@@ -1046,11 +1045,14 @@ these are the parts that remain, plus what building it exposed.
 
 ### Real fixes
 
-- [x] **The trace fold discarded tool call arguments** (`rollout/trace.ts`).
-      `FunctionCallEvent` carried `args`, but the `function.call` case folded it
-      into nothing but a timestamp, so `ToolSpan` lost them. ✅ DONE (Phase 0):
-      `ToolSpan.args` is optional — a span whose opening call was lost to a
-      truncated log has none — and `freecode trace --json` now shows them too.
+- [ ] **The trace fold discards tool call arguments** (`rollout/trace.ts:137-139`).
+      `FunctionCallEvent` carries `args: Record<string, unknown>`, but the
+      `function.call` case folds it into nothing but a timestamp in `pendingTools`,
+      so `ToolSpan` is `{ tool, startedAt, duration_ms }` and the args are gone.
+      The log recorded the right thing and the fold throws it away. Carrying
+      `args` through is ~3 lines, makes `freecode trace --json` materially more
+      useful, and is a hard prerequisite for the eval harness's `expect_in_args`
+      (spec §5.1, Phase 0).
 - [ ] **There is no cost accounting in USD anywhere.** `usage/tracker.ts` records
       tokens and `usage.get` serves them, but a price table exists in exactly one
       file — `providers/minimax.ts`. A shared `providers/pricing.ts` keyed by
@@ -1075,14 +1077,85 @@ these are the parts that remain, plus what building it exposed.
 
 ### Deliberate — do NOT "fix"
 
-- **Unit tests stay `*.test.ts` under `src/`.** A file under `evals/` runs a real
-  agent turn; anything that doesn't belongs next to the code it tests.
-- **The gate never requires 100%.** Absolute gating is arithmetically incoherent
-  against documented harness variance — see spec §9.1's table before "tightening"
-  it.
-- **Quarantine only ever *proposes*.** A gate that silently quarantines its own
-  failures always passes.
-- **The baseline is the last run, not the best ever.** Best-ever ratchets a flaky
-  suite permanently red.
-- **Prompt and reply text must never enter the rollout log.** OTLP export reads
-  that log, and "no message bodies leave the machine" is load-bearing.
+- **Unit tests stay `*.test.ts` under `src/`.** The 98 existing tests are unit
+  tests and must not migrate into `evals/`. A file under `evals/` runs a real
+  agent turn; anything that doesn't belongs next to the code it tests. Conflating
+  the two is exactly what dilutes the eval signal in the prior art.
+- **OTLP export stays off the hot path.** Live streaming is deferred in
+  `2026-08-10-agent-observability.md` §7 for a stated reason; shipping from the
+  durable log costs only immediacy.
+
+## Spec findings (memory consolidation — prior-art review 2026-08-23)
+
+From reviewing `codex`, `jcode`, `mem0`, and `agentmemory` against
+`docs/superpowers/specs/2026-08-23-memory-consolidation.md` (amended same day,
+D12–D14). These are actionable independently of that spec's phases.
+
+### Real fixes
+
+- [ ] **The keyword scorer has no IDF and no length normalization** —
+      `mem-query.ts:19` awards +5 per description token pair and +1 per content
+      token pair for substring overlap in either direction. A long memory
+      therefore outranks a precise short one on stopword-ish overlap, and a term
+      present in every memory scores the same as a rare one. Replace with BM25
+      (`k1 1.2`, `b 0.75`); it is ~40 lines over a few hundred short documents
+      and needs no dependency. Measured context: agentmemory's `benchmark/`
+      puts BM25-only at 95.0% P@5 / 95.5% MRR vs dual-stream 90.0% / 95.4%, so
+      lexical retrieval done properly is a peer of the vector path, not a
+      degraded stand-in. Spec D1.
+- [ ] **`retrieve()` discards the cascade score** — it walks scored output
+      (`graph/index.ts:288`) and returns bare `MemoryEntry[]`, which
+      `prepareMemories` stashes. Any score-ordered rendering (the byte-cap
+      degradation in spec D2) and any per-memory usage attribution (D12) needs a
+      `{ entry, score }` shape plumbed through `retrieve` → `prepareMemories` →
+      the session stash → `renderRetrievedMemories`.
+- [ ] **Injected memories are never attributed** — the loop knows exactly which
+      memories it surfaced (`loop.ts:1297` emits `memory_injected`) and discards
+      it. No memory carries a use count or a last-used date, so consolidation
+      candidate selection, retention, and any claim that memory helps are all
+      unfalsifiable. codex closes this with citations →
+      `usage_count`/`last_usage` (`read/src/citations.rs`,
+      `state/migrations/0016_memory_usage.sql`). Spec D12.
+- [ ] **No recall benchmark** — nothing measures retrieval quality, so every
+      tuning constant is permanent guesswork and no change to `seed()` can be
+      defended. jcode's `src/bin/memory_recall_bench.rs` is a working model:
+      three cached stages (queries → pool → metrics), runs the *production*
+      primitives, reports recall@k / MRR / nDCG with per-config LLM call and
+      token accounting. LongMemEval-S is directly usable because it uses
+      `all-MiniLM-L6-v2`, the embedder FreeCode already runs. Spec D14.
+
+### Roadmap (needs its own spec, not a fix)
+
+- **Progressive disclosure instead of a byte cap.** codex's always-loaded
+  artifact is a navigational index (`memory_summary.md`) with bodies fetched on
+  demand through a read-only memory-fs MCP server (`codex-rs/memories/mcp/`), so
+  a long memory is never truncated, only not-yet-read. Strictly better than the
+  spec's D2 byte cap, but it is a read-path redesign touching the MCP surface
+  and prompt caching.
+- **Backfill the rollout archive.** ~390 session directories under
+  `~/.freecode/rollout/sessions/` have never been mined; extraction only ever
+  reads the live transcript, and the spec's end-of-session flush (D4) does not
+  go back for them. codex's answer is a bounded, leased, parallel Phase 1 at
+  startup.
+- **An LLM retrieval judge, deferred not rejected.** The spec declines waku's
+  gate on cost, which is right for waku's shape but not for jcode's: a listwise
+  rerank on the existing one-turn-behind prefetch adds no loop latency, and
+  jcode's "cadence carry" (re-surface the last judged set without re-running)
+  bounds the call rate. jcode treats the *absence* of the judge as a measured
+  degradation (`memory_judge_metrics.rs`). Revisit once D14 reports a baseline.
+
+### Deliberate — do NOT "fix"
+
+- **No bare `delete` verb for the consolidator.** A memory can only be removed
+  as the `supersedes:` list of a merge. mem0 is evidence for this, not against:
+  its v2 manager offers ADD/UPDATE/DELETE/NONE (`configs/prompts.py:176`) and
+  its v3 extraction prompt is ADD-only with `linked_memory_ids`.
+- **No SQLite job queue for consolidation.** codex needs leases and ownership
+  tokens because Phase 1 runs ×8 in parallel across many rollouts. We
+  consolidate one project, serially, at most daily. Take the outcome taxonomy
+  (`succeeded` / `succeeded_no_output` / `failed`) and the retry backoff; leave
+  the queue.
+- **Semantic memories do not decay with age.** jcode decays confidence for
+  everything; we decay episodes only. Demoting "user prefers tables" for being
+  old is how a system forgets a standing instruction. Use is recorded for all
+  types, but only episodes' scores are multiplied.
