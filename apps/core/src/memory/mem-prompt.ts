@@ -146,6 +146,15 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
     "Memories surfaced as relevant to the current request (verify before relying on them):",
   ];
 
+  // Citation footer (spec D12). Goes on this block, never on the cached
+  // guidance block: it must not enter the static prefix, and it is pointless
+  // when nothing was surfaced. Costs ~30 output tokens on turns that cite.
+  const footer = [
+    "",
+    "If any of the above shaped your answer, end your reply with:",
+    "<memory-used>type/name, type/name</memory-used>",
+  ];
+
   // Group by type for readability, but keep each group in the order it arrived
   // so the byte budget still sheds the least relevant entries first.
   const byType = new Map<MemoryType, MemoryEntry[]>();
@@ -159,7 +168,10 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
   // budget is spent in relevance order across the whole block, not per section,
   // otherwise the last section would always be the one that degrades.
   const full = new Set<MemoryEntry>();
-  let budget = MAX_MEMORY_BLOCK_BYTES - bytes(header.join("\n"));
+  let budget =
+    MAX_MEMORY_BLOCK_BYTES -
+    bytes(header.join("\n")) -
+    bytes(footer.join("\n"));
   for (const entry of entries) {
     const cost = bytes(`\n\n### ${entry.name}\n${entry.content}`);
     if (cost <= budget) {
@@ -197,5 +209,6 @@ export function renderRetrievedMemories(entries: MemoryEntry[]): string {
     }
   }
 
+  lines.push(...footer);
   return lines.join("\n");
 }

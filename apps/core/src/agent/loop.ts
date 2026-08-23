@@ -74,6 +74,8 @@ import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
+import { parseCitations } from "../memory/citations.js";
+import type { MemoryEntry } from "../memory/mem-types.js";
 import { extractMemories } from "../memory/extract.js";
 import {
   loadMemorySettings,
@@ -313,6 +315,9 @@ export class AgentLoop {
   // User text a memory_injected notice was last emitted for — dedupes the
   // stream event across the many inner-loop turns of one user request.
   private lastMemoryEmittedFor: string | undefined = undefined;
+  // What the last provider call was shown, so a citation in its reply can be
+  // verified against it rather than trusted (spec D12).
+  private lastInjectedMemories: MemoryEntry[] = [];
   // Which tool results have gone to the provider, and how, so the cached
   // prompt prefix stays byte-stable across the turns of this run.
   private readonly pruneState = new PruneState();
@@ -1312,7 +1317,14 @@ export class AgentLoop {
             name: e.name,
           })),
         });
+        // Usage attribution (spec D12) counts *shows*, not inner-loop turns —
+        // it shares the once-per-user-message key above so injectedCount stays
+        // a denominator you can divide useCount by.
+        memGraph.recordInjected(retrievedMemories);
       }
+      // What was on screen when the model answered, so a citation in the reply
+      // can be checked against it rather than trusted (D12).
+      this.lastInjectedMemories = retrievedMemories;
       // Persistent task list: re-rendered from the todo store every turn (not
       // from history), so the plan survives context compaction and the model
       // never loses track of remaining work on long tasks.
@@ -1408,6 +1420,23 @@ export class AgentLoop {
           type: "thinking",
           content: providerResult.thinking,
         });
+      }
+
+      // Memory citations (spec D12). The model marks which surfaced memories
+      // shaped its answer; we strip the tag here — before anything renders,
+      // streams, or persists this text — because it is a control marker, not
+      // content. Credit is given only for ids that were actually injected, so
+      // a hallucinated id cannot pollute the signal that later decides what
+      // survives consolidation.
+      if (providerResult.content) {
+        const { ids, stripped } = parseCitations(providerResult.content);
+        providerResult.content = stripped;
+        if (ids.length > 0 && this.lastInjectedMemories.length > 0) {
+          getMemoryGraphService(context.projectPath).recordCited(
+            ids,
+            this.lastInjectedMemories,
+          );
+        }
       }
 
       // Emit text content if present (for UI to display)

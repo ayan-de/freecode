@@ -14,6 +14,7 @@ import { findRelevantMemories, rankRelevantMemories } from "../mem-query.js";
 import { Bm25Index } from "../bm25.js";
 import { fuseByRank, FUSED_FLOOR, RRF_K } from "./fusion.js";
 import { judgeMemories, type JudgeDecision } from "../judge.js";
+import { UsageStore, type MemoryUsage } from "../usage-store.js";
 import * as embedder from "./embedder.js";
 import { MODEL_ID } from "./embedder.js";
 import { VectorStore } from "./vector-store.js";
@@ -128,6 +129,9 @@ export class MemoryGraphService {
   // entry list as the embeddings, so the two halves never disagree about what
   // is in the store.
   private lexical = new Bm25Index();
+  // Citation-driven usage counters (spec D12). Derived state alongside the
+  // vectors and the graph: delete `.graph/` and retention falls back to age.
+  private usage: UsageStore;
   private lastOutcome: RetrievalOutcome = "empty_store";
   private lastDecision: JudgeDecision | "cadence_carry" | "not_configured" =
     "not_configured";
@@ -156,6 +160,7 @@ export class MemoryGraphService {
     const dir = path.join(store.getMemoryDir(), GRAPH_DIR);
     this.vectors = new VectorStore(dir, MODEL_ID);
     this.graph = new GraphStore(dir);
+    this.usage = new UsageStore(dir);
     this.unsubscribe = onMemoryChange((change) => {
       if (change.store.getMemoryDir() === this.store.getMemoryDir()) {
         void this.onChange(change);
@@ -168,6 +173,34 @@ export class MemoryGraphService {
   dispose(): void {
     this.unsubscribe();
     this.sessions.clear();
+    this.usage.dispose();
+  }
+
+  // -- Usage attribution (spec D12) -----------------------------------------
+
+  /** Record that these memories were surfaced to the model. */
+  recordInjected(entries: MemoryEntry[]): void {
+    this.usage.recordInjected(entries.map((e) => memoryId(e.type, e.name)));
+  }
+
+  /**
+   * Record the model's claim that these ids shaped its answer.
+   *
+   * Intersected with `injected` on purpose: a model can name a memory it was
+   * never shown (or hallucinate an id outright), and crediting one would put
+   * noise into the signal that later decides what survives consolidation.
+   */
+  recordCited(citedIds: string[], injected: MemoryEntry[]): void {
+    const shown = new Set(injected.map((e) => memoryId(e.type, e.name)));
+    this.usage.recordCited(citedIds.filter((id) => shown.has(id)));
+  }
+
+  usageFor(entry: MemoryEntry): MemoryUsage {
+    return this.usage.get(memoryId(entry.type, entry.name));
+  }
+
+  allUsage(): Map<string, MemoryUsage> {
+    return this.usage.all();
   }
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
