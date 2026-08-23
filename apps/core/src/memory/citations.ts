@@ -49,6 +49,61 @@ export function parseCitations(text: string): ParsedCitations {
   return { ids, stripped: stripCitations(text) };
 }
 
+const OPEN = "<memory-used>";
+
+/**
+ * Streaming filter that keeps the citation tag off the user's screen.
+ *
+ * Stripping the *final* text is not enough: `text_delta` events reach the
+ * frontend token by token, so by the time the full reply exists the tag has
+ * already been rendered. Found by a real turn against a real provider — every
+ * unit test passed while the tag was plainly visible in the output.
+ *
+ * The tag is instructed to come last, so the rule is simply "emit nothing from
+ * the opening marker onward". The only subtlety is that the marker itself
+ * arrives split across deltas, so any trailing text that could still *become*
+ * the marker is held back until the next delta proves it either way.
+ */
+export class CitationStreamFilter {
+  private held = "";
+  private suppressing = false;
+
+  /** Returns the text safe to show for this delta (often "" while deciding). */
+  push(delta: string): string {
+    if (this.suppressing) return "";
+
+    const buffer = this.held + delta;
+    const at = buffer.indexOf(OPEN);
+    if (at !== -1) {
+      this.suppressing = true;
+      this.held = "";
+      return buffer.slice(0, at);
+    }
+
+    // Hold back a suffix that is still a candidate prefix of the marker.
+    const keep = partialMarkerLength(buffer);
+    this.held = buffer.slice(buffer.length - keep);
+    return buffer.slice(0, buffer.length - keep);
+  }
+
+  /** Anything held back that turned out not to be a tag. Call once at the end. */
+  flush(): string {
+    if (this.suppressing) return "";
+    const rest = this.held;
+    this.held = "";
+    return rest;
+  }
+}
+
+// Length of the longest suffix of `text` that is a proper prefix of the marker.
+function partialMarkerLength(text: string): number {
+  const max = Math.min(OPEN.length - 1, text.length);
+  for (let n = max; n > 0; n--) {
+    if (text.endsWith(OPEN.slice(0, n))) return n;
+  }
+  return 0;
+}
+
 /**
  * Remove citation tags from user-visible text.
  *

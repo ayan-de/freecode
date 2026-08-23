@@ -45,10 +45,20 @@ export class UsageStore {
   private entries = new Map<string, MemoryUsage>();
   private timer: NodeJS.Timeout | null = null;
   private dirty = false;
+  private readonly flushOnExit: () => void;
 
   constructor(graphDir: string) {
     this.file = path.join(graphDir, USAGE_FILE);
     this.load();
+    // Without this, a citation is lost every time the process is short-lived.
+    // Citations are recorded at the *end* of a turn, the debounce is 2s, and
+    // the timer is unref'd — so `freecode run` exits before it ever fires.
+    // Found by a real headless turn: `injectedCount` had persisted (recorded
+    // early enough in a long turn) while `useCount` had not, despite the model
+    // having emitted a valid tag. `exit` handlers may only do sync work, which
+    // is exactly what flush() does.
+    this.flushOnExit = () => this.flush();
+    process.once("exit", this.flushOnExit);
   }
 
   // A missing, truncated, or schema-mismatched file reads as all-zero. Usage is
@@ -150,6 +160,7 @@ export class UsageStore {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    process.removeListener("exit", this.flushOnExit);
     this.flush();
   }
 }

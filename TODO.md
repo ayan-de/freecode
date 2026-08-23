@@ -1168,6 +1168,23 @@ Three findings worth keeping, because each contradicts something the spec said:
 - **A log-scaled use boost cannot overcome exponential decay.** `1 + 0.1·ln(u+1)`
   tops out near 1.5× against a 4× decay span. Use raises the decay floor instead.
 
+### Found by the smoke test (2026-08-23, real MiniMax turns)
+
+Two bugs that every unit test passed through, plus one limitation:
+
+- **Fixed — the citation tag streamed to the user.** Stripping the *final* text
+  is too late: `text_delta` reaches the frontend token by token, so the tag was
+  plainly visible in `freecode run` output. `CitationStreamFilter` now holds back
+  any trailing text that could still become the marker.
+- **Fixed — citations were parsed and then dropped.** They are recorded at the
+  *end* of a turn, `UsageStore` debounces 2s, and the timer is `unref`'d, so a
+  short-lived process exits first. `injectedCount` had persisted while
+  `useCount` had not. Now flushed synchronously on `process.on("exit")`.
+- [ ] **Headless runs never complete background memory work.** `freecode run`
+      exits before fire-and-forget extraction or consolidation lands. Fine for
+      the daemon (the TUI stays alive), but it means scripted runs never
+      consolidate. Consider awaiting them on the headless path with a budget.
+
 ### Still open
 
 - [ ] **Project key collision** — now the highest-value memory fix.

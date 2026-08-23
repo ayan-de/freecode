@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseCitations, stripCitations } from "./citations.js";
+import {
+  CitationStreamFilter,
+  parseCitations,
+  stripCitations,
+} from "./citations.js";
 
 test("parses a well-formed tag and strips it from the visible text", () => {
   const r = parseCitations(
@@ -70,4 +74,57 @@ test("an unclosed tag is left alone rather than eating the reply", () => {
 test("stripCitations is idempotent", () => {
   const once = stripCitations("a\n<memory-used>project/x</memory-used>");
   assert.equal(stripCitations(once), once);
+});
+
+// -- The streaming filter -----------------------------------------------------
+//
+// These exist because a real turn against a real provider printed the tag while
+// every parse test passed: stripping the FINAL text is too late, the deltas
+// already reached the frontend.
+
+function streamThrough(deltas: string[]): string {
+  const f = new CitationStreamFilter();
+  return deltas.map((d) => f.push(d)).join("") + f.flush();
+}
+
+test("the tag never reaches the user, even split across deltas", () => {
+  // The failure mode from the smoke test: providers emit the marker a few
+  // characters at a time, so no single delta contains it.
+  assert.equal(
+    streamThrough(["All done.\n", "<memory", "-used>", "project/a", "</memory-used>"]),
+    "All done.\n",
+  );
+});
+
+test("one-character-at-a-time streaming is also clean", () => {
+  const text = "Answer.\n<memory-used>project/a</memory-used>";
+  assert.equal(streamThrough([...text]), "Answer.\n");
+});
+
+test("ordinary text passes through byte-identical", () => {
+  const deltas = ["Hello ", "world", ", how are you?"];
+  assert.equal(streamThrough(deltas), "Hello world, how are you?");
+});
+
+test("a false start is released, not swallowed", () => {
+  // "<mem" looks like the beginning of the marker and must be held — but if the
+  // model was actually writing about <memory> the text has to come back.
+  assert.equal(streamThrough(["see <mem", "ory> in the docs"]), "see <memory> in the docs");
+  assert.equal(streamThrough(["trailing <mem"]), "trailing <mem");
+});
+
+test("text after the tag is suppressed too", () => {
+  // The tag is instructed to come last; anything following it is the model
+  // ignoring that, and showing it would look like a rendering glitch.
+  assert.equal(
+    streamThrough(["A.", "<memory-used>project/a</memory-used>", "  \n"]),
+    "A.",
+  );
+});
+
+test("the filter and the parser agree on the same stream", () => {
+  const deltas = ["Body text. ", "<memory-used>", "project/a, user/b", "</memory-used>"];
+  const raw = deltas.join("");
+  assert.equal(streamThrough(deltas), "Body text. ");
+  assert.deepEqual(parseCitations(raw).ids, ["project/a", "user/b"]);
 });

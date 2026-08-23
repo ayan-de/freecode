@@ -74,7 +74,10 @@ import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
-import { parseCitations } from "../memory/citations.js";
+import {
+  CitationStreamFilter,
+  parseCitations,
+} from "../memory/citations.js";
 import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import { getSessionManager } from "../session/manager.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
@@ -1833,6 +1836,8 @@ export class AgentLoop {
         let usage: ExecuteUsage | undefined;
 
         let ttft_ms: number | undefined;
+        // Holds back the citation tag so it never reaches a frontend (D12).
+        const citationFilter = new CitationStreamFilter();
 
         for await (const chunk of aiProvider.stream({
           messages: prunedMessages,
@@ -1849,13 +1854,19 @@ export class AgentLoop {
           }
           if (this.abort.signal.aborted) break;
           switch (chunk.type) {
-            case "text_delta":
+            case "text_delta": {
+              // `content` keeps the raw text — the citation parser needs the
+              // tag. Only what reaches the user is filtered (spec D12).
               content += chunk.delta;
-              BusEvents.stream(this.state.sessionId, {
-                type: "text_delta",
-                delta: chunk.delta,
-              });
+              const visible = citationFilter.push(chunk.delta);
+              if (visible.length > 0) {
+                BusEvents.stream(this.state.sessionId, {
+                  type: "text_delta",
+                  delta: visible,
+                });
+              }
               break;
+            }
             case "thinking_delta":
               thinking += chunk.delta;
               BusEvents.stream(this.state.sessionId, {
@@ -1897,6 +1908,15 @@ export class AgentLoop {
             case "done":
               break;
           }
+        }
+
+        // Anything held back that turned out not to be the start of a tag.
+        const tail = citationFilter.flush();
+        if (tail.length > 0) {
+          BusEvents.stream(this.state.sessionId, {
+            type: "text_delta",
+            delta: tail,
+          });
         }
 
         this.emitCacheWarm(usage);

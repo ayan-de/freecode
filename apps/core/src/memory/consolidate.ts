@@ -331,7 +331,9 @@ export async function consolidateMemories(
 
     return { merged, promoted, episodes, deleted, ok: true };
   } catch (error) {
-    logger.debug("[MemoryConsolidate] failed", { error });
+    // `{ error }` serialises an Error to `{}`, which is what this line used to
+    // do — useless exactly when it matters.
+    logger.debug("[MemoryConsolidate] failed", { error: String(error) });
     return EMPTY;
   }
 }

@@ -128,6 +128,39 @@ test("flush is atomic — no partial file is ever visible", () => {
   });
 });
 
+test("a pending write survives process exit", () => {
+  // The bug a real headless turn exposed: citations are recorded at the END of
+  // a turn, the debounce is 2s, the timer is unref'd, and `freecode run` exits
+  // first — so the citation was parsed correctly and then thrown away.
+  withDir((dir) => {
+    const store = new UsageStore(dir);
+    store.recordCited(["project/x"]);
+    // Deliberately no dispose() and no flush(): simulate the process going
+    // away with the debounce still pending.
+    process.emit("exit", 0);
+
+    assert.equal(
+      new UsageStore(dir).get("project/x").useCount,
+      1,
+      "the exit handler must persist it",
+    );
+  });
+});
+
+test("dispose unregisters its exit handler", () => {
+  withDir((dir) => {
+    const before = process.listenerCount("exit");
+    const store = new UsageStore(dir);
+    assert.equal(process.listenerCount("exit"), before + 1);
+    store.dispose();
+    assert.equal(
+      process.listenerCount("exit"),
+      before,
+      "a long-lived daemon must not accumulate one listener per project",
+    );
+  });
+});
+
 test("flush is a no-op when nothing changed", () => {
   withDir((dir) => {
     const s = new UsageStore(dir);
