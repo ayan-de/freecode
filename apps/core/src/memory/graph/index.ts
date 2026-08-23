@@ -13,6 +13,7 @@ import type { MemoryChange } from "../mem-store.js";
 import { findRelevantMemories, rankRelevantMemories } from "../mem-query.js";
 import { Bm25Index } from "../bm25.js";
 import { fuseByRank, FUSED_FLOOR, RRF_K } from "./fusion.js";
+import { judgeMemories, type JudgeDecision } from "../judge.js";
 import * as embedder from "./embedder.js";
 import { MODEL_ID } from "./embedder.js";
 import { VectorStore } from "./vector-store.js";
@@ -32,11 +33,25 @@ const SEED_THRESHOLD = 0.4; // min cosine for a vector seed
 const COLD_BUDGET_MS = 60;
 const MAX_SESSIONS = 64; // LRU cap on the per-session cache
 
+// How to reach a model for the retrieval judge (spec D15). Supplied by the
+// caller because the graph service knows nothing about providers; omit it and
+// judging is skipped entirely.
+export interface JudgeContext {
+  provider: string;
+  model?: string;
+  /** Test seam, forwarded to judgeMemories. */
+  complete?: (system: string, prompt: string) => Promise<string>;
+}
+
 // Per-session prepared-memory cache (one-turn-behind state).
 interface SessionMemory {
   stash: MemoryEntry[];
   lastQuery: string;
   inflight: Promise<void> | null;
+  // Ids the judge approved for the current topic, or null when no verdict is
+  // carried (first message, or the topic just changed). The cadence carry.
+  judgedIds?: Set<string> | null;
+  judge?: JudgeContext;
   // Whether `lastQuery` has a completed retrieval (hit or confirmed miss).
   // Lets prepareMemories be called on every turn without re-fetching: once
   // resolved, callers just read `stash` instead of re-kicking retrieve().
@@ -114,6 +129,8 @@ export class MemoryGraphService {
   // is in the store.
   private lexical = new Bm25Index();
   private lastOutcome: RetrievalOutcome = "empty_store";
+  private lastDecision: JudgeDecision | "cadence_carry" | "not_configured" =
+    "not_configured";
   // The graph is assembled from two layers: a deterministic, model-free base
   // (Memory/Tag nodes + tag/link/supersede edges) and a cluster layer derived
   // from embeddings. Each is rebuilt only when its own signature changes.
@@ -511,7 +528,13 @@ export class MemoryGraphService {
       this.sessions.set(sessionId, st);
       return st;
     }
-    st = { stash: [], lastQuery: "", inflight: null, resolved: false };
+    st = {
+      stash: [],
+      lastQuery: "",
+      inflight: null,
+      resolved: false,
+      judgedIds: null,
+    };
     this.sessions.set(sessionId, st);
     while (this.sessions.size > MAX_SESSIONS) {
       const oldest = this.sessions.keys().next().value as string | undefined;
@@ -537,15 +560,21 @@ export class MemoryGraphService {
   async prepareMemories(
     sessionId: string,
     query: string,
+    judge?: JudgeContext,
   ): Promise<MemoryEntry[]> {
     const st = this.sessionMemory(sessionId);
     const q = query.trim();
     if (q.length === 0) return st.stash;
 
-    // Topic change → drop the stale set so we don't inject off-topic memories.
+    st.judge = judge;
+
+    // Topic change → drop the stale set so we don't inject off-topic memories,
+    // and invalidate the carried judge verdict (D15): a verdict is about a
+    // topic, so the moment the topic moves the verdict stops applying.
     if (st.lastQuery && lexicalSimilarity(q, st.lastQuery) < TOPIC_SIM_MIN) {
       st.stash = [];
       st.resolved = false;
+      st.judgedIds = null;
     }
     if (q !== st.lastQuery) {
       st.lastQuery = q;
@@ -565,6 +594,10 @@ export class MemoryGraphService {
 
   // Background retrieval that fills a session's stash. Coalesced (one in flight
   // per session) and re-checks lastQuery so a mid-flight topic switch retries.
+  //
+  // The judge (D15) runs *here*, on the one-turn-behind path, which is what
+  // makes it affordable: the loop never waits on it, and the cadence carry
+  // below means it fires on a topic change rather than every user message.
   private kickPrefetch(st: SessionMemory): void {
     if (st.inflight) return;
     st.inflight = (async () => {
@@ -572,7 +605,7 @@ export class MemoryGraphService {
         for (let q = st.lastQuery; ; q = st.lastQuery) {
           const results = await this.retrieve(q);
           if (q === st.lastQuery) {
-            st.stash = results;
+            st.stash = await this.applyJudge(st, q, results);
             st.resolved = true;
             return;
           }
@@ -584,6 +617,54 @@ export class MemoryGraphService {
         st.inflight = null;
       }
     })();
+  }
+
+  /**
+   * Filter a freshly retrieved candidate set through the judge (spec D15).
+   *
+   * Two paths, and the split is the whole cost story:
+   *  - **Fresh verdict** when there is no carried one — a session's first
+   *    message, or the first message after a topic change. One small call.
+   *  - **Cadence carry** otherwise: reuse the previous verdict by keeping the
+   *    candidates it approved. jcode classifies this as an intended non-LLM
+   *    outcome rather than a degradation, and so do we — it rides a verdict
+   *    that was made about this same topic.
+   *
+   * With no judge context configured this is the identity function, so the
+   * whole feature is off by omission as well as by setting.
+   */
+  private async applyJudge(
+    st: SessionMemory,
+    query: string,
+    candidates: MemoryEntry[],
+  ): Promise<MemoryEntry[]> {
+    const ctx = st.judge;
+    if (!ctx || candidates.length === 0) return candidates;
+
+    if (st.judgedIds) {
+      this.lastDecision = "cadence_carry";
+      return candidates.filter((e) => st.judgedIds?.has(memoryId(e.type, e.name)));
+    }
+
+    const { kept, decision } = await judgeMemories({
+      query,
+      candidates,
+      provider: ctx.provider,
+      model: ctx.model,
+      complete: ctx.complete,
+    });
+    this.lastDecision = decision;
+    // Only cache a verdict the judge actually produced. Caching a failure
+    // would carry one transport error across a whole topic.
+    if (decision === "judge_ran") {
+      st.judgedIds = new Set(kept.map((e) => memoryId(e.type, e.name)));
+    }
+    return kept;
+  }
+
+  // The judge's most recent outcome, for the degradation-rate metric (D14/D15).
+  lastJudgeDecision(): JudgeDecision | "cadence_carry" | "not_configured" {
+    return this.lastDecision;
   }
 
   // Drop a session's prepared-memory cache (e.g. on session end).

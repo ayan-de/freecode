@@ -13,7 +13,7 @@
 // =============================================================================
 
 import * as embedder from "../graph/embedder.js";
-import { buildPool } from "./pool.js";
+import { buildPool, loadCorpus } from "./pool.js";
 import {
   aggregate,
   formatMetrics,
@@ -62,6 +62,42 @@ function perQueryTable(results: BenchQueryResult[]): string {
   ].join("\n");
 }
 
+// `--judge=oracle` measures the ceiling: a perfect reader that keeps exactly
+// the gold set. It answers "how much of the abstention gap can a judge close?"
+// without spending money per bench run. It is not a claim about any real model
+// — a real one scores somewhere between this and the unjudged row.
+function oracleJudge(
+  argv: string[],
+): ((query: string, listed: string) => Promise<string>) | undefined {
+  if (!argv.includes("--judge=oracle")) return undefined;
+
+  const { queries } = loadCorpus();
+  const goldByQuery = new Map(queries.map((q) => [q.query, new Set(q.relevant)]));
+
+  return async (query, listed) => {
+    const gold = goldByQuery.get(query) ?? new Set<string>();
+    // The prompt lists candidates as "N. [type] description"; map each back to
+    // its id through the corpus so the oracle can answer in the real format.
+    const keep: number[] = [];
+    listed
+      .split("\n")
+      .filter((l) => /^\d+\.\s/.test(l.trim()))
+      .forEach((line) => {
+        const m = line.trim().match(/^(\d+)\.\s+\[(\w+)\]\s+(.*)$/);
+        if (!m) return;
+        const [, n, type, description] = m;
+        const hit = memoriesByDescription.get(`${type}|${description}`);
+        if (hit && gold.has(hit)) keep.push(Number(n));
+      });
+    return JSON.stringify(keep);
+  };
+}
+
+const memoriesByDescription = new Map<string, string>();
+for (const m of loadCorpus().memories) {
+  memoriesByDescription.set(`${m.type}|${m.description}`, `${m.type}/${m.name}`);
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const asJson = argv.includes("--json");
@@ -69,7 +105,7 @@ async function main(): Promise<void> {
 
   const mode = await probeMode();
   const started = Date.now();
-  const results = await buildPool({ limit: 10 });
+  const results = await buildPool({ limit: 10, judge: oracleJudge(argv) });
   const metrics = aggregate(results);
   const cost: Cost = { modelCalls: 0, promptTokens: 0, outputTokens: 0 };
   const elapsedMs = Date.now() - started;

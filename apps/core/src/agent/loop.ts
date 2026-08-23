@@ -75,7 +75,10 @@ import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
 import { extractMemories } from "../memory/extract.js";
-import { shouldExtract } from "../memory/extract-policy.js";
+import {
+  loadMemorySettings,
+  shouldExtract,
+} from "../memory/extract-policy.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -1276,11 +1279,20 @@ export class AgentLoop {
       // up waiting) needs to surface on the very next inner-loop turn even
       // though the user hasn't spoken again, otherwise a real match never gets
       // injected for the rest of the request.
+      //
+      // The judge context (spec D15) rides the same call. Retrieval scores
+      // cannot tell "relevant" from "merely nearby" — measured, not assumed:
+      // on the bench corpus, top cosine for on-topic queries spans 0.674–0.932
+      // and for irrelevant ones 0.588–0.719, which overlap. So a model decides,
+      // and it is affordable because it runs here, on the background prefetch,
+      // behind a cadence carry that fires it on topic changes rather than turns.
       const memGraph = getMemoryGraphService(context.projectPath);
       const currentUserText = this.getLastUserText();
+      const judgeEnabled = loadMemorySettings(context.projectPath).retrievalJudge;
       const retrievedMemories = await memGraph.prepareMemories(
         this.state.sessionId,
         currentUserText,
+        judgeEnabled ? { provider, model } : undefined,
       );
       this.lastMemoryBlock = renderRetrievedMemories(retrievedMemories);
       const memoryBlock = this.lastMemoryBlock;

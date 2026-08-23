@@ -106,13 +106,23 @@ function toEntry(m: CorpusMemory): MemoryEntry {
 export interface PoolOptions {
   limit?: number;
   corpusDir?: string;
+  /**
+   * Judge stand-in (spec D15). Given the query and the candidate descriptions,
+   * returns the raw verdict string a model would return.
+   *
+   * The bench does not call a real provider: a benchmark that costs money per
+   * run stops being run. Supplying an oracle here measures the *ceiling* the
+   * judge can reach — how much of the abstention gap a perfect reader closes —
+   * which is the number that decides whether the call is worth making at all.
+   */
+  judge?: (query: string, listed: string) => Promise<string>;
 }
 
 // Load the corpus into a temp store, run every query, return ranked ids.
 export async function buildPool(
   options: PoolOptions = {},
 ): Promise<BenchQueryResult[]> {
-  const { limit = 10, corpusDir } = options;
+  const { limit = 10, corpusDir, judge } = options;
   const { memories, queries } = loadCorpus(corpusDir);
 
   const problems = validateCorpus(memories, queries);
@@ -128,7 +138,17 @@ export async function buildPool(
 
     const out: BenchQueryResult[] = [];
     for (const q of queries) {
-      const entries = await service.retrieve(q.query, { limit });
+      let entries = await service.retrieve(q.query, { limit });
+      if (judge) {
+        const { judgeMemories } = await import("../judge.js");
+        const verdict = await judgeMemories({
+          query: q.query,
+          candidates: entries,
+          provider: "bench",
+          complete: async (_system, prompt) => judge(q.query, prompt),
+        });
+        entries = verdict.kept;
+      }
       out.push({
         query: q.query,
         ranked: entries.map((e) => memoryId(e.type, e.name)),

@@ -23,6 +23,7 @@ const MIN_TURNS = 2;
 const TOPIC_SIM_MIN = 0.12;
 const MAX_SESSIONS = 64;
 const ENV_DISABLE = "FREECODE_DISABLE_MEMORY_EXTRACTION";
+const ENV_DISABLE_JUDGE = "FREECODE_DISABLE_MEMORY_JUDGE";
 
 export interface ExtractDecisionInput {
   sessionId: string;
@@ -77,9 +78,11 @@ function isEnvTruthy(value: string | undefined): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
-interface MemorySettings {
+export interface MemorySettings {
   autoExtract: boolean;
   intervalRuns: number;
+  /** Retrieval judge (spec D15). Off → no abstention, no extra call. */
+  retrievalJudge: boolean;
 }
 
 function readScope(filePath: string): Record<string, unknown> | undefined {
@@ -105,11 +108,18 @@ export function loadMemorySettings(projectRoot: string): MemorySettings {
 
   let autoExtract: boolean | undefined;
   let intervalRuns: number | undefined;
+  let retrievalJudge: boolean | undefined;
   for (const file of scopes) {
     const memory = readScope(file);
     if (!memory) continue;
     if (autoExtract === undefined && typeof memory.autoExtract === "boolean") {
       autoExtract = memory.autoExtract;
+    }
+    if (
+      retrievalJudge === undefined &&
+      typeof memory.retrievalJudge === "boolean"
+    ) {
+      retrievalJudge = memory.retrievalJudge;
     }
     if (
       intervalRuns === undefined &&
@@ -123,6 +133,8 @@ export function loadMemorySettings(projectRoot: string): MemorySettings {
   return {
     autoExtract: autoExtract ?? true,
     intervalRuns: intervalRuns ?? DEFAULT_INTERVAL_RUNS,
+    retrievalJudge:
+      (retrievalJudge ?? true) && !isEnvTruthy(process.env[ENV_DISABLE_JUDGE]),
   };
 }
 
