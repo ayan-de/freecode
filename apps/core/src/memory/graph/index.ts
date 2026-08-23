@@ -10,7 +10,9 @@ import * as path from "path";
 import type { MemoryEntry, MemoryQueryOptions } from "../mem-types.js";
 import { MemoryStore, getMemoryStore, onMemoryChange } from "../mem-store.js";
 import type { MemoryChange } from "../mem-store.js";
-import { findRelevantMemories } from "../mem-query.js";
+import { findRelevantMemories, rankRelevantMemories } from "../mem-query.js";
+import { Bm25Index } from "../bm25.js";
+import { fuseByRank, FUSED_FLOOR, RRF_K } from "./fusion.js";
 import * as embedder from "./embedder.js";
 import { MODEL_ID } from "./embedder.js";
 import { VectorStore } from "./vector-store.js";
@@ -84,10 +86,34 @@ function hashOf(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
+// Which retrieval path produced a result. Exhaustive by construction: a new
+// code path that surfaces memory has to name itself here, so a silent fallback
+// becomes a visible event (spec D14).
+export type RetrievalOutcome =
+  | "fused" // vector + lexical, ranks combined
+  | "lexical_only" // embedder unavailable or mid-query failure
+  | "empty_by_floor" // both retrievers ran; nothing cleared the floor
+  | "empty_query"
+  | "empty_store"
+  | "error";
+
+// A retrieved memory with the cascade score that surfaced it. Callers need the
+// score to degrade by relevance under a byte budget (D2) and to attribute
+// usage back to what was actually injected (D12).
+export interface RetrievedMemory {
+  entry: MemoryEntry;
+  score: number;
+}
+
 export class MemoryGraphService {
   private store: MemoryStore;
   private vectors: VectorStore;
   private graph: GraphStore;
+  // Lexical half of the seed pool (spec D1). Rebuilt in sync() off the same
+  // entry list as the embeddings, so the two halves never disagree about what
+  // is in the store.
+  private lexical = new Bm25Index();
+  private lastOutcome: RetrievalOutcome = "empty_store";
   // The graph is assembled from two layers: a deterministic, model-free base
   // (Memory/Tag nodes + tag/link/supersede edges) and a cluster layer derived
   // from embeddings. Each is rebuilt only when its own signature changes.
@@ -241,6 +267,7 @@ export class MemoryGraphService {
 
   private async sync(entries: MemoryEntry[]): Promise<void> {
     const baseChanged = this.syncBase(entries); // deterministic, no model
+    this.lexical.build(entries, (e) => memoryId(e.type, e.name)); // BM25 (D1)
     await this.syncVectors(entries); // embeddings, skipped if unavailable
     const clustersChanged = this.syncClusters(); // over the fresh embeddings
     if (baseChanged || clustersChanged || this.graph.nodeCount() === 0) {
@@ -248,95 +275,150 @@ export class MemoryGraphService {
     }
   }
 
-  // Seed pool for the cascade: vector top-k when embeddings are available,
-  // otherwise the keyword scorer (spec D6) — either way, cascade expands it.
-  private async seed(query: string): Promise<RetrievalResult[]> {
-    if (embedder.available() && query.trim().length > 0) {
+  // Seed pool for the cascade (spec D1). Vector and lexical retrieval are peers,
+  // not a primary and a fallback: both run, and their *ranks* are fused with
+  // reciprocal rank fusion. Ranks, not scores, because a cosine similarity and a
+  // BM25 score are not on comparable scales and any weighted sum of them would
+  // be calibrating one against the other by hand.
+  //
+  // The previous implementation returned vector hits when there were any and the
+  // keyword list otherwise, which meant a confident vector miss was silently
+  // overridden by the weaker scorer — and, since the lexical floor was "any
+  // overlap at all", a query about nothing in the store injected 8 memories.
+  private async seed(query: string): Promise<{
+    seeds: RetrievalResult[];
+    outcome: RetrievalOutcome;
+  }> {
+    if (query.trim().length === 0) return { seeds: [], outcome: "empty_query" };
+
+    const ranked: string[][] = [];
+    let vectorRan = false;
+
+    if (embedder.available()) {
       try {
         const qvec = await embedder.embed(query);
-        const top = this.vectors.cosineTopK(qvec, K_INITIAL, SEED_THRESHOLD);
-        if (top.length > 0) return top;
+        ranked.push(
+          this.vectors
+            .cosineTopK(qvec, K_INITIAL, SEED_THRESHOLD)
+            .map((r) => r.id),
+        );
+        vectorRan = true;
       } catch {
-        // fall through to keyword seeds
+        // Embedder just died; lexical still carries the query (KG spec D6).
       }
     }
-    const kw = findRelevantMemories(query, this.store, { limit: K_INITIAL });
-    // Synthetic descending scores keep keyword order meaningful in the cascade.
-    return kw.map((e, i) => ({
-      id: memoryId(e.type, e.name),
-      score: 1 - i * 0.05,
-    }));
+
+    // The BM25 index was rebuilt by sync() a moment ago off the same entry
+    // list, so this is a scan of an in-memory map — no store read.
+    ranked.push(this.lexical.search(query, K_INITIAL).map((r) => r.id));
+
+    const fused = fuseByRank(ranked, RRF_K);
+    const seeds = fused.filter((r) => r.score >= FUSED_FLOOR);
+    const outcome: RetrievalOutcome =
+      seeds.length === 0
+        ? "empty_by_floor"
+        : vectorRan
+          ? "fused"
+          : "lexical_only";
+    return { seeds, outcome };
   }
 
   // Retrieve the memories most relevant to `query`, expanded by graph cascade.
-  // Never throws — falls back to the keyword list on any failure (spec D6).
+  // Never throws. Returns entries with their cascade score so callers can
+  // degrade by relevance (spec D2) and attribute usage per memory (spec D12).
+  async retrieveScored(
+    query: string,
+    options: MemoryQueryOptions = {},
+  ): Promise<RetrievedMemory[]> {
+    const { limit = 8, types } = options;
+
+    try {
+      const entries = this.store.list();
+      if (entries.length === 0) {
+        this.lastOutcome = "empty_store";
+        return [];
+      }
+      await this.sync(entries);
+
+      const { seeds, outcome } = await this.seed(query);
+      this.lastOutcome = outcome;
+      // An empty seed set is an answer, not a failure to answer: nothing in the
+      // store is relevant, so nothing is injected. There is deliberately no
+      // fallback here — a fallback is what made the floor unenforceable.
+      if (seeds.length === 0) return [];
+
+      const scored = cascadeRetrieve(seeds, this.graph, { maxDepth: 2 });
+      const out: RetrievedMemory[] = [];
+      for (const { id, score } of scored) {
+        const { type, name } = splitId(id);
+        if (types && types.length > 0 && !types.includes(type)) continue;
+        const entry = this.store.load(name, type);
+        if (entry) out.push({ entry, score });
+        if (out.length >= limit) break;
+      }
+      return out;
+    } catch {
+      this.lastOutcome = "error";
+      // A crash is not evidence about relevance, so this one fallback stays:
+      // lexical retrieval is a working retriever, not a degraded guess.
+      return findRelevantMemories(query, this.store, options).map((entry) => ({
+        entry,
+        score: 0,
+      }));
+    }
+  }
+
   async retrieve(
     query: string,
     options: MemoryQueryOptions = {},
   ): Promise<MemoryEntry[]> {
-    const { limit = 8, types } = options;
-    const fallback = () => findRelevantMemories(query, this.store, options);
+    return (await this.retrieveScored(query, options)).map((r) => r.entry);
+  }
 
-    try {
-      const entries = this.store.list();
-      if (entries.length === 0) return [];
-      await this.sync(entries);
-
-      const seeds = await this.seed(query);
-      if (seeds.length === 0) return fallback();
-
-      const scored = cascadeRetrieve(seeds, this.graph, { maxDepth: 2 });
-      const out: MemoryEntry[] = [];
-      for (const { id } of scored) {
-        const { type, name } = splitId(id);
-        if (types && types.length > 0 && !types.includes(type)) continue;
-        const entry = this.store.load(name, type);
-        if (entry) out.push(entry);
-        if (out.length >= limit) break;
-      }
-      return out.length > 0 ? out : fallback();
-    } catch {
-      return fallback();
-    }
+  // Which path produced the most recent retrieval. Recorded so a silent
+  // fallback is a visible event rather than something nobody notices for a
+  // year — the failure mode that let defect 3 survive (spec D14).
+  lastRetrievalOutcome(): RetrievalOutcome {
+    return this.lastOutcome;
   }
 
   // Variant of retrieve() used by the graph explorer's `/api/search` endpoint.
-  // Same scoring, same fallback, but exposes the cascade's raw output (id +
-  // score + via) and which seed mode was used so the UI can highlight the
-  // walked path without paying the round trip to a typed entry.
+  // Exposes the cascade's raw output (id + score + via) and which path produced
+  // it, so the UI can highlight the walked path without paying the round trip
+  // to a typed entry.
+  //
+  // Unlike automatic injection, an explicit search stays permissive: the floor
+  // is deliberately not applied here. A human typing a query wants to see weak
+  // matches; the floor exists to stop weak matches being fed to the model
+  // unasked (spec D1).
   async retrieveForExplorer(query: string): Promise<{
     results: RetrievalResult[];
-    seedMode: "vector" | "keyword";
+    seedMode: RetrievalOutcome;
   }> {
     const fallback = (): {
       results: RetrievalResult[];
-      seedMode: "vector" | "keyword";
+      seedMode: RetrievalOutcome;
     } => {
-      // Match retrieve()'s keyword-fallback shape: synthetic descending scores
-      // keep order meaningful even when there's no graph to walk.
       const kw = findRelevantMemories(query, this.store, { limit: 32 });
       return {
         results: kw.map((e, i) => ({
           id: memoryId(e.type, e.name),
           score: 1 - i * 0.05,
         })),
-        seedMode: "keyword",
+        seedMode: "lexical_only",
       };
     };
 
     try {
       const entries = this.store.list();
-      if (entries.length === 0) return { results: [], seedMode: "keyword" };
+      if (entries.length === 0) return { results: [], seedMode: "empty_store" };
       await this.sync(entries);
 
-      const seedMode: "vector" | "keyword" = embedder.available()
-        ? "vector"
-        : "keyword";
-      const seeds = await this.seed(query);
+      const { seeds, outcome } = await this.seed(query);
       if (seeds.length === 0) return fallback();
 
       const scored = cascadeRetrieve(seeds, this.graph, { maxDepth: 2 });
-      return { results: scored, seedMode };
+      return { results: scored, seedMode: outcome };
     } catch {
       return fallback();
     }

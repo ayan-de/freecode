@@ -108,8 +108,14 @@ test("handleSearch returns results with via edges for cascaded nodes", async () 
     store.save(mkEntry("alpha"));
     store.save(mkEntry("beta"));
     // Force a non-empty seed pool so cascade actually has something to walk.
-    (service as unknown as { seed: (q: string) => Promise<unknown[]> }).seed =
-      async () => [{ id: "project/alpha", score: 1 }];
+    (
+      service as unknown as {
+        seed: (q: string) => Promise<{ seeds: unknown[]; outcome: string }>;
+      }
+    ).seed = async () => ({
+      seeds: [{ id: "project/alpha", score: 1 }],
+      outcome: "fused",
+    });
     const url = new URL(`http://x/api/search?q=${encodeURIComponent("alpha")}`);
     const r = await handleSearch(fakeReq("GET"), url, fakeRes(), { service });
     assert.equal(r.status, 200);
@@ -119,7 +125,7 @@ test("handleSearch returns results with via edges for cascaded nodes", async () 
         score: number;
         via: { from: string; edgeKind: string } | null;
       }>;
-      seedMode: "vector" | "keyword";
+      seedMode: string;
     };
     assert.ok(body.results.length >= 1, "at least one result");
     // The seed itself (alpha) should have via === null; any cascaded result
@@ -133,7 +139,10 @@ test("handleSearch returns results with via edges for cascaded nodes", async () 
       assert.equal(typeof cascaded.via.from, "string");
       assert.equal(typeof cascaded.via.edgeKind, "string");
     }
-    assert.ok(["vector", "keyword"].includes(body.seedMode));
+    assert.ok(
+      ["fused", "lexical_only", "empty_by_floor"].includes(body.seedMode),
+      `unexpected seedMode: ${body.seedMode}`,
+    );
   } finally {
     cleanup();
   }

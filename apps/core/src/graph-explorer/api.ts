@@ -13,7 +13,10 @@
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from "http";
-import type { MemoryGraphService } from "../memory/graph/index.js";
+import type {
+  MemoryGraphService,
+  RetrievalOutcome,
+} from "../memory/graph/index.js";
 import type { RetrievalResult } from "../memory/graph/graph-types.js";
 
 export interface GraphApiDeps {
@@ -33,7 +36,7 @@ export interface GraphDump {
 
 export interface SearchResponse {
   results: RetrievalResult[];
-  seedMode: "vector" | "keyword";
+  seedMode: RetrievalOutcome;
 }
 
 /**
