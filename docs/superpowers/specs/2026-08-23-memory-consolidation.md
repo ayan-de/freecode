@@ -207,13 +207,21 @@ own metrics classify as intended rather than degraded. Run one-turn-behind on ou
 existing prefetch (`kickPrefetch`), a judge would add zero latency to the loop and
 fire on a fraction of turns.
 
-We still decline it **for now**, on sequencing rather than principle: a judge is a
-reranker over the candidate set, and we have no way to tell whether it helps until
-D14 exists. Building the measurement before the thing it would measure is the whole
-point of doing D14 first. **Revisit once D14 reports a baseline** — that is a
-concrete condition, not a polite deferral. What we adopt from jcode immediately is
-the *metric* discipline (D14) and the observation that a silent fallback is a bug
-class, not a safety net — which is exactly defect 3.
+> **Resolved 2026-08-23 — adopted, as D15.** The condition set here ("revisit
+> once D14 reports a baseline") was met immediately: the baseline showed
+> abstention accuracy of 0%, and D1's measurement then showed that *no* local
+> signal can fix it. The deferral was correct as sequencing and wrong as a
+> prediction — the free version does not exist. jcode's shape is what ships:
+> one-turn-behind, cadence-carried, with an exhaustive decision enum. The one
+> place we diverge from both references is failure direction: ours fails
+> **closed**. See D15.
+
+The reasoning that led to the deferral is kept above because it is still right
+about waku's *shape* — a synchronous, fail-open gate on the user's turn is the
+wrong design, and that is what was declined. What we adopted from jcode
+immediately was the metric discipline (D14) and the observation that a silent
+fallback is a bug class, not a safety net — which is exactly defect 3, and which
+is how this was caught.
 
 **codex's SQLite-backed job queue** (`jobs` table, leases, ownership tokens,
 `Stage1JobClaimOutcome`'s five-way result). Correct for codex, which runs Phase 1
@@ -316,13 +324,31 @@ cosine similarity and BM25 scores are not on comparable scales, and RRF only eve
 reads ranks. Both retrievers contribute `K_INITIAL` candidates; the fused top-k
 seeds the cascade unchanged.
 
-**3. Keep a floor, now on the fused score.** The original defect is real and still
-gets fixed: a query matching nothing must inject nothing. But the floor now sits
-after fusion, where it has both signals to judge on, instead of being implemented
-as "distrust one retriever entirely". The terminal `out.length > 0 ? out : fallback()`
-in `retrieve()` (`graph/index.ts:297`) goes away — an empty cascade over fused
-seeds is an answer, not a failure to answer. On "what's 2+2" with a populated
-store, today's behaviour injects up to 8 memories; after D1 it injects none.
+**3. Remove the terminal fallback.** `out.length > 0 ? out : fallback()` in
+`retrieve()` (`graph/index.ts:297`) goes away — an empty seed set is an answer,
+not a failure to answer. A nominal floor rejects a fused score of exactly zero
+(no retriever returned the document at all).
+
+> **Amended 2026-08-23, after Phase 0 measured it.** This decision originally
+> claimed a third thing: that a floor on the fused score would make a query
+> matching nothing inject nothing — "waku's retrieval gate at zero model calls".
+> **That claim was false and the benchmark refuted it on the first run.** Three
+> local signals were measured and none separates relevant from irrelevant: top
+> cosine (on-topic 0.674–0.932 vs abstention 0.588–0.719), top BM25 (3.10–23.10
+> vs 0.00–6.36), and a within-query z-score (1.91–4.06 vs 1.60–2.97). All three
+> overlap, and RRF makes it worse rather than better, because fusion reads ranks
+> and so has no magnitude left to threshold.
+>
+> The cause is structural, not a bad constant: bi-encoder cosine similarity
+> between short texts has a high, corpus-dependent floor, so no absolute
+> threshold transfers. Term coverage fails for an unrelated reason — "compare the
+> two approaches for me" shares no content words with the memory that answers it.
+>
+> Abstention therefore moves to **D15**, and §2's condition for revisiting the
+> LLM judge ("once D14 reports a baseline") is considered met, with the answer
+> *the free version does not work*. This is the spec's own §11.3 warning coming
+> true in the opposite direction from the one expected: the harness did not
+> confirm the design, it overturned part of it.
 
 `!embedder.available()` still degrades to lexical-only, exactly as KG spec D6
 requires — that path is now *better*, not merely tolerable, which is the second
@@ -335,6 +361,64 @@ behaviour — an explicit search should show weak matches. The floor applies to
 **This is the one part of the spec that must not ship unmeasured.** D1 changes
 what gets retrieved for every turn of every session; "principled" is not good
 enough. D14 exists first so that D1 reports a before/after.
+
+**Measured** (`memory/bench/README.md`), 22 scored + 5 abstention queries:
+
+| metric | baseline | after D1 |
+| --- | ---: | ---: |
+| recall@5 | 77.3% | **81.8%** |
+| recall@10 | 86.4% | 86.4% |
+| precision@5 | 22.7% | **24.5%** |
+| MRR | 87.1% | 81.7% |
+| nDCG@10 | 80.5% | 76.9% |
+
+Coverage up, ordering down: fusion puts more of the gold set in the top 5 and
+ranks the single best hit lower. Accepted deliberately — the injected block is
+read whole by the model, so *being in it* dominates *being first in it*. Stated
+here rather than quietly reporting only the metrics that improved.
+
+### D15 — A retrieval judge, because relevance is not a local computation
+
+Adopted after D1's measurement (above) showed no local signal can decide whether
+anything in the store is relevant. jcode reaches the same conclusion and treats
+the *absence* of its judge as a defect to drive to zero
+(`memory_judge_metrics.rs`); waku reaches it too, with a cheaper judge.
+
+**What makes it affordable is where it runs, not how small it is.** The original
+objection in §2 was one provider round-trip per user turn. Two things remove it:
+
+1. It runs on the **existing one-turn-behind prefetch** (`kickPrefetch`), which
+   the loop already never waits on. The judge adds latency to a background task,
+   not to the user's turn.
+2. **Cadence carry** (jcode's `CadenceCarry`): a verdict is about a *topic*, so
+   it is reused until the topic changes. The topic-change threshold already
+   exists (`TOPIC_SIM_MIN`, shared with extraction). The judge fires on a topic
+   change, not on a message.
+
+**It fails closed.** On a transport error or an unparseable verdict the
+candidates are dropped rather than surfaced — the opposite of waku's gate, which
+fails open and therefore pays for the gate *and* injects anyway. The asymmetry
+that decides it: a missed memory costs one turn of the model not knowing
+something, and the next turn re-judges; an injected irrelevant memory biases the
+answer and the user never finds out why. A failure is *counted*, so a provider
+that is down shows up as a degradation rate rather than as silence.
+
+**Decisions are exhaustive**, following jcode: `judge_ran`, `disabled`,
+`no_candidates`, `no_provider`, `unparseable`, `failed`, plus `cadence_carry` at
+the call site. `isDegradation()` splits intended non-LLM outcomes from unintended
+ones, so the number driven to zero is the *degradation* rate rather than the
+conversion rate. A new path that surfaces memory without the judge has to add a
+variant, which is the mechanism that would have caught defect 3 years earlier.
+
+**Ceiling, measured** with a perfect reader (`--judge=oracle` — a bound on what
+any judge can achieve, not a claim about a real model): abstention accuracy
+0% → 100%, recall@5 81.8% → 86.4%, MRR 81.7% → 100%, nDCG@10 76.9% → 89.4%.
+Recall@10 is unmoved at 86.4%, correctly: the judge only filters, so retrieval's
+recall ceiling is whatever it already was.
+
+Off via `memory.retrievalJudge: false` or `FREECODE_DISABLE_MEMORY_JUDGE=1`, and
+off by omission — with no judge context supplied the filter is the identity
+function, so every existing caller and test keeps the old behaviour.
 
 ### D2 — A byte ceiling on the injected block, with tiered degradation
 
@@ -799,23 +883,25 @@ read it.
 | ---- | ------ | -------------- |
 | **`memory/bm25.ts`** | **created** | D1: term-frequency index + BM25 scoring over the store |
 | `memory/mem-query.ts` | modified | D1: `score()` delegates to BM25; `findRelevantMemories` returns ranks for fusion |
-| `memory/graph/index.ts` | modified | D1: `seed()` fuses vector + BM25 ranks via RRF, floor on the fused score, terminal fallback removed; D2: plumb scores through `retrieve()`/`prepareMemories`; D6: decay multiplier on episode scores; D14: emit `RetrievalOutcome` |
+| `memory/graph/index.ts` | modified | D1: `seed()` fuses vector + BM25 ranks via RRF, terminal fallback removed; D2: plumb scores through `retrieve()`/`prepareMemories`; D6: decay multiplier on episode scores; D14: emit `RetrievalOutcome`; D15: `applyJudge()` + cadence carry on the prefetch |
+| **`memory/graph/fusion.ts`** | **created** | D1: reciprocal rank fusion, `RRF_K` |
 | `memory/mem-prompt.ts` | modified | D2: `MAX_MEMORY_BLOCK_BYTES` + tiered degradation; D5: `## Episode` one-line section; D12: the `<memory-used>` instruction line |
 | **`memory/usage-store.ts`** | **created** | D12: debounced read/write of `.graph/usage.json`, `recordInjected` / `recordCited` |
 | **`memory/citations.ts`** | **created** | D12: parse and strip `<memory-used>` from assistant text |
 | **`memory/git-baseline.ts`** | **created** | D13: `ensureRepo` / `diffSinceBaseline` / `commitBaseline`, all degrading to no-op |
-| **`memory/bench/`** | **created** | D14: `queries.ts`, `pool.ts`, `metrics.ts`, `corpus/` fixture, `longmemeval.ts` loader |
+| **`memory/bench/`** | **created** | D14: `pool.ts`, `metrics.ts`, `run.ts`, `probe.ts`, `corpus/` fixture, `README.md` (results + method) |
+| **`memory/judge.ts`** | **created** | D15: one call, exhaustive decision enum, fails closed |
 | `session/manager.ts` | modified | D3: `endSession(sessionId, reason)` |
 | `server.ts` | modified | D3: call it from `session.switch` / `.archive` / `.stop` / `.delete` and the `exit` handler |
 | `memory/extract.ts` | modified | D4: `force` option |
-| `memory/extract-policy.ts` | modified | D4: `force` bypasses gate 6 only; D7: consolidation settings alongside the extraction ones |
+| `memory/extract-policy.ts` | modified | D4: `force` bypasses gate 6 only; D7: consolidation settings alongside the extraction ones; D15: `memory.retrievalJudge` |
 | `memory/mem-types.ts` | modified | D5: `"episode"` in the union + `MEMORY_TYPES`; `happened_at` parse/serialize |
 | `tools/memory.ts` | modified | D5: reject `type: "episode"` on `save` |
 | **`memory/consolidate.ts`** | **created** | D9: assemble input (index + D13 diff + usage-ranked candidates), one call, validate, apply under caps |
 | **`memory/consolidate-policy.ts`** | **created** | D7: the five gates + settings |
 | **`memory/consolidation-lock.ts`** | **created** | D8: read / acquire / rollback over one mtime, plus outcome + `retryAt` |
 | `memory/graph/builder.ts` | modified | D5: `happened_at` onto the node so `/graph` can show it |
-| `agent/loop.ts` | modified | D7: consolidation in the extraction slot, mutually exclusive; D12: strip `<memory-used>` and record citations against the injected set |
+| `agent/loop.ts` | modified | D7: consolidation in the extraction slot, mutually exclusive; D12: strip `<memory-used>` and record citations against the injected set; D15: pass the judge context into `prepareMemories` |
 | `rollout/recorder.ts` | modified | D14: record `RetrievalOutcome` |
 | `permission/mode-policy.ts` | **no change** | `memory` stays out of `READONLY_TOOLS` (write-path D7). Listed so the tool checklist shows it was considered |
 | `docs/superpowers/MEMORY_SYSTEM.md` | modified | §2 layout, §3 write path, §10 gaps, §11 comparison |
@@ -949,14 +1035,21 @@ measurement now comes before the change it measures, and the usage loop before
 the decisions that read it. (These are *our* phases; codex's "Phase 1 / Phase 2"
 elsewhere in this document are its own pipeline stages and unrelated.)
 
-- [ ] **Phase 0 — the ruler.** D14's harness plus the synthetic corpus. No
+- [x] **Phase 0 — the ruler.** D14's harness plus the synthetic corpus. No
       product change at all; it only reports numbers about today's retrieval.
       Small, and it makes every later phase arguable on evidence. Ends with a
       committed baseline for today's behaviour.
-- [ ] **Phase 1 — retrieval quality.** D1 (BM25 + RRF + fused floor) and D2
-      (byte cap, score plumbing). No model calls, no schema change. **Ships only
-      with a Phase 0 before/after in the PR description**, including abstention
-      accuracy. This is where the token savings are.
+
+      *It earned its place on day one:* the baseline showed abstention accuracy
+      of 0%, and the next run showed D1's proposed fix did not move it. Both
+      facts were unavailable to the version of this spec that had no harness.
+- [x] **Phase 1 — retrieval quality.** D1 (BM25 + RRF) and D2 (byte cap, score
+      plumbing). **Ships only with a Phase 0 before/after in the PR
+      description**, including abstention accuracy. This is where the token
+      savings are.
+- [x] **Phase 1b — the judge.** D15. Not in the original plan; added when Phase 1
+      showed abstention cannot be fixed locally. One small call per topic change,
+      on the background prefetch.
 - [ ] **Phase 2 — the usage loop.** D12. One prompt line, one sidecar file, one
       parser. Independently valuable — `useCount / injectedCount` per memory is
       the first real read on whether any of this works — and a prerequisite for
@@ -1014,9 +1107,19 @@ Recorded so they are easy to overturn:
    ignored — but it is still a new on-disk structure the user did not ask for,
    and `freecode memory` commands now operate inside a repo. Reversible: delete
    `.git` and consolidation degrades to heuristic selection.
-9. **The LLM retrieval judge is deferred, not rejected** (§2). The condition for
-   revisiting is explicit: once D14 reports a baseline. Recorded because the
-   original spec declined it outright and jcode is good evidence against that.
+9. ~~**The LLM retrieval judge is deferred, not rejected**~~ — **resolved:
+   adopted as D15** once D14 reported. Kept in the list because the reversal is
+   the most consequential change to this spec and should be easy to find.
+10. **The judge fails closed** (D15). Diverges from both waku (fails open) and
+    jcode (carries the last verdict). On an unparseable verdict or a dead
+    provider we inject nothing. Chosen on asymmetry — a missed memory costs one
+    turn, an injected irrelevant one biases the answer invisibly — but it does
+    mean a provider outage silently turns memory off. The degradation counter is
+    what makes that visible; if it turns out to fire often, revisit.
+11. **The bench uses an oracle judge, not a real model** (D14). A benchmark that
+    costs money per run stops being run. The oracle measures the *ceiling*, so
+    every judge number in this spec is an upper bound and is labelled as one. No
+    real-model figure has been measured yet.
 
 ## 11. Dependencies and known gaps
 
