@@ -50,6 +50,12 @@ export interface ToolSpan {
   tool: string;
   startedAt: number;
   duration_ms: number;
+  /**
+   * Arguments the tool was called with, from the paired `function.call`.
+   * `function.output` carries no args, so a span whose opening call was lost
+   * (truncated log, resumed mid-turn) has none — hence optional.
+   */
+  args?: Record<string, unknown>;
 }
 
 export interface Trace {
@@ -85,7 +91,10 @@ export function buildTrace(
   const modelSpans: ModelSpan[] = [];
   const toolSpans: ToolSpan[] = [];
   const open: ModelSpan[] = [];
-  const pendingTools = new Map<string, number>();
+  const pendingTools = new Map<
+    string,
+    { startedAt: number; args?: Record<string, unknown> }
+  >();
 
   for (const event of events) {
     switch (event.type) {
@@ -135,16 +144,22 @@ export function buildTrace(
         break;
       }
       case "function.call":
-        pendingTools.set(event.tool, event.timestamp);
+        pendingTools.set(event.tool, {
+          startedAt: event.timestamp,
+          args: event.args,
+        });
         break;
-      case "function.output":
+      case "function.output": {
+        const pending = pendingTools.get(event.tool);
         toolSpans.push({
           tool: event.tool,
-          startedAt: pendingTools.get(event.tool) ?? event.timestamp,
+          startedAt: pending?.startedAt ?? event.timestamp,
           duration_ms: event.duration_ms,
+          ...(pending?.args ? { args: pending.args } : {}),
         });
         pendingTools.delete(event.tool);
         break;
+      }
     }
   }
 

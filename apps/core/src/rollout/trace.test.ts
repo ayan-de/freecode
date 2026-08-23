@@ -145,6 +145,44 @@ test("attributes time across model, tools and idle", () => {
   assert.equal(trace.wall_ms, 10_600);
 });
 
+test("carries tool call arguments from the call onto the span", () => {
+  // `function.output` has no args of its own — they only exist on the paired
+  // `function.call`, and the fold used to drop them. Trajectory scoring
+  // (expect_in_args) reads them off the span.
+  const trace = buildTrace("s1", [
+    event("function.call", 100, {
+      turnId: "turn-0",
+      tool: "grep",
+      args: { pattern: "HANG_THRESHOLD_MS", path: "apps/core" },
+    }),
+    event("function.output", 300, {
+      turnId: "turn-0",
+      tool: "grep",
+      output: "trace.ts:26",
+      duration_ms: 200,
+    }),
+  ]);
+  assert.deepEqual(trace.toolSpans[0].args, {
+    pattern: "HANG_THRESHOLD_MS",
+    path: "apps/core",
+  });
+});
+
+test("leaves args undefined when the opening call was never logged", () => {
+  // A truncated log or a session resumed mid-turn can produce an output whose
+  // call is absent. That must degrade to "no args", not crash the fold.
+  const trace = buildTrace("s1", [
+    event("function.output", 300, {
+      turnId: "turn-0",
+      tool: "grep",
+      output: "x",
+      duration_ms: 200,
+    }),
+  ]);
+  assert.equal(trace.toolSpans[0].args, undefined);
+  assert.equal(trace.toolSpans[0].startedAt, 300);
+});
+
 test("a response after a turnId reset still closes the open request", () => {
   // Resuming a session restarts turn numbering; matching purely on turnId
   // would orphan the response and invent a hang that did not happen.
