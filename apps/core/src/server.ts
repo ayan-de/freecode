@@ -54,6 +54,8 @@ import { disposeOutputStore } from "./tools/output-store/index.js";
 import { disposeReadState } from "./tools/read-state.js";
 import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "./context/session-context.js";
+import { endSession, type SessionEndReason } from "./session/end-session.js";
+import { flushSessionMemory } from "./memory/final-flush.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
 import {
@@ -296,6 +298,44 @@ function createSession(config: SessionConfig): SessionInfo {
 
 function getSession(id: string): SessionInfo | undefined {
   return sessions.get(id);
+}
+
+/**
+ * End a session once, whatever ended it (spec D3).
+ *
+ * `flush` is opt-in per reason: switching away or quitting should mine the
+ * conversation one last time (D4), but deleting a session must not — the user
+ * is discarding it, and extracting from something they just threw away is the
+ * one case where a memory write is clearly unwanted.
+ *
+ * Note `session.stop` is deliberately NOT a caller. It interrupts an in-flight
+ * turn and keeps the session continuable, so disposing its caches would degrade
+ * the next message. The spec lists it as an end reason; that is a spec error,
+ * recorded in D3.
+ */
+async function endSessionOnce(
+  sessionId: string,
+  reason: SessionEndReason,
+  options: { flush: boolean } = { flush: true },
+): Promise<void> {
+  const info = getSession(sessionId);
+  await endSession(sessionId, {
+    reason,
+    also: () => messageQueues.delete(sessionId),
+    flush:
+      options.flush && info
+        ? async () => {
+            const store = await getSessionStore();
+            const messages = await store.getMessages(sessionId);
+            return flushSessionMemory({
+              sessionId,
+              projectPath: process.cwd(),
+              provider: info.provider,
+              messages,
+            });
+          }
+        : undefined,
+  });
 }
 
 function createResponse(id: number | string, result: unknown): JsonRpcResponse {
@@ -945,7 +985,13 @@ const methodHandlers: Record<
   "session.switch": async (params: Record<string, unknown>): Promise<void> => {
     const { sessionId } = params as { sessionId: string };
     const manager = await getSessionManager();
+    // The session being switched *away from* is the one that ended (D3). Its
+    // six per-session caches used to leak on every switch.
+    const leaving = (await manager.getCurrent())?.id;
     await manager.switch(sessionId);
+    if (leaving && leaving !== sessionId) {
+      await endSessionOnce(leaving, "switch");
+    }
   },
 
   "session.fork": async (params: Record<string, unknown>): Promise<string> => {
@@ -958,22 +1004,18 @@ const methodHandlers: Record<
     const { sessionId } = params as { sessionId: string };
     const manager = await getSessionManager();
     await manager.archive(sessionId);
+    await endSessionOnce(sessionId, "archive");
   },
 
   "session.delete": async (params: Record<string, unknown>): Promise<void> => {
     const { sessionId } = params as { sessionId: string };
     const manager = await getSessionManager();
     await manager.delete(sessionId);
-    disposeSessionMemory(sessionId);
-    resetExtractPolicy(sessionId);
-    disposeOutputStore(sessionId);
-    disposeReadState(sessionId);
-    disposeCacheAwareness(sessionId);
-    disposeFrozenSessionContext(sessionId);
-    // Drop the in-memory follow-up queue — the session is gone, so any
-    // pending prompts would otherwise leak and (worse) be drained into a
-    // turn for a session that no longer exists.
-    messageQueues.delete(sessionId);
+    // No flush: the user discarded this session, so mining it for memories is
+    // the one case where a write is clearly unwanted. The disposers still run,
+    // including the follow-up queue, which would otherwise leak pending
+    // prompts and drain them into a turn for a session that no longer exists.
+    await endSessionOnce(sessionId, "delete", { flush: false });
   },
 
   "session.getInterrupted": async (): Promise<{
@@ -1107,8 +1149,33 @@ export async function startServer() {
   hookSettings.load();
   hookSettings.watch();
 
-  // Clean up on shutdown
+  // Clean up on shutdown. `exit` cannot await, so the memory flush goes on the
+  // signal handlers, which can (spec D3/D4) — quitting is how most sessions
+  // actually end, and it was the path that mined nothing and leaked all six
+  // per-session caches.
   process.on("exit", () => hookSettings.dispose());
+
+  let shuttingDown = false;
+  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Abort in-flight provider/tool calls first: the flush below reads the
+    // persisted transcript, so waiting for a turn to finish buys nothing and
+    // delays the exit.
+    for (const loop of activeLoops.values()) loop.interrupt();
+    await Promise.all(
+      [...sessions.keys()].map((id) =>
+        endSessionOnce(id, "exit").catch(() => {
+          // endSession already swallows; this guards the promise itself. A
+          // cleanup failure must never stop the process from exiting.
+        }),
+      ),
+    );
+    hookSettings.dispose();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
   // Speaker wire: forward internal bus events to both frontend transports.
   bus.subscribeAll((event) => {

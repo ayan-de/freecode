@@ -165,3 +165,85 @@ test("an unreadable settings file leaves extraction enabled at defaults", () => 
     cleanup();
   }
 });
+
+// -- D4: the end-of-session flush ---------------------------------------------
+
+function forcedRun(
+  root: string,
+  sessionId: string,
+  overrides: Partial<Parameters<typeof shouldExtract>[0]> = {},
+) {
+  const userText = "how does the agent loop work";
+  return shouldExtract({
+    sessionId,
+    projectRoot: root,
+    transcript: `user: ${userText}\n\nassistant: ${"it works like this. ".repeat(20)}`,
+    turns: 2,
+    memoryToolUsed: false,
+    userText,
+    force: true,
+    ...overrides,
+  });
+}
+
+test("force bypasses the interval — a session ending at run 2 still extracts", () => {
+  const { root, cleanup } = project({ memory: { extractEveryNRuns: 8 } });
+  resetExtractPolicy();
+  try {
+    assert.equal(run(root, "F1").extract, false, "run 1 throttled");
+    // The whole point of D4: without force the session ends here and whatever
+    // the user said is lost.
+    const decision = forcedRun(root, "F1");
+    assert.equal(decision.extract, true);
+    assert.match(decision.reason, /session ended/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("force does NOT bypass the env kill switch", () => {
+  const { root, cleanup } = project();
+  resetExtractPolicy();
+  process.env[ENV_KEY] = "1";
+  try {
+    assert.equal(forcedRun(root, "F2").extract, false);
+  } finally {
+    delete process.env[ENV_KEY];
+    cleanup();
+  }
+});
+
+test("force does NOT bypass the settings kill switch", () => {
+  const { root, cleanup } = project({ memory: { autoExtract: false } });
+  resetExtractPolicy();
+  try {
+    // A kill switch a code path can bypass is not a kill switch.
+    assert.equal(forcedRun(root, "F3").extract, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("force does NOT bypass the too-short gate", () => {
+  const { root, cleanup } = project();
+  resetExtractPolicy();
+  try {
+    const decision = forcedRun(root, "F4", { transcript: "user: hi", turns: 1 });
+    assert.equal(decision.extract, false);
+    assert.match(decision.reason, /too short/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("force does NOT bypass 'the model already saved this run'", () => {
+  const { root, cleanup } = project();
+  resetExtractPolicy();
+  try {
+    const decision = forcedRun(root, "F5", { memoryToolUsed: true });
+    assert.equal(decision.extract, false);
+    assert.match(decision.reason, /already saved/);
+  } finally {
+    cleanup();
+  }
+});

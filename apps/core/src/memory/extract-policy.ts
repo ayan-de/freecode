@@ -35,6 +35,12 @@ export interface ExtractDecisionInput {
   memoryToolUsed: boolean;
   /** Latest user message, for topic-change detection. */
   userText: string;
+  /**
+   * End-of-session flush (spec D4). Bypasses the interval gate and **nothing
+   * else** — a kill switch a code path can bypass is not a kill switch, and a
+   * transcript too short to hold a fact is still too short at session end.
+   */
+  force?: boolean;
 }
 
 export interface ExtractDecision {
@@ -184,6 +190,15 @@ export function shouldExtract(input: ExtractDecisionInput): ExtractDecision {
     const runs = state.runsSinceExtraction;
     state.runsSinceExtraction = 0;
     return { extract: true, reason: `topic changed after ${runs} run(s)` };
+  }
+
+  // Gate 6, the interval — the only one `force` skips (D4). A session that
+  // ends at run 5 used to extract nothing, which is how a preference stated in
+  // a one-shot session was lost.
+  if (input.force) {
+    const runs = state.runsSinceExtraction;
+    state.runsSinceExtraction = 0;
+    return { extract: true, reason: `session ended after ${runs} run(s)` };
   }
 
   if (state.runsSinceExtraction >= settings.intervalRuns) {
