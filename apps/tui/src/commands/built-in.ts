@@ -21,6 +21,7 @@ const helpCommand: Command = {
 - **/model** - Select AI model
 - **/resume** - Resume a previous session
 - **/compact** - Summarize older turns to free up context
+- **/context** - Show what is occupying the context window
 - **/usage** - Show daily token usage heatmap
 - **/cost** - Show token spend and prompt-cache hit rate
 - **/skills** - List available skills (global + project)
@@ -74,6 +75,14 @@ const compactCommand: Command = {
   description: "Summarize older turns to free up context",
   execute: (_args, ctx) => {
     void ctx.compactSession?.();
+  },
+};
+
+const contextCommand: Command = {
+  name: "context",
+  description: "Show what is occupying the context window",
+  execute: async (_args, ctx) => {
+    await ctx.showContextReport?.();
   },
 };
 
@@ -226,6 +235,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(modelCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);
+  registerCommand(contextCommand);
   registerCommand(usageCommand);
   registerCommand(costCommand);
   registerCommand(skillsCommand);

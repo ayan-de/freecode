@@ -44,6 +44,7 @@ import {
   sessionStop,
   sessionDequeue,
   sessionCompact,
+  getContextStats,
   sessionList,
   sessionResume,
   sessionClaudeList,
@@ -74,6 +75,7 @@ import {
   createSystemMessage,
   createInProgressMessage,
   createQueuedUserMessage,
+  createContextReportMessage,
   removeMessageById,
   updateInProgressMessage,
   subscribeToMessages,
@@ -1329,6 +1331,21 @@ editor.onSubmit = async (value: string) => {
             } catch (err) {
               dismissCompactionModal(
                 err instanceof Error ? err.message : String(err),
+              );
+            }
+          },
+          showContextReport: async () => {
+            if (!currentSession) {
+              showMessage("*No active session — start a turn first.*");
+              return;
+            }
+            try {
+              createContextReportMessage(
+                await getContextStats(currentSession.sessionId),
+              );
+            } catch (err) {
+              showMessage(
+                `*Error reading context usage: ${err instanceof Error ? err.message : String(err)}*`,
               );
             }
           },

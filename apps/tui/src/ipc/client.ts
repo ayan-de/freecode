@@ -17,6 +17,7 @@ import type {
   SessionResumeResult,
   ClaudeSessionMeta,
   ClaudeTranscript,
+  ContextBreakdown,
   ProviderInfo,
   CommandInfo,
   StreamEvent,
@@ -641,6 +642,18 @@ export interface DailyUsage {
 
 export async function getUsage(): Promise<DailyUsage[]> {
   return (await sendRequest("usage.get")) as DailyUsage[];
+}
+
+/**
+ * Context-window occupancy by category, for `/context`. Core does the
+ * accounting — it is the only side that knows how a request is assembled.
+ */
+export async function getContextStats(
+  sessionId: string,
+): Promise<ContextBreakdown> {
+  return (await sendRequest("context.stats", {
+    sessionId,
+  })) as ContextBreakdown;
 }
 
 export interface SkillInfo {

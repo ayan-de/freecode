@@ -57,3 +57,42 @@ test("compileSystemBlocks uses one system prompt regardless of model", async () 
     assert.ok(blocks[0].text.includes(`powered by the model named ${model}`));
   }
 });
+
+test("the static block is exactly the join of its named segments", async () => {
+  // The `/context` breakdown attributes tokens per segment and reports their
+  // sum as the static block's size. If the block were assembled any other way
+  // that sum would silently stop matching what is sent.
+  const project = tmpDir();
+  fs.writeFileSync(path.join(project, "CLAUDE.md"), "SEGMENT-JOIN-MARKER");
+  const compiler = new PromptCompiler(project, "test-project", "plan");
+
+  const segments = await compiler.buildStaticSegments("mock-provider-a", "m-1");
+  const blocks = await compiler.compileSystemBlocks("mock-provider-a", "m-1");
+
+  assert.equal(
+    blocks[0].text,
+    segments
+      .map((s) => s.text)
+      .filter((t) => t.length > 0)
+      .join("\n\n"),
+  );
+  assert.deepEqual(
+    segments.map((s) => s.id),
+    ["system-prompt", "project-instructions", "skills", "memory-guidance"],
+  );
+});
+
+test("an absent section yields an empty segment, not a blank gap", async () => {
+  // No CLAUDE.md and (in an empty project) no skills: those segments must come
+  // back empty so the breakdown omits them, and the join must not leave the
+  // double newlines that would shift every byte after it.
+  const project = tmpDir();
+  const compiler = new PromptCompiler(project, "test-project", "build");
+
+  const segments = await compiler.buildStaticSegments("mock-provider-a");
+  const instructions = segments.find((s) => s.id === "project-instructions");
+  assert.equal(instructions?.text, "");
+
+  const blocks = await compiler.compileSystemBlocks("mock-provider-a");
+  assert.ok(!blocks[0].text.includes("\n\n\n"));
+});

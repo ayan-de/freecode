@@ -54,6 +54,8 @@ import { disposeOutputStore } from "./tools/output-store/index.js";
 import { disposeReadState } from "./tools/read-state.js";
 import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "./context/session-context.js";
+import { buildContextBreakdown } from "./context/breakdown.js";
+import type { AgentMode } from "./agent/types.js";
 import { endSession, type SessionEndReason } from "./session/end-session.js";
 import { flushSessionMemory } from "./memory/final-flush.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
@@ -596,6 +598,32 @@ const methodHandlers: Record<
       tokensAfter: outcome.tokensAfter,
       reason: outcome.reason,
     };
+  },
+
+  // Where the context window is going, by category (the `/context` command).
+  // No provider call and no memory retrieval. It does take the session's frozen
+  // project context, which snapshots the file tree if the session hasn't sent a
+  // turn yet — the same snapshot that turn would have taken moments later.
+  "context.stats": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { sessionId } = params as { sessionId: string };
+    const session = getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const config = readConfig();
+    const store = await getSessionStore();
+    return await buildContextBreakdown({
+      sessionId,
+      projectPath: session.projectPath,
+      provider: config.current?.provider || session.provider,
+      model: config.current?.model || session.model,
+      // Mode changes the mode-prompt section; it is persisted, not on SessionInfo.
+      agentMode: getLastAgentMode() as AgentMode | undefined,
+      messages: await store.getMessages(sessionId, session.projectPath),
+    });
   },
 
   "question.answer": async (params: Record<string, unknown>): Promise<void> => {

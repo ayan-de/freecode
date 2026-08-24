@@ -36,6 +36,13 @@ export interface CommandContext extends MessageCreators {
   /** Trigger manual compaction of the current session (the /compact command). */
   compactSession?(): Promise<void>;
   /**
+   * Render the context-window breakdown for the current session (the /context
+   * command). Lives in the shell because only it holds the session id, and
+   * because the report gets its own colour-coded component rather than going
+   * through showMessage.
+   */
+  showContextReport?(): Promise<void>;
+  /**
    * Cache/token totals for the active session (the /cost command). Lives in the
    * shell rather than the store because it accumulates across prompts and is
    * reset when the session changes. Undefined before the first completed run.

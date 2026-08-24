@@ -587,6 +587,13 @@ export class MemoryGraphService {
     return st;
   }
 
+  // The set that would be injected right now, without kicking a retrieval.
+  // `/context` needs to price the memory block, and pricing it must not cost a
+  // judge call or move the one-turn-behind stash the next real turn depends on.
+  peekMemories(sessionId: string): MemoryEntry[] {
+    return this.sessions.get(sessionId)?.stash ?? [];
+  }
+
   // Prepare the memories to inject for `sessionId`'s current context and return
   // them (spec D5). Warm turns return the previously surfaced set instantly and
   // refresh in the background (one-turn-behind). A cold turn (session's first

@@ -43,6 +43,23 @@ Use with extreme caution - you can break things permanently.`,
 };
 
 // ===========================================================================
+// System Prompt Segments
+// ===========================================================================
+
+/** A named part of the static system prompt. */
+export interface SystemSegment {
+  id: "system-prompt" | "project-instructions" | "skills" | "memory-guidance";
+  label: string;
+  /** "" when the section has nothing to contribute (no CLAUDE.md, no skills). */
+  text: string;
+}
+
+/** Drop empty sections, then join — how every prompt section has been glued. */
+function joinSections(parts: string[]): string {
+  return parts.filter((s) => s.length > 0).join("\n\n");
+}
+
+// ===========================================================================
 // File Tree Cache
 // ===========================================================================
 
@@ -129,16 +146,18 @@ ${tree}`;
   }
 
   /**
-   * Compile the **static** system prompt block. Cached; its content never
-   * changes within a session, so a breakpoint here is what makes the prefix
-   * re-readable. Anything that changes between turns (file tree, memory, clock)
-   * belongs in compileDynamicContext, inlined as a normal user message.
+   * The static system prompt, split into the parts a human would name.
+   *
+   * compileSystemBlocks is a join over this, so `/context` can attribute tokens
+   * to "project instructions" vs "skills" without maintaining a second, parallel
+   * idea of what the prompt contains. Add a section here, not there, and the
+   * breakdown picks it up for free.
    */
-  async compileSystemBlocks(
+  async buildStaticSegments(
     provider: string,
     model?: string,
     skillsSection?: string,
-  ): Promise<SystemBlock[]> {
+  ): Promise<SystemSegment[]> {
     // Ground the model's identity so it never confuses itself with the vendor
     // whose model powers it (e.g. reporting itself as "Claude Code").
     const modelIdentity = model
@@ -153,20 +172,51 @@ ${tree}`;
       skillsSection ?? (await renderAvailableSkillsSection(this.projectPath));
 
     // Tools are sent as native schemas by the providers; no text list needed.
-    const staticText = [
-      (await loadSystemPrompt()).trim(),
-      modelIdentity,
-      this.compileSystemPrompt(),
-      compileInstructionsSection(this.projectPath),
-      skills,
-      // Constant text — safe in the cached prefix. The memories themselves are
-      // injected per turn by the loop, never here.
-      buildMemoryGuidanceBlock(),
-    ]
-      .filter((s) => s.length > 0)
-      .join("\n\n");
+    return [
+      {
+        id: "system-prompt",
+        label: "System prompt",
+        text: joinSections([
+          (await loadSystemPrompt()).trim(),
+          modelIdentity,
+          this.compileSystemPrompt(),
+        ]),
+      },
+      {
+        id: "project-instructions",
+        label: "Project instructions",
+        text: compileInstructionsSection(this.projectPath),
+      },
+      { id: "skills", label: "Skills", text: skills },
+      {
+        id: "memory-guidance",
+        // Constant text — safe in the cached prefix. The memories themselves are
+        // injected per turn by the loop, never here.
+        label: "Memory guidance",
+        text: buildMemoryGuidanceBlock(),
+      },
+    ];
+  }
 
-    return [{ text: staticText, cache: true }];
+  /**
+   * Compile the **static** system prompt block. Cached; its content never
+   * changes within a session, so a breakpoint here is what makes the prefix
+   * re-readable. Anything that changes between turns (file tree, memory, clock)
+   * belongs in compileDynamicContext, inlined as a normal user message.
+   */
+  async compileSystemBlocks(
+    provider: string,
+    model?: string,
+    skillsSection?: string,
+  ): Promise<SystemBlock[]> {
+    const segments = await this.buildStaticSegments(
+      provider,
+      model,
+      skillsSection,
+    );
+    return [
+      { text: joinSections(segments.map((s) => s.text)), cache: true },
+    ];
   }
 
   /**

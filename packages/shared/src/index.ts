@@ -24,6 +24,9 @@ export type {
   ClaudeSessionMeta,
   ClaudeTranscript,
   ClaudeListFilter,
+  ContextSegmentId,
+  ContextSegmentStat,
+  ContextBreakdown,
 } from "./types.js";
 
 // IPC Protocol

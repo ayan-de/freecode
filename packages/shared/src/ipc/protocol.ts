@@ -311,6 +311,12 @@ export const METHODS = {
     params: { requestId: "" },
     result: undefined as void,
   },
+  // Context-window occupancy by category, for the `/context` command. Cheap:
+  // it never kicks a memory retrieval, a judge call, or a provider round trip.
+  "context.stats": {
+    params: { sessionId: "" },
+    result: {} as import("../types.js").ContextBreakdown,
+  },
   "usage.get": {
     params: undefined,
     result: [] as { date: string; tokencount: number }[],

@@ -229,3 +229,55 @@ export interface ClaudeListFilter {
   projectPath?: string;
   limit?: number;
 }
+
+// ===========================================================================
+// Context Breakdown (`context.stats` / the `/context` command)
+// ===========================================================================
+
+/**
+ * A category of context-window occupancy. The ids mirror how core assembles a
+ * request (see `apps/core/src/context/breakdown.ts`), so a frontend can color
+ * or order them without parsing labels.
+ */
+export type ContextSegmentId =
+  | "system-prompt"
+  | "project-instructions"
+  | "skills"
+  | "memory-guidance"
+  | "tools"
+  | "mcp-tools"
+  | "compaction-summary"
+  | "memories"
+  | "todos"
+  | "project-context"
+  | "messages";
+
+export interface ContextSegmentStat {
+  id: ContextSegmentId;
+  /** Human-readable name, e.g. "Project instructions". */
+  label: string;
+  tokens: number;
+}
+
+/**
+ * Where the context window is going, as of right now.
+ *
+ * `segments`/`usedTokens` are estimates (chars/4 — the same estimator
+ * compaction budgets with); `measuredInputTokens` is the provider's own count
+ * from the last completed turn, so a frontend can show the estimate against
+ * ground truth instead of presenting a guess as fact. Both are absent rather
+ * than zero when unknown: `contextLimit` needs a models.dev lookup, and
+ * `measuredInputTokens` needs at least one completed turn.
+ */
+export interface ContextBreakdown {
+  provider: string;
+  model?: string;
+  contextLimit?: number;
+  segments: ContextSegmentStat[];
+  usedTokens: number;
+  freeTokens?: number;
+  measuredInputTokens?: number;
+  toolCount: number;
+  mcpToolCount: number;
+  messageCount: number;
+}
