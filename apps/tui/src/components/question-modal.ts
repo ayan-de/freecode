@@ -10,7 +10,8 @@ import type { QuestionSpec } from "@thisisayande/freecode-shared";
 
 // Card colors. Yellow accent matches the app theme (MODE_COLORS build/#FFD700).
 const ACCENT = "#FFD700";
-const CARD_BG = "#1F1F1F";
+// The card itself is transparent; INPUT_BG is the only fill left, marking the
+// inline "Other" field as an editable box.
 const INPUT_BG = "#37373E";
 const DIM = "#666666";
 const MARKER = "#FFD700";
@@ -105,10 +106,10 @@ export class QuestionModal implements Component {
 
   /**
    * Render the card. The box is built row by row; every row is `width` columns
-   * wide and carries the card background so the overlay composite operator
-   * blends cleanly over the transcript. Side borders are drawn on the first
-   * and last column of every interior row; the top/bottom rows get rounded
-   * corners and a centered title.
+   * wide — padded with plain spaces, not a background fill — so the overlay
+   * composite lands cleanly over the transcript. Side borders are drawn on the
+   * first and last column of every interior row; the top/bottom rows get
+   * rounded corners and a centered title.
    */
   render(width: number): string[] {
     // Clamp the inner width so a narrow terminal still renders cleanly.
@@ -116,51 +117,50 @@ export class QuestionModal implements Component {
 
     const accent = (s: string): string => chalk.hex(ACCENT)(s);
     const dim = (s: string): string => chalk.hex(DIM)(s);
-    const cardBg = (s: string): string => chalk.bgHex(CARD_BG)(s);
     const left = accent("│");
     const right = accent("│");
 
     // Top: ╭─ <title> ─…─╮
     const titleText = ` ${this.title || "Question"} `;
     const titlePlain = visibleWidth(titleText);
-    const topDashes = Math.max(0, inner - titlePlain - 2);
+    // `inner - titlePlain - 1`, not -2: the top row is "╭─" + title + dashes +
+    // "╮", so it needs one more dash than the old value gave it. The card
+    // background used to hide the missing column; without a fill it reads as a
+    // notch in the top-right corner.
+    const topDashes = Math.max(0, inner - titlePlain - 1);
     const top =
-      accent("╭") +
-      cardBg("─") +
-      chalk.bold(titleText) +
-      cardBg("─".repeat(topDashes)) +
-      accent("╮");
+      accent("╭─") + chalk.bold(titleText) + accent("─".repeat(topDashes) + "╮");
 
     // Bottom: ╰─…─╯
-    const bottom = accent("╰") + cardBg("─".repeat(inner)) + accent("╯");
+    const bottom = accent("╰" + "─".repeat(inner) + "╯");
 
-    const rows: string[] = [cardBg(top)];
+    const rows: string[] = [top];
 
     // First interior row is a blank breathing line under the title.
-    rows.push(blankRow(inner, left, right, cardBg));
+    rows.push(blankRow(inner, left, right));
 
     // Question text — wrapped so a long question doesn't blow the card.
     if (this.question) {
       const wrapped = wrapTextWithAnsi(this.question, inner);
       for (const line of wrapped) {
-        rows.push(row(line, inner, left, right, cardBg, dim));
+        rows.push(row(line, inner, left, right, dim));
       }
-      rows.push(blankRow(inner, left, right, cardBg));
+      rows.push(blankRow(inner, left, right));
     }
 
     // Option list + (optional) inline "Other" field.
-    rows.push(...this.renderOptions(inner, left, right, cardBg, dim));
+    rows.push(...this.renderOptions(inner, left, right, dim));
 
     // Hint line at the bottom of the card.
     const hint = this.editingOther
       ? "type your answer · enter submit · esc back"
       : "↑↓ move · 1-9 jump · enter select · esc cancel";
-    rows.push(row(dim(hint), inner, left, right, cardBg, dim));
+    rows.push(row(dim(hint), inner, left, right, dim));
 
     // Blank line above the bottom border.
-    rows.push(blankRow(inner, left, right, cardBg));
+    rows.push(blankRow(inner, left, right));
 
-    rows.push(cardBg(bottom));
+    rows.push(bottom);
     return rows;
   }
 
@@ -174,7 +174,6 @@ export class QuestionModal implements Component {
     inner: number,
     left: string,
     right: string,
-    cardBg: (s: string) => string,
     dim: (s: string) => string,
   ): string[] {
     const lines: string[] = [];
@@ -183,7 +182,7 @@ export class QuestionModal implements Component {
 
     if (this.options.length > visible && start > 0) {
       const label = `… +${start} more`;
-      lines.push(row(label, inner, left, right, cardBg, dim));
+      lines.push(row(label, inner, left, right, dim));
     }
 
     for (let i = start; i < Math.min(start + visible, this.options.length); i++) {
@@ -200,13 +199,13 @@ export class QuestionModal implements Component {
       const labelLines = wrapTextWithAnsi(opt.label, Math.max(1, inner - prefixWidth));
       labelLines.forEach((line, idx) => {
         const content = idx === 0 ? `${prefix}${labelColorFn(line)}` : `    ${labelColorFn(line)}`;
-        lines.push(row(content, inner, left, right, cardBg, dim));
+        lines.push(row(content, inner, left, right, dim));
       });
 
       if (opt.description) {
         const descLines = wrapTextWithAnsi(opt.description, Math.max(1, inner - 4));
         for (const line of descLines) {
-          lines.push(row(`    ${line}`, inner, left, right, cardBg, dim));
+          lines.push(row(`    ${line}`, inner, left, right, dim));
         }
       }
 
@@ -219,7 +218,7 @@ export class QuestionModal implements Component {
 
     if (this.options.length > visible && start + visible < this.options.length) {
       const label = `… +${this.options.length - start - visible} more`;
-      lines.push(row(label, inner, left, right, cardBg, dim));
+      lines.push(row(label, inner, left, right, dim));
     }
     return lines;
   }
@@ -412,22 +411,19 @@ function row(
   inner: number,
   left: string,
   right: string,
-  cardBg: (s: string) => string,
   _dim: (s: string) => string,
 ): string {
   const fitted = truncateToWidth(content, inner);
   const pad = Math.max(0, inner - visibleWidth(fitted));
-  return `${left}${cardBg(fitted)}${cardBg(" ".repeat(pad))}${right}`;
+  // No background fill — the card is transparent. The padding is still emitted
+  // as plain spaces so every row is exactly card-width; a short row would break
+  // the overlay composite.
+  return `${left}${fitted}${" ".repeat(pad)}${right}`;
 }
 
 /** Blank interior row used for breathing space above/below content. */
-function blankRow(
-  inner: number,
-  left: string,
-  right: string,
-  cardBg: (s: string) => string,
-): string {
-  return `${left}${cardBg(" ".repeat(inner))}${right}`;
+function blankRow(inner: number, left: string, right: string): string {
+  return `${left}${" ".repeat(inner)}${right}`;
 }
 
 /**
