@@ -13,6 +13,8 @@ import {
 import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
 import { NoticeModal } from "./components/notice-modal.js";
 import { CompactionModal } from "./components/compaction-modal.js";
+import { ScrollableModal } from "./components/scrollable-modal.js";
+import { renderContextReport } from "./utils/context-report.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
@@ -75,7 +77,6 @@ import {
   createSystemMessage,
   createInProgressMessage,
   createQueuedUserMessage,
-  createContextReportMessage,
   removeMessageById,
   updateInProgressMessage,
   subscribeToMessages,
@@ -123,6 +124,7 @@ import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
 import type {
   ClaudeSessionMeta,
+  ContextBreakdown,
   SerializedMessage,
   StreamEvent,
 } from "@thisisayande/freecode-shared";
@@ -1340,9 +1342,7 @@ editor.onSubmit = async (value: string) => {
               return;
             }
             try {
-              createContextReportMessage(
-                await getContextStats(currentSession.sessionId),
-              );
+              showContextModal(await getContextStats(currentSession.sessionId));
             } catch (err) {
               showMessage(
                 `*Error reading context usage: ${err instanceof Error ? err.message : String(err)}*`,
@@ -1548,6 +1548,53 @@ function hideTodoPanel(): void {
 // stacking boxes.
 let noticeOverlay: OverlayHandle | null = null;
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ---------------------------------------------------------------------------
+// Context modal (/context)
+// A scrollable card: the report is 17-27 rows depending on how many categories
+// are loaded, which does not fit an 80x24 terminal. Capturing, because the
+// arrow keys have to reach the card rather than the editor or the scrollback.
+// ---------------------------------------------------------------------------
+let contextOverlay: OverlayHandle | null = null;
+
+/** Wide enough for the grid and its legend side by side, capped so it doesn't sprawl. */
+const CONTEXT_MODAL_MAX_WIDTH = 90;
+
+function showContextModal(stats: ContextBreakdown): void {
+  // Re-entrant: a second /context while one is open replaces it rather than
+  // stacking a card the first overlay handle can no longer reach.
+  hideContextModal();
+
+  const width = Math.min(
+    CONTEXT_MODAL_MAX_WIDTH,
+    Math.max(40, terminal.columns - 4),
+  );
+  const modal = new ScrollableModal(
+    "Context Usage",
+    (innerWidth) => renderContextReport(stats, innerWidth),
+    () => hideContextModal(),
+  );
+  // A function, not a number: re-read each frame so resizing the terminal
+  // while the card is open re-fits it instead of clipping the tail.
+  modal.setMaxRows(() => Math.max(10, terminal.rows - 4));
+
+  contextOverlay = tui.showOverlay(modal, {
+    anchor: "center",
+    width,
+    // Backstop only, and a percentage so pi-tui re-resolves it per frame — the
+    // card already fits itself, but a clip here would be silent.
+    maxHeight: "95%",
+  });
+  tui.requestRender();
+}
+
+function hideContextModal(): void {
+  if (!contextOverlay) return;
+  contextOverlay.hide();
+  contextOverlay = null;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
 
 // ---------------------------------------------------------------------------
 // Compaction modal

@@ -1,8 +1,5 @@
 import type { Component } from "@earendil-works/pi-tui";
-import type {
-  ContextBreakdown,
-  SerializedMessage,
-} from "@thisisayande/freecode-shared";
+import type { SerializedMessage } from "@thisisayande/freecode-shared";
 import {
   addMessage,
   removeMessage,
@@ -15,7 +12,6 @@ import {
 } from "../state/message-store.js";
 import { createMessageComponent, ThinkingMessage } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
-import { ContextReportMessage } from "./context-report-message.js";
 import { ToolProgressMessage } from "./tool-progress-message.js";
 import { ToolResultMessage } from "./tool-result-message.js";
 
@@ -52,18 +48,6 @@ export function promoteQueuedToUser(queueId: string): MessageInstance | undefine
   if (!existing || existing.type !== "queued_user") return existing;
   const component = createMessageComponent("user", existing.content);
   return updateMessage(existing.id, existing.content, component);
-}
-
-/**
- * Add the `/context` report to the store. Stored under the "system" type — it
- * is an informational row like any other — but with its own component, because
- * the system renderer dims everything and the grid is colour-coded.
- */
-export function createContextReportMessage(
-  stats: ContextBreakdown,
-): MessageInstance {
-  const summary = `Context usage: ${stats.usedTokens} tokens`;
-  return addMessage("system", summary, new ContextReportMessage(stats));
 }
 
 /**

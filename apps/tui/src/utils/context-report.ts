@@ -133,21 +133,39 @@ export function renderContextReport(
   // Guard against a short grid if every weight was zero (a brand-new session).
   while (glyphs.length < TOTAL_CELLS) glyphs.push(chalk.hex(FREE_COLOR)(FREE_CELL));
 
-  // Legend text is built plain so it can be truncated by character count —
-  // slicing a string with ANSI escapes in it cuts the escapes in half.
+  // Legend text is built plain so it can be measured and truncated by character
+  // count — slicing a string with ANSI escapes in it cuts an escape in half.
+  //
+  // Each entry carries progressively shorter variants rather than one string to
+  // be chopped. Hard truncation cut values mid-number ("Messages: 41.0k tokens
+  // (") at 80 columns, which is worse than dropping the percentage outright:
+  // a clipped number reads as a real number.
   const denominator = limit || stats.usedTokens;
-  const legend = segments.map((segment) => ({
-    color: SEGMENT_COLORS[segment.id] ?? "#ffffff",
-    glyph: USED_CELL,
-    text:
-      `${segment.label}: ${formatTokenCount(segment.tokens)} tokens ` +
-      `(${percent(segment.tokens, denominator)})`,
-  }));
+  const legend = segments.map((segment) => {
+    const size = formatTokenCount(segment.tokens);
+    const pct = percent(segment.tokens, denominator);
+    return {
+      color: SEGMENT_COLORS[segment.id] ?? "#ffffff",
+      glyph: USED_CELL,
+      variants: [
+        `${segment.label}: ${size} tokens (${pct})`,
+        `${segment.label}: ${size} (${pct})`,
+        `${segment.label}: ${size}`,
+        segment.label,
+      ],
+    };
+  });
   if (limit > 0) {
+    const size = formatTokenCount(free);
+    const pct = percent(free, limit);
     legend.push({
       color: FREE_COLOR,
       glyph: FREE_CELL,
-      text: `Free space: ${formatTokenCount(free)} (${percent(free, limit)})`,
+      variants: [
+        `Free space: ${size} (${pct})`,
+        `Free space: ${size}`,
+        "Free space",
+      ],
     });
   }
 
@@ -156,8 +174,9 @@ export function renderContextReport(
   const clip = (text: string): string =>
     text.length > width ? text.slice(0, width) : text;
 
+  // No "Context Usage" heading: the modal draws that in its top border, and
+  // repeating it costs a row the grid needs on a short terminal.
   const lines: string[] = [];
-  lines.push(chalk.bold(clip("Context Usage")));
   lines.push(
     chalk.dim(
       clip(
@@ -181,12 +200,16 @@ export function renderContextReport(
   const sideBySide = legendWidth >= MIN_LEGEND_WIDTH;
 
   const renderEntry = (
-    entry: { color: string; glyph: string; text: string },
+    entry: { color: string; glyph: string; variants: string[] },
     maxWidth: number,
   ): string => {
     const color = chalk.hex(entry.color);
     const room = maxWidth - 2; // glyph + space
-    const text = entry.text.length > room ? entry.text.slice(0, room) : entry.text;
+    // Longest variant that fits; if even the label alone is too wide, clip it —
+    // a clipped *name* is still readable, unlike a clipped number.
+    const text =
+      entry.variants.find((v) => v.length <= room) ??
+      entry.variants[entry.variants.length - 1]!.slice(0, Math.max(0, room));
     return `${color(entry.glyph)} ${text}`;
   };
 
