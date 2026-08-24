@@ -4,7 +4,6 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { STATUS_BAR_BG } from "../themes.js";
 
 /** Blank columns between the content and the modal's left/right edges. */
 const PAD_X = 3;
@@ -60,7 +59,8 @@ export class CompactionModal implements Component {
   }
 
   /**
-   * Full-width background row, so the box reads as a solid block. Content is
+   * Full-width row padded with plain spaces — no background fill, so the
+   * overlay composites over the transcript instead of covering it. Content is
    * clipped as well as padded: on a narrow terminal the heading is wider than
    * the box, and a row that overruns breaks the whole overlay's geometry.
    */
@@ -70,7 +70,7 @@ export class CompactionModal implements Component {
       visibleWidth(content) > inner ? truncateToWidth(content, inner) : content;
     const fill = " ".repeat(Math.max(0, inner - visibleWidth(clipped)));
     const pad = " ".repeat(PAD_X);
-    return STATUS_BAR_BG(`${pad}${clipped}${fill}${pad}`);
+    return `${pad}${clipped}${fill}${pad}`;
   }
 
   /**
@@ -101,7 +101,7 @@ export class CompactionModal implements Component {
 
   render(width: number): string[] {
     const inner = Math.max(8, width - PAD_X * 2);
-    const blank = STATUS_BAR_BG(" ".repeat(width));
+    const blank = " ".repeat(width);
 
     const heading =
       this.state === "running"

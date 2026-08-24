@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { CompactionModal } from "./compaction-modal.js";
 
-// Every row is background-filled to the full overlay width; a row that is
+// Every row is padded to the full overlay width; a row that is
 // short or long corrupts the box, and an off-by-one in the bounce is the
 // likely cause.
 function assertRowsExactly(rows: string[], width: number, label: string) {
