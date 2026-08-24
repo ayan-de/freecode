@@ -959,10 +959,6 @@ function handleToolEvent(event: StreamEvent) {
           void rejectQuestion(event.requestId).catch(() => {});
         };
         modal.onNavigate = (delta) => askAt((i + delta + total) % total);
-        // No-op hooks for now — we re-render on every state change so a
-        // separate "opened Other" notification isn't needed.
-        modal.onOpenedOther = () => tui.requestRender();
-        modal.onCancelEdit = () => tui.requestRender();
         tui.requestRender();
       };
       askAt(0);

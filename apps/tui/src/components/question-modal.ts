@@ -60,14 +60,21 @@ export interface QuestionPosition {
  * modal's state. Two outcomes:
  *   - `onSelect` with a non-empty trimmed value (the chosen label, or the typed
  *     "Other" text). The caller advances to the next question or replies.
- *   - `onCancel` on Esc from the picker, or a blank "Other" submit. The caller
- *     rejects the whole question request.
+ *   - `onCancel` on Esc. The caller rejects the whole question request.
  */
 export class QuestionModal implements Component {
   private options: OptionRow[];
   private selected = 0;
-  private editingOther = false;
   private otherText = "";
+
+  /**
+   * The inline editor is open exactly while the "Other" row is selected —
+   * landing on that row is enough to start typing, and moving off it puts the
+   * keyboard back on the picker. There's no separate "enter the field" step.
+   */
+  private get editingOther(): boolean {
+    return this.options[this.selected]?.isOther === true;
+  }
 
   constructor(
     private readonly title: string,
@@ -222,10 +229,16 @@ export class QuestionModal implements Component {
   private hintText(inner: number): string {
     const nav = this.counterText() ? "←→ question · " : "";
     const variants = this.editingOther
-      ? ["type your answer · enter submit · esc back", "enter submit · esc back"]
+      ? [
+          `type your answer · ${nav}↑↓ pick instead · enter submit · esc cancel`,
+          "↑↓ pick instead · enter submit · esc cancel",
+          "↑↓ pick · enter send · esc cancel",
+          "↑↓ · enter · esc",
+        ]
       : [
           `↑↓ move · ${nav}1-9 jump · enter select · esc cancel`,
           `↑↓ move · ${nav}enter select · esc cancel`,
+          `↑↓ · ${nav}enter · esc`,
           this.counterText() ? "↑↓ ←→ · enter · esc" : "↑↓ · enter · esc",
         ];
     return variants.find((h) => visibleWidth(h) <= inner) ?? variants[variants.length - 1];
@@ -233,7 +246,7 @@ export class QuestionModal implements Component {
 
   /**
    * Render the option list. The "Other" row always appears last; when
-   * `editingOther` is true we draw the inline text field directly under it.
+   * `editingOther` is true that row is drawn as the inline text field instead.
    * Long lists scroll: a sliding window of MAX_VISIBLE_OPTIONS rows keeps the
    * selected row in view.
    */
@@ -255,6 +268,15 @@ export class QuestionModal implements Component {
     for (let i = start; i < Math.min(start + visible, this.options.length); i++) {
       const opt = this.options[i];
       const active = i === this.selected;
+
+      // Selecting "Other" turns the row *into* the editor: the label and its
+      // "Type your own answer" description say nothing the open field doesn't,
+      // and they'd sit above whatever the user is typing.
+      if (opt.isOther && this.editingOther) {
+        lines.push(...this.renderOtherField(inner, left, right));
+        continue;
+      }
+
       const marker = chalk.hex(MARKER)(active ? "❯" : " ");
       const number = dim(`${i + 1}.`).padEnd(3);
       const prefix = `${marker} ${number} `;
@@ -275,12 +297,6 @@ export class QuestionModal implements Component {
           lines.push(row(`    ${line}`, inner, left, right, dim));
         }
       }
-
-      // The "Other" row is the only one that opens an inline editor. Drawing
-      // it directly under the marker mirrors the tui-rs modal.
-      if (opt.isOther && this.editingOther) {
-        lines.push(...this.renderOtherField(inner, left, right));
-      }
     }
 
     if (this.options.length > visible && start + visible < this.options.length) {
@@ -296,29 +312,46 @@ export class QuestionModal implements Component {
    * field sits on the lighter INPUT_BG so it reads as a raised input box.
    * Emits CURSOR_MARKER at the cursor position so pi-tui can place the
    * hardware cursor for IME use.
+   *
+   * A long answer wraps onto further rows rather than scrolling off the right
+   * edge — the card can't grow sideways, so the field grows downwards.
    */
   private renderOtherField(inner: number, left: string, right: string): string[] {
     const inputBg = (s: string): string => chalk.bgHex(INPUT_BG)(s);
     const prompt = chalk.hex(MARKER)("›");
     const cursor = chalk.hex(MARKER)("▏");
-    const placeholder = chalk.hex("#555555")("type your answer…");
-    const text = this.otherText.length > 0 ? this.otherText : placeholder;
 
-    // The row is: left-border + "  " + "› " + text + cursor + padding + … +
-    // right-border. The 2-col leading indent matches the tui-rs offset.
-    const content = `  ${prompt} ${text}${cursor}`;
+    // Every row is: left-border + "  " + ("› " | "  ") + text + padding +
+    // right-border. The 2-col leading indent matches the tui-rs offset, and
+    // the 2 cols after it keep continuation rows aligned under the first
+    // character rather than under the "›".
+    const textWidth = Math.max(1, inner - 4);
+    const empty = this.otherText.length === 0;
+    const textLines = empty
+      ? [chalk.hex("#555555")("type your answer…")]
+      : wrapTextWithAnsi(this.otherText, textWidth);
 
-    // Two rows: the field row and a buffer row of the same background so the
-    // input reads as a 2-line raised box, like the tui-rs modal.
-    const fitted = truncateToWidth(content, inner);
-    const pad = Math.max(0, inner - visibleWidth(fitted));
-    const fieldRow = `${left}${inputBg(fitted)}${inputBg(" ".repeat(pad))}${right}`;
+    const fieldRows = textLines.map((line, idx) => {
+      const head = idx === 0 ? `  ${prompt} ` : "    ";
+      // The cursor sits at the end of the typed text — i.e. on the last row
+      // only — or in front of the placeholder while the field is empty.
+      const body = empty
+        ? `${cursor}${line}`
+        : `${line}${idx === textLines.length - 1 ? cursor : ""}`;
+      const content = truncateToWidth(`${head}${body}`, inner);
+      const pad = Math.max(0, inner - visibleWidth(content));
+      return `${left}${inputBg(content)}${inputBg(" ".repeat(pad))}${right}`;
+    });
+
+    // Buffer row of the same background so the input reads as a raised box
+    // with breathing room under the text, like the tui-rs modal.
     const bufferRow = `${left}${inputBg(" ".repeat(inner))}${right}`;
 
-    // When editing, append CURSOR_MARKER just after the cursor so the
-    // hardware cursor lands inside the field. Emitted on the first row only.
-    const marker = this.editingOther ? CURSOR_MARKER : "";
-    return [`${fieldRow}${marker}`, bufferRow];
+    // Append CURSOR_MARKER just after the cursor so the hardware cursor lands
+    // inside the field — on the row the cursor is actually drawn on.
+    const last = fieldRows.length - 1;
+    fieldRows[last] = `${fieldRows[last]}${CURSOR_MARKER}`;
+    return [...fieldRows, bufferRow];
   }
 
   /**
@@ -327,6 +360,11 @@ export class QuestionModal implements Component {
    * only `handleInput` we need.
    */
   handleInput(data: string): void {
+    // Arrows move regardless of where the keyboard is: ↑↓ between options
+    // (which opens or closes the inline "Other" editor as it lands on or
+    // leaves that row) and ←→ between questions. Without this the editor would
+    // swallow them and there'd be no way off the "Other" row.
+    if (this.handleArrowKey(data)) return;
     if (this.editingOther) {
       this.handleOtherInput(data);
       return;
@@ -334,26 +372,30 @@ export class QuestionModal implements Component {
     this.handlePickerInput(data);
   }
 
-  private handlePickerInput(data: string): void {
-    // Arrow keys: ANSI up/down + a few legacy variants.
-    if (data === "\x1b[A" || data === "\x1bOA" || data === "\x1b[A") {
+  /** Arrow keys (ANSI + legacy variants). Returns true when `data` was one. */
+  private handleArrowKey(data: string): boolean {
+    if (data === "\x1b[A" || data === "\x1bOA") {
       this.moveSelection(-1);
-      return;
+      return true;
     }
     if (data === "\x1b[B" || data === "\x1bOB") {
       this.moveSelection(1);
-      return;
+      return true;
     }
     // Left/right move between the questions of a multi-question request. The
     // caller owns the sequence, so we only report the direction.
     if (data === "\x1b[D" || data === "\x1bOD") {
       if (this.counterText()) this.onNavigate?.(-1);
-      return;
+      return true;
     }
     if (data === "\x1b[C" || data === "\x1bOC") {
       if (this.counterText()) this.onNavigate?.(1);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  private handlePickerInput(data: string): void {
     if (data === "\x1b" || data === "\x1b\x1b") {
       this.onCancel?.();
       return;
@@ -372,11 +414,9 @@ export class QuestionModal implements Component {
 
   private handleOtherInput(data: string): void {
     if (data === "\x1b" || data === "\x1b\x1b") {
-      // Esc from the field un-focuses it; the picker stays open for a fresh
-      // attempt. Empty submit also reaches here (the caller routes blank
-      // submits to onCancel, so this only fires on real Esc).
-      this.editingOther = false;
-      this.onCancelEdit?.();
+      // Esc means the same thing here as on any other row: dismiss the whole
+      // question. Leaving the field without cancelling is ↑↓.
+      this.onCancel?.();
       return;
     }
     if (data === "\r" || data === "\n") {
@@ -401,33 +441,28 @@ export class QuestionModal implements Component {
   }
 
   /**
-   * Enter on the picker. On a non-Other row this commits immediately. On the
-   * Other row it opens the inline editor — the user has to opt in to the
-   * free-text flow rather than being submitted by an empty string.
+   * Enter on the picker — commits the selected row. The "Other" row routes to
+   * the field's own submit instead of answering with the literal label
+   * "Other"; it normally reaches `confirmOther` via `handleOtherInput`.
    */
   private activate(): void {
     const opt = this.options[this.selected];
     if (!opt) return;
     if (opt.isOther) {
-      this.editingOther = true;
-      this.onOpenedOther?.();
+      this.confirmOther();
       return;
     }
     this.onSelect?.(opt.label);
   }
 
   /**
-   * Enter in the "Other" field. Empty text is treated like Esc — the modal
-   * never sends a blank answer; the caller dismisses the question.
+   * Enter in the "Other" field. An empty field is a no-op: the field is open
+   * as soon as the row is selected, so a stray Enter there must not send a
+   * blank answer or throw the question away. Esc is how you cancel.
    */
   private confirmOther(): void {
     const text = this.otherText.trim();
-    if (!text) {
-      this.editingOther = false;
-      this.otherText = "";
-      this.onCancel?.();
-      return;
-    }
+    if (!text) return;
     this.onSelect?.(text);
   }
 
@@ -435,12 +470,8 @@ export class QuestionModal implements Component {
 
   /** Fires with the chosen label (or typed "Other" text) on a real pick. */
   onSelect?: (label: string) => void;
-  /** Fires on Esc from the picker, or on a blank "Other" submit. */
+  /** Fires on Esc, from the picker or from the "Other" field. */
   onCancel?: () => void;
-  /** Fires when the "Other" row is opened — purely informational. */
-  onOpenedOther?: () => void;
-  /** Fires when Esc closes the "Other" field without committing. */
-  onCancelEdit?: () => void;
   /** Fires on ←/→ with -1/+1; only when the request has several questions. */
   onNavigate?: (delta: -1 | 1) => void;
 }
