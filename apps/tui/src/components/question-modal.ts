@@ -38,6 +38,16 @@ interface OptionRow {
   isOther: boolean;
 }
 
+/** Where this modal sits in a multi-question request, plus any prior answer. */
+export interface QuestionPosition {
+  /** 0-based index of this question. */
+  index: number;
+  /** Total questions in the request. */
+  total: number;
+  /** Answer previously given for this question, restored on re-entry. */
+  previousAnswer?: string;
+}
+
 /**
  * QuestionModal — the TS TUI analogue of the tui-rs PromptComponent.
  *
@@ -63,8 +73,36 @@ export class QuestionModal implements Component {
     private readonly title: string,
     private readonly question: string,
     private readonly optionsInput: QuestionSpec["options"],
+    private readonly position?: QuestionPosition,
   ) {
     this.options = buildOptions(optionsInput);
+    this.restoreAnswer(position?.previousAnswer);
+  }
+
+  /**
+   * Put the cursor back where the user left it when they navigate back to an
+   * already-answered question. A prior answer is either one of the option
+   * labels, or free text typed into "Other" — in which case we select the
+   * "Other" row and prefill the field (without reopening the editor).
+   */
+  private restoreAnswer(previous: string | undefined): void {
+    if (!previous) return;
+    const match = this.options.findIndex((o) => !o.isOther && o.label === previous);
+    if (match >= 0) {
+      this.selected = match;
+      return;
+    }
+    const other = this.options.findIndex((o) => o.isOther);
+    if (other >= 0) {
+      this.selected = other;
+      this.otherText = previous;
+    }
+  }
+
+  /** `[2/3]` counter shown on the top border; empty for single questions. */
+  private counterText(): string {
+    if (!this.position || this.position.total <= 1) return "";
+    return `[${this.position.index + 1}/${this.position.total}]`;
   }
 
   /** Preferred card width. The overlay can shrink this on narrow terminals. */
@@ -92,7 +130,12 @@ export class QuestionModal implements Component {
     // Target the *smallest* width that lays out the question in ≤ 2 lines:
     // halve the longest line so each occupies ~one row. Fall back to the
     // option/Other floor for questions that already fit.
-    const target = Math.max(widestOption, Math.ceil(widestQuestionLine / 2));
+    // The top border carries " title " and, for multi-question requests, the
+    // "[2/3]" counter. Both must fit or the counter gets squeezed off the row.
+    const topBorder =
+      visibleWidth(this.title || "Question") + 2 + visibleWidth(this.counterText());
+
+    const target = Math.max(widestOption, topBorder, Math.ceil(widestQuestionLine / 2));
     const inner = Math.max(
       MIN_INNER_WIDTH,
       Math.min(MAX_INNER_WIDTH, target + PAD_X_INNER),
@@ -120,16 +163,28 @@ export class QuestionModal implements Component {
     const left = accent("│");
     const right = accent("│");
 
-    // Top: ╭─ <title> ─…─╮
+    // Top: ╭─ <title> ─…─[2/3]─╮
     const titleText = ` ${this.title || "Question"} `;
     const titlePlain = visibleWidth(titleText);
-    // `inner - titlePlain - 1`, not -2: the top row is "╭─" + title + dashes +
-    // "╮", so it needs one more dash than the old value gave it. The card
-    // background used to hide the missing column; without a fill it reads as a
+    // Right end of the top row: just "╮", or "─[2/3]─╮" when the request has
+    // more than one question. The counter doubles as the ←→ navigation
+    // affordance, so it lives on the border rather than in the body.
+    const counter = this.counterText();
+    const tail = counter
+      ? accent("─") +
+        dim("[") +
+        chalk.hex(ACCENT)(counter.slice(1, -1)) +
+        dim("]") +
+        accent("─╮")
+      : accent("╮");
+    const tailPlain = counter ? counter.length + 3 : 1;
+    // `inner - titlePlain - tailPlain`: the top row is "╭─" + title + dashes +
+    // tail, and must come out exactly `inner + 2` columns wide. The card
+    // background used to hide a missing column; without a fill it reads as a
     // notch in the top-right corner.
-    const topDashes = Math.max(0, inner - titlePlain - 1);
+    const topDashes = Math.max(0, inner - titlePlain - tailPlain);
     const top =
-      accent("╭─") + chalk.bold(titleText) + accent("─".repeat(topDashes) + "╮");
+      accent("╭─") + chalk.bold(titleText) + accent("─".repeat(topDashes)) + tail;
 
     // Bottom: ╰─…─╯
     const bottom = accent("╰" + "─".repeat(inner) + "╯");
@@ -151,17 +206,29 @@ export class QuestionModal implements Component {
     // Option list + (optional) inline "Other" field.
     rows.push(...this.renderOptions(inner, left, right, dim));
 
-    // Hint line at the bottom of the card.
-    const hint = this.editingOther
-      ? "type your answer · enter submit · esc back"
-      : "↑↓ move · 1-9 jump · enter select · esc cancel";
-    rows.push(row(dim(hint), inner, left, right, dim));
+    // Hint line at the bottom of the card. The card is sized by its question
+    // and options, not by the hint, so a narrow card takes a shorter variant
+    // instead of a truncated one ending in "…".
+    rows.push(row(dim(this.hintText(inner)), inner, left, right, dim));
 
     // Blank line above the bottom border.
     rows.push(blankRow(inner, left, right));
 
     rows.push(bottom);
     return rows;
+  }
+
+  /** Widest key hint that fits `inner`, longest first, shortest as a floor. */
+  private hintText(inner: number): string {
+    const nav = this.counterText() ? "←→ question · " : "";
+    const variants = this.editingOther
+      ? ["type your answer · enter submit · esc back", "enter submit · esc back"]
+      : [
+          `↑↓ move · ${nav}1-9 jump · enter select · esc cancel`,
+          `↑↓ move · ${nav}enter select · esc cancel`,
+          this.counterText() ? "↑↓ ←→ · enter · esc" : "↑↓ · enter · esc",
+        ];
+    return variants.find((h) => visibleWidth(h) <= inner) ?? variants[variants.length - 1];
   }
 
   /**
@@ -277,6 +344,16 @@ export class QuestionModal implements Component {
       this.moveSelection(1);
       return;
     }
+    // Left/right move between the questions of a multi-question request. The
+    // caller owns the sequence, so we only report the direction.
+    if (data === "\x1b[D" || data === "\x1bOD") {
+      if (this.counterText()) this.onNavigate?.(-1);
+      return;
+    }
+    if (data === "\x1b[C" || data === "\x1bOC") {
+      if (this.counterText()) this.onNavigate?.(1);
+      return;
+    }
     if (data === "\x1b" || data === "\x1b\x1b") {
       this.onCancel?.();
       return;
@@ -364,6 +441,8 @@ export class QuestionModal implements Component {
   onOpenedOther?: () => void;
   /** Fires when Esc closes the "Other" field without committing. */
   onCancelEdit?: () => void;
+  /** Fires on ←/→ with -1/+1; only when the request has several questions. */
+  onNavigate?: (delta: -1 | 1) => void;
 }
 
 // ---------------------------------------------------------------------------

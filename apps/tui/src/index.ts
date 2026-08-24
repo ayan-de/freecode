@@ -895,49 +895,70 @@ function handleToolEvent(event: StreamEvent) {
       break;
     }
     case "question_asked": {
-      // Render each question as a centered modal card in sequence, collecting
-      // answers indexed by question, then reply once the last one is answered.
-      // A synthetic "Other" row inside each modal lets the user type their own
-      // answer via an inline editor instead of picking a preset.
-      const answers: string[] = [];
+      // Render each question as a centered modal card, collecting answers
+      // indexed by question, then reply once every question has one. A
+      // synthetic "Other" row inside each modal lets the user type their own
+      // answer via an inline editor instead of picking a preset. ←/→ moves
+      // between questions, so answers are kept sparse until they're all in
+      // rather than assumed to arrive in order.
+      const total = event.questions.length;
+      const answers: string[] = new Array(total);
+      let overlay: OverlayHandle | null = null;
+
+      const closeOverlay = () => {
+        overlay?.hide();
+        overlay = null;
+        tui.setFocus(editor);
+        tui.requestRender();
+      };
+      // Next question still missing an answer, searching forward and wrapping.
+      // Null once every question is answered.
+      const nextUnanswered = (from: number): number | null => {
+        for (let n = 1; n <= total; n++) {
+          const i = (from + n) % total;
+          if (answers[i] === undefined) return i;
+        }
+        return null;
+      };
+
       const askAt = (i: number) => {
+        overlay?.hide();
         const spec = event.questions[i];
         const modal = new QuestionModal(
           spec.header ?? "Question",
           spec.question,
           spec.options,
+          { index: i, total, previousAnswer: answers[i] },
         );
         // Cap the overlay width to the terminal so the centered card doesn't
         // overflow on narrow displays.
-        const overlay = tui.showOverlay(modal, {
+        overlay = tui.showOverlay(modal, {
           anchor: "center",
           width: Math.min(modal.width(), Math.max(24, terminal.columns - 4)),
         });
-        const finish = (text: string | null) => {
-          overlay.hide();
-          tui.setFocus(editor);
-          tui.requestRender();
-          if (text === null) {
-            // The request may already be closed (30-min server-side timeout
-            // fired while this modal was still open) — that's a benign race,
-            // not a crash: swallow it rather than let it become an unhandled
-            // rejection.
-            void rejectQuestion(event.requestId).catch(() => {});
+        modal.onSelect = (label) => {
+          answers[i] = label;
+          const next = nextUnanswered(i);
+          if (next !== null) {
+            askAt(next);
             return;
           }
-          answers[i] = text;
-          if (i + 1 < event.questions.length) {
-            askAt(i + 1);
-          } else {
-            void answerQuestion(event.requestId, answers).catch(() => {
-              createSystemMessage(
-                "*This question timed out before you answered — your reply wasn't sent.*",
-              );
-            });
-          }
+          closeOverlay();
+          void answerQuestion(event.requestId, answers).catch(() => {
+            createSystemMessage(
+              "*This question timed out before you answered — your reply wasn't sent.*",
+            );
+          });
         };
-        modal.onSelect = (label) => finish(label);
-        modal.onCancel = () => finish(null);
+        modal.onCancel = () => {
+          closeOverlay();
+          // The request may already be closed (30-min server-side timeout
+          // fired while this modal was still open) — that's a benign race,
+          // not a crash: swallow it rather than let it become an unhandled
+          // rejection.
+          void rejectQuestion(event.requestId).catch(() => {});
+        };
+        modal.onNavigate = (delta) => askAt((i + delta + total) % total);
         // No-op hooks for now — we re-render on every state change so a
         // separate "opened Other" notification isn't needed.
         modal.onOpenedOther = () => tui.requestRender();
