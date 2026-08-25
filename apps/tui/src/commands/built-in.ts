@@ -8,7 +8,6 @@ import {
   type DailyUsage,
   type SkillInfo,
 } from "../ipc/client.js";
-import { renderCostReport } from "../utils/cost-report.js";
 
 const helpCommand: Command = {
   name: "help",
@@ -90,14 +89,7 @@ const costCommand: Command = {
   name: "cost",
   description: "Show token spend and prompt-cache hit rate",
   execute: async (_args, ctx) => {
-    let data: DailyUsage[] = [];
-    try {
-      data = await getUsage();
-    } catch (err) {
-      ctx.showMessage(`*Error fetching usage: ${err}*`);
-      return;
-    }
-    ctx.showMessage(renderCostReport(data, ctx.getSessionUsage?.()));
+    await ctx.showCostReport?.();
   },
 };
 

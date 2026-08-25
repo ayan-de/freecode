@@ -15,6 +15,7 @@ import { NoticeModal } from "./components/notice-modal.js";
 import { CompactionModal } from "./components/compaction-modal.js";
 import { ScrollableModal } from "./components/scrollable-modal.js";
 import { renderContextReport } from "./utils/context-report.js";
+import { renderCostReportLines } from "./utils/cost-report.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import { Input } from "@earendil-works/pi-tui";
@@ -68,8 +69,10 @@ import {
   rejectQuestion,
   answerPermission,
   rejectPermission,
+  getUsage,
   type SessionInfo,
   type ModelInfo,
+  type DailyUsage,
 } from "./ipc/client.js";
 import {
   createUserMessage,
@@ -1366,6 +1369,19 @@ editor.onSubmit = async (value: string) => {
               );
             }
           },
+          showCostReport: async () => {
+            try {
+              const data = await getUsage();
+              showCostModal(
+                data,
+                sessionRuns > 0 ? sessionUsage : undefined,
+              );
+            } catch (err) {
+              showMessage(
+                `*Error fetching usage: ${err instanceof Error ? err.message : String(err)}*`,
+              );
+            }
+          },
           createUserMessage: (content: string) => createUserMessage(content),
           createAssistantMessage: (content: string) =>
             createAssistantMessage(content),
@@ -1609,6 +1625,41 @@ function hideContextModal(): void {
   if (!contextOverlay) return;
   contextOverlay.hide();
   contextOverlay = null;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
+// ---------------------------------------------------------------------------
+// Cost modal (/cost) — same ScrollableModal shell as /context.
+// ---------------------------------------------------------------------------
+let costOverlay: OverlayHandle | null = null;
+
+function showCostModal(data: DailyUsage[], session: UsageTotals | undefined): void {
+  hideCostModal();
+
+  const width = Math.min(
+    CONTEXT_MODAL_MAX_WIDTH,
+    Math.max(40, terminal.columns - 4),
+  );
+  const modal = new ScrollableModal(
+    "Token Usage",
+    (innerWidth) => renderCostReportLines(data, session, innerWidth),
+    () => hideCostModal(),
+  );
+  modal.setMaxRows(() => Math.max(10, terminal.rows - 4));
+
+  costOverlay = tui.showOverlay(modal, {
+    anchor: "center",
+    width,
+    maxHeight: "95%",
+  });
+  tui.requestRender();
+}
+
+function hideCostModal(): void {
+  if (!costOverlay) return;
+  costOverlay.hide();
+  costOverlay = null;
   tui.setFocus(editor);
   tui.requestRender();
 }

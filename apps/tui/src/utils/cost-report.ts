@@ -122,3 +122,53 @@ export function renderCostReport(
 
   return lines.join("\n");
 }
+
+/** Plain-text lines for the `/cost` modal — same data as {@link renderCostReport}, no markdown. */
+export function renderCostReportLines(
+  entries: DailyUsage[],
+  session: UsageTotals | undefined,
+  width: number,
+): string[] {
+  const today = entries.filter((e) => e.date === localDay());
+  const all = sumUsage(entries);
+
+  const rows = [
+    session ? row("Session", session) : undefined,
+    row("Today", sumUsage(today).totals),
+    row("Last 7 days", sumUsage(lastNDays(entries, 7)).totals),
+    row("All time", all.totals),
+  ].filter((r): r is string => r !== undefined);
+
+  if (rows.length === 0) return ["No usage recorded yet."];
+
+  const wrap = (text: string): string[] => {
+    if (text.length <= width) return [text];
+    const out: string[] = [];
+    for (let i = 0; i < text.length; i += width) out.push(text.slice(i, i + width));
+    return out;
+  };
+
+  const lines: string[] = [...rows];
+
+  const notes: string[] = [];
+  if (all.withBreakdown > 0) {
+    notes.push(
+      `${all.withBreakdown} day${all.withBreakdown === 1 ? "" : "s"} recorded`,
+    );
+  }
+  if (all.withoutBreakdown > 0) {
+    notes.push(
+      `${all.withoutBreakdown} older day${all.withoutBreakdown === 1 ? "" : "s"} without a breakdown (excluded)`,
+    );
+  }
+  if (notes.length > 0) lines.push("", ...wrap(notes.join(" · ")));
+
+  lines.push(
+    "",
+    ...wrap(
+      "Cache reads bill at roughly a tenth of fresh input, so a high rate is a cheap session. Writes bill at ~1.25x — a rate bought by constant rewriting is not a win.",
+    ),
+  );
+
+  return lines;
+}

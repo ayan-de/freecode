@@ -42,6 +42,8 @@ export interface CommandContext extends MessageCreators {
    * through showMessage.
    */
   showContextReport?(): Promise<void>;
+  /** Render the cache/token cost report in a modal (the /cost command). */
+  showCostReport?(): Promise<void>;
   /**
    * Cache/token totals for the active session (the /cost command). Lives in the
    * shell rather than the store because it accumulates across prompts and is
