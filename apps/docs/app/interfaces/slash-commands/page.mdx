@@ -10,12 +10,15 @@ frontend state and are implemented per frontend. Prompt commands (`/init` and
 friends) are really prompt templates sent to the agent, and live in core so every
 frontend gets them.
 
-## On this page (coming soon)
+## Available commands
 
-- `/help`, `/clear`, `/exit`
+- `/help` — list available commands
+- `/clear` — clear the transcript and start a fresh session
+- `/exit` — leave FreeCode
 - `/model` — switch provider or model mid-session
 - `/resume` — reopen a previous session
 - `/compact` — summarize older turns on demand
+- `/context` — colour-coded grid of what is occupying the context window (system prompt, project instructions, skills, memories, tools, messages, …)
 - `/cost` — token spend and prompt-cache hit rate
 - `/usage` — daily token usage heatmap
 - `/skills` — list available skills
