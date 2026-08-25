@@ -14,6 +14,7 @@ import {
   buildToolsParam,
   resolveModel,
   PROVIDER_MAX_RETRIES,
+  silenceStreamErrors,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
@@ -125,7 +126,10 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
   }
 
   async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
-    const result = streamText(buildOptions(opts).generateOptions);
+    const result = streamText({
+      ...buildOptions(opts).generateOptions,
+      onError: silenceStreamErrors,
+    });
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<
         { type: string } & Record<string, unknown>

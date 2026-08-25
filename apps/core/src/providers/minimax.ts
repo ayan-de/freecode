@@ -17,6 +17,7 @@ import {
   resolveModel,
   OUTPUT_TOKEN_CAP,
   PROVIDER_MAX_RETRIES,
+  silenceStreamErrors,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
@@ -132,7 +133,10 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
   }
 
   async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
-    const result = streamText(buildOptions(opts));
+    const result = streamText({
+      ...buildOptions(opts),
+      onError: silenceStreamErrors,
+    });
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<
         { type: string } & Record<string, unknown>

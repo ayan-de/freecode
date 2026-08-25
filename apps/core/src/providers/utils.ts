@@ -429,6 +429,20 @@ export const OUTPUT_TOKEN_CAP = 32_000;
 export const PROVIDER_MAX_RETRIES = 0;
 
 /**
+ * `streamText()`'s `onError` option, passed to every provider's stream call.
+ *
+ * A stream failure doesn't reject `streamText()`'s promise — it arrives as an
+ * `"error"` part on `fullStream`, which `normalizeAiSdkStream` (streaming.ts)
+ * already turns into a clean `ProviderChunk` for the loop/RecoveryManager to
+ * handle. Without an explicit `onError`, the SDK's own default is
+ * `console.error(error)`: the full `APICallError` — `requestBodyValues`,
+ * `responseHeaders`, a stack with no sourcemap in the compiled binary — dumped
+ * straight to the terminal on every stream error, duplicate of and uglier than
+ * the message the user actually sees. No-op here; the error is already handled.
+ */
+export function silenceStreamErrors(): void {}
+
+/**
  * Resolves the model for a request, falling back to the provider's default.
  *
  * The fallback exists for API callers that omit a model, but it used to be a

@@ -21,7 +21,10 @@ test("both OpenAI request paths are built by the same function", () => {
   // other is worse than none — half a session's turns would route on the key
   // and half on the prefix hash, scattering the cache across machines.
   assert.match(openaiSrc, /generateText\(generateOptions\)/);
-  assert.match(openaiSrc, /streamText\(buildOptions\(opts\)\.generateOptions\)/);
+  assert.match(
+    openaiSrc,
+    /streamText\(\{\s*\.\.\.buildOptions\(opts\)\.generateOptions,/,
+  );
 
   // Set in exactly one place, so the two paths cannot drift apart again.
   const occurrences = openaiSrc.match(/promptCacheKey/g) ?? [];

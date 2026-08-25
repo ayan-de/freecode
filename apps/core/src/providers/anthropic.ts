@@ -16,6 +16,7 @@ import {
   applyMessageCaching,
   resolveModel,
   PROVIDER_MAX_RETRIES,
+  silenceStreamErrors,
 } from "./utils.js";
 import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
@@ -149,7 +150,10 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
 
   async function* stream(opts: ExecuteOptions): AsyncGenerator<ProviderChunk> {
     const streamOptions = buildOptions(opts);
-    const result = streamText(streamOptions);
+    const result = streamText({
+      ...streamOptions,
+      onError: silenceStreamErrors,
+    });
     yield* normalizeAiSdkStream(
       result.fullStream as unknown as AsyncIterable<
         { type: string } & Record<string, unknown>

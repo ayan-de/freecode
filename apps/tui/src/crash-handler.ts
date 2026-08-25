@@ -14,6 +14,10 @@
 // is recoverable, and take the backend down with us.
 // =============================================================================
 
+import {
+  formatFatalError,
+  isProviderError,
+} from "@thisisayande/freecode-core/cli/format-fatal-error";
 import { restoreScreen } from "./terminal-screen.js";
 
 export interface CrashHandlerDeps {
@@ -37,8 +41,18 @@ export function formatCrashReport(
   // A rejection can carry any value, not just an Error — String() on an
   // object gives "[object Object]", which hides the one detail that matters,
   // so fall back to JSON for those.
+  //
+  // An AI SDK APICallError carries requestBodyValues/responseHeaders/cause as
+  // extra own properties and, in the compiled binary, a stack with no
+  // sourcemap — util.inspect dumps all of it. formatFatalError strips that
+  // down to the one clean provider-supplied line (same as the
+  // unhandledRejection handler in entry.ts, which fires alongside this one).
+  // Any other Error keeps its real stack: that's the whole point of a crash
+  // report, and the trace points at our own code, not a vendored SDK.
   let detail: string;
-  if (error instanceof Error) {
+  if (isProviderError(error)) {
+    detail = formatFatalError(error);
+  } else if (error instanceof Error) {
     detail = error.stack ?? `${error.name}: ${error.message}`;
   } else if (error !== null && typeof error === "object") {
     try {

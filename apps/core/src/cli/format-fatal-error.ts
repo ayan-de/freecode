@@ -17,3 +17,13 @@ export function formatFatalError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
+
+/**
+ * True for an AI SDK APICallError — the case formatFatalError exists to
+ * clean up. Exported so callers that want a stack trace for anything else
+ * (e.g. the TUI's crash report, which needs one for real bugs) can special-case
+ * just this type instead of importing `ai` themselves.
+ */
+export function isProviderError(err: unknown): boolean {
+  return APICallError.isInstance(err);
+}
