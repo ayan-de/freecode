@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.26.1
+
+A small follow-up to 0.26.0. The file watcher no longer crashes when the underlying `fs.watch` socket drops and now also watches the project `.git` directory so a fresh checkout invalidates the tree cache. Provider errors stream back to the user through a single shared `format-fatal-error` helper instead of each adapter formatting its own message. The TUI gained a `/cost` slash command that opens a modal summarising the current session's usage.
+
+### Added
+- **`/cost` slash command and cost report modal** (`apps/tui/src/utils/cost-report.ts`, `commands/built-in.ts`, `commands/index.ts`, `index.ts`). Pulls session usage and renders a scrollable modal with per-model input/output/cache/token totals.
+
+### Changed
+- **Tree watcher survives watcher errors and watches `.git`** (`apps/core/src/context/tree-watcher.ts`). A dropped `fs.watch` socket used to surface as an uncaught exception; it is now logged and the watcher is re-established. The project `.git` directory is also watched so `git checkout` / `git switch` invalidates the cached file tree without waiting for a manual `cd`.
+
+### Fixed
+- **Stream errors had no shared formatting path** (`apps/core/src/providers/utils.ts`, `providers/*.ts`, `cli/format-fatal-error.ts`, `apps/tui/src/crash-handler.ts`). Every provider reimplemented its own error message and the TUI crash handler duplicated the logic. Added `format-fatal-error` plus a shared stream-error wrapper, threaded through all five providers (Anthropic, OpenAI, Gemini, MiniMax, ZAI, DeepSeek), with matching declarations and an updated TUI crash handler.
+- **TUI crash handler formatting drift** (`apps/tui/src/crash-handler.ts`, `format-fatal-error.d.ts`). The local formatter was diverging from core's; the `.d.ts` now points at the shared helper.
+
+### Docs
+- **Slash commands page reflects current command set** (`apps/docs/app/interfaces/slash-commands/page.mdx`).
+
 ## v0.26.0
 
 The memory system could write and retrieve since 0.25.x, but nothing closed the loop: the store grew monotonically, nothing measured whether a retrieved memory was any use, and nothing flushed what a turn learned when the process exited. This release adds the missing halves. Retrieval seeds now come from BM25 fused with the vector search by reciprocal rank rather than either alone; a retrieval judge decides whether the injected block earned its tokens; citations record which memories the model actually used; a consolidation pass merges near-duplicates once a day over a git diff of the memory dir; and episodes give the machine a fifth memory type to write its own history into. Alongside it, the trajectory eval harness landed — cases in `evals/*.jsonl` run real agent turns and are scored by pure folds over the rollout trace, gated on majority-of-N plus a delta against the last recorded baseline rather than an absolute pass rate. The TUI gained `/context`, a breakdown of what is actually occupying the context window, and the question modal became navigable instead of one-shot.
