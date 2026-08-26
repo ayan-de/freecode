@@ -18,9 +18,9 @@ and it is worth naming them before any code appears:
 
 | Part | What it is | Here |
 | --- | --- | --- |
-| **Fixture** | a task with a known-good outcome | one JSON line in `evals/trajectory.jsonl` |
+| **Fixture** | a task with a known-good outcome | one JSON line in `evals/trajectory.jsonl` or `evals/coding.jsonl` |
 | **Runner** | drive the real agent on that task, headlessly | `eval/runner.ts` — the same boot path as `freecode run` |
-| **Scorer** | decide whether the run was good | `eval/scorers/trajectory.ts` — a pure function over the trace |
+| **Scorer** | decide whether the run was good | `eval/scorers/trajectory.ts` (did the right tool fire) and `eval/scorers/outcome.ts` (did the end state match) |
 
 That is the entire feature. No hosted service, no new dependency, no benchmark
 submission. Spec: `docs/superpowers/specs/2026-08-23-eval-harness.md`.
@@ -35,7 +35,8 @@ Both forms must be run **from the repo root** — the suite path and the project
 the agent works in are both resolved from the current directory:
 
 ```bash
-freecode eval                        # installed binary
+freecode eval                        # the trajectory suite (default)
+freecode eval coding                 # the coding suite — sandboxed, outcome-checked
 npx tsx apps/core/src/cli.ts eval    # from a source checkout
 ```
 
@@ -61,7 +62,7 @@ one word. Keeping them apart is most of the design:
 | Kind | Question | Verdict | Cost | Blocks release? |
 | --- | --- | --- | --- | --- |
 | **Unit test** | does this function behave? | 0/1 | free, no model | yes — already does |
-| **Deterministic eval** | did the agent call the right tool, with the right args? | 0/1 per trial | one real turn | yes, on a delta |
+| **Deterministic eval** | did the agent call the right tool, with the right args, and did the end state match? | 0/1 per trial | one real turn | yes, on a delta |
 | **Judged eval** | was the reply any *good*? | 0–5, thresholded | one turn + a judge call | not built yet |
 
 The house rule that follows is short enough to remember:
@@ -77,7 +78,10 @@ files covering the harness's own logic; none of them start an agent.
 
 ## What a case looks like
 
-One JSON object per line — diffable, greppable, appendable, no schema migration:
+One JSON object per line — diffable, greppable, appendable, no schema migration.
+Two suites, two shapes.
+
+### `evals/trajectory.jsonl` — did the right tool fire?
 
 ```jsonc
 {"id": "find-symbol-uses-grep",
@@ -93,7 +97,7 @@ One JSON object per line — diffable, greppable, appendable, no schema migratio
 | `id` | string, required | unique within the suite; the handle quarantine and history use |
 | `prompt` | string, required | what the user would have typed |
 | `model` | `provider/model` | pins the model for this case; overrides `--model` |
-| `agentMode` | `plan` · `review` · `explore` | defaults to `explore`. `build` and `danger` are **refused** — see below |
+| `agentMode` | `plan` · `review` · `explore` · `build` | defaults to `explore`, or `build` when the case is sandboxed. `build` on an **unsandboxed** case is refused, and `danger` always is — see below |
 | `expectTool` | string or `null` | a tool that must fire. `null` asserts that **no** tool fired |
 | `expectInArgs` | object | argument expectations; requires `expectTool` |
 | `expectMaxTurns` | integer ≥ 1 | model calls allowed before the case fails |
@@ -102,6 +106,63 @@ One JSON object per line — diffable, greppable, appendable, no schema migratio
 `expectTool: null` is not a filler value. "Answer from what you know instead of
 rummaging through the repo" is a real behaviour that a prompt edit can break, and
 three of the twenty shipped cases test exactly that.
+
+### `evals/coding.jsonl` — did the end state match?
+
+```jsonc
+{"id": "fix-off-by-one",
+ "prompt": "add() in calc.mjs returns the wrong result. Fix it. Do not modify check.mjs.",
+ "files": {
+   "calc.mjs": "export const add = (a, b) => a - b;\n",
+   "check.mjs": "import { add } from './calc.mjs';\nimport assert from 'node:assert';\nassert.equal(add(2, 3), 5);\n"
+ },
+ "verify": "node check.mjs",
+ "immutable": ["check.mjs"],
+ "expectMaxTurns": 10}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `files` | object | seeded into a fresh tmpdir, which becomes the case's project root. **Its presence is what makes a case sandboxed** |
+| `verify` | string | shell command run in the sandbox after the turn; **its exit code is the score** |
+| `immutable` | string[] | fixture files the agent must not touch. Must be a subset of `files` |
+
+Every trajectory field still applies — a coding case can also forbid tools or cap
+turns, and both verdicts must be green for the case to pass.
+
+**`verify` is the highest-value scorer in the harness and the cheapest to
+trust**, because nothing subjective enters it: the tests pass or they do not.
+Prefer it over a judge wherever a task can be phrased this way.
+
+**Fixtures are dependency-free by rule.** Plain `.mjs` and `node:assert`, run by
+`node`, which every environment that can run FreeCode already has. Not `npx tsx`:
+that needs a populated `node_modules` the sandbox does not have, and solving it
+per case means an install — slow, networked, flaky — at exactly the point the
+harness is supposed to be boring.
+
+**`immutable` is a guard, not a request.** The prompt says "do not modify
+check.mjs"; an agent that rewrites the checker until it passes has produced a
+green run and fixed nothing, which is the single most expensive false positive
+this scorer can emit. `outcome.ts` byte-compares every `immutable` file against
+its fixture *before* running the command, so a tampered checker fails without
+`verify` ever getting the chance to say yes. This field is an addition to the
+spec's case format, for exactly that reason.
+
+### The sandbox
+
+A case with `files` runs in `mkdtemp()`, seeded from `files` and **nothing
+else** — no `node_modules`, no install step, no network. Fixture paths must be
+relative and must not escape; `dataset.ts` rejects `../` at load. The directory
+is removed after the trial unless `FREECODE_EVAL_KEEP_SANDBOX=1`, which prints
+the path instead so a red case can be inspected.
+
+> **This is working-tree isolation, not agent isolation.** The tmpdir is the
+> agent's project root, so its file tools are scoped to it — the runner refuses
+> any permission prompt whose path argument resolves outside. But an agent
+> holding `bash` can `cd` anywhere on the filesystem regardless of where its
+> project root points, and coding cases need `bash` to run their own checks.
+> What this buys you is that the files you were editing when you launched the
+> suite are safe. Real isolation is a container, and that is not built.
 
 ### Argument matching
 
@@ -134,16 +195,21 @@ most expensive kind of wrong answer this harness can give.
 | duplicate `id` | history and quarantine key off it |
 | `expectInArgs` without `expectTool` | there is no tool whose arguments it could name |
 | a case that asserts nothing | it always passes, inflating the count and hiding that the case was never finished |
-| `agentMode: "build"` or `"danger"` | Phase 1 has no sandbox — see below |
+| `agentMode: "build"` on a case with no `files` | it would write to your real working directory — see below |
+| `agentMode: "danger"`, ever | it bypasses the permission layer, and a sandboxed case does not need it |
+| `verify` without `files` | there is no sandbox to run it in |
+| `verify` naming a file `files` never creates | it fails for the wrong reason and reads as an agent failure |
+| `immutable` naming a file that is not in `files` | there is no fixture content to compare against |
+| a fixture path that is absolute or escapes with `../` | the tmpdir is the whole point |
 
-That last one is the load-bearing one:
+The `build` one is the load-bearing one:
 
 > **`forbidTools` scores a mutation; it does not prevent one.** By the time the
 > scorer reports "called forbidden `write`", the file is already written. A case
-> runs against your **real working directory** — there is no sandbox yet — so
-> agent *mode* is the only thing that actually stops a write, and mutating modes
-> are refused at load rather than trusted. `bash` is not in `READONLY_TOOLS`
-> either, so bash cases wait for the sandbox too.
+> with no `files` runs against your **real working directory**, so agent *mode*
+> is the only thing that actually stops a write, and mutating modes are refused
+> at load rather than trusted. Give the case a `files` fixture and `build`
+> becomes legal, because there is now somewhere safe to write.
 
 ## How a trial runs
 
@@ -153,15 +219,19 @@ loadQuarantine() ─ ids that can't turn the build red
 initRunner() ─ boot providers + MCP ONCE for the whole suite
    │
    └─ for each case, for each trial:
+        createSandbox(files)        ← if the case has any; becomes the project root
         fresh session id            ← its own rollout aggregate, its own Trace
         decline any question.asked  ← nobody is there to answer it
+        answer permission.asked     ← sandboxed cases only; scoped to the tmpdir
         run the real agent loop     ← in-process, not by shelling out, 5min cap
         subscribe to the stream bus ← capture reply text
         buildTrace(rollout events)  ← the same fold `freecode trace` uses
         scoreTrajectory(run, case)  ← pure; passed + one short reason
+        scoreOutcome(run, case)     ← only if trajectory passed; spawns `verify`
+        sandbox.cleanup()           ← in a finally, so a crashed trial still tidies
 ```
 
-Four choices in there are worth their reasons:
+Five choices in there are worth their reasons:
 
 **In-process, not `exec freecode run`.** A case can be stepped through in a
 debugger, and the harness works from a source checkout without `pnpm build:bun`.
@@ -186,13 +256,24 @@ span set and score the pair as one.
 500 marks that trial `run failed: …` and the loop continues. One dead case must
 not cost you the other nineteen.
 
+**Permission prompts are answered — but only inside a sandbox.** In `build` mode
+the default decision for a mutating tool is `ask`, and a headless `ask` resolves
+to **deny** (`permission/prompt.ts`, deliberately: never a silent allow). Left
+alone, every coding case would score a model that was never permitted to write,
+and the suite would be measuring the permission layer instead of the agent. So
+the runner plays the frontend's part here too, exactly as it does for questions —
+and only when the case has a sandbox to write into. A path argument resolving
+outside the tmpdir is refused; a case with no `files` subscribes nothing at all
+and keeps the headless-deny behaviour unchanged.
+
 ### Where a scorer's input comes from
 
 ```ts
 interface RunRecord {
-  trace: Trace;      // from the rollout log — timings, spans, tool names AND args
-  prompt: string;    // from the case
-  response: string;  // captured live off the stream bus
+  trace: Trace;        // from the rollout log — timings, spans, tool names AND args
+  prompt: string;      // from the case
+  response: string;    // captured live off the stream bus
+  sandboxDir?: string; // where the turn ran, when it had a sandbox
 }
 ```
 
@@ -223,6 +304,28 @@ one-line reason:
 It reads no text, on purpose. An agent can produce a perfect final message while
 making duplicate calls and editing files it was told not to, and an outcome-only
 check rates that flawless.
+
+### The outcome scorer
+
+Runs only if the trajectory scorer passed — a run that hung or called a
+forbidden tool should report *that*, not whatever `verify` makes of the wreckage.
+Then, in order:
+
+1. **`immutable` files** are byte-compared against their fixture content. A
+   modified or deleted one fails here, before the command runs.
+2. **`verify`** is spawned with the sandbox as its cwd (`shell: true` — the
+   command is fixture-authored and reviewed in the same diff as the prompt,
+   never model-authored), under its own timeout
+   (`FREECODE_EVAL_VERIFY_TIMEOUT_MS`, default 60s).
+3. **Exit 0 passes.** Anything else fails, carrying one line of output.
+
+That last detail earns its complexity. `verify exit 1` alone makes every red
+case a re-run to diagnose, so the scorer picks the most informative line — but
+*not* simply the last one, because node prints its version banner after the
+stack trace. The tail of a failed `node check.mjs` is `Node.js v26.7.0`, which
+says nothing. Stack frames and the banner are dropped, the first line naming an
+error wins, and you get `verify exit 1: AssertionError [ERR_ASSERTION]: add is
+still broken`.
 
 ## The gate
 
@@ -336,16 +439,17 @@ expensive false positive available here.
 
 ## What is built, and what is only designed
 
-The spec runs to six phases. Two are built.
+The spec runs to six phases. Three are built.
 
 | Phase | Deliverable | Status |
 | --- | --- | --- |
 | 0 | carry tool `args` into `ToolSpan` | ✅ — `expectInArgs` is unscoreable without it |
 | 1 | case format, runner, trajectory scorer, gate, quarantine, `freecode eval` | ✅ |
-| 2 | tmpdir sandbox + outcome scorer + `evals/coding.jsonl` | ✗ |
+| 2 | tmpdir sandbox + outcome scorer + `evals/coding.jsonl` | ✅ — 6 cases, `build` mode, `verify` exit code |
 | 3 | LLM judge scorer + `--gate` in CI | ✗ — `gate.ts` exists, the judge does not |
 | 4 | `freecode eval add <session-id>` — harvest a case from a real session | ✗ |
-| later | repo-grounded sandbox | ✗ — blocked on the `node_modules` question |
+| 5 | LLMOps close-out — a shared `providers/pricing.ts`, so a report can carry USD | ✗ — independent of 0–4 |
+| later | repo-grounded sandbox (Tier 2) | ✗ — blocked on the `node_modules` question |
 
 Phase 4 is the one to want. **Every production failure is already a
 fully-specified eval case sitting on disk** in the rollout log, and nothing
@@ -393,9 +497,19 @@ Found while writing this page; each is also tracked in `TODO.md`.
    invocation from a source checkout is a raw `tsx` command against `cli.ts`.
 6. **Nothing scores the reply text.** `RunRecord.response` is captured on every
    trial and read by nobody until the judge lands.
-7. **The suite cannot test the modes that matter most.** No sandbox means no
-   `build`, no `danger`, no `bash` — so the highest-risk paths in the agent are
-   exactly the ones with no eval coverage.
+7. **The sandbox holds files, not the agent.** `bash` inside a coding case can
+   reach the whole filesystem; the tmpdir only scopes the file tools and the
+   permission answers. Cases are trusted fixtures, so this is a real limit
+   rather than a live hole — but it is the reason `danger` mode still has no
+   eval coverage, and the reason untrusted cases would need a container.
+8. **Coding cases are synthetic, and small.** Six dependency-free `.mjs`
+   fixtures exercise read/edit/write/bash on a bug an agent fixes in three or
+   four turns. They will catch a harness change that breaks editing outright;
+   they will not catch one that degrades work on a real codebase. That is the
+   Tier 2 sandbox, which is blocked on `node_modules`.
+9. **The coding suite has no baseline discipline yet.** It shares
+   `eval_runs.jsonl` with the trajectory suite (keyed by suite name, so they do
+   not collide) but gap 1 above applies to it identically.
 
 ## Debugging
 
@@ -409,6 +523,11 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | `model call hung` | a request stayed open past 300s; `freecode trace <id>` shows which |
 | gate says "no baseline yet" every run | `FREECODE_EVAL_HOME` is changing between runs, or the history file was deleted |
 | a case is green locally and red in CI | different resolved model — see gap 2 |
+| `verify exit 1: …` with a real assertion message | the agent's fix is wrong — that is the scorer working. `FREECODE_EVAL_KEEP_SANDBOX=1` keeps the tmpdir so you can reproduce it by hand |
+| `verify could not run: …` | the command itself is broken (a missing binary), not the agent |
+| `modified immutable check.mjs` | the agent edited the checker instead of the code — sharpen the prompt, do not relax the guard |
+| every coding case fails having never written a file | the permission answer did not fire. Check the case actually has `files`; an unsandboxed case denies headlessly by design |
+| `verify runs 'x.mjs', which 'files' never creates` | a load-time rejection, not a run — add the file to `files` |
 
 ## Where to look
 
@@ -419,10 +538,12 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | Argument matching semantics | `apps/core/src/eval/match.ts` |
 | Driving one real turn | `apps/core/src/eval/runner.ts` |
 | The trajectory scorer | `apps/core/src/eval/scorers/trajectory.ts` |
+| The outcome scorer (`verify`, `immutable`) | `apps/core/src/eval/scorers/outcome.ts` |
+| The Tier 1 sandbox | `apps/core/src/eval/sandbox.ts` |
 | Majority-of-N and the gate rules | `apps/core/src/eval/gate.ts` |
 | Quarantine thresholds and proposals | `apps/core/src/eval/quarantine.ts` |
 | Report + history persistence | `apps/core/src/eval/report.ts` |
 | Suite orchestration | `apps/core/src/eval/suite.ts` |
 | The CLI surface | `apps/core/src/cli/commands/eval.ts` |
-| The cases themselves | `evals/trajectory.jsonl`, `evals/quarantine.txt` |
+| The cases themselves | `evals/trajectory.jsonl`, `evals/coding.jsonl`, `evals/quarantine.txt` |
 | The trace the scorers fold | `apps/core/src/rollout/trace.ts` — see [tracing](/guides/tracing) |

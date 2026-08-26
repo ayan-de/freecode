@@ -1,0 +1,25 @@
+// Coding suite — did the END STATE match? Spec: docs/superpowers/specs/2026-08-23-eval-harness.md
+//
+// Every case here is SANDBOXED: `files` seeds a fresh tmpdir which becomes the
+// case's project root, the turn runs in `build` mode, and `verify` runs in that
+// tmpdir afterwards. Its exit code is the score. Nothing subjective enters it.
+//
+// FIXTURES ARE DEPENDENCY-FREE BY RULE (spec §4): plain `.mjs` and `node:assert`,
+// run by `node`. The sandbox has no `node_modules`, no install step and no
+// network, so `npx tsx` would need a package install per case — at exactly the
+// point the harness is supposed to be boring. Cases that genuinely need the
+// repo's toolchain are the Tier 2 sandbox (§6.2), which is not built.
+//
+// Every file `verify` names must appear in `files`, checker included; `dataset.ts`
+// rejects the case at load otherwise, because a checker that was never created
+// fails for the wrong reason and reads as an agent failure.
+//
+// `immutable` lists the checker. Saying "do not modify check.mjs" in the prompt
+// is a request; this is the guard. An agent that edits the checker until it
+// passes produces a green run that fixed nothing.
+{"id": "fix-off-by-one", "prompt": "add() in calc.mjs returns the wrong result. Fix it. Do not modify check.mjs.", "files": {"calc.mjs": "export const add = (a, b) => a - b;\n", "check.mjs": "import { add } from './calc.mjs';\nimport assert from 'node:assert';\nassert.equal(add(2, 3), 5);\nassert.equal(add(-1, 1), 0);\nconsole.log('ok');\n"}, "verify": "node check.mjs", "immutable": ["check.mjs"], "expectMaxTurns": 10}
+{"id": "implement-missing-export", "prompt": "check.mjs imports slugify from strings.mjs, but strings.mjs doesn't export it. Implement it so the checks pass. Do not modify check.mjs.", "files": {"strings.mjs": "export const trim = (s) => s.trim();\n", "check.mjs": "import { slugify } from './strings.mjs';\nimport assert from 'node:assert';\nassert.equal(slugify('Hello World'), 'hello-world');\nassert.equal(slugify('  A  B  '), 'a-b');\nconsole.log('ok');\n"}, "verify": "node check.mjs", "immutable": ["check.mjs"], "expectMaxTurns": 10}
+{"id": "fix-null-guard", "prompt": "lastItem() in list.mjs throws on an empty array. It should return undefined instead. Fix it without modifying check.mjs.", "files": {"list.mjs": "export function lastItem(items) {\n  return items[items.length - 1].value;\n}\n", "check.mjs": "import { lastItem } from './list.mjs';\nimport assert from 'node:assert';\nassert.equal(lastItem([]), undefined);\nassert.equal(lastItem([{ value: 1 }, { value: 2 }]), 2);\nconsole.log('ok');\n"}, "verify": "node check.mjs", "immutable": ["check.mjs"], "expectMaxTurns": 10}
+{"id": "create-a-new-module", "prompt": "Create clamp.mjs exporting a clamp(n, min, max) function, so that check.mjs passes. Do not modify check.mjs.", "files": {"check.mjs": "import { clamp } from './clamp.mjs';\nimport assert from 'node:assert';\nassert.equal(clamp(5, 0, 10), 5);\nassert.equal(clamp(-3, 0, 10), 0);\nassert.equal(clamp(42, 0, 10), 10);\nconsole.log('ok');\n"}, "verify": "node check.mjs", "immutable": ["check.mjs"], "expectMaxTurns": 10}
+{"id": "fix-loop-bound", "prompt": "sum() in totals.mjs misses the last element. Fix the bug. Do not modify check.mjs.", "files": {"totals.mjs": "export function sum(nums) {\n  let total = 0;\n  for (let i = 0; i < nums.length - 1; i++) total += nums[i];\n  return total;\n}\n", "check.mjs": "import { sum } from './totals.mjs';\nimport assert from 'node:assert';\nassert.equal(sum([1, 2, 3]), 6);\nassert.equal(sum([]), 0);\nassert.equal(sum([7]), 7);\nconsole.log('ok');\n"}, "verify": "node check.mjs", "immutable": ["check.mjs"], "expectMaxTurns": 10}
+{"id": "fix-in-nested-dir", "prompt": "The parsePort function in src/config.mjs returns a string, but it should return a number. Fix it. Do not modify check.mjs.", "files": {"src/config.mjs": "export function parsePort(raw) {\n  return raw ?? '8080';\n}\n", "check.mjs": "import { parsePort } from './src/config.mjs';\nimport assert from 'node:assert';\nassert.strictEqual(parsePort('3000'), 3000);\nassert.strictEqual(parsePort(undefined), 8080);\nconsole.log('ok');\n"}, "verify": "node check.mjs", "immutable": ["check.mjs"], "expectMaxTurns": 10}

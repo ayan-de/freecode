@@ -1160,6 +1160,35 @@ spec's §12; these are the parts that are actionable independently of it.
 - [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
       only documented invocation from a source checkout is a raw `tsx` command.
 
+### Docs findings (eval Phase 2 — sandbox + outcome scorer, 2026-08-27)
+
+- [ ] **`bash` escapes the sandbox.** `eval/sandbox.ts` scopes the *file* tools
+      and the runner's permission answers to the tmpdir, but a coding case needs
+      `bash` and `bash` reaches the whole filesystem (spec §6.3 says so
+      explicitly). Cases are trusted fixtures, so this is a limit rather than a
+      live hole — but it is why `danger` mode still has no eval coverage, and
+      why an untrusted case would need a container (spec §13).
+- [ ] **Coding cases are synthetic and small.** Six dependency-free `.mjs`
+      fixtures, three-to-four turns each. They catch a harness change that
+      breaks editing outright; they will not catch one that degrades work on a
+      real codebase. That is the Tier 2 sandbox, blocked on `node_modules`
+      (spec §6.2).
+- [ ] **`referencedFiles()` in `eval/dataset.ts` is a token scan.** It only
+      catches script paths ending `.mjs`/`.cjs`/`.js`/`.json`, so a `verify`
+      that reaches a fixture file some other way (a shell redirect, a path built
+      inside `node -e`) is not validated at load and will fail at score time,
+      reading as an agent failure. Deliberately narrow — broadening it to
+      "anything path-shaped" rejects `node --test` — but the gap is real.
+- [ ] **`immutable` is checked only against files the case seeded.** A case
+      cannot assert "the agent created no new files", so an agent that leaves
+      scratch files behind still passes. Nothing depends on this yet.
+
+### Housekeeping
+
+- [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —
+      2026-08-23)` block twice, verbatim** (the run of five items appears at
+      ~1094 and again at ~1137). Pre-existing; not touched while doing Phase 2.
+
 ### Deliberate — do NOT "fix"
 
 - **Unit tests stay `*.test.ts` under `src/`.** The 98 existing tests are unit

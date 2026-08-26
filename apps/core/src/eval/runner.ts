@@ -8,7 +8,9 @@
 
 import { buildTrace, type Trace } from "../rollout/trace.js";
 import { loadSessionEvents } from "../rollout/history.js";
+import { createSandbox, insideSandbox, type Sandbox } from "./sandbox.js";
 import type { EvalCase, RunRecord, TrialResult } from "./types.js";
+import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
 
 export interface RunnerConfig {
@@ -70,10 +72,29 @@ export async function runTrial(
   kase: EvalCase,
   config: RunnerConfig,
 ): Promise<TrialResult> {
+  // A sandboxed case runs in a fresh tmpdir seeded from `files`, which becomes
+  // its project root; an unsandboxed one runs in the real working directory
+  // (and `dataset.ts` has already refused to let it mutate anything).
+  const sandbox = kase.files ? createSandbox(kase.files) : undefined;
+  try {
+    return await runTrialIn(kase, config, sandbox);
+  } finally {
+    sandbox?.cleanup();
+  }
+}
+
+async function runTrialIn(
+  kase: EvalCase,
+  config: RunnerConfig,
+  sandbox: Sandbox | undefined,
+): Promise<TrialResult> {
   const { getAppRuntime } = await import("../effect/runtime.js");
   const { createAgentLoopEffect } = await import("../agent/loop.js");
   const { getSessionManager } = await import("../session/index.js");
-  const { bus, rejectQuestion } = await import("../bus/index.js");
+  const { answerPermission, bus, rejectPermission, rejectQuestion } =
+    await import("../bus/index.js");
+
+  const projectPath = sandbox?.dir ?? config.projectPath;
 
   let provider = config.provider;
   let model = config.model;
@@ -90,7 +111,7 @@ export async function runTrial(
   const manager = await getSessionManager();
   // Fresh session per trial: each gets its own rollout aggregate, and
   // therefore its own Trace. Sharing one would fold two runs into one span set.
-  const sessionId = await manager.start(config.projectPath, provider);
+  const sessionId = await manager.start(projectPath, provider);
 
   // The rollout log deliberately carries no message bodies (spec §5.2), so the
   // reply text is captured live here. Nothing scores it in Phase 1; the judge
@@ -116,9 +137,35 @@ export async function runTrial(
     questionsRejected++;
     rejectQuestion(e.requestId);
   });
+  // Play the frontend's part for permission prompts too, but ONLY inside a
+  // sandbox. `build` mode's default for a mutating tool is "ask", and a
+  // headless ask resolves to DENY (`permission/prompt.ts`) — so without this
+  // every coding case would score a model that was never allowed to write, and
+  // the suite would measure the permission layer instead of the agent.
+  //
+  // Scoped, not blanket: a path argument that resolves outside the sandbox is
+  // refused. Tools with no path argument — `bash` above all — are granted,
+  // because a coding case needs to run its own checks, and because §6.3 is
+  // already explicit that a tmpdir does not contain an agent holding a shell.
+  // Nothing subscribes when the case has no sandbox, so an unsandboxed case
+  // keeps Phase 1's behaviour exactly: headless ask, deny.
+  const unsubscribePermissions = sandbox
+    ? bus.subscribe("permission.asked", (e) => {
+        if (e.sessionId !== undefined && e.sessionId !== sessionId) return;
+        const target = (e.args.filePath ?? e.args.path ?? e.args.cwd) as
+          | string
+          | undefined;
+        if (typeof target === "string" && !insideSandbox(sandbox.dir, target)) {
+          rejectPermission(e.requestId);
+          return;
+        }
+        answerPermission(e.requestId, { decision: "allow-once" });
+      })
+    : () => {};
   const cleanup = () => {
     unsubscribe();
     unsubscribeQuestions();
+    unsubscribePermissions();
   };
 
   const startedAt = Date.now();
@@ -133,12 +180,12 @@ export async function runTrial(
           sessionId,
           provider,
           model,
-          projectPath: config.projectPath,
-          // Read-only by default, and `dataset.ts` rejects mutating modes: until
-          // the Tier 1 sandbox lands (spec §6.1) a case runs in the real working
-          // directory, and `forbidTools` only SCORES a mutation — it cannot
-          // prevent one. Mode enforcement can.
-          agentMode: kase.agentMode ?? "explore",
+          projectPath,
+          // A sandboxed case defaults to `build` (spec §6) — it has a tmpdir to
+          // write in. An unsandboxed one defaults to read-only and `dataset.ts`
+          // rejects any mutating override, because there `forbidTools` only
+          // SCORES a mutation; it cannot prevent one. Mode enforcement can.
+          agentMode: kase.agentMode ?? (sandbox ? "build" : "explore"),
         }),
       ),
       // The backstop for anything that blocks without a timeout of its own.
@@ -186,8 +233,17 @@ export async function runTrial(
   }
 
   const trace = buildTrace(sessionId, recorded.events);
-  const run: RunRecord = { trace, prompt: kase.prompt, response };
-  const score = scoreTrajectory(run, kase);
+  const run: RunRecord = {
+    trace,
+    prompt: kase.prompt,
+    response,
+    sandboxDir: sandbox?.dir,
+  };
+  // Trajectory first: it is the cheaper verdict, and a run that hung or called
+  // a forbidden tool should report THAT rather than whatever `verify` makes of
+  // the wreckage.
+  const trajectory = scoreTrajectory(run, kase);
+  const score = trajectory.passed ? scoreOutcome(run, kase) : trajectory;
 
   return {
     passed: score.passed,

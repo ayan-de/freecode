@@ -26,6 +26,23 @@ export interface EvalCase {
   expectInArgs?: Record<string, ArgMatcher>;
   expectMaxTurns?: number;
   forbidTools?: string[];
+
+  // --- outcome expectations (spec §4, §6.1) -------------------------------
+  /**
+   * Fixture seeded into a fresh tmpdir, which becomes the case's project root.
+   * Presence of `files` is what makes a case sandboxed, and therefore what
+   * lets it run in a mutating agent mode at all.
+   */
+  files?: Record<string, string>;
+  /** Shell command run in the sandbox after the turn; exit code is the score. */
+  verify?: string;
+  /**
+   * Fixture files the agent must not touch — the checker, normally. Not in the
+   * spec's case format; added because "edit check.mjs until it passes" is a
+   * green run that fixed nothing, and a prompt saying "do not modify check.mjs"
+   * is a request, not a guard.
+   */
+  immutable?: string[];
 }
 
 /** One trial of one case. */
@@ -96,6 +113,8 @@ export interface RunRecord {
   trace: Trace;
   prompt: string;
   response: string;
+  /** The sandbox the turn ran in, when the case had one. `outcome.ts`'s input. */
+  sandboxDir?: string;
 }
 
 export type Scorer = (run: RunRecord, kase: EvalCase) => TrialScore;

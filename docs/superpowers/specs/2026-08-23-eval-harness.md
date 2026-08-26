@@ -249,7 +249,7 @@ stepped through in a debugger and so the harness works from a source checkout wi
 Per case: fresh session id (so each case gets its own rollout aggregate and therefore its
 own `Trace`), fresh sandbox, `--agent build` unless the case overrides it.
 
-### 6.1 Tier 1 sandbox — tmpdir, zero dependencies (Phases 1–2)
+### 6.1 Tier 1 sandbox — tmpdir, zero dependencies (Phases 1–2) — **built**
 
 Synthetic cases get a tmpdir seeded from `files`, and **nothing else**. No `node_modules`,
 no install step, no network. This is why §4 mandates dependency-free fixtures: the moment a
@@ -441,7 +441,7 @@ foreign one to get a loop we already have.
 | --- | --- | --- |
 | **0** | Carry `args` through the `function.call` fold into `ToolSpan` (`rollout/trace.ts`) | ~3 lines + a test. **Blocks Phase 1** — `expect_in_args` is unscoreable without it. Also improves `freecode trace --json`. |
 | **1** | `eval/{types,dataset,runner,report}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (~20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. Runner is a thin wrap of the existing `run.ts` boot path. |
-| **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. |
+| **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Built 2026-08-27**, with two departures from the text above — see §11.1. |
 | **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | Needs a second provider key. Set the threshold from the first real run, not from this document. |
 | **4** | `freecode eval add` | Depends on Phase 0 + 1. Pull it forward if Phase 2 slips. |
 | **5** | LLMOps close-out — §12 | Independent of 0–4. |
@@ -449,6 +449,37 @@ foreign one to get a loop we already have.
 
 Every case in Phase 1 pins `model`. A provider default change must not silently reprice
 the baseline; a repriced baseline is worse than no baseline, because it looks like data.
+
+### 11.1 Phase 2 as built — two departures from §4 and §6
+
+Both were forced by things this document did not anticipate, and both are load-bearing.
+
+**1. An `immutable` field on the case, which §4's format does not have.** The spec's own
+example prompt ends "Do not modify check.mjs", and relies on the model honouring it. That
+is a request, not a guard: an agent that edits the checker until it passes exits 0, and
+`verify`'s exit code — the thing §4 calls the cheapest scorer to trust — reports a green
+run that fixed nothing. It is the single most expensive false positive the highest-value
+scorer can emit, so it gets a mechanism rather than a sentence in a prompt. `immutable`
+lists fixture files that must be byte-identical afterwards, validated at load as a subset
+of `files`, checked *before* `verify` runs. `dataset.test.ts` asserts every shipped
+coding case marks its checker.
+
+**2. The runner answers permission prompts inside a sandbox.** §6 says a case runs
+`--agent build` and stops there, which cannot work as written: `build`'s default decision
+for a mutating tool is `ask`, and a headless `ask` resolves to **deny**
+(`permission/prompt.ts`, deliberately — never a silent allow). Every coding case would
+have scored a model that was never allowed to write, and the suite would have measured
+the permission layer. The runner therefore plays the frontend's part for
+`permission.asked` exactly as Phase 1 already does for `question.asked` — but only when
+the case has a sandbox, and refusing any path argument that resolves outside it. A case
+with no `files` subscribes nothing and keeps Phase 1's behaviour unchanged.
+
+`danger` mode stays refused at load even for a sandboxed case. It bypasses the permission
+layer entirely, and once the runner answers prompts there is nothing left for it to buy.
+
+The §6.3 caveat survives intact and is worth restating, because Phase 2 is where it starts
+to matter: the tmpdir scopes the file tools and the permission answers, and nothing else.
+`bash` reaches the whole filesystem, and coding cases need `bash`.
 
 ## 12. LLMOps close-out — the observability gaps this exposes
 
