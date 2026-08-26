@@ -1,12 +1,14 @@
 # AVO and FreeCode — transferable architecture lessons
 
 > **Status:** Research comparison, not an implementation specification
-> **Date:** 2026-08-26
+> **Date:** 2026-08-26 (facts re-verified against the code 2026-08-26)
 > **Primary source:** *AVO: Agentic Variation Operators for Autonomous Evolutionary Search*,
-> Chen et al., arXiv:2603.24517v1, 2026-03-25 (local: `2603.24517v1.pdf`)
-> **Related FreeCode designs:** `specs/2026-08-10-autonomous-runs-design.md`,
-> `specs/2026-08-08-continual-harness-design.md`, and
-> `specs/2026-08-23-eval-harness.md`
+> Chen et al. (NVIDIA), arXiv:2603.24517v1, 2026-03-25 (local: `2603.24517v1.pdf`)
+> **Related FreeCode designs:** `specs/2026-08-10-autonomous-runs-design.md` (design),
+> `specs/2026-08-08-continual-harness-design.md` (design), and
+> `specs/2026-08-23-eval-harness.md` (**Phases 0–1 shipped** — `apps/core/src/eval/`,
+> `evals/`, `freecode eval`)
+> **Spec derived from this document:** `specs/2026-08-26-trajectory-redirection.md`
 
 ## Executive conclusion
 
@@ -47,7 +49,10 @@ and match or beat the current best score enter the committed lineage (paper §3.
 For long-running work, a conditional supervisor detects stalling or repeated
 non-improvement, reviews the overall trajectory, and proposes fresh optimization
 directions (paper §3.3). The authors evaluated a **single lineage**, not a population,
-island model, crossover system, or general-purpose automatic commits.
+island model, or crossover system. AVO *does* auto-commit: each accepted version is
+persisted as a git commit with its score (§3.3). What it does not do — and what FreeCode
+must not copy — is auto-commit ordinary coding work; AVO's commits are experiment
+bookkeeping for a lineage whose admission is decided by an external evaluator.
 
 The paper's empirical results are compelling for GPU-kernel optimization, but they do
 not prove that every component benefits normal software-engineering tasks. The design
@@ -61,7 +66,7 @@ recommendations below separate the general harness lesson from its specialised b
 | Environment feedback | `bash`, LSP, file tools, MCP tools | **Implemented.** Project tests, linters, benchmarks, and other commands can supply the evaluator signal. |
 | Knowledge the agent can retrieve as needed | skills, project context, persistent memory and memory graph | **Implemented.** The storage/retrieval mechanism differs from the paper’s accumulated conversation history, but serves the same role. |
 | Durable work trajectory | rollout events, session/thread storage, git history | **Implemented.** Rollout supplies the audit evidence a supervisor should consume. |
-| Stuck-pattern detection | `effect/loop-health.ts`, invoked by `agent/loop.ts` | **Partly implemented.** FreeCode detects repeated tool calls, no file-change progress, and edit/revert oscillation. A warning is currently logged; a hard breach stops the loop. Neither outcome creates a new strategy. |
+| Stuck-pattern detection | `createLoopHealthEvaluator()` (`effect/loop-health.ts`), called from `agent/loop.ts:723` | **Partly implemented, and weaker than it looks.** FreeCode detects repeated tool calls, no file-change progress, and edit/revert oscillation. A `stop` ends the run; a `warn` reaches only `logger.debug` (`agent/loop.ts:737`), invisible at the default log level. Neither outcome creates a new strategy. The counter defects — `no_progress` counting tool calls rather than turns, a monotonic `oscillationScore`, and a duplicate evaluator — were repaired in Phase 0 of `specs/2026-08-26-trajectory-redirection.md` (2026-08-26). |
 | Correctness-before-performance gate | Autonomous-runs design’s user-supplied verification command | **Designed, not shipped.** This is the appropriate FreeCode analogue of AVO’s zero-score-on-incorrect rule. |
 | Budgeted unattended execution and review artifact | Autonomous-runs design | **Designed, not shipped.** This is necessary before borrowing AVO’s long-run behaviour. |
 | Scored accepted-candidate lineage | No dedicated subsystem | **Not implemented.** Existing rollout records attempts, but does not model candidate baselines, score vectors, or admission rules. |
@@ -158,16 +163,25 @@ diagnostic data needed for a supervisor or human review.
 
 ## Recommended sequencing
 
-1. Ship and validate the already-designed bounded autonomous-run foundations: explicit
-   budgets, fixed verification gate, isolated worktree, rollout checkpoints, and review
-   report.
-2. Add trajectory redirection as a small, bounded extension of loop health. Evaluate it
-   first on deterministic fixture tasks from the eval-harness design; compare completion,
-   verifier pass rate, tool repetition, cost, and regressions against a no-supervisor
-   baseline.
+1. Add trajectory redirection as a small, bounded extension of loop health, inside the
+   ordinary interactive loop. It depends on nothing unshipped: the trigger, the rollout
+   evidence, the reminder-injection path, and the measurement harness all exist today.
+   Evaluate it on deterministic eval-harness cases (`freecode eval --gate`), comparing
+   completion, tool repetition, cost, and regressions against a no-supervisor baseline.
+   Spec: `specs/2026-08-26-trajectory-redirection.md`.
+2. Ship and validate the bounded autonomous-run foundations: explicit budgets, fixed
+   verification gate, isolated worktree, rollout checkpoints, and review report. A Tier A
+   run then reuses the redirection mechanism from step 1 as its supervisor rather than
+   growing a second one.
 3. Only then design a narrow variant-search mode around a real request with a stable,
    reproducible evaluator. Reuse the autonomous-run budget, gate, worktree, rollout, and
    report rather than creating a second execution path.
+
+Steps 1 and 2 are deliberately in this order, which is the reverse of the obvious
+reading. Redirection is the cheap, measurable half of AVO's supervisor and needs no
+unattended-execution machinery to be useful; autonomous runs are the large unshipped
+spec. Sequencing the small one first also means the autonomous-run report has something
+concrete to show when it lands.
 
 ## Deliberate non-adoptions
 
@@ -188,7 +202,8 @@ diagnostic data needed for a supervisor or human review.
 ## Decision
 
 Treat AVO as confirmation of FreeCode’s existing agent-loop direction and as motivation
-for one future enhancement: **bounded, trajectory-aware recovery backed by verifier
-evidence**. Do not start an AVO clone. The prerequisite work is already described by the
-autonomous-runs and eval-harness designs; scored variant lineage stays a separate,
-on-demand capability until a concrete user workflow warrants it.
+for one enhancement: **bounded, trajectory-aware recovery backed by verifier evidence**.
+Do not start an AVO clone. The measurement harness for it already ships (eval, Phases
+0–1); the unattended-execution work it eventually plugs into is described by the
+autonomous-runs design; scored variant lineage stays a separate, on-demand capability
+until a concrete user workflow warrants it.

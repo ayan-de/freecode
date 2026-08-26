@@ -48,3 +48,27 @@ export function isRevert(
       prior.to === edit.from,
   );
 }
+
+// An edit kept in the rolling window, tagged with whether it undid an earlier
+// edit that was still inside the window when it landed.
+export interface RecordedEdit extends EditTransition {
+  reverted: boolean;
+}
+
+// Append `edit` to the window and drop whatever aged out of it.
+export function recordEdit(
+  window: readonly RecordedEdit[],
+  edit: EditTransition,
+): RecordedEdit[] {
+  const next = [...window, { ...edit, reverted: isRevert(window, edit) }];
+  return next.length > RECENT_EDIT_WINDOW
+    ? next.slice(next.length - RECENT_EDIT_WINDOW)
+    : next;
+}
+
+// The oscillation score: reverts still inside the window. Deriving it from the
+// window rather than a running counter is what lets it fall again — one genuine
+// edit/revert pair early in a long session used to leave the counter armed for
+// the rest of the run, so every later iteration evaluated as a warning.
+export const countReverts = (window: readonly RecordedEdit[]): number =>
+  window.reduce((n, e) => n + (e.reverted ? 1 : 0), 0);

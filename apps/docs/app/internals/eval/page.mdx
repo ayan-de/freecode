@@ -324,28 +324,37 @@ are all reasonable and none fit: the runner must drive *this* agent loop and rea
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-1. **The gate forgives a regression on the next run.** `runSuite` writes the
+1. **A case that makes the model call `question` kills the suite silently.**
+   `askQuestion()` calls `timer.unref()` on its 30-minute timeout
+   (`bus/index.ts:346`) so a pending question cannot hold the process open. In a
+   headless eval nothing else holds the event loop, so node drains and exits
+   **0** the moment a question is asked — mid-suite, with no summary, no report
+   written, and no verdict. Under `--gate` that reads as a passing CI job. First
+   hit on 2026-08-26: `todowrite-for-multistep` asked a clarifying question and
+   took the remaining eight cases with it. The runner needs to answer or reject
+   `question.asked` (and to cap each trial's wall clock) the way a frontend does.
+2. **The gate forgives a regression on the next run.** `runSuite` writes the
    report unconditionally, so a red run becomes the baseline. 18/20 → 14/20 fails;
    run it again at 14/20 and the gate opens, because both the count and the green
    set now come from the 14/20 run. The delta rule is only honest if a closed
    gate refuses to record its own baseline.
-2. **`SuiteReport.model` records the CLI override, not the resolved model.** With
+3. **`SuiteReport.model` records the CLI override, not the resolved model.** With
    no `--model` it is `undefined`, so the history cannot tell you which model
    produced a baseline — and comparing a cheap local run against a CI baseline
    from a different model looks like a regression with no way to see why. None of
    the twenty shipped cases pins `model`, though the spec requires it.
-3. **`evalsDir()` is `path.resolve("evals")` — relative to the current working
+4. **`evalsDir()` is `path.resolve("evals")` — relative to the current working
    directory.** `freecode eval` from anywhere but the repo root fails with "no
    such suite" unless `FREECODE_EVALS_DIR` is set. The shipped cases also
    reference FreeCode's own source paths, so the suite is repo-specific in a way
    nothing in the CLI says.
-4. **`--trials` defaults to 1**, which is `pass@1` — the statistic the gate's own
+5. **`--trials` defaults to 1**, which is `pass@1` — the statistic the gate's own
    design says is too noisy to block on. `--gate` does not imply `--trials 3`.
-5. **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+6. **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
    invocation from a source checkout is a raw `tsx` command against `cli.ts`.
-6. **Nothing scores the reply text.** `RunRecord.response` is captured on every
+7. **Nothing scores the reply text.** `RunRecord.response` is captured on every
    trial and read by nobody until the judge lands.
-7. **The suite cannot test the modes that matter most.** No sandbox means no
+8. **The suite cannot test the modes that matter most.** No sandbox means no
    `build`, no `danger`, no `bash` — so the highest-risk paths in the agent are
    exactly the ones with no eval coverage.
 
@@ -354,6 +363,7 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | Symptom | Check |
 | --- | --- |
 | `no such suite: …/evals/trajectory.jsonl` | you are not at the repo root; `cd` there or set `FREECODE_EVALS_DIR` |
+| suite stops early, exits 0, no summary and no report | a case made the model call `question` — see gap 1. The last line before the silence is `Executing tool: question` |
 | `No provider configured` | set `current.provider` in `~/.freecode/config.json`, or pass `--model <provider>/<model>` |
 | every case fails with `run failed: …` | infrastructure, not the agent — the message is the provider's |
 | a case fails with `no recorded args for grep` | the tool fired but the rollout fold dropped its args (Phase 0 regression) |

@@ -1,78 +1,90 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  isRevert,
+  recordEdit,
+  countReverts,
   toEditTransition,
   RECENT_EDIT_WINDOW,
-  type EditTransition,
+  type RecordedEdit,
 } from "./oscillation.js";
 import { createAgentLoop } from "./loop.js";
+import { createLoopHealthEvaluator } from "../effect/loop-health.js";
 import type { ToolCall, ToolResult } from "./types.js";
 
 // A rolling window that mirrors how the loop records edits.
-function record(
-  window: EditTransition[],
-  file: string,
-  oldString: string,
-  newString: string,
-): boolean {
-  const edit = toEditTransition(file, oldString, newString);
-  const reverted = isRevert(window, edit);
-  window.push(edit);
-  if (window.length > RECENT_EDIT_WINDOW) window.shift();
-  return reverted;
+class Window {
+  edits: RecordedEdit[] = [];
+  record(file: string, oldString: string, newString: string): boolean {
+    this.edits = recordEdit(
+      this.edits,
+      toEditTransition(file, oldString, newString),
+    );
+    return this.edits[this.edits.length - 1].reverted;
+  }
+  get score(): number {
+    return countReverts(this.edits);
+  }
 }
 
 test("building one file up over many edits is never a revert", () => {
-  const window: EditTransition[] = [];
-  let reverts = 0;
+  const w = new Window();
   // The regression: a long task legitimately edits one file dozens of times.
   for (let i = 0; i < 40; i++) {
-    if (record(window, "MainActivity.kt", `state ${i}`, `state ${i + 1}`)) {
-      reverts++;
-    }
+    w.record("MainActivity.kt", `state ${i}`, `state ${i + 1}`);
   }
-  assert.equal(reverts, 0);
+  assert.equal(w.score, 0);
 });
 
 test("an edit that undoes an earlier one is a revert", () => {
-  const window: EditTransition[] = [];
-  assert.equal(record(window, "a.ts", "X", "Y"), false);
-  assert.equal(record(window, "a.ts", "Y", "X"), true);
+  const w = new Window();
+  assert.equal(w.record("a.ts", "X", "Y"), false);
+  assert.equal(w.record("a.ts", "Y", "X"), true);
 });
 
 test("edit/revert/edit scores twice", () => {
-  const window: EditTransition[] = [];
-  let reverts = 0;
+  const w = new Window();
   for (const [from, to] of [
     ["X", "Y"],
     ["Y", "X"],
     ["X", "Y"],
   ]) {
-    if (record(window, "a.ts", from, to)) reverts++;
+    w.record("a.ts", from, to);
   }
-  assert.equal(reverts, 2);
+  assert.equal(w.score, 2);
 });
 
 test("the same transition on a different file is not a revert", () => {
-  const window: EditTransition[] = [];
-  record(window, "a.ts", "X", "Y");
-  assert.equal(record(window, "b.ts", "Y", "X"), false);
+  const w = new Window();
+  w.record("a.ts", "X", "Y");
+  assert.equal(w.record("b.ts", "Y", "X"), false);
 });
 
 test("a no-op edit is not a revert", () => {
-  const window: EditTransition[] = [];
-  record(window, "a.ts", "X", "X");
-  assert.equal(record(window, "a.ts", "X", "X"), false);
+  const w = new Window();
+  w.record("a.ts", "X", "X");
+  assert.equal(w.record("a.ts", "X", "X"), false);
 });
 
 test("an inverse older than the window is forgotten", () => {
-  const window: EditTransition[] = [];
-  record(window, "a.ts", "X", "Y");
+  const w = new Window();
+  w.record("a.ts", "X", "Y");
   for (let i = 0; i < RECENT_EDIT_WINDOW; i++) {
-    record(window, "other.ts", `p${i}`, `q${i}`);
+    w.record("other.ts", `p${i}`, `q${i}`);
   }
-  assert.equal(record(window, "a.ts", "Y", "X"), false);
+  assert.equal(w.record("a.ts", "Y", "X"), false);
+});
+
+test("an edit/revert pair ages out of the window and the score falls", () => {
+  const w = new Window();
+  w.record("a.ts", "X", "Y");
+  assert.equal(w.record("a.ts", "Y", "X"), true);
+  assert.equal(w.score, 1);
+  // Forward progress elsewhere pushes the scored pair out of the window. The
+  // old running counter stayed armed here for the rest of the run.
+  for (let i = 0; i < RECENT_EDIT_WINDOW; i++) {
+    w.record("other.ts", `p${i}`, `q${i}`);
+  }
+  assert.equal(w.score, 0);
 });
 
 // -----------------------------------------------------------------------------
@@ -101,6 +113,14 @@ function applyEdit(
   (loop as any).updateLoopHealth(call, result);
 }
 
+// The loop's own health check, run against its live state.
+function health(loop: unknown) {
+  return createLoopHealthEvaluator().evaluate(
+    (loop as any).state,
+    (loop as any).config.heuristics,
+  );
+}
+
 test("a long run of forward edits to one file does not stop the loop", () => {
   const loop = createAgentLoop("test-oscillation-forward");
   // Well past the old detector's limit, which stopped after ~10 same-file edits.
@@ -108,7 +128,7 @@ test("a long run of forward edits to one file does not stop the loop", () => {
     applyEdit(loop, "/p/MainActivity.kt", `state ${i}`, `state ${i + 1}`);
   }
   assert.equal((loop as any).state.loopHealth.oscillationScore, 0);
-  assert.equal((loop as any).evaluateLoopHealth().action, "continue");
+  assert.equal(health(loop).action, "continue");
 });
 
 test("a genuine revert cycle still stops the loop", () => {
@@ -119,7 +139,7 @@ test("a genuine revert cycle still stops the loop", () => {
     applyEdit(loop, "/p/a.ts", `A${i}`, `B${i}`);
     applyEdit(loop, "/p/a.ts", `B${i}`, `A${i}`);
   }
-  const action = (loop as any).evaluateLoopHealth();
+  const action = health(loop);
   assert.equal(action.action, "stop");
   assert.equal(action.reason, "oscillation_detected");
 });

@@ -596,13 +596,22 @@ that page's **Known gaps**.
       permanently 0, and `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
       (`agent/types.ts:206`) have no reader. Implement it or delete the fields —
       right now the spec advertises four heuristics and three exist.
-- [ ] **"No progress" is invisible.** `stagnantTurns` increments per *tool call*
-      rather than per turn (`loop.ts:2344`), can only produce `warn`, and the warn
-      goes to `logger.debug` (`loop.ts:714`).
-- [ ] **Loop health is implemented twice.** `effect/loop-health.ts`
-      (`createLoopHealthEvaluator`) duplicates `AgentLoop.evaluateLoopHealth`; it is
-      imported by `effect/layers.ts` but never resolved by the loop, and its own
-      comment says the two are kept in sync by hand.
+- [x] **"No progress" counted tool calls, not turns.** ✅ Phase 0 of
+      `specs/2026-08-26-trajectory-redirection.md` (D1). `stagnantTurns` now advances
+      once per turn in `AgentLoop.advanceStagnation()` (`loop.ts:2498`) — five
+      consecutive reads no longer read as stagnation — and `oscillationScore` is a
+      count of reverts still inside the 30-edit window (`countReverts`,
+      `agent/oscillation.ts`) instead of a counter that only ever climbed. Tests:
+      `agent/stagnation.test.ts`, `agent/oscillation.test.ts`.
+- [ ] **A loop-health `warn` still reaches nobody.** The signal is now trustworthy,
+      but every `warn` goes to `logger.debug` (`loop.ts:737`) — invisible at the
+      default log level and never shown to the model, so nothing acts on a stuck
+      pattern until it doubles into a `stop`. Phase 1 of
+      `specs/2026-08-26-trajectory-redirection.md`.
+- [x] **Loop health was implemented twice.** ✅ Phase 0 (D10). The private
+      `AgentLoop.evaluateLoopHealth()` is deleted; the loop now calls
+      `createLoopHealthEvaluator()` from `effect/loop-health.ts`, which is the only
+      copy of the policy.
 - [ ] **The provider tool list ignores agent mode.** `getToolDefs()`
       (`tools/defs-cache.ts:30`) takes no mode, so a plan-mode session advertises
       `write`/`edit`/`bash` and then hard-denies them (`mode-policy.ts:77`) — one
@@ -1076,6 +1085,18 @@ spec's §12; these are the parts that are actionable independently of it.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
+- [ ] **A `question` tool call kills the suite silently, exit 0.** Hit on
+      2026-08-26 running the trajectory suite for the first time:
+      `todowrite-for-multistep` made the model ask a clarifying question and the
+      process ended right there — no summary, no report, no verdict, exit code 0,
+      remaining 8 cases never run. `askQuestion()` `unref()`s its 30-minute timer
+      (`bus/index.ts:346`) so a pending question cannot hold the event loop open,
+      and headless there is no frontend to answer it. Under `--gate` a CI job
+      reads that as green. `runner.ts` should subscribe to `question.asked` and
+      reject (the tool already recovers with "You can continue without this
+      information"), plus cap each trial's wall clock. This is why
+      `~/.freecode/eval_runs.jsonl` did not exist until 2026-08-26 — the suite had
+      never once completed.
 - [ ] **A closed gate records its own baseline, so a regression is forgiven on the
       next run.** `runSuite` calls `writeReport(report)` unconditionally
       (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
@@ -1083,6 +1104,8 @@ spec's §12; these are the parts that are actionable independently of it.
       opens, because both the count and `greenIds` now come from the 14/20 run.
       The delta rule is only honest if a closed gate refuses to become the
       baseline (or history records a `gated` flag that `baselineFor` skips).
+      Confirmed live 2026-08-26: the Phase 0 comparison recorded 15/20 then
+      14/20, so the next gated run baselines against the red 14/20.
 - [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
       (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
       say which model produced a baseline, and a cheap local run compared against

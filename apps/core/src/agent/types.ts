@@ -192,8 +192,8 @@ export interface RecoveryPolicy {
 
 export interface LoopHealth {
   repeatedTools: number; // Same tool+args repeated
-  stagnantTurns: number; // No progress made
-  oscillationScore: number; // Edit/revert/edit pattern
+  stagnantTurns: number; // Turns that changed no file (advanced once per turn)
+  oscillationScore: number; // Reverts inside the recent-edit window
   repeatedReasoningScore: number; // Similar reasoning repeated
 }
 
