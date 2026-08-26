@@ -1183,6 +1183,26 @@ spec's §12; these are the parts that are actionable independently of it.
       cannot assert "the agent created no new files", so an agent that leaves
       scratch files behind still passes. Nothing depends on this yet.
 
+### Findings (eval Phase 4 — `eval add`, 2026-08-27)
+
+- [ ] **The thread store's turn table is dead code.** `createTurn` is
+      implemented in `store/json-store.ts`, `store/sqlite-store.ts` and
+      `ThreadStore.addTurn` (`store/thread-store.ts:164`), and **nothing in the
+      repo calls any of them**. Verified against a real installation:
+      `~/.freecode/state/store.json` holds 118 threads and 0 turns. So
+      `StoredTurn`, `StoredToolCall` and `getTurnItemsView` are a persistence
+      layer with no writer. Either wire it up or delete it — but it should not
+      keep sitting there looking like a source of truth. It already misled the
+      eval spec (§5.1's table, corrected in §8.1).
+- [ ] **`eval add` cannot harvest a coding case.** A recorded session has no
+      `files` fixture, so `--suite coding` is refused. Harvesting a *sandboxed*
+      case would mean reconstructing the fixture from the tool calls that
+      created it — possible in principle, not attempted.
+- [ ] **`expectMaxTurns` is harvested as the observed count exactly**, so a
+      drafted case fails on a run one turn longer. A note says so, but a human
+      who skims it commits a case that is red by construction. Consider
+      emitting `observed + 1`, or a `--slack N` flag.
+
 ### Housekeeping
 
 - [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —

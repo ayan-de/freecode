@@ -439,22 +439,89 @@ expensive false positive available here.
 
 ## What is built, and what is only designed
 
-The spec runs to six phases. Three are built.
+The spec runs to six phases. Four are built.
 
 | Phase | Deliverable | Status |
 | --- | --- | --- |
 | 0 | carry tool `args` into `ToolSpan` | ✅ — `expectInArgs` is unscoreable without it |
 | 1 | case format, runner, trajectory scorer, gate, quarantine, `freecode eval` | ✅ |
 | 2 | tmpdir sandbox + outcome scorer + `evals/coding.jsonl` | ✅ — 6 cases, `build` mode, `verify` exit code |
-| 3 | LLM judge scorer + `--gate` in CI | ✗ — `gate.ts` exists, the judge does not |
-| 4 | `freecode eval add <session-id>` — harvest a case from a real session | ✗ |
+| 3 | LLM judge scorer + `--gate` in CI | ✗ — `gate.ts` exists, the judge does not. **Blocked**: the judge must not be the model under test, so it needs a second provider key |
+| 4 | `freecode eval add <session-id>` — harvest a case from a real session | ✅ |
 | 5 | LLMOps close-out — a shared `providers/pricing.ts`, so a report can carry USD | ✗ — independent of 0–4 |
 | later | repo-grounded sandbox (Tier 2) | ✗ — blocked on the `node_modules` question |
 
-Phase 4 is the one to want. **Every production failure is already a
-fully-specified eval case sitting on disk** in the rollout log, and nothing
-harvests them. Observability makes failures visible; without that command,
-making them permanent is manual transcription.
+## Growing the suite from real failures
+
+Writing cases by hand is how a suite starts and not how it grows. **Every
+production failure is already a fully-specified eval case sitting on disk** —
+the rollout log has the trajectory, the session store has the prompt — and
+transcribing one by hand is a job nobody does. `freecode eval add` is the
+command that closes that loop:
+
+```bash
+freecode eval add <session-id>                  # print a draft to stdout
+freecode eval add <session-id> --turn 2         # a specific user turn
+freecode eval add <session-id> --write          # append to evals/trajectory.jsonl
+```
+
+```
+harvested turn 3 of 3 from 7cc43e0a-…
+note This records what the agent DID, not what it should do. A harvested run is
+     usually the wrong behaviour — that is why it is worth a case. Edit the
+     expectation before appending.
+note expectMaxTurns is the OBSERVED count (11), so the case fails on a run one
+     turn longer. Loosen it unless the turn count is the point.
+{"id":"ok-this-is-my-coding-agent-7cc43e-t3","prompt":"…","model":"minimax/MiniMax-M3",
+ "expectTool":"bash","expectInArgs":{"command":"ls -la …"},"expectMaxTurns":11}
+```
+
+The draft goes to **stdout** and the notes to **stderr**, so `>> evals/…jsonl`
+works and leaves the guidance on your terminal.
+
+| Field | Harvested from |
+| --- | --- |
+| `prompt` | the session store's `messages.jsonl` |
+| `model` | `ModelSpan.provider` + `.model` — the model that actually ran |
+| `expectTool` | the first tool that fired, or `null` if none did |
+| `expectInArgs` | that call's short single-line arguments |
+| `expectMaxTurns` | the observed `trace.modelSpans.length` |
+
+**The output is a draft, and the notes are the point.** A harvested run usually
+records the *wrong* behaviour — that is why it was worth keeping — so a draft
+that reads like an approved expectation is this command's failure mode. It says
+so first, every time, and again for each thing you probably need to change.
+
+Three details that are not obvious:
+
+**Turn scoping is by timestamp, not `turnId`.** A rollout `turnId` is
+`turn-<loopIteration>`, and `turnCount` is not reset per user prompt — so one
+user turn spans many `turnId`s and the two numbering schemes do not correspond.
+`--turn N` picks the Nth user message and takes the events in
+`[thatMessage, nextUserMessage)`.
+
+**Absolute paths get shortened to their last two segments.** A harvested
+`/tmp/freecode-eval-Uaw72m/check.mjs` names one machine and one tmpdir that no
+longer exists — a needle guaranteed never to match again. Every shortened value
+is named in a note; rewriting silently would be useful and dishonest.
+
+**Validation runs before anything is emitted or written.** The draft goes
+through `parseSuite` first, so this command cannot produce a case `freecode
+eval` would reject; `--write` then validates the *whole* file, because a
+duplicate id is only visible against the rest of the suite and finding it on the
+next run means a broken suite was committed in between.
+
+`--suite coding` is refused: a recorded session has no `files` fixture, so
+`verify` would have nothing to run against.
+
+> **The spec's design for this could not be built as written.** §8 sources the
+> prompt from `StoredTurn.prompt` in the thread store, and §5.1 marks it
+> present. It is not: `createTurn` is implemented in `json-store.ts`,
+> `sqlite-store.ts`, and `ThreadStore.addTurn`, and has **no production caller
+> anywhere in the repo** — 118 threads on a real installation, zero turns. The
+> durable text is in the *session* store. Everything §5.2 says about the split
+> survives: text still never enters the rollout log, so OTLP export stays
+> leak-free. Only the name of the store was wrong.
 
 ## What this deliberately is not
 
@@ -528,6 +595,9 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | `modified immutable check.mjs` | the agent edited the checker instead of the code — sharpen the prompt, do not relax the guard |
 | every coding case fails having never written a file | the permission answer did not fire. Check the case actually has `files`; an unsandboxed case denies headlessly by design |
 | `verify runs 'x.mjs', which 'files' never creates` | a load-time rejection, not a run — add the file to `files` |
+| `eval add` says `no recorded user prompt` | the session's `messages.jsonl` is empty, pruned, or was compacted away — the trajectory alone cannot make a case |
+| `eval add` says `no rollout events recorded for turn N` | that turn never reached a provider; pick another with `--turn` |
+| `eval add --write` says `duplicate case id` | already harvested. Nothing was written — the whole file is validated first |
 
 ## Where to look
 
@@ -540,6 +610,7 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | The trajectory scorer | `apps/core/src/eval/scorers/trajectory.ts` |
 | The outcome scorer (`verify`, `immutable`) | `apps/core/src/eval/scorers/outcome.ts` |
 | The Tier 1 sandbox | `apps/core/src/eval/sandbox.ts` |
+| Harvesting a session into a case | `apps/core/src/eval/harvest.ts` |
 | Majority-of-N and the gate rules | `apps/core/src/eval/gate.ts` |
 | Quarantine thresholds and proposals | `apps/core/src/eval/quarantine.ts` |
 | Report + history persistence | `apps/core/src/eval/report.ts` |

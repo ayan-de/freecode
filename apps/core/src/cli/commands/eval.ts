@@ -3,6 +3,13 @@ import type { CommandModule } from "yargs";
 // `freecode eval` — run an eval suite against the real agent loop.
 // Spec: docs/superpowers/specs/2026-08-23-eval-harness.md
 
+interface EvalAddArgs {
+  sessionId: string;
+  turn?: number;
+  suite: string;
+  write: boolean;
+}
+
 interface EvalArgs {
   suite: string;
   trials: number;
@@ -20,6 +27,118 @@ const red = "\x1b[31m";
 const green = "\x1b[32m";
 const yellow = "\x1b[33m";
 const reset = "\x1b[0m";
+
+// `freecode eval add <session-id>` — harvest a real session into a draft case.
+//
+// Emits to STDOUT and guidance to STDERR, so `... >> evals/trajectory.jsonl`
+// works and leaves the notes on the terminal where a human will read them.
+// `--write` does the append itself, validating the whole file afterwards.
+const evalAddCommand: CommandModule<object, EvalAddArgs> = {
+  command: "add <session-id>",
+  describe: "Harvest a draft eval case from a recorded session",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionId", {
+        type: "string",
+        demandOption: true,
+        describe: "session id, as shown by `freecode session list`",
+      })
+      .option("turn", {
+        type: "number",
+        describe: "1-based user turn to harvest (default: the last one)",
+      })
+      .option("suite", {
+        type: "string",
+        default: "trajectory",
+        describe: "suite to append to with --write",
+      })
+      .option("write", {
+        type: "boolean",
+        default: false,
+        describe: "append to the suite file instead of printing to stdout",
+      }),
+  handler: async (argv) => {
+    const { harvestCase, formatCase, HarvestError } =
+      await import("../../eval/harvest.js");
+    const { loadSessionEvents } = await import("../../rollout/history.js");
+    const { parseSuite, suitePath } = await import("../../eval/dataset.js");
+
+    try {
+      // A harvested session carries no `files` fixture, so there is nothing for
+      // a `verify` to run against — the case would load, then fail every run.
+      if (argv.suite === "coding") {
+        throw new HarvestError(
+          "cannot harvest into the coding suite: a recorded session has no " +
+            "`files` fixture, so `verify` would have nothing to run against. " +
+            "Harvest into a trajectory suite, or write the coding case by hand.",
+        );
+      }
+
+      const recorded = loadSessionEvents(argv.sessionId);
+      if (!recorded) {
+        throw new HarvestError(
+          `no rollout log for session ${argv.sessionId}. ` +
+            `Check the id with \`freecode session list\`.`,
+        );
+      }
+
+      const { createSessionStore } = await import("../../session/store.js");
+      const os = await import("os");
+      const path = await import("path");
+      const store = await createSessionStore(
+        path.join(os.homedir(), ".freecode"),
+      );
+      const messages = await store.getMessages(argv.sessionId);
+
+      const result = harvestCase({
+        sessionId: argv.sessionId,
+        messages,
+        events: recorded.events,
+        turn: argv.turn,
+      });
+      const line = formatCase(result.kase);
+
+      // Validate the draft the same way a suite load would, so this command
+      // can never emit something `freecode eval` would then reject.
+      parseSuite(line, "<draft>");
+
+      console.error(
+        `${dim}harvested turn ${result.turn} of ${result.turnCount} from ${argv.sessionId}${reset}`,
+      );
+      for (const note of result.notes) {
+        console.error(`${yellow}note${reset} ${note}`);
+      }
+
+      if (!argv.write) {
+        console.log(line);
+        console.error(
+          `\n${dim}append it with: freecode eval add ${argv.sessionId} --write${reset}`,
+        );
+        return;
+      }
+
+      const fs = await import("fs");
+      const file = suitePath(argv.suite);
+      if (!fs.existsSync(file)) {
+        throw new HarvestError(`no such suite: ${file}`);
+      }
+      const existing = fs.readFileSync(file, "utf-8");
+      const appended =
+        existing.endsWith("\n") || existing === ""
+          ? `${existing}${line}\n`
+          : `${existing}\n${line}\n`;
+      // Validate the WHOLE file before writing: a duplicate id is only
+      // visible against the rest of the suite, and discovering it on the next
+      // `freecode eval` would mean a broken suite committed in between.
+      parseSuite(appended, file);
+      fs.writeFileSync(file, appended, "utf-8");
+      console.error(`${green}appended${reset} ${result.kase.id} to ${file}`);
+    } catch (err) {
+      console.error(`${red}${(err as Error).message}${reset}`);
+      process.exit(1);
+    }
+  },
+};
 
 export const evalCommand: CommandModule<object, EvalArgs> = {
   command: "eval [suite]",
@@ -67,7 +186,8 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         default: false,
         describe:
           "treat this as a stuck-loop suite: --compare also requires repetition to fall",
-      }),
+      })
+      .command(evalAddCommand),
   handler: async (argv) => {
     const { runSuite } = await import("../../eval/suite.js");
     const { loadQuarantine, proposeQuarantine } =

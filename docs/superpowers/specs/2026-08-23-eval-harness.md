@@ -193,9 +193,9 @@ cannot be built. Getting this table right is a precondition for Phase 1.
 | Model call timing, TTFT, tokens, hangs | rollout JSONL | `ModelSpan.*` | ✅ present |
 | Which tools fired, and when | rollout JSONL | `ToolSpan.tool` | ✅ present |
 | **Tool call arguments** | rollout JSONL | `FunctionCallEvent.args` | ⚠️ **recorded, then dropped by the fold** |
-| User prompt | thread store | `StoredTurn.prompt` | ✅ present |
-| Assistant reply | thread store | `StoredTurn.response` | ✅ present |
-| Tool args + results | thread store | `StoredToolCall.args` / `.result` | ✅ present |
+| User prompt | ~~thread store~~ **session store** | ~~`StoredTurn.prompt`~~ `messages.jsonl` | ❌ **this row was wrong** — see §8.1 |
+| Assistant reply | ~~thread store~~ **session store** | ~~`StoredTurn.response`~~ `messages.jsonl` | ❌ same |
+| Tool args + results | ~~thread store~~ **session store** | ~~`StoredToolCall.args` / `.result`~~ message `parts` | ❌ same |
 
 The one gap is real but small. `rollout/types.ts` defines `FunctionCallEvent.args:
 Record<string, unknown>`, so the arguments **are** in the log — but `trace.ts:137-139`
@@ -321,20 +321,59 @@ here rather than adopt a generic runner.
 freecode eval add <session-id> [--turn N] [--suite trajectory]
 ```
 
-Reads **both** stores for that session — per §5.1, neither alone is sufficient — and emits
-a **draft** case:
+Reads **both** stores for that session — neither alone is sufficient — and emits a
+**draft** case:
 
 | Field | Source |
 | --- | --- |
-| `prompt` | `StoredTurn.prompt` (thread store) |
+| `prompt` | ~~`StoredTurn.prompt` (thread store)~~ → the **session** store's `messages.jsonl`; see §8.1 |
 | `expect_tool`, `expect_in_args` | `ToolSpan.tool` + `.args` (rollout log, after the §5.1 fold fix) |
 | `expect_max_turns` | `trace.modelSpans.length` |
-| `model` | `ModelSpan.model` |
+| `model` | `ModelSpan.provider` + `.model` |
 
 The human edits the expectation — because the harvested run is usually the *wrong*
-behaviour, that being why it is interesting — and appends it. A session whose thread-store
-record has been pruned yields no `prompt` and the command fails loudly rather than emitting
-a case with an empty task.
+behaviour, that being why it is interesting — and appends it. A session whose message log
+has been pruned yields no `prompt` and the command fails loudly rather than emitting a
+case with an empty task.
+
+### 8.1 The thread store's turn table is empty — §5.1's table row was wrong
+
+**Built 2026-08-27**, and the design above could not be built as written.
+
+§5.1 lists "User prompt | thread store | `StoredTurn.prompt` | ✅ present". It is not
+present. `createTurn` is implemented at every layer — `store/json-store.ts`,
+`store/sqlite-store.ts`, and `ThreadStore.addTurn` — and **has no production caller
+anywhere in the repo**. Checked against a real installation: 118 threads recorded, zero
+turns. The row was written from the type definitions rather than from a call graph, which
+is exactly the mistake §5.1 exists to prevent.
+
+The durable prompt and reply text live in the **session** store —
+`~/.freecode/sessions/<projectDir>/<sessionId>/messages.jsonl`, a `SerializedMessage[]`
+with `role`, `parts`, and `timestamp`. `harvest.ts` reads that. Everything §5.2 says about
+the two-store split survives unchanged: text still never enters the rollout log, and the
+privacy property OTLP export depends on is untouched. Only the name of the store holding
+the text was wrong.
+
+**Turn scoping is by timestamp, not `turnId`.** A rollout `turnId` is
+`turn-<loopIteration>` (`agent/loop.ts`), and `turnCount` is not reset per user prompt —
+so one user turn spans many `turnId`s and the two numbering schemes do not correspond at
+all. `--turn N` selects the Nth user message and scopes the log to `[thatMessage,
+nextUserMessage)`.
+
+Two additions the spec did not call for, both because running the command exposed the
+need:
+
+- **Absolute paths in `expect_in_args` are shortened to their last two segments.** A
+  harvested `/tmp/freecode-eval-Uaw72m/check.mjs` names one machine and one tmpdir that no
+  longer exists — a needle guaranteed never to match again. The emitted case notes every
+  value it shortened; rewriting silently would be useful and dishonest.
+- **The draft is validated through `parseSuite` before it is emitted**, and `--write`
+  validates the *whole* file before writing. A duplicate id is only visible against the
+  rest of the suite, and discovering it on the next `freecode eval` means a broken suite
+  was committed in between.
+
+`--suite coding` is refused: a harvested session carries no `files` fixture, so there is
+nothing for `verify` to run against.
 
 This closes the loop the repo is currently missing. Observability makes failures
 *visible*; without this command, making them *permanent* is a manual transcription job
@@ -443,7 +482,7 @@ foreign one to get a loop we already have.
 | **1** | `eval/{types,dataset,runner,report}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (~20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. Runner is a thin wrap of the existing `run.ts` boot path. |
 | **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Built 2026-08-27**, with two departures from the text above — see §11.1. |
 | **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | Needs a second provider key. Set the threshold from the first real run, not from this document. |
-| **4** | `freecode eval add` | Depends on Phase 0 + 1. Pull it forward if Phase 2 slips. |
+| **4** | `freecode eval add` | Depends on Phase 0 + 1. **Built 2026-08-27** — see §8.1: the thread store §8 sources the prompt from has no production writer, so it reads the session store instead. |
 | **5** | LLMOps close-out — §12 | Independent of 0–4. |
 | **later** | Tier 2 repo-grounded sandbox (§6.2) | Blocked on the `node_modules` question, not on the harness. |
 
