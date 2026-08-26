@@ -116,6 +116,33 @@ test("suites do not share a baseline", () => {
   );
 });
 
+test("an accepted run becomes the baseline despite having failed", () => {
+  // The escape hatch for a deliberately re-scoped suite: without it, deleting
+  // cases makes `passed` drop, every later run reads as a regression, and the
+  // baseline can never be superseded because it never opens.
+  writeReport(report({ passed: 2, total: 2 }));
+  writeReport(
+    report({
+      passed: 1,
+      total: 1,
+      cases: [kase("a", true)],
+      baselineAccepted: true,
+    }),
+  );
+  const baseline = baselineFor("trajectory", "anthropic/claude-sonnet-4-5");
+  assert.equal(baseline?.passed, 1);
+  assert.equal(baseline?.total, 1);
+  assert.equal(baseline?.greenIds.has("b"), false);
+});
+
+test("acceptance is recorded, so history can tell it from an earned pass", () => {
+  writeReport(report({ passed: 1, total: 2, baselineAccepted: true }));
+  const [run] = readHistory("trajectory");
+  assert.equal(run.baselineAccepted, true);
+  // Not also marked blocked — that is what would have excluded it.
+  assert.equal(run.gateBlocked, undefined);
+});
+
 test("no history at all is null, not a throw", () => {
   assert.equal(baselineFor("never-run"), null);
 });

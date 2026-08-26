@@ -148,6 +148,13 @@ export interface SuiteReport {
    * cannot quietly become the bar the next run is measured against.
    */
   gateBlocked?: boolean;
+  /**
+   * This run closed the gate and was recorded as the baseline anyway, via
+   * `--accept-baseline`. An audit mark, not a behaviour: `baselineFor` treats
+   * it like any unblocked run. It exists so history can tell a baseline someone
+   * waved through from one a run earned.
+   */
+  baselineAccepted?: boolean;
 }
 
 /**

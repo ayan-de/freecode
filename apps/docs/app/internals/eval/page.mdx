@@ -385,6 +385,43 @@ Last-run rather than best-ever, otherwise a flaky suite ratchets permanently
 red; last-run tracks reality and leaves regression detection to the green-set
 clause.
 
+### When the suite was re-scoped, not the agent
+
+Skipping blocked runs has a consequence: it makes the baseline **sticky**.
+Delete five cases from a twenty-case suite and `passed` drops because `total`
+did — so a perfectly healthy run reads as a regression, against a baseline that
+can never be superseded, because it never opens:
+
+```
+1/1 cases passed
+regression: 1/1 vs baseline 2/2
+GATE CLOSED
+```
+
+`--accept-baseline` is the way out:
+
+```bash
+freecode eval --gate --accept-baseline
+```
+
+```
+1/1 cases passed
+regression: 1/1 vs baseline 2/2
+BASELINE ACCEPTED — recorded 1/1 as the new baseline despite the failure(s) above.
+Future runs are measured against this. If the agent got worse rather than the
+suite getting smaller, this just hid it.
+GATE CLOSED, accepted — exiting 0 by request.
+```
+
+It still prints every reason the gate closed, exits 0, and records
+`baselineAccepted: true` in history — because a baseline someone waved through
+is a different kind of evidence from one a run earned, and the trend has to be
+able to tell them apart. Nothing distinguishes "the suite got smaller" from
+"the agent got worse" at this level; only the person typing the flag knows,
+which is exactly why it is a flag and not a heuristic.
+
+With the gate already open it is a no-op and says so.
+
 ### Running it
 
 ```bash
@@ -829,6 +866,7 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | `model call hung` | a request stayed open past 300s; `freecode trace <id>` shows which |
 | gate says "no baseline yet" every run | `FREECODE_EVAL_HOME` changing between runs, the history file deleted, every prior run blocked, or every prior run on a different model |
 | gate says "no baseline yet" in CI | the `eval_runs.jsonl` cache did not restore — a fresh runner has no history, and run zero passes unconditionally |
+| every run reports a regression after you deleted cases | the baseline is sticky by design; `--accept-baseline` once to re-set it |
 | a case is green locally and red in CI | different resolved model — see gap 2 |
 | `verify exit 1: …` with a real assertion message | the agent's fix is wrong — that is the scorer working. `FREECODE_EVAL_KEEP_SANDBOX=1` keeps the tmpdir so you can reproduce it by hand |
 | `verify could not run: …` | the command itself is broken (a missing binary), not the agent |

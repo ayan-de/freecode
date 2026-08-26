@@ -15,11 +15,28 @@ export interface RunSuiteOptions {
   trials: number;
   model?: string;
   onCase?: (result: CaseResult) => void;
+  /**
+   * Record this run as the baseline even if it closes the gate.
+   *
+   * Skipping blocked runs (see below) makes the baseline sticky when a suite is
+   * legitimately re-scoped: delete five cases from twenty and `passed` drops
+   * because `total` did, so every subsequent run reads as a regression against
+   * a baseline that can never be superseded — because it never opens. This is
+   * the way out, and it is deliberately a decision someone has to type.
+   */
+  acceptBaseline?: boolean;
+}
+
+export interface SuiteOutcome {
+  report: SuiteReport;
+  verdict: Verdict;
+  /** The gate closed and the run was recorded as the baseline anyway. */
+  accepted: boolean;
 }
 
 export async function runSuite(
   options: RunSuiteOptions,
-): Promise<{ report: SuiteReport; verdict: Verdict }> {
+): Promise<SuiteOutcome> {
   const cases = loadSuite(options.suite);
   const quarantined = loadQuarantine();
   const config = await initRunner(options.model);
@@ -89,7 +106,16 @@ export async function runSuite(
   //
   // Still written to history, not dropped: the trend and `quarantine.ts`'s pass
   // rates both need failed runs. `baselineFor` skips this flag.
-  writeReport({ ...report, ...(verdict.open ? {} : { gateBlocked: true }) });
+  //
+  // `acceptBaseline` overrides that, and leaves a mark saying so: a baseline
+  // someone waved through is a different kind of evidence from one a run
+  // earned, and history has to be able to tell them apart.
+  const accepted = !verdict.open && options.acceptBaseline === true;
+  writeReport({
+    ...report,
+    ...(verdict.open || accepted ? {} : { gateBlocked: true }),
+    ...(accepted ? { baselineAccepted: true } : {}),
+  });
 
-  return { report, verdict };
+  return { report, verdict, accepted };
 }

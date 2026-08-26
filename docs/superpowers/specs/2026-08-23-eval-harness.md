@@ -482,6 +482,30 @@ suite usable while cases are still being curated: a run that matches last week's
 green, a run that drops to 14/20 is red. The "previously-green case goes red" clause is
 what stops the baseline ratcheting downward — the failure mode a pure delta gate has.
 
+**What counts as a baseline (built 2026-08-27).** The last run that did **not** close the
+gate, on the **same resolved model**. Both qualifiers were missing and both were load-bearing:
+
+- Writing every run unconditionally meant a regression became its own baseline and was
+  forgiven on the next attempt. 18/20 → 14/20 closes the gate; re-running at 14/20 opened
+  it, because both the count and the green set came from the failed run. Blocked runs are
+  still written — the trend and §9.3's pass rates need them — and carry `gateBlocked`.
+- `SuiteReport.model` recorded the CLI override, so it was `undefined` on every run without
+  `--model`. It now records the resolved `provider/model`, and a baseline from a different
+  one is refused. This subsumes what §11's per-case `model` pinning was for, and catches
+  more: a `--model` override, not just a provider default drifting.
+
+The cost of the first is a **sticky** baseline when a suite is deliberately re-scoped —
+delete five of twenty cases and `passed` drops with `total`, so a healthy run reads as a
+regression against a baseline that can never be superseded. `--accept-baseline` records the
+run anyway and marks it `baselineAccepted: true`, because a baseline someone waved through
+is different evidence from one a run earned. Nothing at this level can tell "the suite got
+smaller" from "the agent got worse" — only the operator can, which is why it is a flag and
+not a heuristic.
+
+**`--gate` implies `--trials 3`.** One trial is `pass@1`, which §9.1 argues is too noisy to
+block on; the gate's default contradicted the gate's design. An explicit `--trials 1` is
+honoured with a warning.
+
 The judged floor exists because a mean hides catastrophes: one 0/5 disaster averages away
 behind four 5s and ships. Mean measures the suite; the floor measures the worst case, and
 for a release gate the worst case is the one that matters.

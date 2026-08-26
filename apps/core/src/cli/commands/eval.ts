@@ -21,6 +21,7 @@ interface EvalArgs {
   compare?: string;
   stuck: boolean;
   otlp?: string;
+  acceptBaseline: boolean;
 }
 
 const dim = "\x1b[2m";
@@ -196,6 +197,14 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           "ship the scores to an OTLP collector, linked to the traces they graded " +
           "(empty uses OTEL_EXPORTER_OTLP_ENDPOINT)",
       })
+      // Declared camelCase; yargs accepts `--accept-baseline` either way.
+      .option("acceptBaseline", {
+        type: "boolean",
+        default: false,
+        describe:
+          "record this run as the baseline even if it fails — for when the " +
+          "suite was deliberately re-scoped, not when the agent got worse",
+      })
       .command(evalAddCommand),
   handler: async (argv) => {
     const { runSuite } = await import("../../eval/suite.js");
@@ -239,10 +248,11 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
     }
 
     try {
-      const { report, verdict } = await runSuite({
+      const { report, verdict, accepted } = await runSuite({
         suite: argv.suite,
         trials,
         model: argv.model,
+        acceptBaseline: argv.acceptBaseline,
         onCase: (result) => {
           if (argv.json) return;
           const mark = result.passed
@@ -303,11 +313,29 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         for (const reason of verdict.reasons) {
           console.log(`${verdict.open ? dim : red}${reason}${reset}`);
         }
+        if (accepted) {
+          // Loud on purpose. This is someone overriding a red gate, and the
+          // difference between "the suite was re-scoped" and "the agent got
+          // worse" is invisible from here — only the person typing it knows.
+          console.log(
+            `${yellow}BASELINE ACCEPTED${reset} — recorded ${report.passed}/${report.total} ` +
+              `as the new baseline despite the failure(s) above.\n` +
+              `${dim}Future runs are measured against this. If the agent got worse ` +
+              `rather than the suite getting smaller, this just hid it.${reset}`,
+          );
+        } else if (argv.acceptBaseline) {
+          console.log(
+            `${dim}--accept-baseline had nothing to do: the gate is open, so ` +
+              `this run becomes the baseline anyway.${reset}`,
+          );
+        }
         if (argv.gate) {
           console.log(
             verdict.open
               ? `${green}GATE OPEN${reset} — safe to release.`
-              : `${red}GATE CLOSED${reset}`,
+              : accepted
+                ? `${yellow}GATE CLOSED, accepted${reset} — exiting 0 by request.`
+                : `${red}GATE CLOSED${reset}`,
           );
         }
       }
@@ -384,7 +412,10 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         }
       }
 
-      if (argv.gate && !verdict.open) process.exit(1);
+      // Accepting the baseline is accepting the result, so it exits 0 — that
+      // is the entire point of the flag, and a non-zero exit would leave CI red
+      // on a run the operator explicitly signed off.
+      if (argv.gate && !verdict.open && !accepted) process.exit(1);
     } catch (err) {
       console.error(`${red}${(err as Error).message}${reset}`);
       process.exit(1);

@@ -1259,11 +1259,10 @@ harness can block a release". Remaining:
       `vars.FREECODE_EVAL_MODEL` set on the repo, and is `workflow_dispatch`
       only by choice — every case is a real paid agent turn, so billing should
       scale with releases, not pushes. Uncomment `schedule:` to go nightly.
-- [ ] **`gateBlocked` makes the baseline sticky when a suite is legitimately
-      re-scoped.** Delete cases and every subsequent run is a "regression"
-      against a baseline that can never be superseded, because it never opens.
-      Escape hatch today is editing `eval_runs.jsonl`; a `--accept-baseline`
-      flag would be the honest fix.
+- [x] **`gateBlocked` makes the baseline sticky when a suite is legitimately
+      re-scoped.** Fixed 2026-08-27 with `--accept-baseline`, which records the
+      run as the baseline anyway and marks it `baselineAccepted: true` for the
+      audit trail. Verified across the full re-scope scenario.
 
 ### Housekeeping
 
