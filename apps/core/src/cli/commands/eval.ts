@@ -12,7 +12,7 @@ interface EvalAddArgs {
 
 interface EvalArgs {
   suite: string;
-  trials: number;
+  trials?: number;
   model?: string;
   gate: boolean;
   json: boolean;
@@ -151,10 +151,12 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         default: "trajectory",
         describe: "suite name, resolved as evals/<suite>.jsonl",
       })
+      // No default: "not given" has to be distinguishable from "given as 1",
+      // so --gate can raise it without overriding an explicit choice.
       .option("trials", {
         type: "number",
-        default: 1,
-        describe: "runs per case; 3 enables majority-of-3 gating",
+        describe:
+          "runs per case (default 1, or 3 under --gate for majority-of-3)",
       })
       .option("model", {
         alias: "m",
@@ -225,10 +227,21 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
       return;
     }
 
+    // `--gate` with one trial is pass@1 — the statistic §9.1 argues is too
+    // noisy to block on, which made the gate's own default contradict its
+    // design. An explicit `--trials 1` is still honoured: someone asking for a
+    // cheap smoke run under --gate knows what they are getting.
+    const trials = argv.trials ?? (argv.gate ? 3 : 1);
+    if (argv.gate && argv.trials === 1) {
+      console.error(
+        `${yellow}--gate with --trials 1 is pass@1; majority-of-N needs 3.${reset}`,
+      );
+    }
+
     try {
       const { report, verdict } = await runSuite({
         suite: argv.suite,
-        trials: argv.trials,
+        trials,
         model: argv.model,
         onCase: (result) => {
           if (argv.json) return;

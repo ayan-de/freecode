@@ -346,21 +346,66 @@ So the rule is a delta instead:
 | --- | --- | --- |
 | **case passed** | majority-of-N (`pass@1` when `--trials 1`) | yes |
 | **case consistent** | all N trials passed | no — reported as `(flaky)` |
-| **suite regression** | `passed` < the last recorded run's `passed` | yes |
-| **previously green, now red** | a case in last run's green set that now fails | yes |
-| **no baseline** | record this run as run zero, gate opens | n/a |
+| **suite regression** | `passed` < the baseline's `passed` | yes |
+| **previously green, now red** | a case in the baseline's green set that now fails | yes |
+| **judged mean** | mean of scored judged cases < 3.5/5 | yes |
+| **judged floor** | any scored judged case < 2/5 | yes |
+| **no baseline** | record this run as run zero, deterministic rules skipped | n/a |
 
 The second blocking rule exists because a pure count delta ratchets downward:
 lose one case, gain another, and the total never notices. Naming the specific
 case that used to be green closes that.
 
-The baseline is the **last** recorded run, not the best ever. Best-ever ratchets
-a flaky suite permanently red; last-run tracks reality and leaves regression
-detection to the green-set clause.
+Judged cases are gated separately and **absolutely** — mean ≥ 3.5/5, no case
+below 2/5 — because a rubric threshold is a claim about quality that does not
+get easier because last week was bad. They apply on run zero too.
+
+### What counts as a baseline
+
+The baseline is the last recorded run **that did not close the gate**, and that
+ran on **the same model**. Both qualifiers are load-bearing, and both were
+missing until 2026-08-27:
+
+**A blocked run must not become the baseline.** Writing every run unconditionally
+meant the gate forgave every regression on the next attempt: 18/20 → 14/20
+closes the gate, then re-running at 14/20 *opens* it, because both the count and
+the green set now come from the failed run. The delta rule is only honest if a
+closed gate refuses to move the bar it is measured against. Blocked runs are
+still written to history — the trend and quarantine's pass rates both need them
+— and carry `gateBlocked: true`, which `baselineFor` skips.
+
+**A baseline from a different model is refused.** `SuiteReport.model` records
+the *resolved* `provider/model`, not the CLI override, so history can say what
+produced a given baseline. Comparing a cheap local run against a CI baseline
+from another model reads as a regression with no way to see why — and a
+repriced baseline is worse than none, because it still looks like data. Runs
+recorded before the field existed compare anyway rather than being discarded.
+
+Last-run rather than best-ever, otherwise a flaky suite ratchets permanently
+red; last-run tracks reality and leaves regression detection to the green-set
+clause.
+
+### Running it
 
 ```bash
-freecode eval --trials 3 --gate     # exit 1 on regression
+pnpm eval                            # from a checkout, any suite
+pnpm eval:gate                       # trajectory then coding, both gated
+freecode eval --gate                 # exit 1 on regression
 ```
+
+**`--gate` implies `--trials 3`.** One trial is `pass@1`, the statistic this
+page's own opening argument rejects as too noisy to block on — so the gate's
+default used to contradict its design. An explicit `--trials 1` is still
+honoured, with a warning: someone asking for a cheap smoke run under `--gate`
+knows what they are getting.
+
+`.github/workflows/eval.yml` runs a suite in CI, deliberately on
+**`workflow_dispatch` only** — every case drives a real paid agent turn, and 20
+cases at 3 trials is 60 API calls, so billing should scale with releases rather
+than with pushes. Uncomment the `schedule:` block to run it nightly. It caches
+`eval_runs.jsonl` between runs, because a fresh runner with no history reports
+"run zero" and passes unconditionally — without that cache the workflow can only
+catch a crash.
 
 ### Quarantine
 
@@ -734,25 +779,16 @@ are all reasonable and none fit: the runner must drive *this* agent loop and rea
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-1. **The gate forgives a regression on the next run.** `runSuite` writes the
-   report unconditionally, so a red run becomes the baseline. 18/20 → 14/20 fails;
-   run it again at 14/20 and the gate opens, because both the count and the green
-   set now come from the 14/20 run. The delta rule is only honest if a closed
-   gate refuses to record its own baseline.
-2. **`SuiteReport.model` records the CLI override, not the resolved model.** With
-   no `--model` it is `undefined`, so the history cannot tell you which model
-   produced a baseline — and comparing a cheap local run against a CI baseline
-   from a different model looks like a regression with no way to see why. None of
-   the twenty shipped cases pins `model`, though the spec requires it.
-3. **`evalsDir()` is `path.resolve("evals")` — relative to the current working
+1. **`evalsDir()` is `path.resolve("evals")` — relative to the current working
    directory.** `freecode eval` from anywhere but the repo root fails with "no
-   such suite" unless `FREECODE_EVALS_DIR` is set. The shipped cases also
-   reference FreeCode's own source paths, so the suite is repo-specific in a way
-   nothing in the CLI says.
-4. **`--trials` defaults to 1**, which is `pass@1` — the statistic the gate's own
-   design says is too noisy to block on. `--gate` does not imply `--trials 3`.
-5. **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
-   invocation from a source checkout is a raw `tsx` command against `cli.ts`.
+   such suite" unless `FREECODE_EVALS_DIR` is set. `pnpm eval` sidesteps it from
+   a checkout, but an installed binary still needs the env var. The shipped
+   cases also reference FreeCode's own source paths, so the suite is
+   repo-specific in a way nothing in the CLI says.
+2. **No shipped case pins `model`**, though spec §11 says every one should.
+   The hazard it guards against — comparing across models — is now caught by
+   the gate refusing a cross-model baseline, so this is a belt-and-braces gap
+   rather than an open hole. Per-case `model` still works and is still unused.
 6. **The judged thresholds are uncalibrated.** 3.5 mean / 2.0 floor come from
    the spec, not from a real run of this suite. The spec itself says to set them
    from the first real run; nobody has, because no second provider key has been
@@ -791,7 +827,8 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | every case fails with `run failed: …` | infrastructure, not the agent — the message is the provider's |
 | a case fails with `no recorded args for grep` | the tool fired but the rollout fold dropped its args (Phase 0 regression) |
 | `model call hung` | a request stayed open past 300s; `freecode trace <id>` shows which |
-| gate says "no baseline yet" every run | `FREECODE_EVAL_HOME` is changing between runs, or the history file was deleted |
+| gate says "no baseline yet" every run | `FREECODE_EVAL_HOME` changing between runs, the history file deleted, every prior run blocked, or every prior run on a different model |
+| gate says "no baseline yet" in CI | the `eval_runs.jsonl` cache did not restore — a fresh runner has no history, and run zero passes unconditionally |
 | a case is green locally and red in CI | different resolved model — see gap 2 |
 | `verify exit 1: …` with a real assertion message | the agent's fix is wrong — that is the scorer working. `FREECODE_EVAL_KEEP_SANDBOX=1` keeps the tmpdir so you can reproduce it by hand |
 | `verify could not run: …` | the command itself is broken (a missing binary), not the agent |

@@ -142,6 +142,12 @@ export interface SuiteReport {
   judge?: { provider: string; model?: string };
   /** Why no judge ran, when none did. Judged cases then report as skipped. */
   judgeSkipped?: string;
+  /**
+   * This run closed the gate. Recorded in history — the trend and quarantine's
+   * pass rates need failed runs — but skipped by `baselineFor`, so a regression
+   * cannot quietly become the bar the next run is measured against.
+   */
+  gateBlocked?: boolean;
 }
 
 /**

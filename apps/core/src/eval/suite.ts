@@ -59,7 +59,12 @@ export async function runSuite(
   const report: SuiteReport = {
     suite: options.suite,
     ranAt: new Date().toISOString(),
-    model: options.model,
+    // The RESOLVED model, not the CLI override. Recording `options.model` left
+    // this `undefined` on every run without `--model`, so history could not say
+    // which model produced a baseline — and comparing a local run against a CI
+    // baseline from a different model looked like a regression with no way to
+    // see why. A repriced baseline is worse than no baseline: it looks like data.
+    model: config.model ? `${config.provider}/${config.model}` : config.provider,
     trials: options.trials,
     cases: results,
     passed: blocking.filter((c) => c.passed).length,
@@ -73,9 +78,18 @@ export async function runSuite(
 
   // Read the baseline BEFORE writing, or this run becomes its own baseline
   // and the gate compares the report to itself.
-  const baseline = baselineFor(options.suite);
+  const baseline = baselineFor(options.suite, report.model);
   const verdict = evaluateGate(report, baseline);
-  writeReport(report);
+
+  // A blocked run is recorded but MUST NOT become the baseline. Writing it
+  // unconditionally forgave every regression on the next run: 18/20 → 14/20
+  // closes the gate, then re-running at 14/20 opens it, because both the count
+  // and the green set now come from the failed run. The delta rule is only
+  // honest if a closed gate refuses to move the bar it is measured against.
+  //
+  // Still written to history, not dropped: the trend and `quarantine.ts`'s pass
+  // rates both need failed runs. `baselineFor` skips this flag.
+  writeReport({ ...report, ...(verdict.open ? {} : { gateBlocked: true }) });
 
   return { report, verdict };
 }

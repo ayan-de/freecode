@@ -13,6 +13,8 @@
     "typecheck": "turbo run check-types",
     "build:sea": "node scripts/build-sea.mjs",
     "build:bun": "node scripts/build-bun.mjs",
+    "eval": "tsx apps/core/src/cli.ts eval",
+    "eval:gate": "tsx apps/core/src/cli.ts eval trajectory --gate && tsx apps/core/src/cli.ts eval coding --gate",
     "bench:recall": "tsx apps/core/src/memory/bench/run.ts",
     "bench:memory": "python3 scripts/bench_memory.py --sessions 1 --json-out apps/web/app/data/results-1.json",
     "bench:memory-multi": "python3 scripts/bench_memory.py --sessions 10 --json-out apps/web/app/data/results-10.json",

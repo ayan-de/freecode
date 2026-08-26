@@ -1,84 +1,131 @@
-import test from "node:test";
+import test, { afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { baselineFor, readHistory, reportDir, writeReport } from "./report.js";
-import type { SuiteReport } from "./types.js";
+import { baselineFor, readHistory, writeReport } from "./report.js";
+import type { CaseResult, SuiteReport } from "./types.js";
 
-function withHome<T>(fn: () => T): T {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fc-report-"));
-  const prev = process.env.FREECODE_EVAL_HOME;
-  process.env.FREECODE_EVAL_HOME = dir;
-  try {
-    return fn();
-  } finally {
-    if (prev === undefined) delete process.env.FREECODE_EVAL_HOME;
-    else process.env.FREECODE_EVAL_HOME = prev;
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}
+let home: string;
+let prevHome: string | undefined;
 
-const report = (passed: number, ids: string[]): SuiteReport => ({
-  suite: "trajectory",
-  ranAt: new Date().toISOString(),
-  trials: 1,
-  cases: ids.map((id, i) => ({
-    id,
-    trials: [],
-    passed: i < passed,
-    consistent: i < passed,
-    quarantined: false,
-  })),
+beforeEach(() => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), "freecode-eval-home-"));
+  prevHome = process.env.FREECODE_EVAL_HOME;
+  process.env.FREECODE_EVAL_HOME = home;
+});
+
+afterEach(() => {
+  if (prevHome === undefined) delete process.env.FREECODE_EVAL_HOME;
+  else process.env.FREECODE_EVAL_HOME = prevHome;
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+const kase = (id: string, passed: boolean): CaseResult => ({
+  id,
+  trials: [],
   passed,
-  total: ids.length,
+  consistent: passed,
+  quarantined: false,
 });
 
-test("history accumulates while the latest verdict is overwritten", () => {
-  withHome(() => {
-    writeReport(report(1, ["a", "b"]));
-    writeReport(report(2, ["a", "b"]));
-    assert.equal(readHistory("trajectory").length, 2);
-    const latest = JSON.parse(
-      fs.readFileSync(path.join(reportDir(), "eval_report.json"), "utf-8"),
-    );
-    assert.equal(latest.passed, 2);
-  });
+let clock = 0;
+const report = (over: Partial<SuiteReport> = {}): SuiteReport => ({
+  suite: "trajectory",
+  ranAt: new Date(1_800_000_000_000 + clock++ * 1000).toISOString(),
+  model: "anthropic/claude-sonnet-4-5",
+  trials: 3,
+  cases: [kase("a", true), kase("b", true)],
+  passed: 2,
+  total: 2,
+  ...over,
 });
 
-test("baseline is the last run, not the best ever", () => {
-  // Best-ever would ratchet a flaky suite permanently red.
-  withHome(() => {
-    writeReport(report(2, ["a", "b"]));
-    writeReport(report(1, ["a", "b"]));
-    const baseline = baselineFor("trajectory");
-    assert.equal(baseline?.passed, 1);
-    assert.deepEqual([...(baseline?.greenIds ?? [])], ["a"]);
-  });
+test("a blocked run is recorded but never becomes the baseline", () => {
+  // The bug this fixes: 18/20 -> 14/20 closes the gate, and re-running at
+  // 14/20 opened it, because both the count and the green set came from the
+  // failed run. The delta rule is only honest if a closed gate refuses to move
+  // the bar it is measured against.
+  writeReport(report({ passed: 2, total: 2 }));
+  writeReport(
+    report({
+      passed: 1,
+      total: 2,
+      cases: [kase("a", true), kase("b", false)],
+      gateBlocked: true,
+    }),
+  );
+
+  const baseline = baselineFor("trajectory", "anthropic/claude-sonnet-4-5");
+  assert.equal(baseline?.passed, 2, "baseline must be the last GREEN run");
+  assert.equal(baseline?.greenIds.has("b"), true);
+
+  // ...and the failed run is still in history, because the trend and
+  // quarantine's pass rates both need it.
+  assert.equal(readHistory("trajectory").length, 2);
 });
 
-test("no history means no baseline", () => {
-  withHome(() => assert.equal(baselineFor("trajectory"), null));
+test("several blocked runs in a row do not erode the baseline", () => {
+  writeReport(report({ passed: 2, total: 2 }));
+  for (let i = 0; i < 3; i++) {
+    writeReport(report({ passed: 0, total: 2, gateBlocked: true }));
+  }
+  assert.equal(
+    baselineFor("trajectory", "anthropic/claude-sonnet-4-5")?.passed,
+    2,
+  );
 });
 
-test("other suites do not contaminate the baseline", () => {
-  withHome(() => {
-    writeReport({ ...report(9, ["x"]), suite: "coding" });
-    writeReport(report(1, ["a", "b"]));
-    assert.equal(baselineFor("trajectory")?.passed, 1);
-    assert.equal(baselineFor("coding")?.passed, 9);
-  });
+test("a baseline from a different model is refused", () => {
+  // Comparing a cheap local run against a CI baseline from another model reads
+  // as a regression with no way to see why.
+  writeReport(report({ model: "openai/gpt-4o" }));
+  assert.equal(baselineFor("trajectory", "anthropic/claude-sonnet-4-5"), null);
+  assert.equal(baselineFor("trajectory", "openai/gpt-4o")?.passed, 2);
 });
 
-test("a truncated final line does not make the history unreadable", () => {
-  // Killed mid-append. The trend matters more than the last row.
-  withHome(() => {
-    writeReport(report(2, ["a", "b"]));
-    fs.appendFileSync(
-      path.join(reportDir(), "eval_runs.jsonl"),
-      '{"suite":"trajec',
-      "utf-8",
-    );
-    assert.equal(readHistory("trajectory").length, 1);
-  });
+test("the newest run on the SAME model wins over a newer one on another", () => {
+  writeReport(report({ model: "anthropic/claude-sonnet-4-5", passed: 2 }));
+  writeReport(report({ model: "openai/gpt-4o", passed: 0, total: 2 }));
+  const baseline = baselineFor("trajectory", "anthropic/claude-sonnet-4-5");
+  assert.equal(baseline?.passed, 2);
+  assert.equal(baseline?.model, "anthropic/claude-sonnet-4-5");
+});
+
+test("a run recorded before models were tracked is still usable", () => {
+  // Refusing it would throw away every baseline written before the field
+  // existed, which would silently reset everyone's history to run zero.
+  writeReport(report({ model: undefined }));
+  assert.equal(
+    baselineFor("trajectory", "anthropic/claude-sonnet-4-5")?.passed,
+    2,
+  );
+});
+
+test("asking without a model takes the last unblocked run of any model", () => {
+  writeReport(report({ model: "openai/gpt-4o", passed: 1, total: 2 }));
+  assert.equal(baselineFor("trajectory")?.passed, 1);
+});
+
+test("suites do not share a baseline", () => {
+  writeReport(report({ suite: "trajectory", passed: 2 }));
+  writeReport(report({ suite: "coding", passed: 0, total: 2 }));
+  assert.equal(
+    baselineFor("trajectory", "anthropic/claude-sonnet-4-5")?.passed,
+    2,
+  );
+});
+
+test("no history at all is null, not a throw", () => {
+  assert.equal(baselineFor("never-run"), null);
+});
+
+test("a truncated final line does not make history unreadable", () => {
+  writeReport(report());
+  fs.appendFileSync(
+    path.join(home, "eval_runs.jsonl"),
+    '{"suite":"trajectory","pass',
+    "utf-8",
+  );
+  assert.equal(readHistory("trajectory").length, 1);
 });

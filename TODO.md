@@ -1108,7 +1108,7 @@ spec's §12; these are the parts that are actionable independently of it.
       information"), plus cap each trial's wall clock. This is why
       `~/.freecode/eval_runs.jsonl` did not exist until 2026-08-26 — the suite had
       never once completed.
-- [ ] **A closed gate records its own baseline, so a regression is forgiven on the
+- [x] **A closed gate records its own baseline, so a regression is forgiven on the
       next run.** `runSuite` calls `writeReport(report)` unconditionally
       (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
       (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
@@ -1117,7 +1117,7 @@ spec's §12; these are the parts that are actionable independently of it.
       baseline (or history records a `gated` flag that `baselineFor` skips).
       Confirmed live 2026-08-26: the Phase 0 comparison recorded 15/20 then
       14/20, so the next gated run baselines against the red 14/20.
-- [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
+- [x] **`SuiteReport.model` records the CLI override, not the resolved model**
       (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
       say which model produced a baseline, and a cheap local run compared against
       a CI baseline from another model looks like a regression with no way to see
@@ -1128,22 +1128,22 @@ spec's §12; these are the parts that are actionable independently of it.
       anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
       cases also reference FreeCode's own source paths, so the suite is
       repo-specific and nothing in `--help` says so.
-- [ ] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
+- [x] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
       statistic spec §9.1 argues is too noisy to block on. Either default
       `--trials` to 3 when `--gate` is set, or warn.
-- [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+- [x] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
       only documented invocation from a source checkout is a raw `tsx` command.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
-- [ ] **A closed gate records its own baseline, so a regression is forgiven on the
+- [x] **A closed gate records its own baseline, so a regression is forgiven on the
       next run.** `runSuite` calls `writeReport(report)` unconditionally
       (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
       (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
       opens, because both the count and `greenIds` now come from the 14/20 run.
       The delta rule is only honest if a closed gate refuses to become the
       baseline (or history records a `gated` flag that `baselineFor` skips).
-- [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
+- [x] **`SuiteReport.model` records the CLI override, not the resolved model**
       (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
       say which model produced a baseline, and a cheap local run compared against
       a CI baseline from another model looks like a regression with no way to see
@@ -1154,10 +1154,10 @@ spec's §12; these are the parts that are actionable independently of it.
       anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
       cases also reference FreeCode's own source paths, so the suite is
       repo-specific and nothing in `--help` says so.
-- [ ] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
+- [x] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
       statistic spec §9.1 argues is too noisy to block on. Either default
       `--trials` to 3 when `--gate` is set, or warn.
-- [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+- [x] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
       only documented invocation from a source checkout is a raw `tsx` command.
 
 ### Docs findings (eval Phase 2 — sandbox + outcome scorer, 2026-08-27)
@@ -1242,6 +1242,28 @@ spec's §12; these are the parts that are actionable independently of it.
       no detection fix, because nothing in a response says what served it.
 - [ ] **Judged cases cannot be harvested.** `eval add` emits trajectory cases;
       a rubric is a human judgement about what "good" means for that prompt.
+
+### Findings (eval gate hardening, 2026-08-27)
+
+Closes the four items above that stood between "the harness runs" and "the
+harness can block a release". Remaining:
+
+- [ ] **`evalsDir()` is still CWD-relative.** `pnpm eval` covers a checkout and
+      the CI workflow sets nothing, but an *installed* binary run from anywhere
+      but a repo root still needs `FREECODE_EVALS_DIR`.
+- [ ] **No shipped case pins `model`**, though spec §11 says every one should.
+      The hazard — comparing across models — is now caught by `baselineFor`
+      refusing a cross-model baseline, so this is belt-and-braces rather than an
+      open hole.
+- [ ] **The CI workflow has never run.** It needs `secrets.*_API_KEY` and
+      `vars.FREECODE_EVAL_MODEL` set on the repo, and is `workflow_dispatch`
+      only by choice — every case is a real paid agent turn, so billing should
+      scale with releases, not pushes. Uncomment `schedule:` to go nightly.
+- [ ] **`gateBlocked` makes the baseline sticky when a suite is legitimately
+      re-scoped.** Delete cases and every subsequent run is a "regression"
+      against a baseline that can never be superseded, because it never opens.
+      Escape hatch today is editing `eval_runs.jsonl`; a `--accept-baseline`
+      flag would be the honest fix.
 
 ### Housekeeping
 
