@@ -1203,6 +1203,26 @@ spec's §12; these are the parts that are actionable independently of it.
       who skims it commits a case that is red by construction. Consider
       emitting `observed + 1`, or a `--slack N` flag.
 
+### Findings (eval Phase 5 — LLMOps close-out, 2026-08-27)
+
+- [ ] **Daily usage has no USD.** `providers/pricing.ts` now exists and feeds
+      `freecode trace`, `freecode eval` and the OTLP export, but
+      `usage/tracker.ts` still records tokens only — `recordDailyUsage` never
+      receives the provider/model that spent them, so the `/usage` heatmap
+      cannot be priced without threading that through.
+- [ ] **The built-in price table has no refresh path.** Six models, stamped
+      `PRICES_AS_OF = "2026-05"`. Nothing warns when it goes stale, and a stale
+      table is only safe because the contract is *comparison, not billing* —
+      which holds only while everyone remembers it.
+- [ ] **`attrs()` in `rollout/otlp.ts` rounds numerics to integers**, with an
+      explicit `FRACTIONAL` exception set. Adding a future rate-valued
+      attribute outside that set silently reports 0.5 as 1 — this already
+      happened once with the suite pass rate, caught only because a test was
+      re-read rather than trusted.
+- [ ] **§12 item 2 (live OTLP export on turn end) is not built, on purpose.**
+      It reverses `2026-08-10-agent-observability.md` §7 and puts a network
+      call in the path of a normal run. Wants an explicit decision.
+
 ### Housekeeping
 
 - [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —

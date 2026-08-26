@@ -212,6 +212,7 @@ async function runTrialIn(
       redirects: 0,
       redirectsSkipped: 0,
       questionsRejected,
+      sessionId,
     };
   }
   cleanup();
@@ -229,6 +230,7 @@ async function runTrialIn(
       redirects: 0,
       redirectsSkipped: 0,
       questionsRejected,
+      sessionId,
     };
   }
 
@@ -245,17 +247,20 @@ async function runTrialIn(
   const trajectory = scoreTrajectory(run, kase);
   const score = trajectory.passed ? scoreOutcome(run, kase) : trajectory;
 
+  const { totalUsd } = await import("../providers/pricing.js");
   return {
     passed: score.passed,
     reason: score.reason,
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
+    costUsd: totalUsd(trace.modelSpans)?.usd,
     turns: trace.modelSpans.length,
     repeatedCalls: countRepeatedCalls(trace),
     redirects: trace.redirects,
     redirectsSkipped: trace.redirectsSkipped,
     questionsRejected,
+    sessionId,
   };
 }
 

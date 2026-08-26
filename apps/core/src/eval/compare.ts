@@ -23,6 +23,12 @@ export interface MetricSummary {
   redirectsSkipped: number;
   questionsRejected: number;
   trials: number;
+  /**
+   * Estimated USD, summed over priced trials only — `undefined` when nothing
+   * in the run could be priced. Not 0 in that case: the whole point is telling
+   * "this got cheaper" from "we cannot say" (spec §12.1).
+   */
+  costUsd?: number;
 }
 
 export interface ComparisonRow {
@@ -32,6 +38,8 @@ export interface ComparisonRow {
   delta: number;
   /** Whether this row satisfies its criterion. `undefined` = reported only. */
   ok?: boolean;
+  /** How to render the numbers. Absent = plain integer. */
+  unit?: "usd";
 }
 
 export interface Comparison {
@@ -59,7 +67,22 @@ export function summarise(report: SuiteReport): MetricSummary {
     redirectsSkipped: sum(report, (t) => t.redirectsSkipped),
     questionsRejected: sum(report, (t) => t.questionsRejected),
     trials: report.cases.reduce((n, c) => n + c.trials.length, 0),
+    costUsd: totalCost(report),
   };
+}
+
+/** `undefined` unless at least one trial carried a price. */
+function totalCost(report: SuiteReport): number | undefined {
+  let usd = 0;
+  let priced = false;
+  for (const kase of report.cases) {
+    for (const trial of kase.trials) {
+      if (trial.costUsd === undefined) continue;
+      usd += trial.costUsd;
+      priced = true;
+    }
+  }
+  return priced ? usd : undefined;
 }
 
 /**
@@ -160,6 +183,22 @@ export function compareReports(
       candidate: b.questionsRejected,
       delta: b.questionsRejected - a.questionsRejected,
     },
+    // Reported, never gated. `tokens` is already the gated efficiency metric
+    // and it is the one under the harness's control; cost also moves when a
+    // provider reprices, which is not a regression in anything this suite is
+    // measuring. Omitted entirely when either side is unpriced — a comparison
+    // against an unknown is not a comparison.
+    ...(a.costUsd !== undefined && b.costUsd !== undefined
+      ? [
+          {
+            metric: "cost (est.)",
+            baseline: a.costUsd,
+            candidate: b.costUsd,
+            delta: b.costUsd - a.costUsd,
+            unit: "usd" as const,
+          },
+        ]
+      : []),
   ];
 
   return {

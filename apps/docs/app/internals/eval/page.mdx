@@ -448,7 +448,7 @@ The spec runs to six phases. Four are built.
 | 2 | tmpdir sandbox + outcome scorer + `evals/coding.jsonl` | ✅ — 6 cases, `build` mode, `verify` exit code |
 | 3 | LLM judge scorer + `--gate` in CI | ✗ — `gate.ts` exists, the judge does not. **Blocked**: the judge must not be the model under test, so it needs a second provider key |
 | 4 | `freecode eval add <session-id>` — harvest a case from a real session | ✅ |
-| 5 | LLMOps close-out — a shared `providers/pricing.ts`, so a report can carry USD | ✗ — independent of 0–4 |
+| 5 | LLMOps close-out — pricing, agent spans, eval spans, live export | ◐ — three of four items built; live export deliberately not (see below) |
 | later | repo-grounded sandbox (Tier 2) | ✗ — blocked on the `node_modules` question |
 
 ## Growing the suite from real failures
@@ -523,6 +523,86 @@ next run means a broken suite was committed in between.
 > survives: text still never enters the rollout log, so OTLP export stays
 > leak-free. Only the name of the store was wrong.
 
+## What a run costs
+
+A suite run prints an estimate:
+
+```
+20/20 cases passed (1 trial each)
+$0.0061 estimated · 20,540 tokens · prices as of 2026-05
+```
+
+`providers/pricing.ts` holds USD per million tokens keyed `provider/model`, and
+`freecode trace` grows a `cost` line from the same table. **`--compare` reports
+a cost row** — reported, never gated: `tokens` is the gated efficiency metric
+and it is the one under the harness's control, whereas cost also moves when a
+provider reprices, which is not a regression in anything this suite measures.
+
+Three rules keep the number honest:
+
+**An unknown model prices as nothing, not as zero.** Nothing downstream can
+tell a confidently wrong dollar figure from a real one, so an unpriced model
+produces no cost line at all rather than `$0.00` — which would read as free.
+Matching never falls back to a similar name either: `gpt-4o` and `gpt-4o-mini`
+differ by 16x.
+
+**A cache read is a discount, not a surcharge.** `inputTokens` is the inclusive
+prompt total with reads already folded in, so charging the read on top would
+double-count exactly the tokens the cache made cheap — and report a
+prompt-cache win as a cost increase. There is a test asserting cached costs
+less than uncached, for precisely that reason.
+
+**It is for comparison, not billing.** Published prices change without warning
+and the table cannot notice, so every display carries the table's vintage.
+`~/.freecode/pricing.json` overrides any entry (same `provider/model` keys, same
+USD-per-million units) and is the supported way to be exact — it is also how you
+price a model the built-in table has never heard of:
+
+```json
+{ "minimax/MiniMax-M3": { "input": 0.3, "output": 1.2, "cacheRead": 0.03 } }
+```
+
+> Building this turned up a fold gap of the same kind Phase 0 fixed: `ModelSpan`
+> dropped `cacheWriteTokens`, though `model.response` had recorded it all along.
+> Writes therefore priced at 1.0x instead of 1.25x and understated every cached
+> session. The rule held again — *adding a scorer must never require adding
+> instrumentation.*
+
+## Shipping scores to a collector
+
+```bash
+freecode eval --otlp http://localhost:4318    # or set OTEL_EXPORTER_OTLP_ENDPOINT
+```
+
+Emits an `evaluate_suite` root span with the pass rate as its score, one
+`evaluate <case-id>` span per case, and — the part that matters — **a link from
+each case span to the trace of the session it graded**. Same `hexId(sessionId)`
+derivation the session export uses, so a red case in Langfuse is one click from
+the trajectory that failed. Without the link, scores and runs land in one
+collector as two unrelated sets of spans.
+
+Session traces gained the agent layer at the same time: the root is now an
+`invoke_agent` span, and every span carries `gen_ai.conversation.id`, so a
+multi-turn session renders as one tree rather than N loose chats.
+
+| Choice | Why |
+| --- | --- |
+| a quarantined failure is **not** an error span | it ran and reported, and by design cannot turn the build red; colouring it red recreates the noise quarantine exists to remove |
+| `consistent` is separate from the verdict | majority-of-N is the blocking statistic, all-N is not — a case can be green and still flaky |
+| no prompt or reason text is exported | a case carries a prompt and a failure reason can quote arguments; the collector may be third-party, so §5.2's property has to hold here too |
+| export failure never fails the run | the run already happened and the report is already on disk |
+
+> `gen_ai.*` agent and evaluation attributes are still marked **Development**,
+> not Stable, and may be renamed. Core chat attributes are safe to build
+> dashboards on; these are provisional.
+
+**Live export is deliberately not built.** §12's second item proposes shipping
+each session on turn end, which would reverse
+`2026-08-10-agent-observability.md` §7 — where live streaming is deferred for a
+stated reason — and would put a network call in the path of a normal run. That
+is a decision to take on purpose, not to inherit from a sub-bullet. Export stays
+manual and post-mortem.
+
 ## What this deliberately is not
 
 **Not SWE-bench or Terminal-Bench.** Those score a *model's* patch against real
@@ -564,6 +644,15 @@ Found while writing this page; each is also tracked in `TODO.md`.
    invocation from a source checkout is a raw `tsx` command against `cli.ts`.
 6. **Nothing scores the reply text.** `RunRecord.response` is captured on every
    trial and read by nobody until the judge lands.
+10. **The built-in price table is tiny and dated.** Six models, `PRICES_AS_OF`
+    2026-05, and no MiniMax entry — deliberately, since inventing a rate to make
+    the column non-empty is the failure the module warns about. Anything not in
+    it prices as nothing until you add it to `~/.freecode/pricing.json`. Nothing
+    refreshes the table, and nothing warns when it goes stale.
+11. **Daily usage still has no USD.** `usage/tracker.ts` and the `usage.get` IPC
+    method record tokens only; `pricing.ts` is wired into traces, evals and OTLP
+    but not into the `/usage` heatmap, because that path does not record which
+    model spent the tokens.
 7. **The sandbox holds files, not the agent.** `bash` inside a coding case can
    reach the whole filesystem; the tmpdir only scopes the file tools and the
    permission answers. Cases are trusted fixtures, so this is a real limit
@@ -611,6 +700,8 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | The outcome scorer (`verify`, `immutable`) | `apps/core/src/eval/scorers/outcome.ts` |
 | The Tier 1 sandbox | `apps/core/src/eval/sandbox.ts` |
 | Harvesting a session into a case | `apps/core/src/eval/harvest.ts` |
+| Model prices and USD estimates | `apps/core/src/providers/pricing.ts` |
+| Scores as OTLP spans | `apps/core/src/eval/otlp.ts` |
 | Majority-of-N and the gate rules | `apps/core/src/eval/gate.ts` |
 | Quarantine thresholds and proposals | `apps/core/src/eval/quarantine.ts` |
 | Report + history persistence | `apps/core/src/eval/report.ts` |

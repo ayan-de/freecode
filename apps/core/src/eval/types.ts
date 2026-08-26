@@ -53,6 +53,20 @@ export interface TrialResult {
   durationMs: number;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Estimated USD for this trial (`providers/pricing.ts`), or `undefined` when
+   * the model is unpriced. Deliberately not 0 in that case: a gate comparing
+   * cost across runs must be able to tell "free" from "unknown", and a zero
+   * would silently read as a saving.
+   */
+  costUsd?: number;
+  /**
+   * The session this trial ran in. Carried so an exported score can LINK to
+   * the trace it graded (spec §12.4) — without it, scores and runs land in the
+   * same collector as two unrelated sets of spans, which is most of the value
+   * gone. Absent on a trial that failed before a session existed.
+   */
+  sessionId?: string;
 
   // --- comparison metrics ------------------------------------------------
   // Recorded on every trial, not just when comparing: a metric you can only

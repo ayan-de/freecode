@@ -483,7 +483,7 @@ foreign one to get a loop we already have.
 | **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Built 2026-08-27**, with two departures from the text above — see §11.1. |
 | **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | Needs a second provider key. Set the threshold from the first real run, not from this document. |
 | **4** | `freecode eval add` | Depends on Phase 0 + 1. **Built 2026-08-27** — see §8.1: the thread store §8 sources the prompt from has no production writer, so it reads the session store instead. |
-| **5** | LLMOps close-out — §12 | Independent of 0–4. |
+| **5** | LLMOps close-out — §12 | Independent of 0–4. **Items 1, 3, 4 built 2026-08-27; item 2 deliberately not** — it reverses `2026-08-10-agent-observability.md` §7 and puts a network call in the path of a normal run, which is a decision, not a sub-bullet. |
 | **later** | Tier 2 repo-grounded sandbox (§6.2) | Blocked on the `node_modules` question, not on the harness. |
 
 Every case in Phase 1 pins `model`. A provider default change must not silently reprice
@@ -525,23 +525,76 @@ to matter: the tmpdir scopes the file tools and the permission answers, and noth
 Building §9's efficiency scorer surfaces four gaps in the observability layer. All are
 small; the first is the only one that blocks anything.
 
-1. **There is no USD anywhere.** `usage/tracker.ts` records tokens and `usage.get` serves
-   them, but a price table exists in exactly one file — `providers/minimax.ts`. Until a
-   shared `providers/pricing.ts` exists, "this prompt change made every turn 18% more
-   expensive" is undetectable, and the efficiency gate in §9 can only warn. **This is the
-   highest-leverage item in this spec outside Phase 1.**
-2. **Export is manual.** `freecode trace <id> --otlp` is post-mortem and opt-in. The
+1. **There is no USD anywhere.** ✅ **Built 2026-08-27** as `providers/pricing.ts`.
+   `usage/tracker.ts` records tokens and `usage.get` serves them; nothing turned them into
+   money. *(Correction: this item claimed "a price table exists in exactly one file —
+   `providers/minimax.ts`". There was no price table there either — only a comment noting
+   that MiniMax had not published cache pricing. There were no prices anywhere in the
+   repo. Second stale claim in this spec, after §5.1's; both were written from a grep
+   rather than from the code.)*
+
+   As built: USD per million tokens keyed `provider/model`, an unknown model priced as
+   `undefined` rather than 0 or a near-miss guess, `~/.freecode/pricing.json` overriding
+   any entry, and a stated `PRICES_AS_OF` vintage surfaced wherever a cost is shown. The
+   contract is **comparison, not billing** — a published price changes without warning and
+   the table cannot notice.
+
+   The arithmetic that mattered: `inputTokens` is the *inclusive* prompt total, so a cache
+   read is a **discount off the input line, not an addend**. Charging it on top would
+   double-count exactly the tokens the cache made cheap and report a prompt-cache win as a
+   cost increase. There is a test asserting cached < uncached for that reason.
+
+   One fold gap fell out of it: `ModelSpan` dropped `cacheWriteTokens`, though
+   `model.response` had always recorded it — so writes priced at 1.0x instead of 1.25x and
+   understated every cached session. Same class of change as Phase 0's `args`, and the
+   rule holds again: *adding a scorer must never require adding instrumentation.*
+
+   Surfaces: `freecode trace` (a `cost` line, omitted entirely when nothing is priced),
+   `freecode eval` (a per-run estimate), `--compare` (a reported-not-gated cost row,
+   omitted when either side is unpriced), and OTLP `gen_ai.usage.cost`.
+2. **Export is manual.** ❌ **Not built — deliberately deferred, needs a decision.** This
+   item proposes reversing `2026-08-10-agent-observability.md` §7, which defers live
+   streaming for a stated reason, and it puts a network call into the path of a normal
+   run. Both are the kind of change that should be chosen rather than inherited from a
+   sub-bullet of an LLMOps close-out. The other three items are complete without it.
+   `freecode trace <id> --otlp` is post-mortem and opt-in. The
    observability spec §7 already defers live streaming; an `FREECODE_OTLP_ENDPOINT` that
    ships each session's spans on turn end — still from the log, never from the hot path —
    would make Langfuse a live view rather than an archive. Langfuse ingests OTLP/HTTP JSON
    on `/api/public/otel`, which is exactly what `otlp.ts` already emits.
-3. **Span coverage stops below the agent.** `otlp.ts` emits model spans; the GenAI
+3. **Span coverage stops below the agent.** ✅ **Built 2026-08-27.** The root span is now
+   `invoke_agent` with `gen_ai.operation.name`/`gen_ai.agent.name`, and every span —
+   root, model, tool — carries `gen_ai.conversation.id = sessionId`, so a session renders
+   as one tree. Session-level token totals and cost ride on the root.
+   `otlp.ts` emits model spans; the GenAI
    conventions now also cover agent orchestration and MCP tool calls. Adding an
    `invoke_agent` root span per session and setting `gen_ai.conversation.id = sessionId`
    makes a multi-turn session render as one tree instead of N unrelated calls.
-4. **Eval results should themselves be spans.** The conventions include a quality
-   evaluation layer, so a gate run can ship to the same collector as the runs it graded —
-   scores and traces in one place, no second UI.
+4. **Eval results should themselves be spans.** ✅ **Built 2026-08-27** as `eval/otlp.ts`
+   + `freecode eval --otlp [url]`. The conventions include a quality evaluation layer, so
+   a gate run can ship to the same collector as the runs it graded — scores and traces in
+   one place, no second UI.
+
+   The load-bearing part is the **link**, which required `TrialResult.sessionId`: each
+   case span links to the trace of the session it graded, using the same
+   `hexId(sessionId)` derivation, so a red case in Langfuse is one click from the
+   trajectory that failed. Without it, scores and runs arrive as two unrelated sets of
+   spans in one collector — most of the value gone. Verified end-to-end against a local
+   collector: the emitted link matched the session's own trace and root span ids exactly.
+
+   Three judgement calls: a **quarantined** failure is `STATUS_OK`, because it ran, was
+   reported, and by design cannot turn the build red — colouring it red recreates the
+   noise quarantine exists to remove. Flakiness (`consistent`) is a separate attribute
+   from the verdict, because majority-of-N is the blocking statistic and all-N is not.
+   And **no text is exported**: a case carries a prompt and a failure reason can quote
+   arguments, so only names, verdicts and numbers go on the wire — the collector may be
+   third-party, and §5.2's property has to hold here too.
+
+   One bug this surfaced, caught by a test asserting the wrong thing and then re-read:
+   `attrs()` rounds every numeric attribute to an integer, which is right for tokens and
+   milliseconds and **silently catastrophic** for a rate — a 50% suite pass rate exported
+   as `1`. Cost had the same problem in the other direction (every call `$0`). Both are
+   now in an explicit `FRACTIONAL` set rather than relying on a name suffix.
 
 Pin this caveat with them: **`gen_ai.*` is still marked "Development", not Stable**, as of
 mid-2026. Core chat and embedding attributes are safe to build dashboards on; the agent

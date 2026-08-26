@@ -6,6 +6,7 @@
 // errored is called out rather than left for the reader to spot.
 // =============================================================================
 
+import { formatUsd, PRICES_AS_OF, totalUsd } from "../providers/pricing.js";
 import { HANG_THRESHOLD_MS, type ModelSpan, type Trace } from "./trace.js";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
@@ -145,6 +146,16 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
       `  tokens  in=${count(trace.inputTokens)} out=${count(trace.outputTokens)} cached=${count(trace.cacheReadTokens)}`,
     ),
   );
+  // Silent when nothing in the session is priced — a "cost $0.00" line for an
+  // unpriced model is worse than no line, because it reads as free.
+  const cost = totalUsd(trace.modelSpans);
+  if (cost) {
+    out.push(
+      dim(
+        `  cost    ${formatUsd(cost)} ${dim(`(est., prices as of ${PRICES_AS_OF}${cost.partial ? "; * = some models unpriced" : ""})`)}`,
+      ),
+    );
+  }
   // Only when something happened: a line reading "redirects 0" on every
   // healthy session is noise, and the feature is off by default.
   if (trace.redirects > 0 || trace.redirectsSkipped > 0) {

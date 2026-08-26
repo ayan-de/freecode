@@ -20,6 +20,7 @@ interface EvalArgs {
   save?: string;
   compare?: string;
   stuck: boolean;
+  otlp?: string;
 }
 
 const dim = "\x1b[2m";
@@ -187,6 +188,12 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         describe:
           "treat this as a stuck-loop suite: --compare also requires repetition to fall",
       })
+      .option("otlp", {
+        type: "string",
+        describe:
+          "ship the scores to an OTLP collector, linked to the traces they graded " +
+          "(empty uses OTEL_EXPORTER_OTLP_ENDPOINT)",
+      })
       .command(evalAddCommand),
   handler: async (argv) => {
     const { runSuite } = await import("../../eval/suite.js");
@@ -249,6 +256,18 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           `\n${report.passed}/${report.total} cases passed ` +
             `${dim}(${report.trials} trial${report.trials === 1 ? "" : "s"} each)${reset}`,
         );
+        const { summarise: summariseMetrics } =
+          await import("../../eval/compare.js");
+        const { formatUsd, PRICES_AS_OF } =
+          await import("../../providers/pricing.js");
+        const metrics = summariseMetrics(report);
+        if (metrics.costUsd !== undefined) {
+          console.log(
+            `${dim}${formatUsd({ usd: metrics.costUsd, partial: false })} estimated ` +
+              `· ${metrics.tokens.toLocaleString()} tokens ` +
+              `· prices as of ${PRICES_AS_OF}${reset}`,
+          );
+        }
         for (const reason of verdict.reasons) {
           console.log(`${verdict.open ? dim : red}${reason}${reset}`);
         }
@@ -290,8 +309,12 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
                   ? `${green}✓${reset}`
                   : `${red}✗${reset}`;
             const sign = row.delta > 0 ? "+" : "";
+            // A USD row rendered with the integer formatter reads `0` for
+            // every run under a dollar, which is every run.
+            const show = (n: number) =>
+              row.unit === "usd" ? `$${n.toFixed(4)}` : String(n);
             console.log(
-              `  ${mark} ${row.metric.padEnd(20)} ${String(row.baseline).padStart(10)} → ${String(row.candidate).padStart(10)}  ${dim}${sign}${row.delta}${reset}`,
+              `  ${mark} ${row.metric.padEnd(20)} ${show(row.baseline).padStart(10)} → ${show(row.candidate).padStart(10)}  ${dim}${sign}${show(row.delta)}${reset}`,
             );
           }
           for (const reason of comparison.reasons) {
@@ -304,6 +327,29 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           );
         }
         if (!comparison.flip) process.exit(1);
+      }
+
+      if (argv.otlp !== undefined) {
+        const { otlpTargetFromEnv } = await import("../../rollout/otlp.js");
+        const target =
+          argv.otlp.length > 0 ? { endpoint: argv.otlp } : otlpTargetFromEnv();
+        if (!target) {
+          console.error(
+            `${red}No OTLP endpoint. Pass --otlp <url> or set OTEL_EXPORTER_OTLP_ENDPOINT.${reset}`,
+          );
+        } else {
+          const { exportReport } = await import("../../eval/otlp.js");
+          // A collector being down must not turn a green suite red — the run
+          // already happened and the report is already on disk.
+          try {
+            await exportReport(report, target);
+            console.log(`${dim}exported scores to ${target.endpoint}${reset}`);
+          } catch (err) {
+            console.error(
+              `${yellow}OTLP export failed: ${(err as Error).message}${reset}`,
+            );
+          }
+        }
       }
 
       if (argv.gate && !verdict.open) process.exit(1);

@@ -41,6 +41,13 @@ export interface ModelSpan {
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
+  /**
+   * Carried for pricing: a cache write bills at 1.25x input on Anthropic, so
+   * a fold that dropped it priced writes at 1.0x and understated every cached
+   * session. Recorded by `model.response` since that event existed — this is a
+   * fold change, not an instrumentation change.
+   */
+  cacheWriteTokens?: number;
   toolCalls: string[];
   errorKind?: "stall" | "abort" | "provider";
   error?: string;
@@ -146,6 +153,7 @@ export function buildTrace(
         span.inputTokens = event.inputTokens;
         span.outputTokens = event.outputTokens;
         span.cacheReadTokens = event.cacheReadTokens;
+        span.cacheWriteTokens = event.cacheWriteTokens;
         span.toolCalls = event.toolCalls;
         break;
       }
