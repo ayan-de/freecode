@@ -509,12 +509,34 @@ not just that they pass today.
 
 ## 8. Phasing
 
-Each phase independently shippable and revertible.
+Each phase independently shippable and revertible. **Phase 0 is shipped; everything
+after it is not.** See the note under Phase 0 for exactly what exists.
 
-**Phase 0 — Manifest + budget, no execution.**
+**Phase 0 — Manifest + budget, no execution. ✅ Shipped 2026-08-27.**
 `types.ts`, `budget.ts`, `run-store.ts`. Hand-construct a `RunManifest`, exercise the
 four-way ceiling logic against synthetic usage data. No agent loop involved yet.
 *Verify: ceiling unit tests pass, including the mutation check.*
+
+Built as specified, with three notes:
+
+- **The mutation check was actually run, not just written.** Two mutants were applied to
+  `budget.ts` and the suite confirmed red for each before restoring: folding
+  `cacheReadTokens` into `billedTokens()` (3 tests fail), and `>=` → `>` on all four
+  ceilings (6 tests fail). §7 asks for the tests to fail when the implementation is
+  deliberately broken; that is the difference between this and a test that passes for
+  the wrong reason, so it is worth re-running whenever `budget.ts` changes.
+- **`RunLimits` gains a fifth field, `maxRedirects`** (default 2), which is the seam
+  Phase 3 of `2026-08-26-trajectory-redirection.md` asks for. It may only *lower* the
+  user's `redirect.maxPerRun`, never raise it, and it never touches `redirect.enabled`:
+  a budget says how much a run may spend, not whether a feature the user switched off
+  comes back on. `effectiveRedirectCap()` is the one place that resolves it.
+- **`FREECODE_RUNS_HOME`** relocates `~/.freecode/runs/`, matching `FREECODE_EVAL_HOME`.
+  Deliberately left out of the user-facing env reference until something actually
+  executes — documenting a knob for a feature that cannot run is how docs start lying.
+
+Nothing in `autonomous/` starts an agent, spawns a process, or runs a gate command.
+Phases 1–5 remain unbuilt, and Phase 3 of the redirection spec (its report section)
+is blocked on Phase 3 here.
 
 **Phase 1 — Foreground bounded run (no detach yet).**
 Wire budget + gate into the existing agent loop, but run it sychronously in the

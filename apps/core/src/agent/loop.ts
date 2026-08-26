@@ -46,6 +46,7 @@ import {
   buildEvidence,
   createRedirectState,
   decideRedirect,
+  effectiveRedirectCap,
   loadRedirectSettings,
   noteDisabled,
   noteRedirect,
@@ -216,6 +217,12 @@ export interface AgentLoopConfig {
    * turn-capped and disposable and its parent is the right place to re-plan.
    */
   redirect?: boolean;
+  /**
+   * Redirection cap from an autonomous run's budget (`RunLimits.maxRedirects`),
+   * which takes precedence over the user's `redirect.maxPerRun` setting. Unset
+   * for interactive runs. Spec `2026-08-10-autonomous-runs-design.md` §4.3.
+   */
+  budgetMaxRedirects?: number;
 }
 
 // =============================================================================
@@ -286,6 +293,7 @@ export class AgentLoop {
     maxIterations: number;
     heuristics: LoopHeuristics;
     redirect: boolean;
+    budgetMaxRedirects?: number;
   };
   private memory: MemoryService;
   private hooks: HookRuntime;
@@ -368,6 +376,7 @@ export class AgentLoop {
       maxIterations: config?.maxIterations ?? Infinity,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
       redirect: config?.redirect ?? true,
+      budgetMaxRedirects: config?.budgetMaxRedirects,
     };
     this.memory = config?.memory ?? new MemoryService(sessionId);
     this.hooks = config?.hooks ?? createHookRuntime();
@@ -2587,7 +2596,10 @@ export class AgentLoop {
       // Subagents are already turn-capped and disposable; their parent is the
       // right place to re-plan.
       enabled: settings.enabled && this.config.redirect,
-      maxPerRun: settings.maxPerRun,
+      // An unattended run's budget caps its own recovery attempts; undefined
+      // for every interactive run, which is all of them until autonomous
+      // execution ships.
+      maxPerRun: effectiveRedirectCap(settings, this.config.budgetMaxRedirects),
     });
 
     if (!decision.redirect) {

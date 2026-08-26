@@ -38,4 +38,8 @@ export {
   type SupervisorOutcome,
 } from "./supervisor.js";
 
-export { loadRedirectSettings, type RedirectSettings } from "./settings.js";
+export {
+  effectiveRedirectCap,
+  loadRedirectSettings,
+  type RedirectSettings,
+} from "./settings.js";

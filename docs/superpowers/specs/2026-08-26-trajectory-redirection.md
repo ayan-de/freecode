@@ -1,9 +1,9 @@
 # Trajectory Redirection — evidence-backed recovery from a stuck loop
 
 > **Date:** 2026-08-26
-> **Status:** ✅ Phases 0–1 shipped (2026-08-26/27). Redirection is built and
-> **off by default**; Phase 2 (measure and flip) and Phase 3 (autonomous runs)
-> are not done.
+> **Status:** Phases 0–1 shipped (2026-08-26/27), redirection built and **off by
+> default**. Phase 2 ran and returned *do not flip* (§9.1). Phase 3 is half done:
+> the budget-sourced cap exists, the report section waits on autonomous runs.
 > **Derived from:** `docs/superpowers/AVO_ARCHITECTURE_COMPARISON.md` §"The best ideas
 > to take" §1, which reads *AVO: Agentic Variation Operators for Autonomous Evolutionary
 > Search* (Chen et al., NVIDIA, arXiv:2603.24517v1) §3.3 — the conditional supervisor
@@ -371,9 +371,26 @@ Three deviations from §4/§5 as written, each for a reason found in the code:
 The tooling is built and the measurement was attempted; the criterion cannot be
 evaluated yet, so D8's default stays `false`. See §9.1.
 
-**Phase 3 — deferred.**
-Autonomous-runs integration (report section, per-run cap sourced from the run budget)
-lands with `2026-08-10-autonomous-runs-design.md`, not here.
+**Phase 3 — half done 2026-08-27; the rest still deferred.**
+Autonomous-runs integration lands with `2026-08-10-autonomous-runs-design.md`, not here.
+It has two seams, and only one of them was buildable:
+
+- **Per-run cap from the run budget — ✅ built.** `RunLimits.maxRedirects` (default 2,
+  matching `REDIRECT_MAX_PER_RUN`) plus `effectiveRedirectCap(settings, budgetCap)`,
+  threaded through `AgentLoopConfig.budgetMaxRedirects` and used by `maybeRedirect()`.
+  The budget may only *lower* the cap, never raise it: a budget says how much a run may
+  spend, not how much the user meant to allow, and starting a run must not quietly buy
+  more recovery than was configured. It never touches `enabled` — a budget says how
+  much, never whether. Undefined for every interactive run, which is all of them until
+  autonomous execution ships.
+- **Report section — still deferred.** It reads `redirect.triggered` events out of the
+  log into a run's `report.md`, and there is no report generator to put it in: that is
+  Phase 3 of the autonomous-runs spec, which needs Phases 0–2 (execution, detach) first.
+
+The prerequisite that *was* built is autonomous-runs **Phase 0** — `autonomous/types.ts`,
+`budget.ts`, `run-store.ts`: the four-way ceiling and manifest storage as pure logic with
+unit tests, no agent loop and no process spawning. That is what makes `maxRedirects` a
+real field on a real budget rather than a placeholder.
 
 ## 9. Measurement
 
