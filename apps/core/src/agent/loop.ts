@@ -31,6 +31,7 @@ import type {
 import type { SystemBlock, ExecuteUsage } from "../providers/types.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { evaluatePermission } from "../permission/evaluate.js";
+import { isReadOnlyMode } from "../permission/mode-policy.js";
 import { promptForPermission } from "../permission/prompt.js";
 import { PermissionSettingsManager } from "../permission/settings.js";
 import { createInitialSessionState, DEFAULT_LOOP_HEURISTICS } from "./types.js";
@@ -2544,8 +2545,15 @@ export class AgentLoop {
   // LoopHeuristics has always claimed it means — "5 turns with no file
   // changes" — and reading a codebase (five reads in a row inside one turn)
   // is no longer indistinguishable from being stuck.
+  //
+  // In a read-only mode the counter is not advanced at all. Nothing the agent
+  // is *permitted* to do can reset it there, so it would climb to the threshold
+  // on any exploration longer than five turns and stay there — reporting
+  // "no progress" for a mode whose entire job is to make no file changes.
+  // Measured, not assumed: a 6-turn explore case tripped it (Phase 2 probe).
   // ===========================================================================
   private advanceStagnation(madeFileChange: boolean): void {
+    if (isReadOnlyMode(this.state.agentMode)) return;
     this.state = {
       ...this.state,
       loopHealth: {

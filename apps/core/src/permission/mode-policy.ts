@@ -13,8 +13,18 @@ import { extractTarget } from "./rules.js";
 export type ToolKind = "readonly" | "mutating";
 
 const READONLY_TOOLS = new Set([
-  "read", "ls", "glob", "grep", "skill", "question", "todowrite", "todo", "lsp",
-  "webfetch", "websearch", "output",
+  "read",
+  "ls",
+  "glob",
+  "grep",
+  "skill",
+  "question",
+  "todowrite",
+  "todo",
+  "lsp",
+  "webfetch",
+  "websearch",
+  "output",
 ]);
 
 const NETWORK_TOOLS = new Set(["webfetch", "websearch"]);
@@ -70,11 +80,23 @@ export function isNetworkTool(toolName: string): boolean {
 }
 
 /**
+ * Whether the mode forbids mutation outright. In these modes "no file changed"
+ * is the expected state, not evidence of anything — see the stagnation counter
+ * in `agent/loop.ts`, which must not read normal exploration as a stuck loop.
+ */
+export function isReadOnlyMode(mode: AgentMode): boolean {
+  return mode === "plan" || mode === "review" || mode === "explore";
+}
+
+/**
  * Mode-level hard deny, evaluated BEFORE rules — an allow rule cannot
  * override these (plan stays read-only no matter what settings say).
  * Returns a reason string when denied, undefined when the mode has no say.
  */
-export function modeEnforcement(mode: AgentMode, toolName: string): string | undefined {
+export function modeEnforcement(
+  mode: AgentMode,
+  toolName: string,
+): string | undefined {
   if (toolKind(toolName) === "readonly") return undefined;
   switch (mode) {
     case "plan":
@@ -123,7 +145,9 @@ export function modeDefault(
     default:
       if (kind === "mutating") return "ask";
       if (isNetworkTool(toolName)) return "ask";
-      return targetsInsideProject(toolName, args, projectRoot) ? "allow" : "ask";
+      return targetsInsideProject(toolName, args, projectRoot)
+        ? "allow"
+        : "ask";
   }
 }
 

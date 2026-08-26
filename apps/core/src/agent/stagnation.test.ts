@@ -41,6 +41,37 @@ test("consecutive reads inside a turn are not stagnation", () => {
   assert.equal(health(loop).action, "continue");
 });
 
+// Found by the Phase 2 eval probe, not by reading the code: a 6-turn explore
+// case tripped `no_progress`. In a read-only mode nothing the agent is
+// PERMITTED to do can reset the counter, so it climbs to the threshold on any
+// exploration past five turns and stays there — and once redirection is on,
+// that is a model call billed for doing exactly what the mode is for.
+for (const mode of ["plan", "review", "explore"] as const) {
+  test(`${mode} mode never accrues stagnation — it cannot change a file by design`, () => {
+    const loop = createAgentLoop(`test-stagnation-${mode}`);
+    (loop as any).state = { ...(loop as any).state, agentMode: mode };
+
+    for (
+      let i = 0;
+      i < DEFAULT_LOOP_HEURISTICS.stagnantTurnsThreshold * 3;
+      i++
+    ) {
+      (loop as any).advanceStagnation(false);
+    }
+    assert.equal((loop as any).state.loopHealth.stagnantTurns, 0);
+    assert.equal(health(loop).action, "continue");
+  });
+}
+
+test("build mode still counts stagnation — there it means something", () => {
+  const loop = createAgentLoop("test-stagnation-build");
+  assert.equal((loop as any).state.agentMode, "build");
+  for (let i = 0; i < DEFAULT_LOOP_HEURISTICS.stagnantTurnsThreshold; i++) {
+    (loop as any).advanceStagnation(false);
+  }
+  assert.equal(health(loop).action, "warn");
+});
+
 test("N turns with no file change warn", () => {
   const loop = createAgentLoop("test-stagnation-turns");
   const threshold = DEFAULT_LOOP_HEURISTICS.stagnantTurnsThreshold;

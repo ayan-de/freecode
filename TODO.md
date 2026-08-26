@@ -603,7 +603,15 @@ that page's **Known gaps**.
       count of reverts still inside the 30-edit window (`countReverts`,
       `agent/oscillation.ts`) instead of a counter that only ever climbed. Tests:
       `agent/stagnation.test.ts`, `agent/oscillation.test.ts`.
-- [ ] **A loop-health `warn` still reaches nobody.** The signal is now trustworthy,
+- [x] **`no_progress` fired on healthy read-only exploration.** ✅ Fixed
+      2026-08-27. Found by the Phase 2 eval probe, not by reading the code: in
+      plan/review/explore nothing the agent is *permitted* to do can reset
+      `stagnantTurns`, so it climbed to the threshold on any exploration past five
+      turns and stayed there. Harmless while a warn was only `logger.debug`; with
+      redirection on it is a model call billed for doing exactly what the mode is
+      for. `advanceStagnation()` now skips read-only modes (`isReadOnlyMode()`,
+      `permission/mode-policy.ts`), tested over all three.
+- [ ] **A loop-health `warn` still reaches nobody by default.** The signal is now trustworthy,
       but every `warn` goes to `logger.debug` (`loop.ts:737`) — invisible at the
       default log level and never shown to the model, so nothing acts on a stuck
       pattern until it doubles into a `stop`. Phase 1 of
@@ -1085,7 +1093,10 @@ spec's §12; these are the parts that are actionable independently of it.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
-- [ ] **A `question` tool call kills the suite silently, exit 0.** Hit on
+- [x] **A `question` tool call kills the suite silently, exit 0.** ✅ Fixed
+      2026-08-27 (`eval/runner.ts`): the runner subscribes to `question.asked` and
+      rejects — the tool already recovers — and every trial has a wall-clock cap
+      (`FREECODE_EVAL_TRIAL_TIMEOUT_MS`, default 5 min). Original report: hit on
       2026-08-26 running the trajectory suite for the first time:
       `todowrite-for-multistep` made the model ask a clarifying question and the
       process ended right there — no summary, no report, no verdict, exit code 0,

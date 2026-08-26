@@ -367,8 +367,9 @@ Three deviations from §4/§5 as written, each for a reason found in the code:
    so a loop with an injected recorder (tests, an alternate `rolloutDir`) would
    have formed evidence from a different log than the one it writes.
 
-**Phase 2 — measure and flip.**
-§9. Flip D8's default to `true` if and only if the gate criterion is met.
+**Phase 2 — measure and flip. ⚠️ Ran 2026-08-27. Verdict: DO NOT FLIP.**
+The tooling is built and the measurement was attempted; the criterion cannot be
+evaluated yet, so D8's default stays `false`. See §9.1.
 
 **Phase 3 — deferred.**
 Autonomous-runs integration (report section, per-run cap sourced from the run budget)
@@ -397,8 +398,53 @@ one of these failing keeps the default off and sends the prompt back for revisio
 no sandbox, so `dataset.ts:16` refuses `build` and `danger` modes. A case that provokes
 `oscillation_detected` needs real edits, which needs a mutating mode — so oscillation is
 **unit-tested only** until the eval sandbox lands. `repeated_identical_tool` and
-`no_progress` are reachable in `explore` mode (a read/grep loop over a deliberately
-confusing fixture) and are covered by the suite.
+`no_progress` were expected to be reachable in `explore` mode (a read/grep loop over a
+deliberately confusing fixture) and to be covered by the suite. **They are not — see
+§9.1.**
+
+## 9.1 What the measurement actually found (2026-08-27)
+
+The suite (`evals/redirect.jsonl`, 5 cases) was built and run twice with the feature
+off, ~380K tokens per run. Both runs, every case:
+
+| Metric | Result |
+| --- | --- |
+| Repeated tool calls | **0**, across all 10 trials |
+| Turns per case | 2–6 |
+| Warnings that would have fired | 1, then 0 after the fix below |
+
+**The flip criterion cannot be evaluated, so the default stays off.** Not because the
+candidate lost — because the experiment has no signal:
+
+1. *"Tool repetition strictly lower"* is unmeasurable against a baseline of **0**. It
+   cannot go lower. MiniMax-M3 does not re-issue verbatim tool calls on these prompts;
+   it searches, concludes, and stops.
+2. `oscillation_detected` remains unreachable without a sandbox, as already known.
+3. `no_progress` — the one reason that did fire — **should not have.** See below.
+
+**The bug the measurement found.** The single warning came from a healthy 6-turn
+`explore` case. In a read-only mode *nothing the agent is permitted to do can reset the
+stagnation counter*, because the modes exist precisely to prevent file changes. So
+`stagnantTurns` climbs to the threshold on any exploration past five turns and stays
+there, reporting "no progress" for a mode whose entire job is to make none. Harmless
+while a warn was only `logger.debug`; with Phase 1 on, it is a model call billed for
+doing exactly what the mode is for — the same class of defect as §1.1, found the same
+way, one layer further in.
+
+Fixed by not advancing the counter in read-only modes (`isReadOnlyMode()`,
+`permission/mode-policy.ts`), with tests over all three. Re-running the probe confirmed
+the warning disappears. This is why Phase 2 is worth running even when it cannot reach a
+verdict: it caught a defect that unit tests, and the spec's own author, had not.
+
+**Consequence.** End-to-end measurement of this feature is blocked on the eval sandbox,
+not on the prompt. The machinery is proven by unit tests and by `loop-redirect.test.ts`,
+which drives the real loop and asserts the advice reaches the next prompt; what cannot
+yet be shown is that the advice *helps* on real work. Until then the default stays off,
+and that is the correct outcome rather than a disappointing one.
+
+Do **not** close this by writing a case that instructs the model to repeat a call. A
+flip earned on a manufactured signal is worse than no flip: it would report the feature
+works on a phenomenon it has never actually seen.
 
 Acceptance criterion 5's last case — **the agent ignores the advice** — is
 deliberately not a unit test. There is no code path for it: the reminder is

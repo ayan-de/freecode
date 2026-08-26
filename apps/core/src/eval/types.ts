@@ -36,6 +36,29 @@ export interface TrialResult {
   durationMs: number;
   inputTokens: number;
   outputTokens: number;
+
+  // --- comparison metrics ------------------------------------------------
+  // Recorded on every trial, not just when comparing: a metric you can only
+  // collect by re-running is a metric you will not have when you need it.
+  // Spec `2026-08-26-trajectory-redirection.md` §9.
+  /** Model calls — "turns to completion". */
+  turns: number;
+  /**
+   * Tool calls that repeated an earlier `tool(args)` signature in the same
+   * trial. The count of *redundant* calls: six identical greps score 5.
+   */
+  repeatedCalls: number;
+  /** Trajectory redirections that fired during this trial. */
+  redirects: number;
+  /**
+   * Warnings that did NOT become a redirection. With the feature off this is
+   * the "how often would it have fired" counter — the number that says whether
+   * a baseline run exercised the trigger at all, and therefore whether the
+   * comparison is measuring anything.
+   */
+  redirectsSkipped: number;
+  /** Clarifying questions the harness declined on the user's behalf. */
+  questionsRejected: number;
 }
 
 export interface CaseResult {
