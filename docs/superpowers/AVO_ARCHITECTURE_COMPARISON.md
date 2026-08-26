@@ -1,7 +1,9 @@
 # AVO and FreeCode — transferable architecture lessons
 
-> **Status:** Research comparison, not an implementation specification
-> **Date:** 2026-08-26 (facts re-verified against the code 2026-08-26)
+> **Status:** Research comparison, not an implementation specification. Its one
+> adopted recommendation (§"The best ideas to take" §1) is now **built and off by
+> default** — see the outcome note under `Decision`.
+> **Date:** 2026-08-26 (facts re-verified against the code 2026-08-27)
 > **Primary source:** *AVO: Agentic Variation Operators for Autonomous Evolutionary Search*,
 > Chen et al. (NVIDIA), arXiv:2603.24517v1, 2026-03-25 (local: `2603.24517v1.pdf`)
 > **Related FreeCode designs:** `specs/2026-08-10-autonomous-runs-design.md` (design),
@@ -67,8 +69,8 @@ recommendations below separate the general harness lesson from its specialised b
 | Knowledge the agent can retrieve as needed | skills, project context, persistent memory and memory graph | **Implemented.** The storage/retrieval mechanism differs from the paper’s accumulated conversation history, but serves the same role. |
 | Durable work trajectory | rollout events, session/thread storage, git history | **Implemented.** Rollout supplies the audit evidence a supervisor should consume. |
 | Stuck-pattern detection | `createLoopHealthEvaluator()` (`effect/loop-health.ts`), called from `agent/loop.ts:723` | **Partly implemented, and weaker than it looks.** FreeCode detects repeated tool calls, no file-change progress, and edit/revert oscillation. A `stop` ends the run; a `warn` reaches only `logger.debug` (`agent/loop.ts:737`) unless redirection is switched on. The counter defects — `no_progress` counting tool calls rather than turns, a monotonic `oscillationScore`, and a duplicate evaluator — were repaired in Phase 0 of `specs/2026-08-26-trajectory-redirection.md` (2026-08-26), so the signal is now trustworthy enough to act on. |
-| Correctness-before-performance gate | Autonomous-runs design’s user-supplied verification command | **Designed, not shipped.** This is the appropriate FreeCode analogue of AVO’s zero-score-on-incorrect rule. |
-| Budgeted unattended execution and review artifact | Autonomous-runs design | **Designed, not shipped.** This is necessary before borrowing AVO’s long-run behaviour. |
+| Correctness-before-performance gate | `agent/verify.ts` today; autonomous-runs design’s fixed command later | **Partly implemented, and this row understated it.** A run that mutated files already runs a typecheck/build before finishing, resolved from `package.json` scripts, capped at `MAX_VERIFY_ATTEMPTS`; a failure feeds back and forces another turn. What is missing is the *admission* half of AVO’s rule: today's gate makes the agent keep working, it does not decide whether work is admitted, and the command is inferred rather than user-fixed — so the model’s own claim of “done” is still the thing that ends an ordinary run. |
+| Budgeted unattended execution and review artifact | Autonomous-runs design; `autonomous/` (Phase 0) | **Budget shipped, execution not.** The four-way ceiling (turns/tokens/time/usd, cache reads excluded) and the run manifest exist as pure logic with tests. Nothing starts an agent, spawns a process, or runs a gate — so the review artifact is still design-only, and that is what AVO’s long-run behaviour would need. |
 | Scored accepted-candidate lineage | No dedicated subsystem | **Not implemented.** Existing rollout records attempts, but does not model candidate baselines, score vectors, or admission rules. |
 | Trajectory-level redirection | `agent/redirect/` | **Implemented, off by default** (2026-08-27). A loop-health `warn` folds the rollout log into a bounded evidence packet, buys one small model call for up to three alternative directions, and injects them as a `<system-reminder>`. Capped at 2 per run / 1 per reason, fails closed, tokens billed to the run. Spec: `specs/2026-08-26-trajectory-redirection.md` Phases 0–1. |
 
@@ -99,6 +101,16 @@ extra iterations instead of funding the same loop for longer.
 4. The verifier and permission profile remain system-controlled.
 5. Tests cover repeat calls, no-progress work, oscillation, supervisor failure, and the
    case where the agent ignores the advice.
+
+**Met as of 2026-08-27** (`agent/redirect/`), with one qualification:
+
+| # | Status |
+| --- | --- |
+| 1 | ✅ `redirect.triggered` on success, `redirect.skipped` with a reason on every other path — including "the feature is off", once per run, which is what makes the trigger rate measurable before anyone turns it on. |
+| 2 | ✅ `evidenceEventIds` on the triggered event. `buildEvidence()` is pure, so those ids reconstruct the exact packet the advice was formed on. |
+| 3 | ✅ 2 per run, 1 per reason, 3-turn debounce; tokens folded into the run totals and `recordDailyUsage()` so the spend breaker sees them; USD/time ceilings apply once a run budget owns the loop (`RunLimits.maxRedirects`). |
+| 4 | ✅ D9 — the supervisor is one text completion with no tools, no permission surface, and no access to `resolveVerifyCommand()`. |
+| 5 | ⚠️ Four of five. Repeat calls, no-progress, oscillation and supervisor failure are covered. **"The agent ignores the advice" is deliberately not a test**: there is no code path for it — the reminder is fire-and-forget and the loop behaves identically either way. It is a *measurement* (advice-ignored rate), and it needs the eval sandbox. |
 
 ### 2. Make verification an admission gate, not a completion claim
 
@@ -164,17 +176,20 @@ diagnostic data needed for a supervisor or human review.
 ## Recommended sequencing
 
 1. ~~Add trajectory redirection as a small, bounded extension of loop health, inside the
-   ordinary interactive loop.~~ **Built 2026-08-26/27, off by default**
-   (`specs/2026-08-26-trajectory-redirection.md`, Phases 0–1). What remains is Phase 2:
-   evaluate it on deterministic eval-harness cases (`freecode eval --gate`), comparing
-   completion, tool repetition, cost, and regressions against a no-supervisor baseline,
-   and flip the default only if the criterion in §9 is met. Note the harness bug found
-   while measuring Phase 0 — a `question` tool call ends the suite at exit 0 — has to be
-   fixed first, or the comparison cannot be trusted.
-2. Ship and validate the bounded autonomous-run foundations: explicit budgets, fixed
-   verification gate, isolated worktree, rollout checkpoints, and review report. A Tier A
-   run then reuses the redirection mechanism from step 1 as its supervisor rather than
-   growing a second one.
+   ordinary interactive loop, then measure it.~~ **Done 2026-08-26/27**
+   (`specs/2026-08-26-trajectory-redirection.md`, Phases 0–2). Built, measured, and
+   **left off by default** — the measurement returned *do not flip*, because with no
+   sandbox the suite cannot reach a baseline where tool repetition is non-zero, so §9's
+   criterion has nothing to compare. That is the designed outcome of a failed criterion,
+   not a stalled task. Two harness bugs were fixed on the way: a `question` tool call
+   ended the suite at exit 0 (so no gated suite had ever completed), and `no_progress`
+   fired on healthy read-only exploration.
+2. **In progress.** Ship and validate the bounded autonomous-run foundations: explicit
+   budgets, fixed verification gate, isolated worktree, rollout checkpoints, and review
+   report. **Phase 0 shipped 2026-08-27** — `autonomous/` has the four-way budget ceiling
+   and the run manifest as pure logic; nothing executes yet. A Tier A run then reuses the
+   redirection mechanism from step 1 as its supervisor rather than growing a second one,
+   and the seam for that already exists (`RunLimits.maxRedirects`).
 3. Only then design a narrow variant-search mode around a real request with a stable,
    reproducible evaluator. Reuse the autonomous-run budget, gate, worktree, rollout, and
    report rather than creating a second execution path.
@@ -209,3 +224,28 @@ Do not start an AVO clone. The measurement harness for it already ships (eval, P
 0–1); the unattended-execution work it eventually plugs into is described by the
 autonomous-runs design; scored variant lineage stays a separate, on-demand capability
 until a concrete user workflow warrants it.
+
+### Outcome (2026-08-27)
+
+The recommendation was taken and it holds up, with one honest caveat.
+
+**Built:** trajectory redirection (`agent/redirect/`) — a loop-health warning folds the
+rollout log into a bounded evidence packet, buys one small model call for up to three
+alternative directions, and injects them into the next turn. Advisory, capped,
+fail-closed, tokens billed to the run, no advice text in the log. Plus the budget half of
+autonomous runs, which is what a Tier A supervisor will be capped by.
+
+**Not shown:** that it *helps*. The machinery is proven by unit tests and by an
+end-to-end test that drives the real loop; what no measurement can yet demonstrate is a
+benefit on real work, because the eval harness has no sandbox and therefore cannot
+provoke the stuck states redirection exists for. The default stays off until it can.
+
+**What the exercise was worth regardless.** Reading AVO against this codebase produced
+five defects that had nothing to do with AVO and would not have been found by building
+the feature alone: `no_progress` counting tool calls rather than turns; a monotonic
+oscillation score; a duplicated loop-health evaluator; an eval suite that silently died
+at exit 0 on any clarifying question; and `no_progress` firing on read-only modes that
+cannot, by construction, make progress. Four are fixed, and the fifth (the eval sandbox)
+is now the named blocker for the rest. That is the return on a comparison document —
+not the feature it recommends, but the questions it forces you to ask about what you
+already have.
