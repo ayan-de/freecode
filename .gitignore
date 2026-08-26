@@ -55,6 +55,3 @@ bench/jcode-bench/target
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/
-branch_structure.json
-temp_auto_push.bat
-temp_interactive_push.bat
