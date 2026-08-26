@@ -7,6 +7,8 @@
 //          is critical as changing them later becomes painful
 // =============================================================================
 
+import type { EffortLevel } from "@thisisayande/freecode-shared";
+
 // =============================================================================
 // Agent Mode - First-class operating modes
 // plan: read-only planning/review mode
@@ -243,6 +245,7 @@ export interface SessionState {
   loopHealth: LoopHealth;
   pendingToolCalls: ToolCall[];
   activeToolChain?: string[]; // For compaction awareness
+  effort?: EffortLevel;
 }
 
 export function createInitialSessionState(
@@ -304,6 +307,7 @@ export interface UserInput {
   model?: string;
   projectPath: string;
   agentMode?: AgentMode;
+  effort?: EffortLevel;
 }
 
 export interface LoopResult {

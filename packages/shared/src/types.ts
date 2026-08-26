@@ -92,6 +92,13 @@ export interface ProviderDefinition {
 // Session Types
 // =============================================================================
 
+// Reasoning-effort tier, forwarded to whichever provider-native knob controls
+// it (Anthropic `effort`, OpenAI `reasoningEffort`, Gemini `thinkingLevel`).
+// Omitted means "let the provider use its own default." `xhigh`/`max` are
+// Anthropic/OpenAI-only tiers; Gemini's `thinkingLevel` enum stops at `high`,
+// so the gemini provider clamps those two down (see providers/effort.ts).
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface SessionConfig {
   projectPath: string;
   provider?: string;
@@ -99,6 +106,7 @@ export interface SessionConfig {
   // config.json's current model rather than the provider's hardcoded default.
   model?: string;
   agentMode?: "plan" | "build" | "review" | "explore" | "danger";
+  effort?: EffortLevel;
 }
 
 export interface SessionInfo {
@@ -125,6 +133,7 @@ export interface SessionMeta {
   provider: string;
   /** Carried from SessionMeta so a resumed session restores the model it was pinned to. */
   model?: string;
+  effort?: EffortLevel;
   status: SessionStatus;
   createdAt: number;
   updatedAt: number;

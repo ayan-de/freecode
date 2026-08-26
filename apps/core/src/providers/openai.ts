@@ -19,6 +19,7 @@ import {
 import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
 import type { ExecuteUsage } from "./types.js";
+import { applyEffort } from "./effort.js";
 
 const PROVIDER_INFO = {
   id: "openai" as const,
@@ -114,6 +115,7 @@ function createOpenAIProvider(_apiKey: string): AIProvider {
         openai: { promptCacheKey: opts.sessionId },
       };
     }
+    applyEffort(generateOptions, "openai", opts.effort);
     if (opts.messages) {
       generateOptions.messages = convertToCoreMessages(opts.messages);
     } else {

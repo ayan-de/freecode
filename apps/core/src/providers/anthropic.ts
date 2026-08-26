@@ -21,6 +21,7 @@ import {
 import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
 import type { ExecuteUsage } from "./types.js";
+import { applyEffort } from "./effort.js";
 
 const PROVIDER_INFO = {
   id: "anthropic" as const,
@@ -57,6 +58,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
       abortSignal: opts.abortSignal,
       maxRetries: PROVIDER_MAX_RETRIES,
     };
+    applyEffort(generateOptions, "anthropic", opts.effort);
 
     if (opts.system) {
       generateOptions.system = buildAnthropicSystemParam(opts.system);
@@ -132,6 +134,7 @@ function createAnthropicProvider(_apiKey: string): AIProvider {
       abortSignal: opts.abortSignal,
       maxRetries: PROVIDER_MAX_RETRIES,
     };
+    applyEffort(generateOptions, "anthropic", opts.effort);
 
     if (opts.system) {
       generateOptions.system = buildAnthropicSystemParam(opts.system);

@@ -1,5 +1,8 @@
 import type { Message } from "../agent/types.js";
 import type { NormalizedUsage } from "./provider-shared.js";
+import type { EffortLevel } from "@thisisayande/freecode-shared";
+
+export type { EffortLevel };
 
 export interface ProviderInfo {
   id: string;
@@ -49,6 +52,9 @@ export interface ExecuteOptions {
   quietModelFallback?: boolean;
   temperature?: number;
   maxTokens?: number;
+  // Reasoning-effort tier. Mapped per-provider (see effort.ts) to whatever
+  // native knob controls it; undefined leaves the provider's own default.
+  effort?: EffortLevel;
   tools?: ToolDef[];
   toolResults?: Array<{
     toolCallId: string;

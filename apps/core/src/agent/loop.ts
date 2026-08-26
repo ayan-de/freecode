@@ -540,6 +540,7 @@ export class AgentLoop {
       status: "starting",
       projectPath: input.projectPath,
       agentMode: input.agentMode ?? "build",
+      effort: input.effort,
       // Loop health is per-run. oscillationScore only ever climbs, so carrying
       // it across prompts would let one run's history stop the *next* one at
       // the health check before it ever reached the provider.
@@ -1845,6 +1846,7 @@ export class AgentLoop {
           tools,
           model,
           maxTokens,
+          effort: this.state.effort,
           abortSignal: this.abort.signal,
           sessionId: this.state.sessionId,
         })) {
@@ -1952,6 +1954,7 @@ export class AgentLoop {
         system,
         tools,
         model,
+        effort: this.state.effort,
         abortSignal: this.abort.signal,
         sessionId: this.state.sessionId,
       });

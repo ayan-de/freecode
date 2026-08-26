@@ -19,6 +19,7 @@ import {
 import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
 import type { ExecuteUsage } from "./types.js";
+import { applyEffort } from "./effort.js";
 
 const PROVIDER_INFO = {
   id: "gemini" as const,
@@ -61,6 +62,7 @@ function createGeminiProvider(_apiKey: string): AIProvider {
       abortSignal: opts.abortSignal,
       maxRetries: PROVIDER_MAX_RETRIES,
     };
+    applyEffort(generateOptions, "gemini", opts.effort);
 
     if (opts.messages) {
       generateOptions.messages = convertToCoreMessages(opts.messages);
@@ -129,6 +131,7 @@ function createGeminiProvider(_apiKey: string): AIProvider {
       abortSignal: opts.abortSignal,
       maxRetries: PROVIDER_MAX_RETRIES,
     };
+    applyEffort(generateOptions, "gemini", opts.effort);
     if (opts.messages) {
       generateOptions.messages = convertToCoreMessages(opts.messages);
     } else {

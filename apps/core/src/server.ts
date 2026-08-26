@@ -40,6 +40,7 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
   SessionConfig,
+  EffortLevel,
 } from "@thisisayande/freecode-shared";
 import {
   getMemoryStore,
@@ -157,6 +158,7 @@ interface SessionInfo {
   projectPath: string;
   provider: string;
   model?: string;
+  effort?: EffortLevel;
 }
 
 export const sessions: Map<string, SessionInfo> = new Map();
@@ -169,6 +171,7 @@ interface TurnInput {
   images?: Array<{ data: string; mediaType: string; altText?: string }>;
   provider: string;
   model?: string;
+  effort?: EffortLevel;
   agentMode?:
     | "plan"
     | "build"
@@ -216,6 +219,7 @@ async function runSessionTurn(
         sessionId,
         provider: input.provider,
         model: input.model,
+        effort: input.effort,
         projectPath: session.projectPath,
         agentMode: input.agentMode,
         images: input.images,
@@ -253,6 +257,7 @@ async function runSessionTurn(
         prompt: next.content,
         provider: input.provider,
         model: input.model,
+        effort: input.effort,
         agentMode: input.agentMode,
       }).catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -293,6 +298,7 @@ function createSession(config: SessionConfig): SessionInfo {
     projectPath: config.projectPath,
     provider,
     model: config.model || current?.model,
+    effort: config.effort,
   };
   sessions.set(id, session);
   return session;
@@ -420,12 +426,14 @@ const methodHandlers: Record<
       sessionId,
       message,
       model,
+      effort,
       agentMode: paramAgentMode,
       images,
     } = params as {
       sessionId: string;
       message: string;
       model?: string;
+      effort?: EffortLevel;
       agentMode?: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
     };
@@ -477,6 +485,10 @@ const methodHandlers: Record<
       session.model = model;
     }
     const currentModel = model || config.current?.model || session.model;
+    if (effort) {
+      session.effort = effort;
+    }
+    const currentEffort = effort || session.effort;
 
     // Update session with agentMode if provided
     if (paramAgentMode) {
@@ -511,6 +523,7 @@ const methodHandlers: Record<
       images,
       provider: currentProvider,
       model: currentModel,
+      effort: currentEffort,
       agentMode,
     });
   },

@@ -14,6 +14,7 @@ export type {
   ProviderInfo,
   ProviderDefinition,
   SessionConfig,
+  EffortLevel,
   SessionInfo,
   SessionStatus,
   SessionMeta,
