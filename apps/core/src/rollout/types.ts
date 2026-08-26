@@ -40,7 +40,9 @@ export type RolloutEvent =
   | ModelRequestEvent
   | ModelFirstTokenEvent
   | ModelResponseEvent
-  | ModelErrorEvent;
+  | ModelErrorEvent
+  | RedirectTriggeredEvent
+  | RedirectSkippedEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -65,7 +67,16 @@ export interface FunctionOutputEvent extends BaseEvent {
   type: "function.output";
   turnId: string;
   tool: string;
+  /** `result.stdout` on success, `result.error` on failure — see `failed`. */
   output: string;
+  /**
+   * Whether the tool errored. Adds no new text to the log (`output` already
+   * carried the error message), it just says which of the two `output` is —
+   * so a reader does not have to scrape stdout wording to tell a failed call
+   * from a successful one. Optional: logs written before this field existed
+   * are still valid and simply report nothing.
+   */
+  failed?: boolean;
   duration_ms: number;
   seq: number;
 }
@@ -181,4 +192,38 @@ export interface ModelErrorEvent extends BaseEvent {
   /** `stall` = went silent past its budget; `abort` = cancelled by the user. */
   kind: "stall" | "abort" | "provider";
   error: string;
+}
+
+// ============================================================================
+// Trajectory redirection events
+// (spec 2026-08-26-trajectory-redirection.md, §6)
+//
+// **No direction text here, on purpose.** OTLP export consumes a `Trace`, which
+// is a fold of these events, and the eval harness leans on the log carrying no
+// message bodies. Model-authored advice can quote code, so it stays out. The
+// text is already durable where it belongs: it is injected into the transcript,
+// so the thread store and `freecode session export` have it.
+//
+// `evidenceEventIds` is what makes the advice auditable — `buildEvidence()` is
+// pure, so given the log you can reconstruct the exact packet it was formed on.
+// ============================================================================
+
+export interface RedirectTriggeredEvent extends BaseEvent {
+  type: "redirect.triggered";
+  turnId: string;
+  /** The loop-health reason that fired. */
+  reason: string;
+  evidenceEventIds: string[];
+  directionCount: number;
+  directionChars: number;
+  latency_ms: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export interface RedirectSkippedEvent extends BaseEvent {
+  type: "redirect.skipped";
+  turnId: string;
+  /** RedirectSkipReason — "cap_reached", "timeout", "disabled", … */
+  reason: string;
 }

@@ -1,8 +1,9 @@
 # Trajectory Redirection — evidence-backed recovery from a stuck loop
 
 > **Date:** 2026-08-26
-> **Status:** 🚧 Phase 0 shipped (2026-08-26) — counter repair only. Phases 1–3
-> not implemented.
+> **Status:** ✅ Phases 0–1 shipped (2026-08-26/27). Redirection is built and
+> **off by default**; Phase 2 (measure and flip) and Phase 3 (autonomous runs)
+> are not done.
 > **Derived from:** `docs/superpowers/AVO_ARCHITECTURE_COMPARISON.md` §"The best ideas
 > to take" §1, which reads *AVO: Agentic Variation Operators for Autonomous Evolutionary
 > Search* (Chen et al., NVIDIA, arXiv:2603.24517v1) §3.3 — the conditional supervisor
@@ -340,9 +341,31 @@ reaches `logger.debug`. Running the suite at all required working around the har
 recorded in `TODO.md` (a `question` tool call ends the process at exit 0 mid-suite);
 `--trials 1` is also below what §9.1 of the eval spec says is safe to gate on.
 
-**Phase 1 — redirection behind a flag.**
-`redirect/` module, trigger at `agent/loop.ts:727`, rollout events, usage accounting,
-settings + env switch. Default off.
+**Phase 1 — redirection behind a flag. ✅ Shipped 2026-08-27.**
+`agent/redirect/` (`policy.ts`, `evidence.ts`, `prompt.ts`, `supervisor.ts`,
+`settings.ts`, `index.ts`), triggered from the warn arm of `agent/loop.ts` via
+`maybeRedirect()`, two rollout events, usage folded into the run totals and
+`recordDailyUsage()`, settings + `FREECODE_DISABLE_REDIRECT`. Default off.
+43 tests across `policy.test.ts`, `evidence.test.ts`, `supervisor.test.ts` and an
+end-to-end `loop-redirect.test.ts` that drives the real loop against a fake
+provider and asserts the advice reaches a later prompt and its tokens reach the
+run totals.
+
+Three deviations from §4/§5 as written, each for a reason found in the code:
+
+1. **`settings.ts` is a sixth file.** §4 lists five, but §5's D8 requires reading
+   two settings files, and `policy.ts` is specified as pure. Settings loading
+   lives in its own module rather than making the policy do IO.
+2. **`FunctionOutputEvent` gains `failed?: boolean`, and `ToolSpan` with it.**
+   D3's packet needs to know which calls errored. The log recorded
+   `result.stdout || result.error` with no way to tell which — deciding by
+   scraping the wording is exactly the brittleness `updateLoopHealth` avoids
+   elsewhere. The flag adds no new text to the log, it only disambiguates text
+   already there. Optional, so old logs stay valid.
+3. **The evidence fold reads through `recorder.readEvents()`, not
+   `history.loadSessionEvents()`.** The latter resolves the default rollout path,
+   so a loop with an injected recorder (tests, an alternate `rolloutDir`) would
+   have formed evidence from a different log than the one it writes.
 
 **Phase 2 — measure and flip.**
 §9. Flip D8's default to `true` if and only if the gate criterion is met.
@@ -376,6 +399,12 @@ no sandbox, so `dataset.ts:16` refuses `build` and `danger` modes. A case that p
 **unit-tested only** until the eval sandbox lands. `repeated_identical_tool` and
 `no_progress` are reachable in `explore` mode (a read/grep loop over a deliberately
 confusing fixture) and are covered by the suite.
+
+Acceptance criterion 5's last case — **the agent ignores the advice** — is
+deliberately not a unit test. There is no code path for it: the reminder is
+fire-and-forget, and the loop behaves identically whether the model acts on it or
+not. It is a *measurement*, listed in the table above as advice-ignored rate, and
+it needs Phase 2's suite rather than an assertion.
 
 Unit tests, per the parent document's acceptance criterion 5:
 `policy.test.ts` (each reason, per-run cap, per-reason cap, debounce, subagent off,

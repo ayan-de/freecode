@@ -13,6 +13,7 @@ import type {
   ModelErrorEvent,
   ModelRequestEvent,
   ModelResponseEvent,
+  RedirectTriggeredEvent,
   RolloutEvent,
 } from "./types.js";
 
@@ -221,6 +222,7 @@ export class RolloutRecorder {
     output: string,
     duration_ms: number,
     turnId: string,
+    failed?: boolean,
   ): void {
     const event = this.makeEvent("function.output", {
       aggregateID: this.sessionId,
@@ -228,6 +230,7 @@ export class RolloutRecorder {
       output,
       duration_ms,
       turnId,
+      ...(failed === undefined ? {} : { fields: { failed } }),
     });
     this.write(event);
   }
@@ -385,6 +388,63 @@ export class RolloutRecorder {
         aggregateID: this.sessionId,
         turnId,
         fields,
+      }),
+    );
+  }
+
+  // ===========================================================================
+  // PUBLIC: trajectory redirection events
+  // The advice text itself is never written here — see the note in types.ts.
+  // ===========================================================================
+  recordRedirectTriggered(
+    turnId: string,
+    fields: Omit<RedirectTriggeredEvent, keyof BaseEvent | "type" | "turnId">,
+  ): void {
+    this.write(
+      this.makeEvent("redirect.triggered", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields,
+      }),
+    );
+  }
+
+  /**
+   * Read back what this recorder has written.
+   *
+   * The redirect evidence fold reads through the recorder rather than through
+   * `history.loadSessionEvents()`, which resolves the default rollout path: an
+   * injected recorder (tests, an alternate `rolloutDir`) must stay
+   * authoritative, or the loop would form evidence from a different session's
+   * log than the one it is writing. Returns [] when recording is disabled or
+   * the file does not exist yet.
+   */
+  readEvents(): RolloutEvent[] {
+    if (!this.enabled) return [];
+    try {
+      return fs
+        .readFileSync(this.eventsFilePath, "utf-8")
+        .split("\n")
+        .filter((line) => line.trim())
+        .flatMap((line) => {
+          try {
+            return [JSON.parse(line) as RolloutEvent];
+          } catch {
+            // A truncated final line must not cost the whole log.
+            return [];
+          }
+        });
+    } catch {
+      return [];
+    }
+  }
+
+  recordRedirectSkipped(turnId: string, reason: string): void {
+    this.write(
+      this.makeEvent("redirect.skipped", {
+        aggregateID: this.sessionId,
+        turnId,
+        reason,
       }),
     );
   }

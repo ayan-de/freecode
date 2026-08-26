@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { EffortLevel } from "@thisisayande/freecode-shared";
+import { createRedirectState, type RedirectState } from "./redirect/policy.js";
 
 // =============================================================================
 // Agent Mode - First-class operating modes
@@ -243,6 +244,8 @@ export interface SessionState {
   iterationCount: number;
   agentMode: AgentMode;
   loopHealth: LoopHealth;
+  /** Per-run caps for trajectory redirection (`agent/redirect/policy.ts`). */
+  redirect: RedirectState;
   pendingToolCalls: ToolCall[];
   activeToolChain?: string[]; // For compaction awareness
   effort?: EffortLevel;
@@ -265,6 +268,7 @@ export function createInitialSessionState(
       oscillationScore: 0,
       repeatedReasoningScore: 0,
     },
+    redirect: createRedirectState(),
     pendingToolCalls: [],
   };
 }

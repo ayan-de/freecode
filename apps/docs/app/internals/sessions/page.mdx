@@ -186,7 +186,7 @@ Everything the agent does emits an event to
 | `aggregateID` | what this is a record *of* — usually the session |
 | `timestamp` | wall clock |
 
-Sixteen event types, grouped by what they record:
+Eighteen event types, grouped by what they record:
 
 | Group | Events |
 | --- | --- |
@@ -195,7 +195,12 @@ Sixteen event types, grouped by what they record:
 | Model | `model.request`, `model.first_token`, `model.response`, `model.error` |
 | Context | `compact.occurred`, `context.overflow` |
 | Extensions | `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`, `hook.blocked` |
+| Loop health | `redirect.triggered`, `redirect.skipped` |
 | Failure | `parse.error` |
+
+`redirect.triggered` records that the loop was advised to change approach, and
+which events the advice was formed on — but never the advice text. See
+[trajectory redirection](/internals/agent-loop#trajectory-redirection).
 
 ### The one ordering decision that matters
 

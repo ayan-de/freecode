@@ -145,6 +145,15 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
       `  tokens  in=${count(trace.inputTokens)} out=${count(trace.outputTokens)} cached=${count(trace.cacheReadTokens)}`,
     ),
   );
+  // Only when something happened: a line reading "redirects 0" on every
+  // healthy session is noise, and the feature is off by default.
+  if (trace.redirects > 0 || trace.redirectsSkipped > 0) {
+    out.push(
+      dim(
+        `  redirect  fired=${trace.redirects} skipped=${trace.redirectsSkipped}`,
+      ),
+    );
+  }
 
   const hung = trace.modelSpans.filter((s) => s.status === "hung");
   const errored = trace.modelSpans.filter((s) => s.status === "error");

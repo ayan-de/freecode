@@ -48,6 +48,10 @@ without comment.
   "memory": {
     "autoExtract": true,
     "extractEveryNRuns": 8
+  },
+  "redirect": {
+    "enabled": false,
+    "maxPerRun": 2
   }
 }
 ```
@@ -198,6 +202,26 @@ field. `FREECODE_DISABLE_MEMORY_EXTRACTION=1` overrides both files. Throttling i
 safe because each extraction rebuilds the transcript from the session's whole
 history, so a skipped run is covered by the next one. Background:
 [memory](/internals/memory).
+
+## `redirect`
+
+When the loop detects it is going in circles, spend one small model call on
+asking for a different approach and inject the answer into the next turn.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `false` | allow redirection at all |
+| `maxPerRun` | number | `2` | redirections per run; `0` disables as surely as `enabled: false` |
+
+```json
+{ "redirect": { "enabled": true } }
+```
+
+Same scope merge as `memory`. `FREECODE_DISABLE_REDIRECT=1` overrides both files.
+Off by default until the measurement in the spec says the delta is non-negative
+— shipping it on and measuring afterwards would mean every user pays for an
+unvalidated model call. Background:
+[trajectory redirection](/internals/agent-loop#trajectory-redirection).
 
 ## Not in this file
 

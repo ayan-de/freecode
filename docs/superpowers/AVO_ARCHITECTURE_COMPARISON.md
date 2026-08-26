@@ -66,11 +66,11 @@ recommendations below separate the general harness lesson from its specialised b
 | Environment feedback | `bash`, LSP, file tools, MCP tools | **Implemented.** Project tests, linters, benchmarks, and other commands can supply the evaluator signal. |
 | Knowledge the agent can retrieve as needed | skills, project context, persistent memory and memory graph | **Implemented.** The storage/retrieval mechanism differs from the paper’s accumulated conversation history, but serves the same role. |
 | Durable work trajectory | rollout events, session/thread storage, git history | **Implemented.** Rollout supplies the audit evidence a supervisor should consume. |
-| Stuck-pattern detection | `createLoopHealthEvaluator()` (`effect/loop-health.ts`), called from `agent/loop.ts:723` | **Partly implemented, and weaker than it looks.** FreeCode detects repeated tool calls, no file-change progress, and edit/revert oscillation. A `stop` ends the run; a `warn` reaches only `logger.debug` (`agent/loop.ts:737`), invisible at the default log level. Neither outcome creates a new strategy. The counter defects — `no_progress` counting tool calls rather than turns, a monotonic `oscillationScore`, and a duplicate evaluator — were repaired in Phase 0 of `specs/2026-08-26-trajectory-redirection.md` (2026-08-26). |
+| Stuck-pattern detection | `createLoopHealthEvaluator()` (`effect/loop-health.ts`), called from `agent/loop.ts:723` | **Partly implemented, and weaker than it looks.** FreeCode detects repeated tool calls, no file-change progress, and edit/revert oscillation. A `stop` ends the run; a `warn` reaches only `logger.debug` (`agent/loop.ts:737`) unless redirection is switched on. The counter defects — `no_progress` counting tool calls rather than turns, a monotonic `oscillationScore`, and a duplicate evaluator — were repaired in Phase 0 of `specs/2026-08-26-trajectory-redirection.md` (2026-08-26), so the signal is now trustworthy enough to act on. |
 | Correctness-before-performance gate | Autonomous-runs design’s user-supplied verification command | **Designed, not shipped.** This is the appropriate FreeCode analogue of AVO’s zero-score-on-incorrect rule. |
 | Budgeted unattended execution and review artifact | Autonomous-runs design | **Designed, not shipped.** This is necessary before borrowing AVO’s long-run behaviour. |
 | Scored accepted-candidate lineage | No dedicated subsystem | **Not implemented.** Existing rollout records attempts, but does not model candidate baselines, score vectors, or admission rules. |
-| Trajectory-level redirection | No dedicated subsystem | **Not implemented.** This is AVO’s most directly transferable missing control loop. |
+| Trajectory-level redirection | `agent/redirect/` | **Implemented, off by default** (2026-08-27). A loop-health `warn` folds the rollout log into a bounded evidence packet, buys one small model call for up to three alternative directions, and injects them as a `<system-reminder>`. Capped at 2 per run / 1 per reason, fails closed, tokens billed to the run. Spec: `specs/2026-08-26-trajectory-redirection.md` Phases 0–1. |
 
 ## The best ideas to take
 
@@ -163,12 +163,14 @@ diagnostic data needed for a supervisor or human review.
 
 ## Recommended sequencing
 
-1. Add trajectory redirection as a small, bounded extension of loop health, inside the
-   ordinary interactive loop. It depends on nothing unshipped: the trigger, the rollout
-   evidence, the reminder-injection path, and the measurement harness all exist today.
-   Evaluate it on deterministic eval-harness cases (`freecode eval --gate`), comparing
-   completion, tool repetition, cost, and regressions against a no-supervisor baseline.
-   Spec: `specs/2026-08-26-trajectory-redirection.md`.
+1. ~~Add trajectory redirection as a small, bounded extension of loop health, inside the
+   ordinary interactive loop.~~ **Built 2026-08-26/27, off by default**
+   (`specs/2026-08-26-trajectory-redirection.md`, Phases 0–1). What remains is Phase 2:
+   evaluate it on deterministic eval-harness cases (`freecode eval --gate`), comparing
+   completion, tool repetition, cost, and regressions against a no-supervisor baseline,
+   and flip the default only if the criterion in §9 is met. Note the harness bug found
+   while measuring Phase 0 — a `question` tool call ends the suite at exit 0 — has to be
+   fixed first, or the comparison cannot be trusted.
 2. Ship and validate the bounded autonomous-run foundations: explicit budgets, fixed
    verification gate, isolated worktree, rollout checkpoints, and review report. A Tier A
    run then reuses the redirection mechanism from step 1 as its supervisor rather than

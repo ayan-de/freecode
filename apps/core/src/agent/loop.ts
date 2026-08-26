@@ -20,6 +20,7 @@ import type {
   ToolResult,
   Message,
   MessagePart,
+  LoopAction,
   LoopHeuristics,
   UserInput,
   LoopResult,
@@ -40,10 +41,21 @@ import {
   type RecordedEdit,
 } from "./oscillation.js";
 import { createLoopHealthEvaluator } from "../effect/loop-health.js";
+import {
+  buildEvidence,
+  createRedirectState,
+  decideRedirect,
+  loadRedirectSettings,
+  noteDisabled,
+  noteRedirect,
+  redirectReminder,
+  requestRedirect,
+  type RedirectReason,
+} from "./redirect/index.js";
 import { logger } from "../utils/logger.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
-import { renderTodoPromptBlock } from "../tools/todo.js";
+import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
 import {
   evaluateTodoGate,
   shouldNudgeTodo,
@@ -196,6 +208,13 @@ export interface AgentLoopConfig {
    * would multiply the cost of a single user turn.
    */
   memoryExtraction?: boolean;
+  /**
+   * Allow trajectory redirection on a loop-health warning. Defaults to true
+   * here and is *still* gated by the off-by-default `redirect.enabled`
+   * setting; `agent/subagent.ts` sets it false, because a subagent is already
+   * turn-capped and disposable and its parent is the right place to re-plan.
+   */
+  redirect?: boolean;
 }
 
 // =============================================================================
@@ -262,7 +281,11 @@ export class AgentLoop {
   // ---------------------------------------------------------------------------
   private state: SessionState;
   private history: Message[] = [];
-  private config: { maxIterations: number; heuristics: LoopHeuristics };
+  private config: {
+    maxIterations: number;
+    heuristics: LoopHeuristics;
+    redirect: boolean;
+  };
   private memory: MemoryService;
   private hooks: HookRuntime;
   private recorder: RolloutRecorder;
@@ -343,6 +366,7 @@ export class AgentLoop {
       // headless/-p invocations) pass maxIterations explicitly.
       maxIterations: config?.maxIterations ?? Infinity,
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
+      redirect: config?.redirect ?? true,
     };
     this.memory = config?.memory ?? new MemoryService(sessionId);
     this.hooks = config?.hooks ?? createHookRuntime();
@@ -556,6 +580,9 @@ export class AgentLoop {
         oscillationScore: 0,
         repeatedReasoningScore: 0,
       },
+      // Redirection caps are per-run for the same reason: one prompt's
+      // spending must not silently cap the next prompt's recovery.
+      redirect: createRedirectState(),
     };
     // Fresh cancellation scope per run
     this.abort = new AbortController();
@@ -735,6 +762,28 @@ export class AgentLoop {
         }
         if (healthAction.action === "warn") {
           logger.debug(`[AgentLoop] Warning: ${healthAction.reason}`);
+          // Trajectory redirection: turn the warning into evidence-backed
+          // advice for this turn instead of a debug line nobody reads. Off by
+          // default (D8); fails closed and costs nothing when it does.
+          const spent = await this.maybeRedirect(
+            healthAction,
+            input.prompt,
+            input.provider,
+            input.model,
+          );
+          if (spent) {
+            // D7: the supervisor's tokens are the run's tokens. A cost the
+            // spend circuit breaker below cannot see would reintroduce the
+            // hole it was built to close.
+            totalInputTokens += spent.inputTokens ?? 0;
+            totalOutputTokens += spent.outputTokens ?? 0;
+            recordDailyUsage({
+              inputTokens: spent.inputTokens ?? 0,
+              outputTokens: spent.outputTokens ?? 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+            });
+          }
         }
 
         // Todo nudge: after several turns with no todowrite call, remind the
@@ -2387,6 +2436,7 @@ export class AgentLoop {
       result.stdout || result.error || "",
       Date.now() - startTime,
       `turn-${this.state.turnCount}`,
+      result.error !== undefined,
     );
 
     // Emit tool_complete event for streaming
@@ -2505,6 +2555,128 @@ export class AgentLoop {
           : this.state.loopHealth.stagnantTurns + 1,
       },
     };
+  }
+
+  // ===========================================================================
+  // PRIVATE: maybeRedirect()
+  // A loop-health warning, turned into advice for the next turn.
+  // Spec: 2026-08-26-trajectory-redirection.md. Never throws: every failure
+  // path records a skip and leaves the loop behaving exactly as it did before.
+  // Returns the supervisor's usage when a call was made, so run() can bill it.
+  // ===========================================================================
+  private async maybeRedirect(
+    action: { action: string; reason?: string },
+    goal: string,
+    provider: string,
+    model: string | undefined,
+  ): Promise<{ inputTokens?: number; outputTokens?: number } | undefined> {
+    const turnId = `turn-${this.state.turnCount}`;
+    const settings = loadRedirectSettings(this.state.projectPath);
+    const decision = decideRedirect({
+      action: action as LoopAction,
+      turnCount: this.state.turnCount,
+      state: this.state.redirect,
+      // Subagents are already turn-capped and disposable; their parent is the
+      // right place to re-plan.
+      enabled: settings.enabled && this.config.redirect,
+      maxPerRun: settings.maxPerRun,
+    });
+
+    if (!decision.redirect) {
+      if (decision.skip) {
+        this.recorder.recordRedirectSkipped(turnId, decision.skip);
+        if (decision.skip === "disabled") {
+          this.state = {
+            ...this.state,
+            redirect: noteDisabled(this.state.redirect),
+          };
+        }
+      }
+      return undefined;
+    }
+
+    const events = this.recorder.readEvents();
+    const packet = buildEvidence({
+      reason: decision.reason,
+      sessionId: this.state.sessionId,
+      events,
+      turnCount: this.state.turnCount,
+      goal,
+      todos: getTodos(this.state.sessionId).map((t) => ({
+        content: t.content,
+        status: t.status,
+      })),
+    });
+    // Nothing to reason about: no calls, no errors, no plan. Advice formed on
+    // an empty packet would be a guess dressed as evidence.
+    if (packet.recentCalls.length === 0 && packet.todos.length === 0) {
+      this.recorder.recordRedirectSkipped(turnId, "no_evidence");
+      return undefined;
+    }
+
+    const outcome = await requestRedirect({ packet, provider, model });
+    if (!outcome.ok) {
+      this.recorder.recordRedirectSkipped(turnId, outcome.skip);
+      return undefined;
+    }
+
+    this.pendingReminders.push(
+      redirectReminder(decision.reason, outcome.directions),
+    );
+    this.recorder.recordRedirectTriggered(turnId, {
+      reason: decision.reason,
+      evidenceEventIds: packet.evidenceEventIds,
+      directionCount: outcome.directions.length,
+      directionChars: outcome.directions.join("").length,
+      latency_ms: outcome.latency_ms,
+      inputTokens: outcome.usage?.inputTokens,
+      outputTokens: outcome.usage?.outputTokens,
+    });
+
+    this.state = {
+      ...this.state,
+      redirect: noteRedirect(
+        this.state.redirect,
+        decision.reason,
+        this.state.turnCount,
+      ),
+    };
+    this.resetHealthCounter(decision.reason);
+
+    return {
+      inputTokens: outcome.usage?.inputTokens,
+      outputTokens: outcome.usage?.outputTokens,
+    };
+  }
+
+  // ===========================================================================
+  // PRIVATE: resetHealthCounter()
+  // Clear the counter that triggered a redirection (D2). Without this the same
+  // warn recurs on the very next iteration and only the caps stop a loop of
+  // supervisors — which works, but wastes the debounce window and muddies the
+  // eval signal. The backing *window* is cleared too, not just the score:
+  // both counters are re-derived from their windows, so zeroing the number
+  // alone would let the next call re-derive the old value.
+  // ===========================================================================
+  private resetHealthCounter(reason: RedirectReason): void {
+    if (reason === "repeated_identical_tool") {
+      this.recentToolCalls = [];
+      this.state = {
+        ...this.state,
+        loopHealth: { ...this.state.loopHealth, repeatedTools: 0 },
+      };
+    } else if (reason === "oscillation_detected") {
+      this.recentEdits = [];
+      this.state = {
+        ...this.state,
+        loopHealth: { ...this.state.loopHealth, oscillationScore: 0 },
+      };
+    } else {
+      this.state = {
+        ...this.state,
+        loopHealth: { ...this.state.loopHealth, stagnantTurns: 0 },
+      };
+    }
   }
 
   // ===========================================================================

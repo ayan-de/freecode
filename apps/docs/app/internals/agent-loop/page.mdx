@@ -356,6 +356,64 @@ for **twice** the threshold.
 A stop ends the run with `Loop stopped: <reason>`, runs the `Stop` hook, and
 preserves everything — history is already persisted turn by turn.
 
+## Trajectory redirection
+
+A `warn` on its own goes to `logger.debug` and reaches nobody — the loop keeps
+funding the circle until it is twice as bad, then kills the run. Redirection is
+what makes the warn tier useful: on a warning, fold the rollout log into a
+bounded evidence packet, make **one** small model call asking for up to three
+materially different next directions, and push them into the next turn as a
+`<system-reminder>` — the same mechanism the todo nudge already uses.
+
+It is **off by default**. Turn it on per project or per user:
+
+```jsonc
+// .freecode/settings.json
+{ "redirect": { "enabled": true, "maxPerRun": 2 } }
+```
+
+`FREECODE_DISABLE_REDIRECT=1` overrides the setting, matching the
+`FREECODE_DISABLE_MEMORY_*` convention.
+
+**What can trigger it.** Only a `warn`, and only for `repeated_identical_tool`,
+`oscillation_detected` or `no_progress`. Never a `stop`: at that point the run
+is over and the honest answer is to hand back to the user, not to spend more
+money re-planning a corpse. `max_iterations_reached` is a budget rather than a
+pathology, and `wrapUpReminder()` already covers it.
+
+| Cap | Value | Why |
+| --- | --- | --- |
+| Per run | 2 | Mirrors `MAX_VERIFY_ATTEMPTS`. A third means the advice is not what is wrong |
+| Per reason | 1 | Re-advising on an unchanged reason produces the same advice |
+| Debounce | 3 turns | The model needs turns to act before being judged again |
+| Subagents | off | Already turn-capped and disposable; the parent re-plans |
+
+After a redirection fires, the counter that triggered it is reset — along with
+the window it is derived from, since zeroing the number alone would let the next
+call re-derive the old value.
+
+**The supervisor is advisory and nothing else** (`agent/redirect/supervisor.ts`).
+One non-streaming call, 400 tokens, 15-second timeout, the run's own provider.
+No tools, no permissions, no verifier access; it cannot end a run, alter the
+agent mode, or extend a budget. Its tokens are added to the run totals and to
+the daily usage file, so the spend circuit breaker sees them — a supervisor
+whose cost is invisible to `FREECODE_MAX_TURN_TOKENS` would reintroduce the hole
+that breaker was built to close.
+
+**It fails closed, always.** Provider error, timeout, empty response, nothing
+parseable, or an evidence packet with nothing in it → no redirection, a recorded
+`redirect.skipped`, and the loop continues exactly as it would have. The call is
+synchronous rather than one-turn-behind on purpose: the turn being delayed is by
+definition an unproductive one, and advice that arrives a turn late can arrive
+after the hard-stop tier has already killed the run.
+
+**What is recorded.** `redirect.triggered` carries the reason, the count and
+size of the directions, latency, tokens, and `evidenceEventIds` — but **not the
+advice text**. `buildEvidence()` is pure, so the ids are enough to reconstruct
+the exact packet from the log, while model-authored prose (which can quote code)
+stays out of a log that OTLP exports. The text is already durable in the
+transcript. `freecode trace` shows the counts.
+
 ## Ending badly
 
 **Iteration cap.** `maxIterations` defaults to `Infinity`, matching Claude Code
@@ -469,12 +527,13 @@ a restart — unlike the compaction variables, which are read per call.
    `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
    (`agent/types.ts:206`) have no reader. The spec lists it as one of four
    heuristics.
-8. **A loop-health `warn` still reaches nobody.** `stagnantTurns` now counts
-   turns, and `oscillationScore` now decays, so the signal is trustworthy — but
-   every `warn` is still written with `logger.debug` (`loop.ts:737`), invisible
-   at the default log level and never shown to the model. Nothing acts on a
-   detected stuck pattern until it doubles into a `stop`. Closing that is
-   `docs/superpowers/specs/2026-08-26-trajectory-redirection.md` Phase 1.
+8. **A loop-health `warn` reaches nobody unless redirection is switched on.**
+   [Trajectory redirection](#trajectory-redirection) is what acts on a warning,
+   and it is off by default until the measurement in §9 of its spec says
+   otherwise. With it off, a `warn` is still just `logger.debug` (`loop.ts:737`)
+   and nothing happens until the pattern doubles into a `stop`. The trigger
+   itself is recorded either way (`redirect.skipped`, reason `disabled`, once
+   per run), which is how the flip decision gets its evidence.
 9. **The provider tool list is mode-independent.** `getToolDefs()` takes no
    mode, so a plan-mode session advertises `write`, `edit` and `bash` and then
    hard-denies them at execution (`permission/mode-policy.ts:77`). Correct, but
@@ -514,6 +573,7 @@ a restart — unlike the compaction variables, which are read per call.
 | Heuristic defaults, `SessionState`, `LoopResult` | `apps/core/src/agent/types.ts` |
 | Revert detection and the oscillation window | `apps/core/src/agent/oscillation.ts` |
 | The loop-health policy (the only copy) | `apps/core/src/effect/loop-health.ts` |
+| Redirection: caps, evidence, prompt, supervisor | `apps/core/src/agent/redirect/` |
 | Todo nudge / gate / wrap-up text | `apps/core/src/agent/reminders.ts` |
 | The typecheck/build gate | `apps/core/src/agent/verify.ts` |
 | The adversarial verifier + subagents | `apps/core/src/agent/subagent.ts` |

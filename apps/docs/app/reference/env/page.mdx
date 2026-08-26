@@ -92,6 +92,12 @@ default, because a typo here looks exactly like compaction being broken.
 | --- | --- | --- |
 | `FREECODE_DISABLE_MEMORY_EXTRACTION` | unset | `1`, `true`, or `yes` turns off automatic extraction. Overrides `memory.autoExtract` in `settings.json` |
 
+## Loop health
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FREECODE_DISABLE_REDIRECT` | unset | `1`, `true`, or `yes` turns off [trajectory redirection](/internals/agent-loop#trajectory-redirection). Overrides `redirect.enabled` in `settings.json`; the feature is off by default anyway, so this is the kill switch for a project that turned it on |
+
 ## Evals
 
 | Variable | Default | Effect |
