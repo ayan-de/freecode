@@ -1,5 +1,6 @@
-import { type Component } from "@earendil-works/pi-tui";
+import { visibleWidth, type Component } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import type { EffortLevel } from "@thisisayande/freecode-shared";
 import { MODE_BG_COLORS } from "../themes.js";
 import { getModelDisplayString } from "../utils/display.js";
 
@@ -23,9 +24,10 @@ export class ModeLine implements Component {
     private getMode: () => AgentMode,
     private getProvider: () => string,
     private getModel: () => string,
+    private getEffort: () => EffortLevel,
   ) {}
 
-  render(): string[] {
+  render(width: number): string[] {
     if (this.getHidden()) return [];
     const mode = this.getMode();
     const modeText = MODE_BG_COLORS[mode](
@@ -35,7 +37,16 @@ export class ModeLine implements Component {
     const modelText = `${chalk.bold.whiteBright("Model:")} ${chalk.dim(
       getModelDisplayString(this.getProvider(), this.getModel()),
     )}`;
-    return [` ${modeText}${hintText}  ${modelText}`];
+    const left = ` ${modeText}${hintText}  ${modelText}`;
+
+    const effortText = `${chalk.bold.whiteBright("Effort:")} ${chalk.dim(
+      this.getEffort(),
+    )} `;
+    const gap = Math.max(
+      1,
+      width - visibleWidth(left) - visibleWidth(effortText),
+    );
+    return [`${left}${" ".repeat(gap)}${effortText}`];
   }
 
   invalidate(): void {}

@@ -125,11 +125,13 @@ import {
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
+import { EffortPicker } from "./components/effort-picker.js";
 import type {
   ClaudeSessionMeta,
   ContextBreakdown,
   SerializedMessage,
   StreamEvent,
+  EffortLevel,
 } from "@thisisayande/freecode-shared";
 
 registerBuiltInCommands();
@@ -143,6 +145,7 @@ let currentSession: SessionInfo | null = null;
 let activeTurnSessionId: string | null = null;
 let currentProvider = "";
 let currentModel = "";
+let currentEffort: EffortLevel = "low";
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
 // True once the saved mode (or lack thereof) has been fetched from config —
@@ -230,6 +233,7 @@ let modeLine: ModeLine;
 
 let modelSelector: SearchableSelectList | null = null;
 let providerSelector: SearchableSelectList | null = null;
+let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
@@ -350,6 +354,7 @@ modeLine = new ModeLine(
   () => currentAgentMode,
   () => currentProvider,
   () => currentModel,
+  () => currentEffort,
 );
 tui.addChild(modeLine);
 
@@ -580,6 +585,50 @@ async function showModelSelector(providerId: string): Promise<void> {
   } catch (err) {
     showMessage(`**Error:** Failed to load models: ${err}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Effort modal (/effort) — same ScrollableModal shell as /context and /cost.
+// ---------------------------------------------------------------------------
+let effortOverlay: OverlayHandle | null = null;
+
+function hideEffortPicker(): void {
+  if (!effortOverlay) return;
+  effortOverlay.hide();
+  effortOverlay = null;
+  effortPicker = null;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
+function showEffortPicker(): void {
+  hideEffortPicker();
+
+  effortPicker = new EffortPicker(currentEffort);
+  effortPicker.onSelect = (level) => {
+    currentEffort = level;
+    hideEffortPicker();
+    showMessage(`**Effort set to:** ${level}`);
+  };
+  effortPicker.onCancel = () => {
+    hideEffortPicker();
+  };
+
+  const modal = new ScrollableModal(
+    "Reasoning Effort",
+    (innerWidth) => effortPicker!.render(innerWidth),
+    () => hideEffortPicker(),
+  );
+  modal.handleInput = (data: string) => effortPicker!.handleInput(data);
+
+  effortOverlay = tui.showOverlay(modal, {
+    anchor: "center",
+    // Wide enough for 5 labels ("medium"/"xhigh" are the longest) plus the
+    // "Faster"/"Smarter" header without the modal's row-clipping truncating
+    // the right edge.
+    width: Math.min(64, Math.max(56, terminal.columns - 4)),
+  });
+  tui.requestRender();
 }
 
 async function showApiKeyInput(
@@ -1169,6 +1218,7 @@ async function submitPrompt(
       (event: StreamEvent) => {
         handleToolEvent(event);
       },
+      currentEffort,
     );
 
     // Spec 2026-08-05: server parked the prompt in the follow-up queue
@@ -1328,6 +1378,7 @@ editor.onSubmit = async (value: string) => {
         command.execute(args, {
           showMessage,
           showModelSelector: showProviderSelector,
+          showEffortPicker,
           showResumePicker: showResumePicker,
           // Undefined until a run completes, so /cost omits the Session row
           // rather than printing a 0% that looks like a cache failure.

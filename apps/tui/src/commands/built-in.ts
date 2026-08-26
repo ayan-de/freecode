@@ -18,6 +18,7 @@ const helpCommand: Command = {
 - **/help** - Show this help message
 - **/clear** - Clear all messages
 - **/model** - Select AI model
+- **/effort** - Set reasoning effort (low/medium/high/xhigh/max)
 - **/resume** - Resume a previous session
 - **/compact** - Summarize older turns to free up context
 - **/context** - Show what is occupying the context window
@@ -57,6 +58,14 @@ const modelCommand: Command = {
   description: "Select AI model",
   execute: (_args, ctx) => {
     ctx.showModelSelector?.();
+  },
+};
+
+const effortCommand: Command = {
+  name: "effort",
+  description: "Set reasoning effort (low/medium/high/xhigh/max)",
+  execute: (_args, ctx) => {
+    ctx.showEffortPicker?.();
   },
 };
 
@@ -225,6 +234,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(clearCommand);
   registerCommand(exitCommand);
   registerCommand(modelCommand);
+  registerCommand(effortCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);
   registerCommand(contextCommand);
