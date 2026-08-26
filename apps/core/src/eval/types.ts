@@ -43,6 +43,14 @@ export interface EvalCase {
    * is a request, not a guard.
    */
   immutable?: string[];
+
+  // --- judged expectations (spec §7) --------------------------------------
+  /**
+   * Rubric file under `evals/rubrics/<name>.md`. Its presence is what makes a
+   * case JUDGED, which means a different blocking rule: a score below the floor
+   * fails, and a judge outage skips rather than fails.
+   */
+  rubric?: string;
 }
 
 /** One trial of one case. */
@@ -90,6 +98,12 @@ export interface TrialResult {
   redirectsSkipped: number;
   /** Clarifying questions the harness declined on the user's behalf. */
   questionsRejected: number;
+  /**
+   * Judge verdict 0–5. `null` means the judge was asked and could not answer —
+   * reported as skipped, never as a failure (spec §7 constraint 3). Absent
+   * entirely on a case with no rubric.
+   */
+  score?: number | null;
 }
 
 export interface CaseResult {
@@ -100,6 +114,12 @@ export interface CaseResult {
   /** All N trials passed. Reported, never blocking. §9.1 */
   consistent: boolean;
   quarantined: boolean;
+  /**
+   * Mean judge score across scored trials; `null` when the judge answered for
+   * none of them. Absent on a case with no rubric — which is how the gate
+   * tells a deterministic case from a judged one.
+   */
+  score?: number | null;
 }
 
 export interface SuiteReport {
@@ -111,6 +131,17 @@ export interface SuiteReport {
   /** Blocking cases only — quarantined ones are excluded from both counts. */
   passed: number;
   total: number;
+  /**
+   * The judge that actually ran, recorded on every report.
+   *
+   * Spec §7: the same-model check compares normalised ids and therefore cannot
+   * catch a gateway route or an alias of the same weights. Mitigation is
+   * DISCLOSURE rather than detection — writing the resolved judge into the
+   * report lets a reader catch what the comparison cannot.
+   */
+  judge?: { provider: string; model?: string };
+  /** Why no judge ran, when none did. Judged cases then report as skipped. */
+  judgeSkipped?: string;
 }
 
 /**

@@ -87,6 +87,7 @@ function validate(raw: unknown, where: string): EvalCase {
     o.expectTool !== undefined ||
     o.expectMaxTurns !== undefined ||
     o.verify !== undefined ||
+    o.rubric !== undefined ||
     (Array.isArray(o.forbidTools) && o.forbidTools.length > 0);
   if (!asserts) {
     throw new DatasetError(`${where}: case '${id}' asserts nothing`);
@@ -99,6 +100,7 @@ function validate(raw: unknown, where: string): EvalCase {
   }
   const files = validateFiles(o.files, where);
   const immutable = validateOutcome(o, files, where);
+  const rubric = validateRubric(o.rubric, where);
 
   // A case with no `files` has no sandbox, so it runs against the real working
   // directory. There `forbidTools` is a SCORER, not a guard — by the time it
@@ -138,7 +140,31 @@ function validate(raw: unknown, where: string): EvalCase {
     files,
     verify: typeof o.verify === "string" ? o.verify : undefined,
     immutable,
+    rubric,
   };
+}
+
+/**
+ * A rubric must name a file that exists, checked at LOAD time. A missing
+ * rubric discovered mid-run costs a real agent turn and then reports as a
+ * judge outage — indistinguishable from a provider being down, and therefore
+ * silently non-blocking. Wrong twice over.
+ */
+function validateRubric(raw: unknown, where: string): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new DatasetError(`${where}: 'rubric' must be a non-empty string`);
+  }
+  if (raw.includes("/") || raw.includes("\\") || raw.includes("..")) {
+    throw new DatasetError(
+      `${where}: 'rubric' is a name under evals/rubrics/, not a path`,
+    );
+  }
+  const file = path.join(evalsDir(), "rubrics", `${raw}.md`);
+  if (!fs.existsSync(file)) {
+    throw new DatasetError(`${where}: no such rubric: ${file}`);
+  }
+  return raw;
 }
 
 function validateFiles(

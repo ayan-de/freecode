@@ -1223,6 +1223,26 @@ spec's §12; these are the parts that are actionable independently of it.
       It reverses `2026-08-10-agent-observability.md` §7 and puts a network
       call in the path of a normal run. Wants an explicit decision.
 
+### Findings (eval Phase 3 — the judge, 2026-08-27)
+
+- [ ] **The judged thresholds are uncalibrated.** `JUDGE_MEAN_FLOOR = 3.5` and
+      `JUDGE_CASE_FLOOR = 2` come from the spec, which itself says to set them
+      "from the first real run, not from this document". No real run has
+      happened — no second provider key is configured here. Until one does, a
+      judged `--gate` verdict is a guess with an exit code.
+- [ ] **No judged run has ever executed.** Everything is unit-tested through the
+      `complete` seam, and the unconfigured + same-model paths are verified
+      live, but no rubric has been graded by a real judge model. The rubric
+      wording in `evals/rubrics/answer-quality.md` is therefore untested against
+      an actual grader.
+- [ ] **The same-model check cannot see through a gateway route.** It compares
+      normalised ids and refuses on same-provider-with-no-model, which catches
+      the obvious cases. An OpenRouter path or a vanity alias serving the same
+      weights will pass. Mitigation is `SuiteReport.judge` disclosure; there is
+      no detection fix, because nothing in a response says what served it.
+- [ ] **Judged cases cannot be harvested.** `eval add` emits trajectory cases;
+      a rubric is a human judgement about what "good" means for that prompt.
+
 ### Housekeeping
 
 - [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —

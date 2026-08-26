@@ -1,0 +1,27 @@
+// Judged suite — "was the reply any GOOD?" Spec §7.
+//
+// A separate suite with a separate blocking rule, because this is the least
+// trustworthy number in the harness. It answers the question the deterministic
+// scorers cannot, and it is the only scorer that reads the reply text at all.
+//
+// GATE: mean >= 3.5/5 AND no single case below 2/5. The floor exists because a
+// mean hides catastrophes — one 0/5 disaster averages away behind four 5s and
+// ships. Mean measures the suite; the floor measures the worst case, and for a
+// release gate the worst case is the one that matters.
+//
+// A judge outage does NOT fail these cases. They report "skipped" and the gate
+// stays open: a harness that goes red because a third party 429'd teaches the
+// team to ignore red.
+//
+// Run separately, and AFTER the deterministic suites (spec §9.2 — "exit 1,
+// judge not run"), which the shell gives you for free:
+//   freecode eval trajectory --gate && freecode eval judged --gate
+//
+// Every case still carries trajectory expectations. They are cheap, they are
+// objective, and a case whose agent wrote to disk should fail on that fact
+// rather than on a grader's opinion of the prose.
+{"id": "explain-a-module", "prompt": "In two or three sentences, what does apps/core/src/eval/gate.ts do and why does it not simply require every case to pass?", "rubric": "answer-quality", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
+{"id": "answer-a-direct-question", "prompt": "What is the default value of HANG_THRESHOLD_MS, and what is it matched to?", "rubric": "answer-quality", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
+{"id": "admit-what-is-not-there", "prompt": "Does this repo have a Kubernetes operator? Answer honestly and briefly.", "rubric": "answer-quality", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
+{"id": "concise-on-a-simple-question", "prompt": "Without using any tools: in one sentence, what is the difference between an eval and a unit test?", "rubric": "answer-quality", "expectTool": null, "expectMaxTurns": 2}
+{"id": "explain-a-tradeoff", "prompt": "Read apps/core/src/eval/quarantine.ts and explain in three sentences why quarantined cases still run instead of being skipped.", "rubric": "answer-quality", "expectTool": "read", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}

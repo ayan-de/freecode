@@ -286,6 +286,10 @@ in §14 is the same hole seen from another angle: a worktree inherits
 
 ## 7. Judge
 
+**Built 2026-08-27** — `eval/judge-config.ts`, `eval/scorers/judge.ts`,
+`evals/rubrics/answer-quality.md`, `evals/judged.jsonl`. All three constraints below
+are enforced and tested; see §7.1 for what running it exposed.
+
 Separate suite, separate command, separate blocking rule. Rubric lives in
 `evals/rubrics/*.md`, not in TypeScript, so tuning it is a text diff.
 
@@ -311,6 +315,54 @@ Three constraints, all borrowed from `waku/ops/judge.py` and all non-negotiable:
 **Scale is 0–5, not waku's 0–10.** Reported human–judge agreement peaks around 0–5
 (~0.89 Pearson); a 10-point scale invites the judge to emit a "7" that carries no more
 information than "4/5" and implies precision no LLM judge delivers.
+
+### 7.1 As built — the decisions this section left open
+
+**The same-model refusal is loud; an absent judge is quiet.** These are opposite failure
+modes and they get opposite handling. A judge that collides with the model under test
+**throws before a single case runs** — the run would otherwise produce a number that looks
+like a quality score and is really a self-similarity score, and there is no honest way to
+report that afterwards. A judge that is merely unconfigured is a skip: cases run, report
+`not judged`, and the gate stays open (§9.2's "no key configured → exit 0"). Verified
+both ways on a real installation.
+
+**The collision check refuses on two signals, not one.** An equal normalised model id is
+the obvious case. The second is *same provider with no explicit `FREECODE_JUDGE_MODEL`* —
+the judge would fall back to that provider's default, which is very likely the subject,
+and comparing ids would never notice because there is no id to compare. Date snapshots
+are normalised away (`claude-sonnet-4-5-20260101` ≡ `claude-sonnet-4-5`), and a bare model
+id matches across provider names, which catches the gateway case. It still cannot see
+through an opaque route — hence disclosure: `SuiteReport.judge` records who actually
+graded, on every report.
+
+**An unscored trial is excluded from the mean, never counted as zero.** Constraint 3 says
+an outage must not fail a run; counting it as a zero would let a third-party 429 close a
+release gate *and* drag the mean down in the most confusing way available. A judged case
+with no scored trial at all passes.
+
+**A case that already failed deterministically is not judged.** It costs a real API call
+to buy an opinion about the prose of a run that called a forbidden tool, and the reported
+reason stays the objective one — "not judged: failed deterministically" tells you nothing
+about *what* failed.
+
+**Rubric existence is checked at dataset load.** A missing rubric found mid-run costs an
+agent turn and then reports as a judge outage, which is indistinguishable from a provider
+being down and therefore silently non-blocking. Wrong twice over. `dataset.ts` also
+refuses a `rubric` containing a path separator: it is a name under `evals/rubrics/`.
+
+**A score outside 0–5 is rejected, not clamped.** A judge answering "8" on a five-point
+scale did not understand the task; clamping to 5 records its confusion as a perfect mark.
+
+**Judged cases keep their trajectory expectations.** `evals/judged.jsonl` cases still carry
+`forbidTools` and `expectMaxTurns` — cheap, objective, and a case whose agent wrote to disk
+should fail on that fact rather than on a grader's opinion.
+
+**§9.2's "exit 1, judge not run" is the shell's job.** Suites are separate commands, so
+ordering comes free and needs no cross-suite machinery:
+
+```bash
+freecode eval trajectory --gate && freecode eval judged --gate
+```
 
 ## 8. Harvesting cases from production — `freecode eval add`
 
@@ -481,7 +533,7 @@ foreign one to get a loop we already have.
 | **0** | Carry `args` through the `function.call` fold into `ToolSpan` (`rollout/trace.ts`) | ~3 lines + a test. **Blocks Phase 1** — `expect_in_args` is unscoreable without it. Also improves `freecode trace --json`. |
 | **1** | `eval/{types,dataset,runner,report}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (~20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. Runner is a thin wrap of the existing `run.ts` boot path. |
 | **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Built 2026-08-27**, with two departures from the text above — see §11.1. |
-| **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | Needs a second provider key. Set the threshold from the first real run, not from this document. |
+| **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | **Judge built 2026-08-27** (§7.1); `gate.ts` predates it. Needs a second provider key **to run**, not to build — unconfigured is a skip, not a failure. CI wiring is still absent. Thresholds are the spec's 3.5 mean / 2.0 floor and have **not** yet been set from a real run. |
 | **4** | `freecode eval add` | Depends on Phase 0 + 1. **Built 2026-08-27** — see §8.1: the thread store §8 sources the prompt from has no production writer, so it reads the session store instead. |
 | **5** | LLMOps close-out — §12 | Independent of 0–4. **Items 1, 3, 4 built 2026-08-27; item 2 deliberately not** — it reverses `2026-08-10-agent-observability.md` §7 and puts a network call in the path of a normal run, which is a decision, not a sub-bullet. |
 | **later** | Tier 2 repo-grounded sandbox (§6.2) | Blocked on the `node_modules` question, not on the harness. |

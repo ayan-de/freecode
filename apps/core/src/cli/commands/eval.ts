@@ -238,9 +238,12 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           const tag = result.quarantined
             ? ` ${yellow}[quarantined]${reset}`
             : "";
-          const why = result.passed
-            ? ""
-            : ` ${dim}${result.trials[0]?.reason}${reset}`;
+          // A judged case shows its score even when it passed — the number IS
+          // the result there, and "PASS" alone hides a 2.0 scraping the floor.
+          const why =
+            result.score !== undefined || !result.passed
+              ? ` ${dim}${result.trials[0]?.reason}${reset}`
+              : "";
           const flaky =
             result.passed && !result.consistent
               ? ` ${yellow}(flaky)${reset}`
@@ -260,6 +263,22 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           await import("../../eval/compare.js");
         const { formatUsd, PRICES_AS_OF } =
           await import("../../providers/pricing.js");
+        // Disclosure (spec §7): the same-model check compares normalised ids
+        // and cannot see through a gateway route, so print who actually graded.
+        const scored = report.cases.filter(
+          (c) => typeof c.score === "number",
+        ) as Array<{ id: string; score: number }>;
+        if (scored.length > 0) {
+          const mean =
+            scored.reduce((n, c) => n + c.score, 0) / scored.length;
+          console.log(
+            `${dim}judged mean ${mean.toFixed(2)}/5 over ${scored.length} case(s) ` +
+              `· judge ${report.judge?.provider}/${report.judge?.model ?? "<default>"}${reset}`,
+          );
+        } else if (report.judgeSkipped) {
+          console.log(`${yellow}judged cases not scored: ${report.judgeSkipped}${reset}`);
+        }
+
         const metrics = summariseMetrics(report);
         if (metrics.costUsd !== undefined) {
           console.log(

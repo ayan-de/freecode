@@ -145,6 +145,43 @@ test("the shipped trajectory suite is valid", () => {
   assert.ok(cases.length >= 20, `expected >= 20 cases, got ${cases.length}`);
 });
 
+test("the shipped judged suite is valid and every rubric it names exists", () => {
+  // A rubric missing at run time reports as a judge outage — indistinguishable
+  // from a provider being down, and therefore silently non-blocking.
+  const evals = path.resolve(import.meta.dirname, "../../../../evals");
+  const prev = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = evals;
+  try {
+    const file = path.join(evals, "judged.jsonl");
+    const cases = parseSuite(fs.readFileSync(file, "utf-8"), file);
+    assert.ok(cases.length >= 4, `expected >= 4 cases, got ${cases.length}`);
+    for (const kase of cases) {
+      assert.ok(kase.rubric, `${kase.id}: judged cases need a rubric`);
+      assert.ok(
+        fs.existsSync(path.join(evals, "rubrics", `${kase.rubric}.md`)),
+        `${kase.id}: rubric ${kase.rubric}.md is missing`,
+      );
+    }
+  } finally {
+    if (prev === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = prev;
+  }
+});
+
+test("rejects a rubric that does not exist", () => {
+  assert.throws(
+    () => parseSuite(`{"id":"a","prompt":"p","rubric":"no-such-rubric"}`),
+    (e: Error) => e instanceof DatasetError && /no such rubric/.test(e.message),
+  );
+});
+
+test("rejects a rubric given as a path", () => {
+  assert.throws(
+    () => parseSuite(`{"id":"a","prompt":"p","rubric":"../../etc/passwd"}`),
+    (e: Error) => e instanceof DatasetError && /not a path/.test(e.message),
+  );
+});
+
 test("the shipped coding suite is valid, sandboxed, and guards its checkers", () => {
   const file = path.resolve(
     import.meta.dirname,

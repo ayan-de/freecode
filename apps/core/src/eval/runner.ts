@@ -9,6 +9,7 @@
 import { buildTrace, type Trace } from "../rollout/trace.js";
 import { loadSessionEvents } from "../rollout/history.js";
 import { createSandbox, insideSandbox, type Sandbox } from "./sandbox.js";
+import type { JudgeConfig } from "./judge-config.js";
 import type { EvalCase, RunRecord, TrialResult } from "./types.js";
 import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
@@ -17,6 +18,8 @@ export interface RunnerConfig {
   provider: string;
   model?: string;
   projectPath: string;
+  /** Resolved judge, when one is configured and is not the model under test. */
+  judge?: JudgeConfig;
 }
 
 /**
@@ -247,10 +250,40 @@ async function runTrialIn(
   const trajectory = scoreTrajectory(run, kase);
   const score = trajectory.passed ? scoreOutcome(run, kase) : trajectory;
 
+  // The judge runs LAST and only on a case that asked for one. It is the most
+  // expensive and least trustworthy scorer here, so a case that already failed
+  // objectively does not pay for an opinion about its prose.
+  let judged: { score: number | null; reason: string } | undefined;
+  if (kase.rubric) {
+    if (!score.passed) {
+      judged = { score: null, reason: "not judged: failed deterministically" };
+    } else if (!config.judge) {
+      judged = { score: null, reason: "not judged: no judge configured" };
+    } else {
+      const { scoreJudged } = await import("./scorers/judge.js");
+      judged = await scoreJudged({ run, kase, judge: config.judge });
+    }
+  }
+
+  const { JUDGE_CASE_FLOOR } = await import("./gate.js");
   const { totalUsd } = await import("../providers/pricing.js");
+
+  // A judged case that scored below the floor is a failure; one the judge
+  // could not answer for keeps the deterministic verdict, because an outage
+  // must never fail a run (spec §7 constraint 3).
+  const judgedOk =
+    typeof judged?.score === "number" ? judged.score >= JUDGE_CASE_FLOOR : true;
+
   return {
-    passed: score.passed,
-    reason: score.reason,
+    passed: score.passed && judgedOk,
+    // An objective failure always reports itself: "not judged: failed
+    // deterministically" tells you nothing about WHAT failed.
+    reason: !score.passed
+      ? score.reason
+      : typeof judged?.score === "number"
+        ? `${judged.score}/5 — ${judged.reason}`
+        : (judged?.reason ?? score.reason),
+    ...(kase.rubric ? { score: judged?.score ?? null } : {}),
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
