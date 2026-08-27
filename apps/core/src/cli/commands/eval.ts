@@ -310,8 +310,19 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
               `· prices as of ${PRICES_AS_OF}${reset}`,
           );
         }
+        const { formatEfficiency, suiteEfficiency } =
+          await import("../../eval/scorers/efficiency.js");
+        const perTrial = formatEfficiency(suiteEfficiency(report));
+        if (perTrial) console.log(`${dim}${perTrial}${reset}`);
+
         for (const reason of verdict.reasons) {
           console.log(`${verdict.open ? dim : red}${reason}${reset}`);
+        }
+        // Yellow, and never counted in the gate line below: §9.2 makes this
+        // warn-only because the number moves when the SUITE changes as readily
+        // as when the agent does, and nothing here can tell those apart.
+        for (const warning of verdict.warnings) {
+          console.log(`${yellow}${warning}${reset}`);
         }
         if (accepted) {
           // Loud on purpose. This is someone overriding a red gate, and the

@@ -11,6 +11,7 @@ import { loadSessionEvents } from "../rollout/history.js";
 import { createSandbox, insideSandbox, type Sandbox } from "./sandbox.js";
 import type { JudgeConfig } from "./judge-config.js";
 import type { EvalCase, RunRecord, TrialResult } from "./types.js";
+import { trialEfficiency } from "./scorers/efficiency.js";
 import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
 
@@ -293,6 +294,7 @@ async function runTrialIn(
     redirects: trace.redirects,
     redirectsSkipped: trace.redirectsSkipped,
     questionsRejected,
+    efficiency: trialEfficiency(trace),
     sessionId,
   };
 }

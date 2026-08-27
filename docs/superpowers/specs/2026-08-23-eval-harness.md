@@ -477,6 +477,25 @@ gate but a curated set at p≥0.99, and the mechanism that finds the p=0.93 case
 | Efficiency | regression vs baseline > 15% | warn only, see §12 |
 | Quarantined cases (any suite) | run and reported, never blocking | exit 0 |
 
+**The efficiency row, built 2026-08-28** (`scorers/efficiency.ts`), and it is the one
+scorer that deliberately does *not* implement `Scorer` — that signature returns `passed`
+for one trial, and a `passed` field is a thing gates block on. It folds a whole run and
+returns warnings, carried in `Verdict.warnings` rather than `reasons` so the warn-only rule
+cannot grow into a gate by accident. Three decisions the row above did not specify:
+
+- **Normalised per trial, not per run.** `--gate` implies `--trials 3`, so a totals
+  comparison against a 1-trial baseline reports a 200% regression the first time anyone
+  runs the gate — a warning that fires on the intended usage.
+- **Only tokens are compared.** Cost moves when a provider reprices and latency moves with
+  the network; warning on either reports noise the harness did not cause. `model_ms`,
+  `tool_ms` and the cache-read ratio are folded, persisted on `TrialResult.efficiency`, and
+  printed — reported, not warned. `compare.ts` already drew this line the same way.
+- **Absent means unknown, never zero.** History written before `TrialResult.efficiency`
+  existed is excluded from the timing means rather than folded in as 0, which would report
+  every old baseline as an infinite improvement. Same instinct as an unpriced model costing
+  `undefined` rather than $0. Tokens were always recorded, so the warn rule works against
+  existing history unchanged.
+
 Gating on **delta against a recorded baseline** rather than an absolute is what makes the
 suite usable while cases are still being curated: a run that matches last week's 18/20 is
 green, a run that drops to 14/20 is red. The "previously-green case goes red" clause is

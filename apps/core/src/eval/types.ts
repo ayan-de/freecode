@@ -53,6 +53,20 @@ export interface EvalCase {
   rubric?: string;
 }
 
+/**
+ * Per-trial efficiency, folded from the rollout trace. Tokens and USD are NOT
+ * repeated here — they already live on `TrialResult` — so this carries only
+ * what the fold used to drop at the boundary.
+ */
+export interface TrialEfficiency {
+  /** Sum of model call time; the number that usually explains a slow trial. */
+  modelMs: number;
+  toolMs: number;
+  cacheReadTokens: number;
+  /** Billed at 1.25x input on Anthropic, so it is not the same as a read. */
+  cacheWriteTokens: number;
+}
+
 /** One trial of one case. */
 export interface TrialResult {
   passed: boolean;
@@ -98,6 +112,15 @@ export interface TrialResult {
   redirectsSkipped: number;
   /** Clarifying questions the harness declined on the user's behalf. */
   questionsRejected: number;
+  /**
+   * Trace-derived timing and cache figures (`scorers/efficiency.ts`).
+   *
+   * Optional because history written before this field existed has none, and
+   * absent means **unknown, never zero**: a missing `modelMs` folded in as 0
+   * would report every pre-existing baseline as an infinite improvement. Same
+   * instinct as an unpriced model costing `undefined` rather than $0.
+   */
+  efficiency?: TrialEfficiency;
   /**
    * Judge verdict 0–5. `null` means the judge was asked and could not answer —
    * reported as skipped, never as a failure (spec §7 constraint 3). Absent

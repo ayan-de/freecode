@@ -24,10 +24,22 @@ function report(cases: CaseResult[]): SuiteReport {
   };
 }
 
-const baseline = (passed: number, total: number, green: string[]): Baseline => ({
+const baseline = (
+  passed: number,
+  total: number,
+  green: string[],
+  efficiency: Baseline["efficiency"] = {
+    trials: 0,
+    tokensPerTrial: 0,
+    pricedTrials: 0,
+  },
+): Baseline => ({
   passed,
   total,
   greenIds: new Set(green),
+  // Defaults to "nothing measured", so the gate-semantics tests below stay
+  // about gate semantics: an unmeasured baseline can never warn.
+  efficiency,
 });
 
 test("majority tolerates one unlucky trial out of three", () => {
@@ -202,4 +214,35 @@ test("a quarantined judged case never blocks", () => {
   ];
   const verdict = evaluateGate(report(cases), baseline(1, 1, ["a"]));
   assert.equal(verdict.open, true);
+});
+
+test("an efficiency regression warns and never closes the gate", () => {
+  // Same cases, same verdict — only the tokens moved.
+  const cases = [summarise("a", [trial(true)], false)];
+  const verdict = evaluateGate(
+    report(cases),
+    baseline(1, 1, ["a"], { trials: 1, tokensPerTrial: 50, pricedTrials: 0 }),
+  );
+  assert.equal(verdict.open, true, "efficiency must never block");
+  assert.deepEqual(verdict.reasons, []);
+  assert.equal(verdict.warnings.length, 1);
+  assert.match(verdict.warnings[0], /tokens\/trial/);
+});
+
+test("a blocked run still reports its efficiency warning", () => {
+  // Slower AND worse should say both — the warning is computed before the
+  // blocking rules, not instead of them.
+  const cases = [summarise("a", [trial(false)], false)];
+  const verdict = evaluateGate(
+    report(cases),
+    baseline(1, 1, ["a"], { trials: 1, tokensPerTrial: 50, pricedTrials: 0 }),
+  );
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /previously green/);
+  assert.equal(verdict.warnings.length, 1);
+});
+
+test("run zero has nothing to compare efficiency against", () => {
+  const verdict = evaluateGate(report([summarise("a", [trial(true)], false)]), null);
+  assert.deepEqual(verdict.warnings, []);
 });

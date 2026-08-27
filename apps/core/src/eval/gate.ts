@@ -9,11 +9,18 @@
 // =============================================================================
 
 import type { Baseline } from "./report.js";
+import { compareEfficiency, suiteEfficiency } from "./scorers/efficiency.js";
 import type { CaseResult, SuiteReport, TrialResult } from "./types.js";
 
 export interface Verdict {
   open: boolean;
   reasons: string[];
+  /**
+   * Reported, never blocking (§9.2's efficiency row). Kept in a separate field
+   * from `reasons` precisely so it CANNOT be folded into `open` by accident:
+   * the one thing a warn-only rule must never do is grow into a gate.
+   */
+  warnings: string[];
 }
 
 /**
@@ -84,6 +91,13 @@ export function evaluateGate(
   const reasons: string[] = [];
   const blocking = report.cases.filter((c) => !c.quarantined);
 
+  // 0. Efficiency (§9.2). Computed first so it is reported even when the run is
+  //    blocked for another reason — a regression that got slower AND worse
+  //    should say both. Never contributes to `open`.
+  const warnings = baseline
+    ? compareEfficiency(baseline.efficiency, suiteEfficiency(report))
+    : [];
+
   // 1. Regression against the last recorded run. Gating on a delta rather than
   //    an absolute is what makes the suite usable while cases are still being
   //    curated: matching last week's 18/20 is green, dropping to 14/20 is not.
@@ -123,10 +137,11 @@ export function evaluateGate(
         `no baseline yet — recorded ${report.passed}/${report.total} as run zero`,
         ...judgedReasons,
       ],
+      warnings,
     };
   }
 
-  return { open: reasons.length === 0, reasons };
+  return { open: reasons.length === 0, reasons, warnings };
 }
 
 /**

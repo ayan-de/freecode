@@ -10,6 +10,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { suiteEfficiency, type SuiteEfficiency } from "./scorers/efficiency.js";
 import type { SuiteReport } from "./types.js";
 
 export function reportDir(): string {
@@ -51,6 +52,12 @@ export interface Baseline {
   /** The model that produced it, so a cross-model comparison can be refused. */
   model?: string;
   ranAt: string;
+  /**
+   * Folded here rather than in the gate so `evaluateGate` stays pure — it takes
+   * a report and a baseline and does no IO, which is what makes every rule in
+   * it testable without spending a token.
+   */
+  efficiency: SuiteEfficiency;
 }
 
 /**
@@ -86,6 +93,7 @@ export function baselineFor(suite: string, model?: string): Baseline | null {
       ),
       model: run.model,
       ranAt: run.ranAt,
+      efficiency: suiteEfficiency(run),
     };
   }
   return null;
