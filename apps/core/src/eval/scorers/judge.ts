@@ -32,7 +32,25 @@ import type { EvalCase, RunRecord } from "../types.js";
  */
 export const MAX_SCORE = 5;
 
-const JUDGE_MAX_TOKENS = 300;
+/**
+ * Sized for a REASONING judge, not for the two lines it is asked to emit.
+ *
+ * This was 300, which is generous for "SCORE: 4\nWHY: <25 words>" and far too
+ * small in practice: a thinking model spends this budget on hidden reasoning
+ * first, and the visible answer gets whatever is left. Measured on
+ * gemini-3.6-flash against a trivial input, 83 of 101 output tokens were
+ * `reasoningTokens` and only 18 were the answer. On a real case — full rubric
+ * plus a long agent reply — reasoning ran the budget out mid-sentence, and the
+ * first graded run recorded verdicts reading `WHY: The answer is` and, once,
+ * just `:`.
+ *
+ * The SCORE always survived because the format puts it first, so the gate kept
+ * working and the damage was confined to the diagnostics — which is to say it
+ * broke exactly where it hurts most, on the low-scoring case you most need
+ * explained. Not a Gemini quirk: any reasoning judge bills thinking against
+ * this ceiling.
+ */
+const JUDGE_MAX_TOKENS = 2_000;
 const JUDGE_TIMEOUT_MS = 30_000;
 
 export const JUDGE_SYSTEM = `You are grading the reply of an AI coding assistant.
