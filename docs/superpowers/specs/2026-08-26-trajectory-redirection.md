@@ -4,6 +4,9 @@
 > **Status:** Phases 0–1 shipped (2026-08-26/27), redirection built and **off by
 > default**. Phase 2 ran and returned *do not flip* (§9.1). Phase 3 is half done:
 > the budget-sourced cap exists, the report section waits on autonomous runs.
+> **2026-08-29:** the eval sandbox landed and cleared §9.1's blocker, but only for
+> `no_progress` — see §9.2. The flip criterion needs restating before Phase 2 is
+> worth re-running, because it is written around a metric that is structurally zero.
 > **Derived from:** `docs/superpowers/AVO_ARCHITECTURE_COMPARISON.md` §"The best ideas
 > to take" §1, which reads *AVO: Agentic Variation Operators for Autonomous Evolutionary
 > Search* (Chen et al., NVIDIA, arXiv:2603.24517v1) §3.3 — the conditional supervisor
@@ -458,6 +461,34 @@ not on the prompt. The machinery is proven by unit tests and by `loop-redirect.t
 which drives the real loop and asserts the advice reaches the next prompt; what cannot
 yet be shown is that the advice *helps* on real work. Until then the default stays off,
 and that is the correct outcome rather than a disappointing one.
+
+## 9.2 The sandbox landed, and unblocked one reason of three (2026-08-29)
+
+Eval-harness Phase 2 shipped `eval/sandbox.ts`; `coding.jsonl` runs six cases in `build`
+mode against real tmpdir edits. The blocker named in §9.1 is therefore cleared — but
+re-reading the detectors against it, it cleared **less than §9.1 assumed**.
+
+| Reason | Warn at | Now measurable? |
+| --- | --- | --- |
+| `no_progress` | `stagnantTurns >= 5` | **Yes.** Suppressed in read-only modes by design, which is precisely why an all-`explore` suite can never see it. In `build` mode, five turns of reading before the first successful edit is ordinary behaviour on an unfamiliar tree. |
+| `oscillation_detected` | `countReverts >= 4` | **Probably still not**, and the sandbox was never the real obstacle. |
+| `repeated_identical_tool` | `repeatedTools >= 3` | **No.** Unchanged from §9.1: M3 does not re-issue verbatim calls. |
+
+**Why oscillation stays out of reach.** `isRevert` (`agent/oscillation.ts`) requires an
+*exact* inverse: the new edit's `from`/`to` must hash-match some prior edit's `to`/`from`.
+Putting back a byte-identical string, four times, with no rewording anywhere in the
+sequence. That precision is right for production — it is what stops the detector firing
+on ordinary iterative editing — but it makes the phenomenon rare enough that a case
+cannot reliably provoke it without instructing the model to, which §9.1 rules out for
+good reason.
+
+**Consequence for the flip criterion.** §9's criterion is written around *tool repetition
+strictly reduced*, and repetition is the one reason with no signal. A criterion phrased
+against a metric that is structurally 0 cannot be met by a working feature. Restating it
+around `no_progress` — turns-to-first-edit, turns-to-completion, and pass rate on
+sandboxed cases — is a **spec decision that has to be made before Phase 2 is re-run**,
+not something to settle by looking at the numbers afterwards. Until it is made, D8's
+default correctly stays `false`.
 
 Do **not** close this by writing a case that instructs the model to repeat a call. A
 flip earned on a manufactured signal is worse than no flip: it would report the feature
