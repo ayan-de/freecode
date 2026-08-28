@@ -215,17 +215,40 @@ test("a healthy judged suite opens the gate", () => {
   assert.equal(verdict.open, true);
 });
 
-test("a judge outage leaves the gate open with nothing claimed", () => {
+test("a PARTIAL judge outage passes on the cases that were scored", () => {
+  // §7 constraint 3 where it earns its keep: one 429 must not fail a run.
+  const cases = [
+    summarise("a", [judgedTrial(5)], false),
+    summarise("b", [judgedTrial(null)], false),
+  ];
+  const verdict = evaluateGate(report(cases), baseline(2, 2, ["a", "b"]));
+  assert.equal(verdict.open, true);
+  assert.deepEqual(verdict.reasons, []);
+});
+
+test("a TOTAL judge blackout closes the gate rather than reporting 5/5", () => {
+  // Observed 2026-08-28 with a retired judge model id: every case reported
+  // PASS, score null, and the suite printed GATE OPEN having graded nothing.
   const cases = [
     summarise("a", [judgedTrial(null)], false),
     summarise("b", [judgedTrial(null)], false),
   ];
   const verdict = evaluateGate(report(cases), baseline(2, 2, ["a", "b"]));
-  assert.equal(verdict.open, true);
-  assert.equal(
-    verdict.reasons.some((r) => /judged/.test(r)),
-    false,
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /graded nothing — 0 of 2/);
+});
+
+test("the blackout reason carries the judge's own error", () => {
+  // Without it the operator sees "graded nothing" and has to go digging for
+  // the retired-model message that explains it.
+  const trials = [
+    { ...judgedTrial(null), reason: "judge unavailable: model retired" },
+  ];
+  const verdict = evaluateGate(
+    report([summarise("a", trials, false)]),
+    baseline(1, 1, ["a"]),
   );
+  assert.match(verdict.reasons.join(" "), /model retired/);
 });
 
 test("an unconfigured judge closes the gate", () => {

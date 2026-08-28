@@ -193,8 +193,30 @@ function evaluateJudged(report: SuiteReport): string[] {
     (c): c is CaseResult & { score: number } => typeof c.score === "number",
   );
   if (scored.length === 0) {
-    // Reported, not blocking: nothing was measured, so nothing can be claimed.
-    return [];
+    // Nothing was measured, so nothing can be claimed — INCLUDING that the
+    // suite passed. This used to return [] with the comment "reported, not
+    // blocking", which read as modesty and behaved as approval: a judged suite
+    // that graded zero of five cases printed 5/5 and GATE OPEN.
+    //
+    // Observed 2026-08-28, and the cause was not an outage at all — the judge
+    // model id had been retired ("no longer available to new users"). A
+    // permanent misconfiguration and a total blackout are indistinguishable
+    // from inside one run, and for a RELEASE gate the safe reading of both is
+    // the same: do not certify what nobody graded.
+    //
+    // This narrows §7 constraint 3 rather than breaking it. That constraint
+    // exists so a third-party 429 cannot teach the team to ignore red, and it
+    // is still honoured where it earns its keep: individual unanswered cases
+    // are excluded from the mean, and a PARTIAL outage — four of five scored —
+    // passes on the four. Only a total blackout blocks, because "we graded
+    // nothing" is not a quality signal in either direction.
+    const why = judged
+      .map((c) => c.trials.find((t) => t.reason)?.reason)
+      .find((r): r is string => typeof r === "string");
+    return [
+      `judged suite graded nothing — 0 of ${judged.length} case(s) scored` +
+        (why ? `: ${why}` : ""),
+    ];
   }
 
   const reasons: string[] = [];

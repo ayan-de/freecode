@@ -337,6 +337,28 @@ one path (`resolveJudge` → `unconfigured`), which is what lets `gate.ts` tell 
 apart. There is deliberately no override flag: not passing `--gate` is already the way to
 run the suite without blocking on it.
 
+**A total judge blackout closes the gate too** (added 2026-08-29, after the first real
+judged run). Closing the "no judge configured" door was not enough: the first run with a
+key configured used a judge model id Google had since retired ("no longer available to new
+users"), every one of the five cases came back `judge unavailable`, and the suite reported
+**5/5, GATE OPEN, blocked=false** — a poisoned baseline as well as a false green. A
+permanent misconfiguration and a total outage are indistinguishable from inside a single
+run, and for a release gate the safe reading of both is identical: do not certify what
+nobody graded.
+
+This narrows constraint 3 rather than breaking it. The constraint exists so that a
+third-party 429 cannot teach the team to ignore red, and it still holds where that
+reasoning applies — an unanswered case is excluded from the mean, and a **partial** outage
+(four of five scored) passes on the four. Only `scored.length === 0` blocks. The line
+between "excluded" and "blocking" is drawn at *did anything get graded at all*, because
+below that line the suite has produced no quality signal in either direction, and a gate
+whose job is to answer "is this releasable" must not answer yes from silence.
+
+**Corollary for judge model ids: pin them, and expect them to rot.** The failure surfaced
+as a passing suite rather than an error, which is the worst way for a dependency to expire.
+`SuiteReport.judge` records the resolved judge on every run precisely so this is greppable
+after the fact.
+
 **The collision check refuses on two signals, not one.** An equal normalised model id is
 the obvious case. The second is *same provider with no explicit `FREECODE_JUDGE_MODEL`* —
 the judge would fall back to that provider's default, which is very likely the subject,
@@ -484,7 +506,8 @@ gate but a curated set at p≥0.99, and the mechanism that finds the p=0.93 case
 | Deterministic | majority-of-3 per case, **and** pass count ≥ recorded baseline | exit 1, judge not run |
 | Deterministic, previously-green case goes red | hard block regardless of baseline | exit 1 |
 | Judged | mean ≥ 3.5/5 **and** no single case below 2/5 | exit 1 |
-| Judged, judge configured but unreachable (outage) | cases reported as `skipped`, excluded from the mean | exit 0 |
+| Judged, **partial** outage (some cases scored) | unanswered cases excluded from the mean; the rest gate normally | exit 0 |
+| Judged, **total** blackout (0 of N scored) | nothing was graded, so nothing is certified | **exit 1** (revised 2026-08-29, see §7.1) |
 | Judged, **no judge configured at all** | cases reported as `skipped`, `judgeSkipped` recorded | **exit 1** (revised 2026-08-28, see §7.1) |
 | Efficiency | regression vs baseline > 15% | warn only, see §12 |
 | Quarantined cases (any suite) | run and reported, never blocking | exit 0 |
