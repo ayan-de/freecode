@@ -150,7 +150,7 @@ test("a missing rubric file is a null score, not a crash", async () => {
     run: run([]),
     kase: { ...kase, rubric: "does-not-exist" },
     judge: { provider: "anthropic" },
-    complete: async () => "SCORE: 5",
+    complete: async () => ({ text: "SCORE: 5" }),
   });
   assert.equal(v.score, null);
   assert.match(v.reason, /no such rubric/);
@@ -161,7 +161,7 @@ test("a case with no rubric is not this scorer's business", async () => {
     run: run([]),
     kase: { id: "c", prompt: "p" },
     judge: { provider: "anthropic" },
-    complete: async () => "SCORE: 5",
+    complete: async () => ({ text: "SCORE: 5" }),
   });
   assert.equal(v.score, null);
   assert.equal(v.reason, "no rubric");
@@ -172,8 +172,46 @@ test("a real verdict comes back scored", async () => {
     run: run([tool("read")]),
     kase,
     judge: { provider: "anthropic", model: "claude-haiku-4-5" },
-    complete: async () => "SCORE: 4\nWHY: names the file and the reason",
+    complete: async () => ({ text: "SCORE: 4\nWHY: names the file and the reason" }),
   });
   assert.equal(v.score, 4);
   assert.match(v.reason, /names the file/);
+});
+
+test("grading cost rides along with the verdict", async () => {
+  const v = await scoreJudged({
+    run: run([tool("read")]),
+    kase,
+    judge: { provider: "anthropic", model: "claude-haiku-4-5" },
+    complete: async () => ({ text: "SCORE: 4\nWHY: fine", costUsd: 0.002 }),
+  });
+  assert.equal(v.costUsd, 0.002);
+});
+
+test("an unparseable reply still reports what it cost", async () => {
+  // A judge that answered with garbage billed for it either way, and a cost
+  // that vanishes on the error path understates the run.
+  const v = await scoreJudged({
+    run: run([tool("read")]),
+    kase,
+    judge: { provider: "anthropic", model: "claude-haiku-4-5" },
+    complete: async () => ({ text: "I'd rather not", costUsd: 0.002 }),
+  });
+  assert.equal(v.score, null);
+  assert.equal(v.costUsd, 0.002);
+});
+
+test("an outage has no cost to report", async () => {
+  // `undefined`, not 0 — the same instinct as an unpriced model. A zero here
+  // would read as "grading was free" rather than "grading did not happen".
+  const v = await scoreJudged({
+    run: run([tool("read")]),
+    kase,
+    judge: { provider: "anthropic", model: "claude-haiku-4-5" },
+    complete: async () => {
+      throw new Error("503 upstream");
+    },
+  });
+  assert.equal(v.score, null);
+  assert.equal(v.costUsd, undefined);
 });

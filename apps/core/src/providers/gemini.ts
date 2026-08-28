@@ -24,7 +24,11 @@ import { applyEffort } from "./effort.js";
 const PROVIDER_INFO = {
   id: "gemini" as const,
   name: "Google Gemini",
-  defaultModel: "gemini-2.0-flash",
+  // Verified against the live API 2026-08-29: `gemini-2.0-flash` returns "no
+  // longer available" outright and `gemini-2.5-flash` "no longer available to
+  // new users", both pointing here. A retired default is not a soft failure —
+  // it breaks the provider for anyone who does not name a model.
+  defaultModel: "gemini-3.6-flash",
   supportsStreaming: true,
   supportsTools: true,
   maxOutputTokens: 4096,

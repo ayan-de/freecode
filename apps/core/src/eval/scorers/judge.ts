@@ -72,6 +72,21 @@ export interface JudgeVerdict {
   /** `null` when the judge could not answer — never a failure of the run. */
   score: number | null;
   reason: string;
+  /**
+   * What grading this trial cost, or `undefined` when the judge model is
+   * unpriced. Reported SEPARATELY from the trial's own cost and never folded
+   * into it: `scorers/efficiency.ts` compares subject tokens and USD across
+   * runs to answer "did this prompt change get more expensive", and mixing the
+   * grader's spend into that would move the number for a reason that has
+   * nothing to do with the agent.
+   */
+  costUsd?: number;
+}
+
+export interface JudgeReply {
+  text: string;
+  /** `undefined` when the judge model has no price entry — never zero. */
+  costUsd?: number;
 }
 
 export interface JudgeInput {
@@ -83,7 +98,7 @@ export interface JudgeInput {
     system: string,
     prompt: string,
     signal: AbortSignal,
-  ) => Promise<string>;
+  ) => Promise<JudgeReply>;
 }
 
 /** Rubrics live in `evals/rubrics/*.md` so tuning one is a text diff, not a build. */
@@ -162,8 +177,9 @@ async function oneShot(
   system: string,
   prompt: string,
   signal: AbortSignal,
-): Promise<string> {
+): Promise<JudgeReply> {
   const { getProvider } = await import("../../providers/index.js");
+  const { priceUsd } = await import("../../providers/pricing.js");
   const provider = getProvider(input.judge.provider as never);
   if (!provider) throw new Error(`no such provider: ${input.judge.provider}`);
   const result = await provider.execute({
@@ -173,7 +189,18 @@ async function oneShot(
     maxTokens: JUDGE_MAX_TOKENS,
     abortSignal: signal,
   });
-  return result.content ?? "";
+  // The judge call never reaches the rollout recorder — it is not part of the
+  // agent's session — so its spend is invisible unless priced here. An
+  // unpriced judge model yields `undefined`, which reports as "unknown"
+  // rather than as free.
+  const model = input.judge.model ?? provider.info.defaultModel;
+  return {
+    text: result.content ?? "",
+    costUsd: priceUsd(input.judge.provider, model, {
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+    }),
+  };
 }
 
 /**
@@ -194,7 +221,7 @@ export async function scoreJudged(input: JudgeInput): Promise<JudgeVerdict> {
 
     // Raced as well as aborted: the signal is the polite request, the race is
     // the guarantee against a provider that ignores it.
-    const raw = await Promise.race([
+    const reply = await Promise.race([
       complete(JUDGE_SYSTEM, prompt, controller.signal),
       new Promise<never>((_, reject) =>
         setTimeout(
@@ -203,7 +230,9 @@ export async function scoreJudged(input: JudgeInput): Promise<JudgeVerdict> {
         ).unref?.(),
       ),
     ]);
-    return parseVerdict(raw);
+    // The cost is carried even when the verdict is unparseable: a judge that
+    // answered with garbage still billed for it.
+    return { ...parseVerdict(reply.text), costUsd: reply.costUsd };
   } catch (err) {
     return {
       score: null,

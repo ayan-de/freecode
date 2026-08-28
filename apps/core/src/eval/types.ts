@@ -127,6 +127,18 @@ export interface TrialResult {
    * entirely on a case with no rubric.
    */
   score?: number | null;
+  /**
+   * What GRADING this trial cost, kept out of `costUsd` on purpose.
+   *
+   * The judge call never reaches the rollout recorder, so before this it was
+   * simply invisible and the reported figure was the subject's spend rather
+   * than the run's. Folding it into `costUsd` would have been worse than
+   * invisible: `scorers/efficiency.ts` compares cost and tokens per trial
+   * across runs to answer "did this prompt change get more expensive", and a
+   * grader's spend moving that number is a regression signal with no
+   * connection to the agent. `undefined` when the judge model is unpriced.
+   */
+  judgeCostUsd?: number;
 }
 
 export interface CaseResult {

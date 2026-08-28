@@ -311,6 +311,22 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
               `· prices as of ${PRICES_AS_OF}${reset}`,
           );
         }
+        // Grading spend, on its own line and never added to the figure above.
+        // The line above is what the AGENT cost, which is the number the
+        // efficiency comparison tracks across runs; this is what checking it
+        // cost. Summed, neither question could be answered.
+        const judgeUsd = report.cases
+          .flatMap((c) => c.trials)
+          .reduce<number | undefined>(
+            (sum, t) =>
+              t.judgeCostUsd === undefined ? sum : (sum ?? 0) + t.judgeCostUsd,
+            undefined,
+          );
+        if (judgeUsd !== undefined) {
+          console.log(
+            `${dim}${formatUsd({ usd: judgeUsd, partial: false })} judging${reset}`,
+          );
+        }
         const { formatEfficiency, suiteEfficiency } =
           await import("../../eval/scorers/efficiency.js");
         const perTrial = formatEfficiency(suiteEfficiency(report));

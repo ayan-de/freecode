@@ -261,7 +261,9 @@ async function runTrialIn(
   // The judge runs LAST and only on a case that asked for one. It is the most
   // expensive and least trustworthy scorer here, so a case that already failed
   // objectively does not pay for an opinion about its prose.
-  let judged: { score: number | null; reason: string } | undefined;
+  let judged:
+    | { score: number | null; reason: string; costUsd?: number }
+    | undefined;
   if (kase.rubric) {
     if (!score.passed) {
       judged = { score: null, reason: "not judged: failed deterministically" };
@@ -292,6 +294,9 @@ async function runTrialIn(
         ? `${judged.score}/5 — ${judged.reason}`
         : (judged?.reason ?? score.reason),
     ...(kase.rubric ? { score: judged?.score ?? null } : {}),
+    ...(judged?.costUsd !== undefined
+      ? { judgeCostUsd: judged.costUsd }
+      : {}),
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,
