@@ -70,14 +70,20 @@ export function summarise(
     trials,
     // A judged case's verdict is its floor, not majority-of-N: the trials
     // produce a number, not a boolean, and averaging is how a rubric is meant
-    // to be read. An UNSCORED judged case passes — a judge outage must never
-    // fail a run (§7 constraint 3), and this is where that promise is kept.
+    // to be read.
+    //
+    // An UNSCORED judged case falls back to the DETERMINISTIC verdict, not to
+    // `true`. Returning true unconditionally was how a judge outage kept its
+    // promise (§7 constraint 3) — but "the judge did not answer" and "the case
+    // never got far enough to ask" arrive here identically, as `score: null`,
+    // so a case that crashed or called a forbidden tool reported PASS on the
+    // strength of the grader not having run. `majority(trials)` keeps the
+    // promise and drops the bug: an outage on a case whose trials passed is
+    // still a pass, and a case whose trials failed is still a failure.
     passed:
-      judged && score !== null && score !== undefined
+      judged && typeof score === "number"
         ? score >= JUDGE_CASE_FLOOR
-        : judged
-          ? true
-          : majority(trials),
+        : majority(trials),
     consistent: trials.length > 0 && trials.every((t) => t.passed),
     quarantined,
     ...(judged ? { score } : {}),
@@ -130,15 +136,23 @@ export function evaluateGate(
   //    against. Record the run as the baseline and say so — inventing a
   //    threshold there would be a number with no evidence behind it. The
   //    judged rules survive, because they never needed a baseline.
+  //
+  //    One exception, and it is not a threshold: a run where NOTHING passed.
+  //    Refusing to invent a bar does not oblige the gate to call a total
+  //    wipeout releasable, and "0/20, run zero, GATE OPEN — safe to release"
+  //    is the same always-says-yes failure as an ungraded judged suite. A
+  //    suite in which no case passed is a broken suite or a broken agent; in
+  //    either case it is not a baseline worth recording.
   if (!baseline) {
-    return {
-      open: judgedReasons.length === 0,
-      reasons: [
-        `no baseline yet — recorded ${report.passed}/${report.total} as run zero`,
-        ...judgedReasons,
-      ],
-      warnings,
-    };
+    const wipeout = report.total > 0 && report.passed === 0;
+    const zeroReasons = [
+      `no baseline yet — recorded ${report.passed}/${report.total} as run zero`,
+      ...judgedReasons,
+      ...(wipeout
+        ? [`no case passed — run zero is not a baseline worth recording`]
+        : []),
+    ];
+    return { open: !wipeout && judgedReasons.length === 0, reasons: zeroReasons, warnings };
   }
 
   return { open: reasons.length === 0, reasons, warnings };
@@ -158,6 +172,22 @@ function evaluateJudged(report: SuiteReport): string[] {
     (c) => !c.quarantined && c.score !== undefined,
   );
   if (judged.length === 0) return [];
+
+  // A judge that was NEVER CONFIGURED is not an outage — it is a suite that
+  // did not run. Those are different events and used to be treated the same.
+  //
+  // `judgeSkipped` is set on exactly one path: `resolveJudge` returning
+  // `unconfigured` (suite.ts). A judge that WAS configured and then timed out
+  // or 429'd leaves it undefined and arrives below as a null score. That is the
+  // whole distinction this rule rests on — an outage must never fail a run (§7
+  // constraint 3), but a missing env var must never silently pass one either.
+  //
+  // Before this, forgetting FREECODE_JUDGE_PROVIDER reported every judged case
+  // as skipped and printed GATE OPEN: a release ritual that always says yes,
+  // which is worse than no ritual because it is trusted.
+  if (report.judgeSkipped) {
+    return [`judged suite ran with no judge — ${report.judgeSkipped}`];
+  }
 
   const scored = judged.filter(
     (c): c is CaseResult & { score: number } => typeof c.score === "number",

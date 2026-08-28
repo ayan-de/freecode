@@ -19,7 +19,13 @@ export interface JudgeConfig {
 
 export type JudgeResolution =
   | { ok: true; judge: JudgeConfig }
-  /** No judge configured. Judged cases report `skipped`, and the gate stays open. */
+  /**
+   * No judge configured. Judged cases report `skipped` and the run still
+   * happens — the deterministic expectations on them are real — but the gate
+   * CLOSES (`gate.ts`), because nothing graded the thing the suite exists to
+   * grade. Distinct from a configured judge that then failed: that is an
+   * outage, and an outage never fails a run.
+   */
   | { ok: false; reason: "unconfigured"; detail: string }
   /** Configured, but it IS the model under test. Refuse rather than mislead. */
   | { ok: false; reason: "same-model"; detail: string };

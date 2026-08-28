@@ -298,9 +298,10 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
             `${dim}judged mean ${mean.toFixed(2)}/5 over ${scored.length} case(s) ` +
               `· judge ${report.judge?.provider}/${report.judge?.model ?? "<default>"}${reset}`,
           );
-        } else if (report.judgeSkipped) {
-          console.log(`${yellow}judged cases not scored: ${report.judgeSkipped}${reset}`);
         }
+        // No `else if (report.judgeSkipped)` branch: an unconfigured judge is
+        // now a gate reason, printed in red with the rest of them below. Saying
+        // it twice, once in yellow, was how it read as advisory.
 
         const metrics = summariseMetrics(report);
         if (metrics.costUsd !== undefined) {

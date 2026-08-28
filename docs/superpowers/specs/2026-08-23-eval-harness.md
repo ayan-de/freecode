@@ -318,13 +318,24 @@ information than "4/5" and implies precision no LLM judge delivers.
 
 ### 7.1 As built — the decisions this section left open
 
-**The same-model refusal is loud; an absent judge is quiet.** These are opposite failure
-modes and they get opposite handling. A judge that collides with the model under test
-**throws before a single case runs** — the run would otherwise produce a number that looks
-like a quality score and is really a self-similarity score, and there is no honest way to
-report that afterwards. A judge that is merely unconfigured is a skip: cases run, report
-`not judged`, and the gate stays open (§9.2's "no key configured → exit 0"). Verified
-both ways on a real installation.
+**The same-model refusal is loud; an absent judge is quiet but not free.** These are
+opposite failure modes and they get opposite handling. A judge that collides with the model
+under test **throws before a single case runs** — the run would otherwise produce a number
+that looks like a quality score and is really a self-similarity score, and there is no
+honest way to report that afterwards. A judge that is merely unconfigured does **not**
+throw: the deterministic expectations on those cases are real and worth running, so the
+suite runs, the cases report `not judged`, and `SuiteReport.judgeSkipped` records why.
+
+**But the gate closes on it** (revised 2026-08-28; supersedes §9.2's original "no key
+configured → exit 0"). The original rule collapsed two different events into one. An
+*outage* — a judge that was configured and then timed out or 429'd — must never fail a run,
+per constraint 3 above; that path leaves `judgeSkipped` undefined and lands as a `null`
+score, and still exits 0. A judge that was *never configured* is not an outage, it is a
+suite that did not run, and reporting `GATE OPEN` on it makes a release ritual that always
+says yes — worse than no ritual, because it is trusted. `judgeSkipped` is set on exactly
+one path (`resolveJudge` → `unconfigured`), which is what lets `gate.ts` tell the two
+apart. There is deliberately no override flag: not passing `--gate` is already the way to
+run the suite without blocking on it.
 
 **The collision check refuses on two signals, not one.** An equal normalised model id is
 the obvious case. The second is *same provider with no explicit `FREECODE_JUDGE_MODEL`* —
@@ -473,7 +484,8 @@ gate but a curated set at p≥0.99, and the mechanism that finds the p=0.93 case
 | Deterministic | majority-of-3 per case, **and** pass count ≥ recorded baseline | exit 1, judge not run |
 | Deterministic, previously-green case goes red | hard block regardless of baseline | exit 1 |
 | Judged | mean ≥ 3.5/5 **and** no single case below 2/5 | exit 1 |
-| Judged, no key configured | reported as `skipped` | exit 0 |
+| Judged, judge configured but unreachable (outage) | cases reported as `skipped`, excluded from the mean | exit 0 |
+| Judged, **no judge configured at all** | cases reported as `skipped`, `judgeSkipped` recorded | **exit 1** (revised 2026-08-28, see §7.1) |
 | Efficiency | regression vs baseline > 15% | warn only, see §12 |
 | Quarantined cases (any suite) | run and reported, never blocking | exit 0 |
 
@@ -576,7 +588,7 @@ foreign one to get a loop we already have.
 | **0** | Carry `args` through the `function.call` fold into `ToolSpan` (`rollout/trace.ts`) | ~3 lines + a test. **Blocks Phase 1** — `expect_in_args` is unscoreable without it. Also improves `freecode trace --json`. |
 | **1** | `eval/{types,dataset,runner,report}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (~20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. Runner is a thin wrap of the existing `run.ts` boot path. |
 | **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Built 2026-08-27**, with two departures from the text above — see §11.1. |
-| **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | **Judge built 2026-08-27** (§7.1); `gate.ts` predates it. Needs a second provider key **to run**, not to build — unconfigured is a skip, not a failure. CI wiring is still absent. Thresholds are the spec's 3.5 mean / 2.0 floor and have **not** yet been set from a real run. |
+| **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | **Judge built 2026-08-27** (§7.1); `gate.ts` predates it. Needs a second provider key **to run**: unconfigured is a skip at the case level but **closes the gate** (revised 2026-08-28), so `--gate` on a judged suite without `FREECODE_JUDGE_PROVIDER` exits 1 rather than passing. CI wiring is still absent. Thresholds are the spec's 3.5 mean / 2.0 floor and have **not** yet been set from a real run. |
 | **4** | `freecode eval add` | Depends on Phase 0 + 1. **Built 2026-08-27** — see §8.1: the thread store §8 sources the prompt from has no production writer, so it reads the session store instead. |
 | **5** | LLMOps close-out — §12 | Independent of 0–4. **Items 1, 3, 4 built 2026-08-27; item 2 deliberately not** — it reverses `2026-08-10-agent-observability.md` §7 and puts a network call in the path of a normal run, which is a decision, not a sub-bullet. |
 | **later** | Tier 2 repo-grounded sandbox (§6.2) | Blocked on the `node_modules` question, not on the harness. |

@@ -68,6 +68,26 @@ test("first run has no baseline and records itself as run zero", () => {
   assert.match(verdict.reasons[0], /run zero/);
 });
 
+test("run zero where nothing passed is not releasable", () => {
+  // Refusing to invent a threshold does not oblige the gate to call 0/2 green.
+  const cases = [
+    summarise("a", [trial(false)], false),
+    summarise("b", [trial(false)], false),
+  ];
+  const verdict = evaluateGate(report(cases), null);
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /no case passed/);
+});
+
+test("an all-quarantined run zero has nothing to wipe out", () => {
+  // total === 0, so there is no failure to report — and no claim to make.
+  const verdict = evaluateGate(
+    report([summarise("flaky", [trial(false)], true)]),
+    null,
+  );
+  assert.equal(verdict.open, true);
+});
+
 test("matching the baseline is green even when not everything passes", () => {
   // The whole point of gating on a delta: a suite still being curated is
   // usable, where an absolute 100% rule would be red forever.
@@ -138,10 +158,20 @@ test("a judged case's score is the mean of the trials the judge answered", () =>
   assert.equal(c.score, 3);
 });
 
-test("an entirely unscored judged case passes", () => {
+test("an unscored judged case whose trials passed still passes", () => {
   // §7 constraint 3: a judge outage never fails a run.
   const c = summarise("a", [judgedTrial(null)], false);
   assert.equal(c.passed, true);
+  assert.equal(c.score, null);
+});
+
+test("an unscored judged case whose trials FAILED does not pass", () => {
+  // The other half of the same rule, and the bug it used to hide: "the judge
+  // did not answer" and "the case never got far enough to ask" both arrive as
+  // score: null. A crashed or forbidden-tool trial must not pass on the
+  // strength of the grader not having run.
+  const c = summarise("a", [judgedTrial(null, false)], false);
+  assert.equal(c.passed, false);
   assert.equal(c.score, null);
 });
 
@@ -196,6 +226,53 @@ test("a judge outage leaves the gate open with nothing claimed", () => {
     verdict.reasons.some((r) => /judged/.test(r)),
     false,
   );
+});
+
+test("an unconfigured judge closes the gate", () => {
+  // The one that made the whole ritual decorative: no FREECODE_JUDGE_PROVIDER
+  // meant every judged case reported skipped and the run printed GATE OPEN.
+  const cases = [
+    summarise("a", [judgedTrial(null)], false),
+    summarise("b", [judgedTrial(null)], false),
+  ];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured. Set FREECODE_JUDGE_PROVIDER" },
+    baseline(2, 2, ["a", "b"]),
+  );
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /ran with no judge/);
+});
+
+test("an unconfigured judge closes the gate on run zero too", () => {
+  // The first real judged run has no baseline, and the no-baseline path returns
+  // early — so the rule has to live where that path can still see it.
+  const cases = [summarise("a", [judgedTrial(null)], false)];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured." },
+    null,
+  );
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /ran with no judge/);
+});
+
+test("an unconfigured judge on a suite with no judged cases is irrelevant", () => {
+  // Deterministic suites never ask for a judge, and must not be blocked by one
+  // not being there.
+  const cases = [summarise("a", [trial(true)], false)];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured." },
+    baseline(1, 1, ["a"]),
+  );
+  assert.equal(verdict.open, true);
+});
+
+test("quarantining every judged case leaves nothing for the judge rule to block", () => {
+  const cases = [summarise("flaky", [judgedTrial(null)], true)];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured." },
+    null,
+  );
+  assert.equal(verdict.open, true);
 });
 
 test("judged rules apply on run zero, where deterministic ones cannot", () => {

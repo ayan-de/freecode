@@ -217,6 +217,12 @@ async function runTrialIn(
       redirectsSkipped: 0,
       questionsRejected,
       sessionId,
+      // A rubric case carries `score` even when it never reached the judge.
+      // The key's PRESENCE is how `gate.ts` knows a result was judged at all;
+      // dropping it on the crash path made a judged suite whose cases all died
+      // look like a deterministic suite, and the judged rules — including "no
+      // judge configured" — then had nothing to apply to.
+      ...(kase.rubric ? { score: null } : {}),
     };
   }
   cleanup();
@@ -235,6 +241,7 @@ async function runTrialIn(
       redirectsSkipped: 0,
       questionsRejected,
       sessionId,
+      ...(kase.rubric ? { score: null } : {}),
     };
   }
 
