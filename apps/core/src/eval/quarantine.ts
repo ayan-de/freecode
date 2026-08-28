@@ -77,7 +77,19 @@ export function proposeQuarantine(
     const proposal = { id, rate, runs: acc.total };
     if (quarantined.has(id)) {
       if (rate >= RELEASE_ABOVE) toRelease.push(proposal);
-    } else if (rate < QUARANTINE_BELOW) {
+    } else if (rate < QUARANTINE_BELOW && acc.pass > 0) {
+      // `acc.pass > 0`: quarantine is for FLAKY cases, not failing ones.
+      //
+      // A case that has never passed is not noise to be suppressed — it is
+      // either a real finding about the agent or a broken case, and both want
+      // fixing rather than silencing. Proposing it here inverted this module's
+      // own stated purpose: "a gate that silently quarantines its own failures
+      // is a gate that always passes". The rate rule could not tell 0% from
+      // 60% and recommended both.
+      //
+      // Observed on a real report, which proposed quarantining 7 of 20 cases —
+      // including the two consistent failures that were the suite's most
+      // useful output. A report that recommends that is a report nobody reads.
       toQuarantine.push(proposal);
     }
   }

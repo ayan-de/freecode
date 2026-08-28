@@ -91,3 +91,24 @@ test("the shipped quarantine file parses and starts empty", () => {
     else process.env.FREECODE_EVALS_DIR = prev;
   }
 });
+
+test("a case that never passes is not proposed for quarantine", () => {
+  // Quarantine suppresses noise. A 0% case is a finding or a broken case, and
+  // silencing either one is how a gate stops meaning anything.
+  const report = proposeQuarantine(
+    [[result("always-fails", [false, false, false])]],
+    new Set(),
+  );
+  assert.equal(
+    report.toQuarantine.find((p) => p.id === "always-fails"),
+    undefined,
+  );
+});
+
+test("a genuinely flaky case is still proposed", () => {
+  const report = proposeQuarantine(
+    [[result("flaky", [true, false, false])]],
+    new Set(),
+  );
+  assert.equal(report.toQuarantine[0]?.id, "flaky");
+});
