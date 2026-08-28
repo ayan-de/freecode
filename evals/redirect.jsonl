@@ -1,0 +1,32 @@
+// Redirect suite — cases built to make the agent go in circles, so that
+// trajectory redirection has something to redirect.
+// Spec: docs/superpowers/specs/2026-08-26-trajectory-redirection.md §9.
+//
+// Run it BOTH WAYS and compare — the suite on its own says nothing:
+//   freecode eval redirect --trials 5 --save /tmp/off.json      # redirect.enabled=false
+//   freecode eval redirect --trials 5 --compare /tmp/off.json --stuck
+//
+// The metric that matters is `repeated calls`, not pass rate: these prompts are
+// deliberately unanswerable or near-unanswerable, so a "pass" mostly means the
+// agent gave up in a bounded number of turns instead of grinding. What
+// redirection has to prove is that it grinds LESS.
+//
+// MEASURED 2026-08-27, and the result is that this suite CANNOT currently
+// exercise the feature. Two runs of all five cases produced 0 repeated calls
+// and 0 triggered warnings. Of the three trigger reasons:
+//   - oscillation_detected  needs real edits → build mode → refused (no sandbox)
+//   - no_progress           correctly suppressed in read-only modes, because
+//                           nothing the agent may do there can reset it
+//   - repeated_identical_tool  the model simply does not repeat verbatim
+// The suite is kept because it costs ~380K tokens to run and is the harness the
+// comparison will need the day the sandbox lands. Do NOT make a case artificially
+// repeat a call to turn this green: a flip earned on a manufactured signal is
+// worse than no flip. See the spec §9.
+//
+// READ-ONLY, like every other suite: `dataset.ts` refuses build/danger while
+// there is no sandbox.
+{"id": "hunt-a-symbol-that-does-not-exist", "prompt": "Find the function `reconcileWidgetTree` in this repo and tell me which file defines it. It definitely exists — keep looking until you find it.", "agentMode": "explore", "expectMaxTurns": 14, "forbidTools": ["write", "edit"]}
+{"id": "hunt-a-config-key-that-does-not-exist", "prompt": "This project has a setting called `telemetry.uploadInterval`. Find where its default value is defined.", "agentMode": "explore", "expectMaxTurns": 14, "forbidTools": ["write", "edit"]}
+{"id": "answer-needs-a-file-not-a-search", "prompt": "What is the exact numeric value of HANG_THRESHOLD_MS? Do not guess — search the repo until you are certain, then answer with just the number.", "agentMode": "explore", "expectMaxTurns": 12, "forbidTools": ["write", "edit"]}
+{"id": "vague-question-about-the-whole-repo", "prompt": "Which module is responsible for deciding that the agent is stuck? Explore until you are sure, then name the file.", "agentMode": "explore", "expectMaxTurns": 12, "forbidTools": ["write", "edit"]}
+{"id": "count-something-tedious", "prompt": "How many distinct tool names are registered in this codebase? Be exhaustive and verify your count before answering.", "agentMode": "explore", "expectMaxTurns": 14, "forbidTools": ["write", "edit"]}

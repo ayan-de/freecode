@@ -92,11 +92,18 @@ default, because a typo here looks exactly like compaction being broken.
 | --- | --- | --- |
 | `FREECODE_DISABLE_MEMORY_EXTRACTION` | unset | `1`, `true`, or `yes` turns off automatic extraction. Overrides `memory.autoExtract` in `settings.json` |
 
+## Loop health
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FREECODE_DISABLE_REDIRECT` | unset | `1`, `true`, or `yes` turns off [trajectory redirection](/internals/agent-loop#trajectory-redirection). Overrides `redirect.enabled` in `settings.json`; the feature is off by default anyway, so this is the kill switch for a project that turned it on |
+
 ## Evals
 
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `FREECODE_EVALS_DIR` | `./evals` | where `freecode eval` looks for `<suite>.jsonl` and `quarantine.txt`. The default is resolved against the **current working directory**, so set this to run the suite from anywhere but the repo root |
+| `FREECODE_EVAL_TRIAL_TIMEOUT_MS` | `300000` | wall-clock cap per trial. The backstop for a trial that blocks on something without a timeout of its own; a trial that trips it is a failed trial, not a crashed suite |
 | `FREECODE_EVAL_HOME` | `~/.freecode` | where `eval_report.json` (last run) and `eval_runs.jsonl` (history) are written. Changing it between runs resets the gate's baseline |
 
 See [eval harness](/internals/eval).

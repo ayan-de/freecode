@@ -1,0 +1,107 @@
+name: Eval
+
+# Deliberately NOT on push or pull_request.
+#
+# Every case here drives a real agent turn against a real provider. A 20-case
+# suite at 3 trials is 60 paid API calls and several minutes, and running that
+# on every commit would make the bill scale with pushes rather than with
+# releases. `ci.yml` stays free and fast; this is the one that costs money, so
+# it is opt-in.
+#
+# To run it nightly instead, uncomment the schedule below. Do that once the
+# thresholds have been calibrated against a real run — see the eval spec §11.
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Suite to run (trajectory, coding, judged)"
+        type: string
+        default: trajectory
+      trials:
+        description: "Trials per case (--gate implies 3)"
+        type: string
+        default: "3"
+  # schedule:
+  #   - cron: "0 4 * * *"
+
+concurrency:
+  # Never two eval runs at once: they append to the same history file, and a
+  # baseline written by an interleaved run is not a baseline anyone can read.
+  group: eval
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    name: Eval gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      # The model under test. Pin it here rather than relying on a provider
+      # default: a default that changes silently reprices the baseline, and a
+      # repriced baseline is worse than none because it still looks like data.
+      FREECODE_EVAL_MODEL: ${{ vars.FREECODE_EVAL_MODEL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+      # The judge must not be the model under test; `judge-config.ts` refuses
+      # the run outright if these resolve to it.
+      FREECODE_JUDGE_PROVIDER: ${{ vars.FREECODE_JUDGE_PROVIDER }}
+      FREECODE_JUDGE_MODEL: ${{ vars.FREECODE_JUDGE_MODEL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build shared
+        run: pnpm --filter @thisisayande/freecode-shared build
+
+      # The gate compares against the LAST run, so a fresh runner with no
+      # history would report "run zero" and pass unconditionally. Restoring
+      # `~/.freecode/eval_runs.jsonl` is what makes the delta rule mean
+      # anything in CI — without it this workflow can only catch a crash.
+      - name: Restore eval history
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.freecode/eval_runs.jsonl
+          key: eval-history-${{ inputs.suite }}-${{ github.run_id }}
+          restore-keys: |
+            eval-history-${{ inputs.suite }}-
+
+      - name: Run suite
+        run: |
+          pnpm eval "${{ inputs.suite }}" \
+            --trials "${{ inputs.trials }}" \
+            --gate \
+            ${FREECODE_EVAL_MODEL:+--model "$FREECODE_EVAL_MODEL"}
+
+      # `always()`: a blocked run must still be recorded. It is marked
+      # `gateBlocked` and skipped by `baselineFor`, so it cannot become the bar
+      # the next run is measured against — but the trend and quarantine's pass
+      # rates both need failed runs to exist.
+      - name: Save eval history
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.freecode/eval_runs.jsonl
+          key: eval-history-${{ inputs.suite }}-${{ github.run_id }}
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-${{ inputs.suite }}
+          path: ~/.freecode/eval_report.json
+          if-no-files-found: warn

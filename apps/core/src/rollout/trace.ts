@@ -41,6 +41,13 @@ export interface ModelSpan {
   inputTokens?: number;
   outputTokens?: number;
   cacheReadTokens?: number;
+  /**
+   * Carried for pricing: a cache write bills at 1.25x input on Anthropic, so
+   * a fold that dropped it priced writes at 1.0x and understated every cached
+   * session. Recorded by `model.response` since that event existed — this is a
+   * fold change, not an instrumentation change.
+   */
+  cacheWriteTokens?: number;
   toolCalls: string[];
   errorKind?: "stall" | "abort" | "provider";
   error?: string;
@@ -56,6 +63,11 @@ export interface ToolSpan {
    * (truncated log, resumed mid-turn) has none — hence optional.
    */
   args?: Record<string, unknown>;
+  /**
+   * Whether the tool errored, from `function.output.failed`. Absent on logs
+   * written before that field existed — absent means "unknown", not "ok".
+   */
+  failed?: boolean;
 }
 
 export interface Trace {
@@ -75,6 +87,14 @@ export interface Trace {
   hung: boolean;
   /** A request open but still within budget — normal during `--follow`. */
   inFlight: boolean;
+  /**
+   * Trajectory redirections that fired, and warnings that did not become one.
+   * Counts only: the advice text is deliberately absent from the log, so
+   * folding it here would have nothing to fold. Keeps `freecode trace` and the
+   * OTLP export useful and leak-free.
+   */
+  redirects: number;
+  redirectsSkipped: number;
 }
 
 /**
@@ -91,6 +111,8 @@ export function buildTrace(
   const modelSpans: ModelSpan[] = [];
   const toolSpans: ToolSpan[] = [];
   const open: ModelSpan[] = [];
+  let redirects = 0;
+  let redirectsSkipped = 0;
   const pendingTools = new Map<
     string,
     { startedAt: number; args?: Record<string, unknown> }
@@ -131,6 +153,7 @@ export function buildTrace(
         span.inputTokens = event.inputTokens;
         span.outputTokens = event.outputTokens;
         span.cacheReadTokens = event.cacheReadTokens;
+        span.cacheWriteTokens = event.cacheWriteTokens;
         span.toolCalls = event.toolCalls;
         break;
       }
@@ -156,10 +179,17 @@ export function buildTrace(
           startedAt: pending?.startedAt ?? event.timestamp,
           duration_ms: event.duration_ms,
           ...(pending?.args ? { args: pending.args } : {}),
+          ...(event.failed === undefined ? {} : { failed: event.failed }),
         });
         pendingTools.delete(event.tool);
         break;
       }
+      case "redirect.triggered":
+        redirects++;
+        break;
+      case "redirect.skipped":
+        redirectsSkipped++;
+        break;
     }
   }
 
@@ -188,6 +218,8 @@ export function buildTrace(
     // Only spans past the threshold count. An in-flight request is not a hang.
     hung: open.some((s) => s.status === "hung"),
     inFlight: open.some((s) => s.status === "in_flight"),
+    redirects,
+    redirectsSkipped,
   };
 }
 

@@ -193,9 +193,9 @@ cannot be built. Getting this table right is a precondition for Phase 1.
 | Model call timing, TTFT, tokens, hangs | rollout JSONL | `ModelSpan.*` | ✅ present |
 | Which tools fired, and when | rollout JSONL | `ToolSpan.tool` | ✅ present |
 | **Tool call arguments** | rollout JSONL | `FunctionCallEvent.args` | ⚠️ **recorded, then dropped by the fold** |
-| User prompt | thread store | `StoredTurn.prompt` | ✅ present |
-| Assistant reply | thread store | `StoredTurn.response` | ✅ present |
-| Tool args + results | thread store | `StoredToolCall.args` / `.result` | ✅ present |
+| User prompt | ~~thread store~~ **session store** | ~~`StoredTurn.prompt`~~ `messages.jsonl` | ❌ **this row was wrong** — see §8.1 |
+| Assistant reply | ~~thread store~~ **session store** | ~~`StoredTurn.response`~~ `messages.jsonl` | ❌ same |
+| Tool args + results | ~~thread store~~ **session store** | ~~`StoredToolCall.args` / `.result`~~ message `parts` | ❌ same |
 
 The one gap is real but small. `rollout/types.ts` defines `FunctionCallEvent.args:
 Record<string, unknown>`, so the arguments **are** in the log — but `trace.ts:137-139`
@@ -249,7 +249,7 @@ stepped through in a debugger and so the harness works from a source checkout wi
 Per case: fresh session id (so each case gets its own rollout aggregate and therefore its
 own `Trace`), fresh sandbox, `--agent build` unless the case overrides it.
 
-### 6.1 Tier 1 sandbox — tmpdir, zero dependencies (Phases 1–2)
+### 6.1 Tier 1 sandbox — tmpdir, zero dependencies (Phases 1–2) — **built**
 
 Synthetic cases get a tmpdir seeded from `files`, and **nothing else**. No `node_modules`,
 no install step, no network. This is why §4 mandates dependency-free fixtures: the moment a
@@ -286,6 +286,10 @@ in §14 is the same hole seen from another angle: a worktree inherits
 
 ## 7. Judge
 
+**Built 2026-08-27** — `eval/judge-config.ts`, `eval/scorers/judge.ts`,
+`evals/rubrics/answer-quality.md`, `evals/judged.jsonl`. All three constraints below
+are enforced and tested; see §7.1 for what running it exposed.
+
 Separate suite, separate command, separate blocking rule. Rubric lives in
 `evals/rubrics/*.md`, not in TypeScript, so tuning it is a text diff.
 
@@ -312,6 +316,87 @@ Three constraints, all borrowed from `waku/ops/judge.py` and all non-negotiable:
 (~0.89 Pearson); a 10-point scale invites the judge to emit a "7" that carries no more
 information than "4/5" and implies precision no LLM judge delivers.
 
+### 7.1 As built — the decisions this section left open
+
+**The same-model refusal is loud; an absent judge is quiet but not free.** These are
+opposite failure modes and they get opposite handling. A judge that collides with the model
+under test **throws before a single case runs** — the run would otherwise produce a number
+that looks like a quality score and is really a self-similarity score, and there is no
+honest way to report that afterwards. A judge that is merely unconfigured does **not**
+throw: the deterministic expectations on those cases are real and worth running, so the
+suite runs, the cases report `not judged`, and `SuiteReport.judgeSkipped` records why.
+
+**But the gate closes on it** (revised 2026-08-28; supersedes §9.2's original "no key
+configured → exit 0"). The original rule collapsed two different events into one. An
+*outage* — a judge that was configured and then timed out or 429'd — must never fail a run,
+per constraint 3 above; that path leaves `judgeSkipped` undefined and lands as a `null`
+score, and still exits 0. A judge that was *never configured* is not an outage, it is a
+suite that did not run, and reporting `GATE OPEN` on it makes a release ritual that always
+says yes — worse than no ritual, because it is trusted. `judgeSkipped` is set on exactly
+one path (`resolveJudge` → `unconfigured`), which is what lets `gate.ts` tell the two
+apart. There is deliberately no override flag: not passing `--gate` is already the way to
+run the suite without blocking on it.
+
+**A total judge blackout closes the gate too** (added 2026-08-29, after the first real
+judged run). Closing the "no judge configured" door was not enough: the first run with a
+key configured used a judge model id Google had since retired ("no longer available to new
+users"), every one of the five cases came back `judge unavailable`, and the suite reported
+**5/5, GATE OPEN, blocked=false** — a poisoned baseline as well as a false green. A
+permanent misconfiguration and a total outage are indistinguishable from inside a single
+run, and for a release gate the safe reading of both is identical: do not certify what
+nobody graded.
+
+This narrows constraint 3 rather than breaking it. The constraint exists so that a
+third-party 429 cannot teach the team to ignore red, and it still holds where that
+reasoning applies — an unanswered case is excluded from the mean, and a **partial** outage
+(four of five scored) passes on the four. Only `scored.length === 0` blocks. The line
+between "excluded" and "blocking" is drawn at *did anything get graded at all*, because
+below that line the suite has produced no quality signal in either direction, and a gate
+whose job is to answer "is this releasable" must not answer yes from silence.
+
+**Corollary for judge model ids: pin them, and expect them to rot.** The failure surfaced
+as a passing suite rather than an error, which is the worst way for a dependency to expire.
+`SuiteReport.judge` records the resolved judge on every run precisely so this is greppable
+after the fact.
+
+**The collision check refuses on two signals, not one.** An equal normalised model id is
+the obvious case. The second is *same provider with no explicit `FREECODE_JUDGE_MODEL`* —
+the judge would fall back to that provider's default, which is very likely the subject,
+and comparing ids would never notice because there is no id to compare. Date snapshots
+are normalised away (`claude-sonnet-4-5-20260101` ≡ `claude-sonnet-4-5`), and a bare model
+id matches across provider names, which catches the gateway case. It still cannot see
+through an opaque route — hence disclosure: `SuiteReport.judge` records who actually
+graded, on every report.
+
+**An unscored trial is excluded from the mean, never counted as zero.** Constraint 3 says
+an outage must not fail a run; counting it as a zero would let a third-party 429 close a
+release gate *and* drag the mean down in the most confusing way available. A judged case
+with no scored trial at all passes.
+
+**A case that already failed deterministically is not judged.** It costs a real API call
+to buy an opinion about the prose of a run that called a forbidden tool, and the reported
+reason stays the objective one — "not judged: failed deterministically" tells you nothing
+about *what* failed.
+
+**Rubric existence is checked at dataset load.** A missing rubric found mid-run costs an
+agent turn and then reports as a judge outage, which is indistinguishable from a provider
+being down and therefore silently non-blocking. Wrong twice over. `dataset.ts` also
+refuses a `rubric` containing a path separator: it is a name under `evals/rubrics/`.
+
+**A score outside 0–5 is rejected, not clamped.** A judge answering "8" on a five-point
+scale did not understand the task; clamping to 5 records its confusion as a perfect mark.
+
+**Judged cases keep their trajectory expectations.** `evals/judged.jsonl` cases still carry
+`forbidTools` and `expectMaxTurns` — cheap, objective, and a case whose agent wrote to disk
+should fail on that fact rather than on a grader's opinion.
+
+**§9.2's "exit 1, judge not run" is the shell's job.** Suites are separate commands, so
+ordering comes free and needs no cross-suite machinery:
+
+```bash
+freecode eval trajectory --gate && freecode eval judged --gate
+```
+
 ## 8. Harvesting cases from production — `freecode eval add`
 
 The one thing this design has that the prior art does not, and the reason to build it
@@ -321,20 +406,59 @@ here rather than adopt a generic runner.
 freecode eval add <session-id> [--turn N] [--suite trajectory]
 ```
 
-Reads **both** stores for that session — per §5.1, neither alone is sufficient — and emits
-a **draft** case:
+Reads **both** stores for that session — neither alone is sufficient — and emits a
+**draft** case:
 
 | Field | Source |
 | --- | --- |
-| `prompt` | `StoredTurn.prompt` (thread store) |
+| `prompt` | ~~`StoredTurn.prompt` (thread store)~~ → the **session** store's `messages.jsonl`; see §8.1 |
 | `expect_tool`, `expect_in_args` | `ToolSpan.tool` + `.args` (rollout log, after the §5.1 fold fix) |
 | `expect_max_turns` | `trace.modelSpans.length` |
-| `model` | `ModelSpan.model` |
+| `model` | `ModelSpan.provider` + `.model` |
 
 The human edits the expectation — because the harvested run is usually the *wrong*
-behaviour, that being why it is interesting — and appends it. A session whose thread-store
-record has been pruned yields no `prompt` and the command fails loudly rather than emitting
-a case with an empty task.
+behaviour, that being why it is interesting — and appends it. A session whose message log
+has been pruned yields no `prompt` and the command fails loudly rather than emitting a
+case with an empty task.
+
+### 8.1 The thread store's turn table is empty — §5.1's table row was wrong
+
+**Built 2026-08-27**, and the design above could not be built as written.
+
+§5.1 lists "User prompt | thread store | `StoredTurn.prompt` | ✅ present". It is not
+present. `createTurn` is implemented at every layer — `store/json-store.ts`,
+`store/sqlite-store.ts`, and `ThreadStore.addTurn` — and **has no production caller
+anywhere in the repo**. Checked against a real installation: 118 threads recorded, zero
+turns. The row was written from the type definitions rather than from a call graph, which
+is exactly the mistake §5.1 exists to prevent.
+
+The durable prompt and reply text live in the **session** store —
+`~/.freecode/sessions/<projectDir>/<sessionId>/messages.jsonl`, a `SerializedMessage[]`
+with `role`, `parts`, and `timestamp`. `harvest.ts` reads that. Everything §5.2 says about
+the two-store split survives unchanged: text still never enters the rollout log, and the
+privacy property OTLP export depends on is untouched. Only the name of the store holding
+the text was wrong.
+
+**Turn scoping is by timestamp, not `turnId`.** A rollout `turnId` is
+`turn-<loopIteration>` (`agent/loop.ts`), and `turnCount` is not reset per user prompt —
+so one user turn spans many `turnId`s and the two numbering schemes do not correspond at
+all. `--turn N` selects the Nth user message and scopes the log to `[thatMessage,
+nextUserMessage)`.
+
+Two additions the spec did not call for, both because running the command exposed the
+need:
+
+- **Absolute paths in `expect_in_args` are shortened to their last two segments.** A
+  harvested `/tmp/freecode-eval-Uaw72m/check.mjs` names one machine and one tmpdir that no
+  longer exists — a needle guaranteed never to match again. The emitted case notes every
+  value it shortened; rewriting silently would be useful and dishonest.
+- **The draft is validated through `parseSuite` before it is emitted**, and `--write`
+  validates the *whole* file before writing. A duplicate id is only visible against the
+  rest of the suite, and discovering it on the next `freecode eval` means a broken suite
+  was committed in between.
+
+`--suite coding` is refused: a harvested session carries no `files` fixture, so there is
+nothing for `verify` to run against.
 
 This closes the loop the repo is currently missing. Observability makes failures
 *visible*; without this command, making them *permanent* is a manual transcription job
@@ -382,14 +506,59 @@ gate but a curated set at p≥0.99, and the mechanism that finds the p=0.93 case
 | Deterministic | majority-of-3 per case, **and** pass count ≥ recorded baseline | exit 1, judge not run |
 | Deterministic, previously-green case goes red | hard block regardless of baseline | exit 1 |
 | Judged | mean ≥ 3.5/5 **and** no single case below 2/5 | exit 1 |
-| Judged, no key configured | reported as `skipped` | exit 0 |
+| Judged, **partial** outage (some cases scored) | unanswered cases excluded from the mean; the rest gate normally | exit 0 |
+| Judged, **total** blackout (0 of N scored) | nothing was graded, so nothing is certified | **exit 1** (revised 2026-08-29, see §7.1) |
+| Judged, **no judge configured at all** | cases reported as `skipped`, `judgeSkipped` recorded | **exit 1** (revised 2026-08-28, see §7.1) |
 | Efficiency | regression vs baseline > 15% | warn only, see §12 |
 | Quarantined cases (any suite) | run and reported, never blocking | exit 0 |
+
+**The efficiency row, built 2026-08-28** (`scorers/efficiency.ts`), and it is the one
+scorer that deliberately does *not* implement `Scorer` — that signature returns `passed`
+for one trial, and a `passed` field is a thing gates block on. It folds a whole run and
+returns warnings, carried in `Verdict.warnings` rather than `reasons` so the warn-only rule
+cannot grow into a gate by accident. Three decisions the row above did not specify:
+
+- **Normalised per trial, not per run.** `--gate` implies `--trials 3`, so a totals
+  comparison against a 1-trial baseline reports a 200% regression the first time anyone
+  runs the gate — a warning that fires on the intended usage.
+- **Only tokens are compared.** Cost moves when a provider reprices and latency moves with
+  the network; warning on either reports noise the harness did not cause. `model_ms`,
+  `tool_ms` and the cache-read ratio are folded, persisted on `TrialResult.efficiency`, and
+  printed — reported, not warned. `compare.ts` already drew this line the same way.
+- **Absent means unknown, never zero.** History written before `TrialResult.efficiency`
+  existed is excluded from the timing means rather than folded in as 0, which would report
+  every old baseline as an infinite improvement. Same instinct as an unpriced model costing
+  `undefined` rather than $0. Tokens were always recorded, so the warn rule works against
+  existing history unchanged.
 
 Gating on **delta against a recorded baseline** rather than an absolute is what makes the
 suite usable while cases are still being curated: a run that matches last week's 18/20 is
 green, a run that drops to 14/20 is red. The "previously-green case goes red" clause is
 what stops the baseline ratcheting downward — the failure mode a pure delta gate has.
+
+**What counts as a baseline (built 2026-08-27).** The last run that did **not** close the
+gate, on the **same resolved model**. Both qualifiers were missing and both were load-bearing:
+
+- Writing every run unconditionally meant a regression became its own baseline and was
+  forgiven on the next attempt. 18/20 → 14/20 closes the gate; re-running at 14/20 opened
+  it, because both the count and the green set came from the failed run. Blocked runs are
+  still written — the trend and §9.3's pass rates need them — and carry `gateBlocked`.
+- `SuiteReport.model` recorded the CLI override, so it was `undefined` on every run without
+  `--model`. It now records the resolved `provider/model`, and a baseline from a different
+  one is refused. This subsumes what §11's per-case `model` pinning was for, and catches
+  more: a `--model` override, not just a provider default drifting.
+
+The cost of the first is a **sticky** baseline when a suite is deliberately re-scoped —
+delete five of twenty cases and `passed` drops with `total`, so a healthy run reads as a
+regression against a baseline that can never be superseded. `--accept-baseline` records the
+run anyway and marks it `baselineAccepted: true`, because a baseline someone waved through
+is different evidence from one a run earned. Nothing at this level can tell "the suite got
+smaller" from "the agent got worse" — only the operator can, which is why it is a flag and
+not a heuristic.
+
+**`--gate` implies `--trials 3`.** One trial is `pass@1`, which §9.1 argues is too noisy to
+block on; the gate's default contradicted the gate's design. An explicit `--trials 1` is
+honoured with a warning.
 
 The judged floor exists because a mean hides catastrophes: one 0/5 disaster averages away
 behind four 5s and ships. Mean measures the suite; the floor measures the worst case, and
@@ -441,37 +610,121 @@ foreign one to get a loop we already have.
 | --- | --- | --- |
 | **0** | Carry `args` through the `function.call` fold into `ToolSpan` (`rollout/trace.ts`) | ~3 lines + a test. **Blocks Phase 1** — `expect_in_args` is unscoreable without it. Also improves `freecode trace --json`. |
 | **1** | `eval/{types,dataset,runner,report}.ts` + `scorers/trajectory.ts` + `evals/trajectory.jsonl` (~20 cases) + `evals/quarantine.txt` + `freecode eval` | No new deps. Runner is a thin wrap of the existing `run.ts` boot path. |
-| **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. |
-| **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | Needs a second provider key. Set the threshold from the first real run, not from this document. |
-| **4** | `freecode eval add` | Depends on Phase 0 + 1. Pull it forward if Phase 2 slips. |
-| **5** | LLMOps close-out — §12 | Independent of 0–4. |
+| **2** | Tier 1 `sandbox.ts` (tmpdir, zero-dep) + `scorers/outcome.ts` + `evals/coding.jsonl` | Real signal, no judge, no subjectivity. **Built 2026-08-27**, with two departures from the text above — see §11.1. |
+| **3** | `scorers/judge.ts` + `gate.ts` + `--gate` in CI | **Judge built 2026-08-27** (§7.1); `gate.ts` predates it. Needs a second provider key **to run**: unconfigured is a skip at the case level but **closes the gate** (revised 2026-08-28), so `--gate` on a judged suite without `FREECODE_JUDGE_PROVIDER` exits 1 rather than passing. CI wiring is still absent. **Thresholds calibrated 2026-08-28**: two graded runs of `judged.jsonl` on `minimax/MiniMax-M3` with a `gemini/gemini-3.6-flash` judge scored **4.60** and **4.67** mean, worst case 4.00, every case consistent across three trials. The spec's 3.5 mean / 2.0 floor therefore sit below real performance with headroom rather than by guess, and the judge's trial-to-trial variance is low enough for the mean to mean something. |
+| **4** | `freecode eval add` | Depends on Phase 0 + 1. **Built 2026-08-27** — see §8.1: the thread store §8 sources the prompt from has no production writer, so it reads the session store instead. |
+| **5** | LLMOps close-out — §12 | Independent of 0–4. **Items 1, 3, 4 built 2026-08-27; item 2 deliberately not** — it reverses `2026-08-10-agent-observability.md` §7 and puts a network call in the path of a normal run, which is a decision, not a sub-bullet. |
 | **later** | Tier 2 repo-grounded sandbox (§6.2) | Blocked on the `node_modules` question, not on the harness. |
 
 Every case in Phase 1 pins `model`. A provider default change must not silently reprice
 the baseline; a repriced baseline is worse than no baseline, because it looks like data.
+
+### 11.1 Phase 2 as built — two departures from §4 and §6
+
+Both were forced by things this document did not anticipate, and both are load-bearing.
+
+**1. An `immutable` field on the case, which §4's format does not have.** The spec's own
+example prompt ends "Do not modify check.mjs", and relies on the model honouring it. That
+is a request, not a guard: an agent that edits the checker until it passes exits 0, and
+`verify`'s exit code — the thing §4 calls the cheapest scorer to trust — reports a green
+run that fixed nothing. It is the single most expensive false positive the highest-value
+scorer can emit, so it gets a mechanism rather than a sentence in a prompt. `immutable`
+lists fixture files that must be byte-identical afterwards, validated at load as a subset
+of `files`, checked *before* `verify` runs. `dataset.test.ts` asserts every shipped
+coding case marks its checker.
+
+**2. The runner answers permission prompts inside a sandbox.** §6 says a case runs
+`--agent build` and stops there, which cannot work as written: `build`'s default decision
+for a mutating tool is `ask`, and a headless `ask` resolves to **deny**
+(`permission/prompt.ts`, deliberately — never a silent allow). Every coding case would
+have scored a model that was never allowed to write, and the suite would have measured
+the permission layer. The runner therefore plays the frontend's part for
+`permission.asked` exactly as Phase 1 already does for `question.asked` — but only when
+the case has a sandbox, and refusing any path argument that resolves outside it. A case
+with no `files` subscribes nothing and keeps Phase 1's behaviour unchanged.
+
+`danger` mode stays refused at load even for a sandboxed case. It bypasses the permission
+layer entirely, and once the runner answers prompts there is nothing left for it to buy.
+
+The §6.3 caveat survives intact and is worth restating, because Phase 2 is where it starts
+to matter: the tmpdir scopes the file tools and the permission answers, and nothing else.
+`bash` reaches the whole filesystem, and coding cases need `bash`.
 
 ## 12. LLMOps close-out — the observability gaps this exposes
 
 Building §9's efficiency scorer surfaces four gaps in the observability layer. All are
 small; the first is the only one that blocks anything.
 
-1. **There is no USD anywhere.** `usage/tracker.ts` records tokens and `usage.get` serves
-   them, but a price table exists in exactly one file — `providers/minimax.ts`. Until a
-   shared `providers/pricing.ts` exists, "this prompt change made every turn 18% more
-   expensive" is undetectable, and the efficiency gate in §9 can only warn. **This is the
-   highest-leverage item in this spec outside Phase 1.**
-2. **Export is manual.** `freecode trace <id> --otlp` is post-mortem and opt-in. The
+1. **There is no USD anywhere.** ✅ **Built 2026-08-27** as `providers/pricing.ts`.
+   `usage/tracker.ts` records tokens and `usage.get` serves them; nothing turned them into
+   money. *(Correction: this item claimed "a price table exists in exactly one file —
+   `providers/minimax.ts`". There was no price table there either — only a comment noting
+   that MiniMax had not published cache pricing. There were no prices anywhere in the
+   repo. Second stale claim in this spec, after §5.1's; both were written from a grep
+   rather than from the code.)*
+
+   As built: USD per million tokens keyed `provider/model`, an unknown model priced as
+   `undefined` rather than 0 or a near-miss guess, `~/.freecode/pricing.json` overriding
+   any entry, and a stated `PRICES_AS_OF` vintage surfaced wherever a cost is shown. The
+   contract is **comparison, not billing** — a published price changes without warning and
+   the table cannot notice.
+
+   The arithmetic that mattered: `inputTokens` is the *inclusive* prompt total, so a cache
+   read is a **discount off the input line, not an addend**. Charging it on top would
+   double-count exactly the tokens the cache made cheap and report a prompt-cache win as a
+   cost increase. There is a test asserting cached < uncached for that reason.
+
+   One fold gap fell out of it: `ModelSpan` dropped `cacheWriteTokens`, though
+   `model.response` had always recorded it — so writes priced at 1.0x instead of 1.25x and
+   understated every cached session. Same class of change as Phase 0's `args`, and the
+   rule holds again: *adding a scorer must never require adding instrumentation.*
+
+   Surfaces: `freecode trace` (a `cost` line, omitted entirely when nothing is priced),
+   `freecode eval` (a per-run estimate), `--compare` (a reported-not-gated cost row,
+   omitted when either side is unpriced), and OTLP `gen_ai.usage.cost`.
+2. **Export is manual.** ❌ **Not built — deliberately deferred, needs a decision.** This
+   item proposes reversing `2026-08-10-agent-observability.md` §7, which defers live
+   streaming for a stated reason, and it puts a network call into the path of a normal
+   run. Both are the kind of change that should be chosen rather than inherited from a
+   sub-bullet of an LLMOps close-out. The other three items are complete without it.
+   `freecode trace <id> --otlp` is post-mortem and opt-in. The
    observability spec §7 already defers live streaming; an `FREECODE_OTLP_ENDPOINT` that
    ships each session's spans on turn end — still from the log, never from the hot path —
    would make Langfuse a live view rather than an archive. Langfuse ingests OTLP/HTTP JSON
    on `/api/public/otel`, which is exactly what `otlp.ts` already emits.
-3. **Span coverage stops below the agent.** `otlp.ts` emits model spans; the GenAI
+3. **Span coverage stops below the agent.** ✅ **Built 2026-08-27.** The root span is now
+   `invoke_agent` with `gen_ai.operation.name`/`gen_ai.agent.name`, and every span —
+   root, model, tool — carries `gen_ai.conversation.id = sessionId`, so a session renders
+   as one tree. Session-level token totals and cost ride on the root.
+   `otlp.ts` emits model spans; the GenAI
    conventions now also cover agent orchestration and MCP tool calls. Adding an
    `invoke_agent` root span per session and setting `gen_ai.conversation.id = sessionId`
    makes a multi-turn session render as one tree instead of N unrelated calls.
-4. **Eval results should themselves be spans.** The conventions include a quality
-   evaluation layer, so a gate run can ship to the same collector as the runs it graded —
-   scores and traces in one place, no second UI.
+4. **Eval results should themselves be spans.** ✅ **Built 2026-08-27** as `eval/otlp.ts`
+   + `freecode eval --otlp [url]`. The conventions include a quality evaluation layer, so
+   a gate run can ship to the same collector as the runs it graded — scores and traces in
+   one place, no second UI.
+
+   The load-bearing part is the **link**, which required `TrialResult.sessionId`: each
+   case span links to the trace of the session it graded, using the same
+   `hexId(sessionId)` derivation, so a red case in Langfuse is one click from the
+   trajectory that failed. Without it, scores and runs arrive as two unrelated sets of
+   spans in one collector — most of the value gone. Verified end-to-end against a local
+   collector: the emitted link matched the session's own trace and root span ids exactly.
+
+   Three judgement calls: a **quarantined** failure is `STATUS_OK`, because it ran, was
+   reported, and by design cannot turn the build red — colouring it red recreates the
+   noise quarantine exists to remove. Flakiness (`consistent`) is a separate attribute
+   from the verdict, because majority-of-N is the blocking statistic and all-N is not.
+   And **no text is exported**: a case carries a prompt and a failure reason can quote
+   arguments, so only names, verdicts and numbers go on the wire — the collector may be
+   third-party, and §5.2's property has to hold here too.
+
+   One bug this surfaced, caught by a test asserting the wrong thing and then re-read:
+   `attrs()` rounds every numeric attribute to an integer, which is right for tokens and
+   milliseconds and **silently catastrophic** for a rate — a 50% suite pass rate exported
+   as `1`. Cost had the same problem in the other direction (every call `$0`). Both are
+   now in an explicit `FRACTIONAL` set rather than relying on a name suffix.
 
 Pin this caveat with them: **`gen_ai.*` is still marked "Development", not Stable**, as of
 mid-2026. Core chat and embedding attributes are safe to build dashboards on; the agent

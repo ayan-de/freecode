@@ -18,9 +18,9 @@ and it is worth naming them before any code appears:
 
 | Part | What it is | Here |
 | --- | --- | --- |
-| **Fixture** | a task with a known-good outcome | one JSON line in `evals/trajectory.jsonl` |
+| **Fixture** | a task with a known-good outcome | one JSON line in `evals/trajectory.jsonl` or `evals/coding.jsonl` |
 | **Runner** | drive the real agent on that task, headlessly | `eval/runner.ts` — the same boot path as `freecode run` |
-| **Scorer** | decide whether the run was good | `eval/scorers/trajectory.ts` — a pure function over the trace |
+| **Scorer** | decide whether the run was good | `eval/scorers/trajectory.ts` (did the right tool fire) and `eval/scorers/outcome.ts` (did the end state match) |
 
 That is the entire feature. No hosted service, no new dependency, no benchmark
 submission. Spec: `docs/superpowers/specs/2026-08-23-eval-harness.md`.
@@ -35,7 +35,9 @@ Both forms must be run **from the repo root** — the suite path and the project
 the agent works in are both resolved from the current directory:
 
 ```bash
-freecode eval                        # installed binary
+freecode eval                        # the trajectory suite (default)
+freecode eval coding                 # the coding suite — sandboxed, outcome-checked
+freecode eval judged                 # the judged suite — needs a second provider
 npx tsx apps/core/src/cli.ts eval    # from a source checkout
 ```
 
@@ -61,8 +63,8 @@ one word. Keeping them apart is most of the design:
 | Kind | Question | Verdict | Cost | Blocks release? |
 | --- | --- | --- | --- | --- |
 | **Unit test** | does this function behave? | 0/1 | free, no model | yes — already does |
-| **Deterministic eval** | did the agent call the right tool, with the right args? | 0/1 per trial | one real turn | yes, on a delta |
-| **Judged eval** | was the reply any *good*? | 0–5, thresholded | one turn + a judge call | not built yet |
+| **Deterministic eval** | did the agent call the right tool, with the right args, and did the end state match? | 0/1 per trial | one real turn | yes, on a delta |
+| **Judged eval** | was the reply any *good*? | 0–5, thresholded | one turn + a judge call | only below the threshold |
 
 The house rule that follows is short enough to remember:
 
@@ -77,7 +79,10 @@ files covering the harness's own logic; none of them start an agent.
 
 ## What a case looks like
 
-One JSON object per line — diffable, greppable, appendable, no schema migration:
+One JSON object per line — diffable, greppable, appendable, no schema migration.
+Two suites, two shapes.
+
+### `evals/trajectory.jsonl` — did the right tool fire?
 
 ```jsonc
 {"id": "find-symbol-uses-grep",
@@ -93,7 +98,7 @@ One JSON object per line — diffable, greppable, appendable, no schema migratio
 | `id` | string, required | unique within the suite; the handle quarantine and history use |
 | `prompt` | string, required | what the user would have typed |
 | `model` | `provider/model` | pins the model for this case; overrides `--model` |
-| `agentMode` | `plan` · `review` · `explore` | defaults to `explore`. `build` and `danger` are **refused** — see below |
+| `agentMode` | `plan` · `review` · `explore` · `build` | defaults to `explore`, or `build` when the case is sandboxed. `build` on an **unsandboxed** case is refused, and `danger` always is — see below |
 | `expectTool` | string or `null` | a tool that must fire. `null` asserts that **no** tool fired |
 | `expectInArgs` | object | argument expectations; requires `expectTool` |
 | `expectMaxTurns` | integer ≥ 1 | model calls allowed before the case fails |
@@ -102,6 +107,63 @@ One JSON object per line — diffable, greppable, appendable, no schema migratio
 `expectTool: null` is not a filler value. "Answer from what you know instead of
 rummaging through the repo" is a real behaviour that a prompt edit can break, and
 three of the twenty shipped cases test exactly that.
+
+### `evals/coding.jsonl` — did the end state match?
+
+```jsonc
+{"id": "fix-off-by-one",
+ "prompt": "add() in calc.mjs returns the wrong result. Fix it. Do not modify check.mjs.",
+ "files": {
+   "calc.mjs": "export const add = (a, b) => a - b;\n",
+   "check.mjs": "import { add } from './calc.mjs';\nimport assert from 'node:assert';\nassert.equal(add(2, 3), 5);\n"
+ },
+ "verify": "node check.mjs",
+ "immutable": ["check.mjs"],
+ "expectMaxTurns": 10}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `files` | object | seeded into a fresh tmpdir, which becomes the case's project root. **Its presence is what makes a case sandboxed** |
+| `verify` | string | shell command run in the sandbox after the turn; **its exit code is the score** |
+| `immutable` | string[] | fixture files the agent must not touch. Must be a subset of `files` |
+
+Every trajectory field still applies — a coding case can also forbid tools or cap
+turns, and both verdicts must be green for the case to pass.
+
+**`verify` is the highest-value scorer in the harness and the cheapest to
+trust**, because nothing subjective enters it: the tests pass or they do not.
+Prefer it over a judge wherever a task can be phrased this way.
+
+**Fixtures are dependency-free by rule.** Plain `.mjs` and `node:assert`, run by
+`node`, which every environment that can run FreeCode already has. Not `npx tsx`:
+that needs a populated `node_modules` the sandbox does not have, and solving it
+per case means an install — slow, networked, flaky — at exactly the point the
+harness is supposed to be boring.
+
+**`immutable` is a guard, not a request.** The prompt says "do not modify
+check.mjs"; an agent that rewrites the checker until it passes has produced a
+green run and fixed nothing, which is the single most expensive false positive
+this scorer can emit. `outcome.ts` byte-compares every `immutable` file against
+its fixture *before* running the command, so a tampered checker fails without
+`verify` ever getting the chance to say yes. This field is an addition to the
+spec's case format, for exactly that reason.
+
+### The sandbox
+
+A case with `files` runs in `mkdtemp()`, seeded from `files` and **nothing
+else** — no `node_modules`, no install step, no network. Fixture paths must be
+relative and must not escape; `dataset.ts` rejects `../` at load. The directory
+is removed after the trial unless `FREECODE_EVAL_KEEP_SANDBOX=1`, which prints
+the path instead so a red case can be inspected.
+
+> **This is working-tree isolation, not agent isolation.** The tmpdir is the
+> agent's project root, so its file tools are scoped to it — the runner refuses
+> any permission prompt whose path argument resolves outside. But an agent
+> holding `bash` can `cd` anywhere on the filesystem regardless of where its
+> project root points, and coding cases need `bash` to run their own checks.
+> What this buys you is that the files you were editing when you launched the
+> suite are safe. Real isolation is a container, and that is not built.
 
 ### Argument matching
 
@@ -134,16 +196,21 @@ most expensive kind of wrong answer this harness can give.
 | duplicate `id` | history and quarantine key off it |
 | `expectInArgs` without `expectTool` | there is no tool whose arguments it could name |
 | a case that asserts nothing | it always passes, inflating the count and hiding that the case was never finished |
-| `agentMode: "build"` or `"danger"` | Phase 1 has no sandbox — see below |
+| `agentMode: "build"` on a case with no `files` | it would write to your real working directory — see below |
+| `agentMode: "danger"`, ever | it bypasses the permission layer, and a sandboxed case does not need it |
+| `verify` without `files` | there is no sandbox to run it in |
+| `verify` naming a file `files` never creates | it fails for the wrong reason and reads as an agent failure |
+| `immutable` naming a file that is not in `files` | there is no fixture content to compare against |
+| a fixture path that is absolute or escapes with `../` | the tmpdir is the whole point |
 
-That last one is the load-bearing one:
+The `build` one is the load-bearing one:
 
 > **`forbidTools` scores a mutation; it does not prevent one.** By the time the
 > scorer reports "called forbidden `write`", the file is already written. A case
-> runs against your **real working directory** — there is no sandbox yet — so
-> agent *mode* is the only thing that actually stops a write, and mutating modes
-> are refused at load rather than trusted. `bash` is not in `READONLY_TOOLS`
-> either, so bash cases wait for the sandbox too.
+> with no `files` runs against your **real working directory**, so agent *mode*
+> is the only thing that actually stops a write, and mutating modes are refused
+> at load rather than trusted. Give the case a `files` fixture and `build`
+> becomes legal, because there is now somewhere safe to write.
 
 ## How a trial runs
 
@@ -153,17 +220,34 @@ loadQuarantine() ─ ids that can't turn the build red
 initRunner() ─ boot providers + MCP ONCE for the whole suite
    │
    └─ for each case, for each trial:
+        createSandbox(files)        ← if the case has any; becomes the project root
         fresh session id            ← its own rollout aggregate, its own Trace
-        run the real agent loop     ← in-process, not by shelling out
+        decline any question.asked  ← nobody is there to answer it
+        answer permission.asked     ← sandboxed cases only; scoped to the tmpdir
+        run the real agent loop     ← in-process, not by shelling out, 5min cap
         subscribe to the stream bus ← capture reply text
         buildTrace(rollout events)  ← the same fold `freecode trace` uses
         scoreTrajectory(run, case)  ← pure; passed + one short reason
+        scoreOutcome(run, case)     ← only if trajectory passed; spawns `verify`
+        sandbox.cleanup()           ← in a finally, so a crashed trial still tidies
 ```
 
-Three choices in there are worth their reasons:
+Five choices in there are worth their reasons:
 
 **In-process, not `exec freecode run`.** A case can be stepped through in a
 debugger, and the harness works from a source checkout without `pnpm build:bun`.
+
+**Questions are declined, not left hanging.** `askQuestion()` `unref()`s its
+30-minute timer so a pending question cannot hold the process open — which is
+right for a TUI and fatal here: with no frontend attached, nothing else held the
+event loop, so the first case that made the model ask a clarifying question ended
+the whole suite at **exit 0**, mid-run, with no report and no verdict. Under
+`--gate` a CI job read that as green. The runner now plays the frontend's part by
+rejecting, which the tool already recovers from ("You can continue without this
+information"), and every trial has a wall-clock cap
+(`FREECODE_EVAL_TRIAL_TIMEOUT_MS`, default 5 minutes) as a backstop for anything
+else that blocks. Until this was fixed the suite had, as far as the history file
+shows, never once run to completion.
 
 **A fresh session per trial.** Each trial gets its own rollout aggregate and
 therefore its own `Trace`. Sharing one session would fold two runs into a single
@@ -173,13 +257,24 @@ span set and score the pair as one.
 500 marks that trial `run failed: …` and the loop continues. One dead case must
 not cost you the other nineteen.
 
+**Permission prompts are answered — but only inside a sandbox.** In `build` mode
+the default decision for a mutating tool is `ask`, and a headless `ask` resolves
+to **deny** (`permission/prompt.ts`, deliberately: never a silent allow). Left
+alone, every coding case would score a model that was never permitted to write,
+and the suite would be measuring the permission layer instead of the agent. So
+the runner plays the frontend's part here too, exactly as it does for questions —
+and only when the case has a sandbox to write into. A path argument resolving
+outside the tmpdir is refused; a case with no `files` subscribes nothing at all
+and keeps the headless-deny behaviour unchanged.
+
 ### Where a scorer's input comes from
 
 ```ts
 interface RunRecord {
-  trace: Trace;      // from the rollout log — timings, spans, tool names AND args
-  prompt: string;    // from the case
-  response: string;  // captured live off the stream bus
+  trace: Trace;        // from the rollout log — timings, spans, tool names AND args
+  prompt: string;      // from the case
+  response: string;    // captured live off the stream bus
+  sandboxDir?: string; // where the turn ran, when it had a sandbox
 }
 ```
 
@@ -200,16 +295,38 @@ one-line reason:
 1. **`trace.hung`** → fail. A model request open longer than `HANG_THRESHOLD_MS`
    (300s) never finished, so no tool pattern can redeem it.
 2. **an errored model span** → fail, with the error kind.
-3. **`forbidTools`** → fail if any fired.
-4. **`expectMaxTurns`** vs `trace.modelSpans.length`.
-5. **`expectTool: null`** → pass only if nothing fired.
-6. **`expectTool`** → must appear in the fired tools.
-7. **`expectInArgs`** → **any** invocation of that tool may satisfy it. A model
+2. **`forbidTools`** → fail if any fired.
+3. **`expectMaxTurns`** vs `trace.modelSpans.length`.
+4. **`expectTool: null`** → pass only if nothing fired.
+5. **`expectTool`** → must appear in the fired tools.
+6. **`expectInArgs`** → **any** invocation of that tool may satisfy it. A model
    that greps twice, badly then well, has still done the right thing.
 
 It reads no text, on purpose. An agent can produce a perfect final message while
 making duplicate calls and editing files it was told not to, and an outcome-only
 check rates that flawless.
+
+### The outcome scorer
+
+Runs only if the trajectory scorer passed — a run that hung or called a
+forbidden tool should report *that*, not whatever `verify` makes of the wreckage.
+Then, in order:
+
+1. **`immutable` files** are byte-compared against their fixture content. A
+   modified or deleted one fails here, before the command runs.
+2. **`verify`** is spawned with the sandbox as its cwd (`shell: true` — the
+   command is fixture-authored and reviewed in the same diff as the prompt,
+   never model-authored), under its own timeout
+   (`FREECODE_EVAL_VERIFY_TIMEOUT_MS`, default 60s).
+3. **Exit 0 passes.** Anything else fails, carrying one line of output.
+
+That last detail earns its complexity. `verify exit 1` alone makes every red
+case a re-run to diagnose, so the scorer picks the most informative line — but
+*not* simply the last one, because node prints its version banner after the
+stack trace. The tail of a failed `node check.mjs` is `Node.js v26.7.0`, which
+says nothing. Stack frames and the banner are dropped, the first line naming an
+error wins, and you get `verify exit 1: AssertionError [ERR_ASSERTION]: add is
+still broken`.
 
 ## The gate
 
@@ -229,21 +346,106 @@ So the rule is a delta instead:
 | --- | --- | --- |
 | **case passed** | majority-of-N (`pass@1` when `--trials 1`) | yes |
 | **case consistent** | all N trials passed | no — reported as `(flaky)` |
-| **suite regression** | `passed` < the last recorded run's `passed` | yes |
-| **previously green, now red** | a case in last run's green set that now fails | yes |
-| **no baseline** | record this run as run zero, gate opens | n/a |
+| **suite regression** | `passed` < the baseline's `passed` | yes |
+| **previously green, now red** | a case in the baseline's green set that now fails | yes |
+| **judged mean** | mean of scored judged cases < 3.5/5 | yes |
+| **judged floor** | any scored judged case < 2/5 | yes |
+| **no baseline** | record this run as run zero, deterministic rules skipped | n/a |
 
 The second blocking rule exists because a pure count delta ratchets downward:
 lose one case, gain another, and the total never notices. Naming the specific
 case that used to be green closes that.
 
-The baseline is the **last** recorded run, not the best ever. Best-ever ratchets
-a flaky suite permanently red; last-run tracks reality and leaves regression
-detection to the green-set clause.
+Judged cases are gated separately and **absolutely** — mean ≥ 3.5/5, no case
+below 2/5 — because a rubric threshold is a claim about quality that does not
+get easier because last week was bad. They apply on run zero too.
+
+### What counts as a baseline
+
+The baseline is the last recorded run **that did not close the gate**, and that
+ran on **the same model**. Both qualifiers are load-bearing, and both were
+missing until 2026-08-27:
+
+**A blocked run must not become the baseline.** Writing every run unconditionally
+meant the gate forgave every regression on the next attempt: 18/20 → 14/20
+closes the gate, then re-running at 14/20 *opens* it, because both the count and
+the green set now come from the failed run. The delta rule is only honest if a
+closed gate refuses to move the bar it is measured against. Blocked runs are
+still written to history — the trend and quarantine's pass rates both need them
+— and carry `gateBlocked: true`, which `baselineFor` skips.
+
+**A baseline from a different model is refused.** `SuiteReport.model` records
+the *resolved* `provider/model`, not the CLI override, so history can say what
+produced a given baseline. Comparing a cheap local run against a CI baseline
+from another model reads as a regression with no way to see why — and a
+repriced baseline is worse than none, because it still looks like data. Runs
+recorded before the field existed compare anyway rather than being discarded.
+
+Last-run rather than best-ever, otherwise a flaky suite ratchets permanently
+red; last-run tracks reality and leaves regression detection to the green-set
+clause.
+
+### When the suite was re-scoped, not the agent
+
+Skipping blocked runs has a consequence: it makes the baseline **sticky**.
+Delete five cases from a twenty-case suite and `passed` drops because `total`
+did — so a perfectly healthy run reads as a regression, against a baseline that
+can never be superseded, because it never opens:
+
+```
+1/1 cases passed
+regression: 1/1 vs baseline 2/2
+GATE CLOSED
+```
+
+`--accept-baseline` is the way out:
 
 ```bash
-freecode eval --trials 3 --gate     # exit 1 on regression
+freecode eval --gate --accept-baseline
 ```
+
+```
+1/1 cases passed
+regression: 1/1 vs baseline 2/2
+BASELINE ACCEPTED — recorded 1/1 as the new baseline despite the failure(s) above.
+Future runs are measured against this. If the agent got worse rather than the
+suite getting smaller, this just hid it.
+GATE CLOSED, accepted — exiting 0 by request.
+```
+
+It still prints every reason the gate closed, exits 0, and records
+`baselineAccepted: true` in history — because a baseline someone waved through
+is a different kind of evidence from one a run earned, and the trend has to be
+able to tell them apart. Nothing distinguishes "the suite got smaller" from
+"the agent got worse" at this level; only the person typing the flag knows,
+which is exactly why it is a flag and not a heuristic.
+
+With the gate already open it is a no-op and says so.
+
+### Running it
+
+```bash
+pnpm eval                            # from a checkout, any suite
+pnpm eval:gate                       # trajectory then coding, both gated
+freecode eval --gate                 # exit 1 on regression
+```
+
+**`--gate` implies `--trials 3`.** One trial is `pass@1`, the statistic this
+page's own opening argument rejects as too noisy to block on — so the gate's
+default used to contradict its design. An explicit `--trials 1` is still
+honoured, with a warning: someone asking for a cheap smoke run under `--gate`
+knows what they are getting.
+
+`.github/workflows/eval.yml` runs a suite in CI, deliberately on
+**`workflow_dispatch` only** — every case drives a real paid agent turn, and 20
+cases at 3 trials is 60 API calls, so billing should scale with releases rather
+than with pushes. Uncomment the `schedule:` block to run it nightly. It caches
+`eval_runs.jsonl` between runs, because a fresh runner with no history has
+nothing to compare a pass *count* against and records the run as "run zero" —
+without that cache the workflow can only catch a crash or a total wipeout. (Run
+zero is not a blank cheque: a run where **no** case passed closes the gate
+anyway. Refusing to invent a threshold does not oblige the gate to call 0/20
+releasable.)
 
 ### Quarantine
 
@@ -261,9 +463,21 @@ freecode eval --quarantine-report
 
 | Threshold | Meaning |
 | --- | --- |
-| pass rate < **0.90** | proposed for quarantine |
+| pass rate < **0.90**, and it has passed at least once | proposed for quarantine |
+| pass rate **exactly 0** | never proposed — see below |
 | pass rate > **0.98** | proposed for release back into the gate |
 | fewer than **20** recorded runs | rates print, flagged as advisory |
+
+**A case that has never passed is not flaky, and is never proposed.** It is
+either a real finding about the agent or a broken case, and both want fixing
+rather than silencing. Without that exclusion the rate rule could not tell 0%
+from 60% and recommended both — on a real 20-case suite it proposed muting
+seven, including the two consistent failures that were the suite's most useful
+output.
+
+One limit worth knowing: the rate is computed over all recorded history and
+cannot tell that a case's *definition* changed. Fix a broken case and its rate
+stays poisoned by the runs it failed before the fix, until those age out.
 
 It only **proposes**. It never edits the file, because a gate that silently
 quarantines its own failures is a gate that always passes — the exact failure
@@ -286,23 +500,329 @@ prompt change cost us anything" a query rather than an argument, and it is what
 the quarantine rates are computed from. A truncated final line — killed
 mid-append — is skipped rather than making the whole history unreadable.
 
+## Comparing two runs
+
+The gate answers "did this regress against the last run". A different question —
+"is this change worth switching on" — needs an A/B, and `--save` / `--compare`
+are it:
+
+```bash
+# baseline: the feature off
+freecode eval redirect --trials 5 --save /tmp/off.json
+
+# candidate: same suite, feature on
+freecode eval redirect --trials 5 --compare /tmp/off.json --stuck
+```
+
+```
+  ✓ cases passed                  4 →          4  +0
+  ✓ tokens                  384,267 →    391,004  +6737
+  ✓ turns                        18 →         16  -2
+  ✗ repeated calls                0 →          0  +0
+  · redirects fired               0 →          1  +1
+CRITERION NOT MET — keep the default as it is.
+```
+
+Every trial records `turns`, `repeatedCalls`, `redirects`, `redirectsSkipped` and
+`questionsRejected` whether or not you are comparing, because a metric you can
+only collect by re-running is a metric you will not have when you need it.
+
+`compareReports()` (`eval/compare.ts`) is pure, so the criterion that decides a
+default flip is code rather than an argument. It is deliberately asymmetric: the
+candidate has to *earn* the change. A tie passes; a regression does not.
+`--stuck` marks a suite where the point is to reduce repetition, and adds two
+rules — repetition must fall, and **at least one redirection must have fired**.
+That second rule exists because "green because nothing happened" is the most
+expensive false positive available here.
+
 ## What is built, and what is only designed
 
-The spec runs to six phases. Two are built.
+The spec runs to six phases. Four are built.
 
 | Phase | Deliverable | Status |
 | --- | --- | --- |
 | 0 | carry tool `args` into `ToolSpan` | ✅ — `expectInArgs` is unscoreable without it |
 | 1 | case format, runner, trajectory scorer, gate, quarantine, `freecode eval` | ✅ |
-| 2 | tmpdir sandbox + outcome scorer + `evals/coding.jsonl` | ✗ |
-| 3 | LLM judge scorer + `--gate` in CI | ✗ — `gate.ts` exists, the judge does not |
-| 4 | `freecode eval add <session-id>` — harvest a case from a real session | ✗ |
-| later | repo-grounded sandbox | ✗ — blocked on the `node_modules` question |
+| 2 | tmpdir sandbox + outcome scorer + `evals/coding.jsonl` | ✅ — 6 cases, `build` mode, `verify` exit code |
+| 3 | LLM judge scorer + `--gate` in CI | ◐ — judge built; needs a second provider key to *run*, and CI is still unwired |
+| 4 | `freecode eval add <session-id>` — harvest a case from a real session | ✅ |
+| 5 | LLMOps close-out — pricing, agent spans, eval spans, live export | ◐ — three of four items built; live export deliberately not (see below) |
+| later | repo-grounded sandbox (Tier 2) | ✗ — blocked on the `node_modules` question |
 
-Phase 4 is the one to want. **Every production failure is already a
-fully-specified eval case sitting on disk** in the rollout log, and nothing
-harvests them. Observability makes failures visible; without that command,
-making them permanent is manual transcription.
+## Growing the suite from real failures
+
+Writing cases by hand is how a suite starts and not how it grows. **Every
+production failure is already a fully-specified eval case sitting on disk** —
+the rollout log has the trajectory, the session store has the prompt — and
+transcribing one by hand is a job nobody does. `freecode eval add` is the
+command that closes that loop:
+
+```bash
+freecode eval add <session-id>                  # print a draft to stdout
+freecode eval add <session-id> --turn 2         # a specific user turn
+freecode eval add <session-id> --write          # append to evals/trajectory.jsonl
+```
+
+```
+harvested turn 3 of 3 from 7cc43e0a-…
+note This records what the agent DID, not what it should do. A harvested run is
+     usually the wrong behaviour — that is why it is worth a case. Edit the
+     expectation before appending.
+note expectMaxTurns is the OBSERVED count (11), so the case fails on a run one
+     turn longer. Loosen it unless the turn count is the point.
+{"id":"ok-this-is-my-coding-agent-7cc43e-t3","prompt":"…","model":"minimax/MiniMax-M3",
+ "expectTool":"bash","expectInArgs":{"command":"ls -la …"},"expectMaxTurns":11}
+```
+
+The draft goes to **stdout** and the notes to **stderr**, so `>> evals/…jsonl`
+works and leaves the guidance on your terminal.
+
+| Field | Harvested from |
+| --- | --- |
+| `prompt` | the session store's `messages.jsonl` |
+| `model` | `ModelSpan.provider` + `.model` — the model that actually ran |
+| `expectTool` | the first tool that fired, or `null` if none did |
+| `expectInArgs` | that call's short single-line arguments |
+| `expectMaxTurns` | the observed `trace.modelSpans.length` |
+
+**The output is a draft, and the notes are the point.** A harvested run usually
+records the *wrong* behaviour — that is why it was worth keeping — so a draft
+that reads like an approved expectation is this command's failure mode. It says
+so first, every time, and again for each thing you probably need to change.
+
+Three details that are not obvious:
+
+**Turn scoping is by timestamp, not `turnId`.** A rollout `turnId` is
+`turn-<loopIteration>`, and `turnCount` is not reset per user prompt — so one
+user turn spans many `turnId`s and the two numbering schemes do not correspond.
+`--turn N` picks the Nth user message and takes the events in
+`[thatMessage, nextUserMessage)`.
+
+**Absolute paths get shortened to their last two segments.** A harvested
+`/tmp/freecode-eval-Uaw72m/check.mjs` names one machine and one tmpdir that no
+longer exists — a needle guaranteed never to match again. Every shortened value
+is named in a note; rewriting silently would be useful and dishonest.
+
+**Validation runs before anything is emitted or written.** The draft goes
+through `parseSuite` first, so this command cannot produce a case `freecode
+eval` would reject; `--write` then validates the *whole* file, because a
+duplicate id is only visible against the rest of the suite and finding it on the
+next run means a broken suite was committed in between.
+
+`--suite coding` is refused: a recorded session has no `files` fixture, so
+`verify` would have nothing to run against.
+
+> **The spec's design for this could not be built as written.** §8 sources the
+> prompt from `StoredTurn.prompt` in the thread store, and §5.1 marks it
+> present. It is not: `createTurn` is implemented in `json-store.ts`,
+> `sqlite-store.ts`, and `ThreadStore.addTurn`, and has **no production caller
+> anywhere in the repo** — 118 threads on a real installation, zero turns. The
+> durable text is in the *session* store. Everything §5.2 says about the split
+> survives: text still never enters the rollout log, so OTLP export stays
+> leak-free. Only the name of the store was wrong.
+
+## The judged suite
+
+Some things no exit code can check. "Did it call `grep`" is objective; "was that
+explanation any use" is not. `evals/judged.jsonl` is where the second kind
+lives, scored 0–5 by a **different model** against a rubric.
+
+```bash
+export FREECODE_JUDGE_PROVIDER=anthropic
+export FREECODE_JUDGE_MODEL=claude-haiku-4-5
+freecode eval judged --gate
+```
+
+```jsonc
+{"id": "explain-a-module",
+ "prompt": "In two or three sentences, what does gate.ts do and why…",
+ "rubric": "answer-quality",
+ "expectMaxTurns": 5,
+ "forbidTools": ["write", "edit"]}
+```
+
+`rubric` names a file under `evals/rubrics/`, and its presence is what makes a
+case judged. Rubrics are **markdown, not TypeScript**, so tuning one is a text
+diff rather than a build. Judged cases keep their trajectory expectations too —
+those are cheap and objective, and a case whose agent wrote to disk should fail
+on *that* rather than on a grader's opinion of its prose.
+
+### The judge cannot be the model under test
+
+This is the constraint that decides everything else. LLMs show **self-preference
+bias**: they rate their own output higher than an independent grader does. That
+is fatal here specifically, because the whole point of this harness is to change
+a prompt and re-run — and if judge and subject are the same model, your change
+moves the answer *and* the grader together. The number moves and tells you
+nothing.
+
+So the two failure modes get **opposite** handling:
+
+| Situation | What happens | Why |
+| --- | --- | --- |
+| judge collides with the model under test | **throws before any case runs** | the run would produce a number that looks like quality and is really self-similarity; there is no honest way to report that afterwards |
+| no judge configured at all | cases still run, report `not judged` — and the **gate closes** | a suite nobody graded is not a suite that passed |
+| judge configured but *some* cases unanswered | those cases are excluded from the mean; the rest gate normally | a third-party 429 must not fail a run, or the team learns to ignore red |
+| judge configured but **no** case answered | **gate closes**, and the judge's own error is quoted in the verdict | a total blackout and a retired model id are indistinguishable from inside one run, and neither certifies anything |
+
+The middle two rows are the same constraint seen from both sides, and the line
+between them is drawn at *did anything get graded at all*. Below that line the
+suite has produced no quality signal in either direction, and a gate whose job
+is to answer "is this releasable" must not answer yes from silence.
+
+Both closing rules were written after they fired for real. An unconfigured
+judge reported `5/5 · GATE OPEN` having graded nothing; so did a run whose
+judge model id had been retired by the provider. There is deliberately no
+override flag — omitting `--gate` is already how you run a judged suite without
+blocking on it.
+
+The collision check refuses on two signals. An equal normalised model id is the
+obvious one — date snapshots are stripped, so `claude-sonnet-4-5-20260101` and
+`claude-sonnet-4-5` collide, and a bare model id matches across provider names,
+which catches a gateway. The second is **same provider with no explicit
+`FREECODE_JUDGE_MODEL`**: the judge would fall back to that provider's default,
+which is very likely the subject, and comparing ids would never notice because
+there is no id to compare.
+
+It still cannot see through an opaque route, and it never will — nothing in a
+response says what is actually serving it. So the mitigation is **disclosure,
+not detection**: `SuiteReport.judge` records who actually graded, on every
+report, and the terminal prints it.
+
+### The blocking rule
+
+**Mean ≥ 3.5/5, and no single case below 2/5.**
+
+The floor is the half that earns its keep. A mean hides catastrophes: one 0/5
+disaster averages away behind four 5s and ships. Mean measures the suite; the
+floor measures the worst case, and for a release gate the worst case is the one
+that matters.
+
+Unlike the deterministic rules, these are **absolute rather than deltas**, and
+they apply on run zero too — a rubric threshold is a claim about quality that
+does not get easier because last week was bad.
+
+> **The thresholds are the spec's numbers, not yours.** 3.5 and 2.0 have not
+> been calibrated against a real run of this suite on your model. Treat the
+> first judged run as data for setting them, not as a verdict.
+
+### Details that stop it lying to you
+
+**An unscored trial is excluded from the mean, never counted as zero.** A judge
+outage must not fail a run — counting it as a zero would let a third-party 429
+close a release gate *and* drag the mean down in the most confusing way
+available.
+
+**A case that already failed deterministically is not judged.** No point buying
+an opinion about the prose of a run that called a forbidden tool, and the
+reported reason stays the objective one.
+
+**The judge is told which tools actually fired**, from `trace.toolSpans`, as
+ground truth. Without it a truthful "I've saved that to memory" reads as a
+hallucination and gets marked down — the single most common false negative in
+agent judging. Repeats are collapsed with a count (`read (x3)`) so the judge
+doesn't start grading repetition, which is the trajectory scorer's job.
+
+**A score outside 0–5 is rejected, not clamped.** A judge answering "8" on a
+five-point scale did not understand the task; clamping to 5 would record its
+confusion as a perfect mark.
+
+**Rubric existence is checked at load.** A missing rubric found mid-run costs an
+agent turn and then reports as a judge outage — indistinguishable from a
+provider being down, and therefore silently non-blocking. Wrong twice over.
+
+**Scale is 0–5, not 0–10.** Human–judge agreement peaks around five points
+(~0.89 Pearson); ten invites a "7" carrying no more information than "4/5".
+
+### Ordering
+
+§9.2 says a failed deterministic suite should mean the judge never runs. Suites
+are separate commands, so the shell gives you that for free — no cross-suite
+machinery:
+
+```bash
+freecode eval trajectory --gate && freecode eval judged --gate
+```
+
+## What a run costs
+
+A suite run prints an estimate:
+
+```
+20/20 cases passed (1 trial each)
+$0.0061 estimated · 20,540 tokens · prices as of 2026-05
+```
+
+`providers/pricing.ts` holds USD per million tokens keyed `provider/model`, and
+`freecode trace` grows a `cost` line from the same table. **`--compare` reports
+a cost row** — reported, never gated: `tokens` is the gated efficiency metric
+and it is the one under the harness's control, whereas cost also moves when a
+provider reprices, which is not a regression in anything this suite measures.
+
+Three rules keep the number honest:
+
+**An unknown model prices as nothing, not as zero.** Nothing downstream can
+tell a confidently wrong dollar figure from a real one, so an unpriced model
+produces no cost line at all rather than `$0.00` — which would read as free.
+Matching never falls back to a similar name either: `gpt-4o` and `gpt-4o-mini`
+differ by 16x.
+
+**A cache read is a discount, not a surcharge.** `inputTokens` is the inclusive
+prompt total with reads already folded in, so charging the read on top would
+double-count exactly the tokens the cache made cheap — and report a
+prompt-cache win as a cost increase. There is a test asserting cached costs
+less than uncached, for precisely that reason.
+
+**It is for comparison, not billing.** Published prices change without warning
+and the table cannot notice, so every display carries the table's vintage.
+`~/.freecode/pricing.json` overrides any entry (same `provider/model` keys, same
+USD-per-million units) and is the supported way to be exact — it is also how you
+price a model the built-in table has never heard of:
+
+```json
+{ "minimax/MiniMax-M3": { "input": 0.3, "output": 1.2, "cacheRead": 0.03 } }
+```
+
+> Building this turned up a fold gap of the same kind Phase 0 fixed: `ModelSpan`
+> dropped `cacheWriteTokens`, though `model.response` had recorded it all along.
+> Writes therefore priced at 1.0x instead of 1.25x and understated every cached
+> session. The rule held again — *adding a scorer must never require adding
+> instrumentation.*
+
+## Shipping scores to a collector
+
+```bash
+freecode eval --otlp http://localhost:4318    # or set OTEL_EXPORTER_OTLP_ENDPOINT
+```
+
+Emits an `evaluate_suite` root span with the pass rate as its score, one
+`evaluate <case-id>` span per case, and — the part that matters — **a link from
+each case span to the trace of the session it graded**. Same `hexId(sessionId)`
+derivation the session export uses, so a red case in Langfuse is one click from
+the trajectory that failed. Without the link, scores and runs land in one
+collector as two unrelated sets of spans.
+
+Session traces gained the agent layer at the same time: the root is now an
+`invoke_agent` span, and every span carries `gen_ai.conversation.id`, so a
+multi-turn session renders as one tree rather than N loose chats.
+
+| Choice | Why |
+| --- | --- |
+| a quarantined failure is **not** an error span | it ran and reported, and by design cannot turn the build red; colouring it red recreates the noise quarantine exists to remove |
+| `consistent` is separate from the verdict | majority-of-N is the blocking statistic, all-N is not — a case can be green and still flaky |
+| no prompt or reason text is exported | a case carries a prompt and a failure reason can quote arguments; the collector may be third-party, so §5.2's property has to hold here too |
+| export failure never fails the run | the run already happened and the report is already on disk |
+
+> `gen_ai.*` agent and evaluation attributes are still marked **Development**,
+> not Stable, and may be renamed. Core chat attributes are safe to build
+> dashboards on; these are provisional.
+
+**Live export is deliberately not built.** §12's second item proposes shipping
+each session on turn end, which would reverse
+`2026-08-10-agent-observability.md` §7 — where live streaming is deferred for a
+stated reason — and would put a network call in the path of a normal run. That
+is a decision to take on purpose, not to inherit from a sub-bullet. Export stays
+manual and post-mortem.
 
 ## What this deliberately is not
 
@@ -324,42 +844,71 @@ are all reasonable and none fit: the runner must drive *this* agent loop and rea
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-1. **The gate forgives a regression on the next run.** `runSuite` writes the
-   report unconditionally, so a red run becomes the baseline. 18/20 → 14/20 fails;
-   run it again at 14/20 and the gate opens, because both the count and the green
-   set now come from the 14/20 run. The delta rule is only honest if a closed
-   gate refuses to record its own baseline.
-2. **`SuiteReport.model` records the CLI override, not the resolved model.** With
-   no `--model` it is `undefined`, so the history cannot tell you which model
-   produced a baseline — and comparing a cheap local run against a CI baseline
-   from a different model looks like a regression with no way to see why. None of
-   the twenty shipped cases pins `model`, though the spec requires it.
-3. **`evalsDir()` is `path.resolve("evals")` — relative to the current working
+1. **`evalsDir()` is `path.resolve("evals")` — relative to the current working
    directory.** `freecode eval` from anywhere but the repo root fails with "no
-   such suite" unless `FREECODE_EVALS_DIR` is set. The shipped cases also
-   reference FreeCode's own source paths, so the suite is repo-specific in a way
-   nothing in the CLI says.
-4. **`--trials` defaults to 1**, which is `pass@1` — the statistic the gate's own
-   design says is too noisy to block on. `--gate` does not imply `--trials 3`.
-5. **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
-   invocation from a source checkout is a raw `tsx` command against `cli.ts`.
-6. **Nothing scores the reply text.** `RunRecord.response` is captured on every
-   trial and read by nobody until the judge lands.
-7. **The suite cannot test the modes that matter most.** No sandbox means no
-   `build`, no `danger`, no `bash` — so the highest-risk paths in the agent are
-   exactly the ones with no eval coverage.
+   such suite" unless `FREECODE_EVALS_DIR` is set. `pnpm eval` sidesteps it from
+   a checkout, but an installed binary still needs the env var. The shipped
+   cases also reference FreeCode's own source paths, so the suite is
+   repo-specific in a way nothing in the CLI says.
+2. **No shipped case pins `model`**, though spec §11 says every one should.
+   The hazard it guards against — comparing across models — is now caught by
+   the gate refusing a cross-model baseline, so this is a belt-and-braces gap
+   rather than an open hole. Per-case `model` still works and is still unused.
+6. **The judged thresholds are uncalibrated.** 3.5 mean / 2.0 floor come from
+   the spec, not from a real run of this suite. The spec itself says to set them
+   from the first real run; nobody has, because no second provider key has been
+   configured here yet. Until then a judged `--gate` result is a guess with an
+   exit code.
+10. **The built-in price table is tiny and dated.** Six models, `PRICES_AS_OF`
+    2026-05, and no MiniMax entry — deliberately, since inventing a rate to make
+    the column non-empty is the failure the module warns about. Anything not in
+    it prices as nothing until you add it to `~/.freecode/pricing.json`. Nothing
+    refreshes the table, and nothing warns when it goes stale.
+11. **Daily usage still has no USD.** `usage/tracker.ts` and the `usage.get` IPC
+    method record tokens only; `pricing.ts` is wired into traces, evals and OTLP
+    but not into the `/usage` heatmap, because that path does not record which
+    model spent the tokens.
+7. **The sandbox holds files, not the agent.** `bash` inside a coding case can
+   reach the whole filesystem; the tmpdir only scopes the file tools and the
+   permission answers. Cases are trusted fixtures, so this is a real limit
+   rather than a live hole — but it is the reason `danger` mode still has no
+   eval coverage, and the reason untrusted cases would need a container.
+8. **Coding cases are synthetic, and small.** Six dependency-free `.mjs`
+   fixtures exercise read/edit/write/bash on a bug an agent fixes in three or
+   four turns. They will catch a harness change that breaks editing outright;
+   they will not catch one that degrades work on a real codebase. That is the
+   Tier 2 sandbox, which is blocked on `node_modules`.
+9. **The coding suite has no baseline discipline yet.** It shares
+   `eval_runs.jsonl` with the trajectory suite (keyed by suite name, so they do
+   not collide) but gap 1 above applies to it identically.
 
 ## Debugging
 
 | Symptom | Check |
 | --- | --- |
 | `no such suite: …/evals/trajectory.jsonl` | you are not at the repo root; `cd` there or set `FREECODE_EVALS_DIR` |
+| suite stops early, exits 0, no summary and no report | fixed 2026-08-27 — the runner now declines `question.asked` and caps each trial. If you see it again on an old build, the last line before the silence is `Executing tool: question` |
 | `No provider configured` | set `current.provider` in `~/.freecode/config.json`, or pass `--model <provider>/<model>` |
 | every case fails with `run failed: …` | infrastructure, not the agent — the message is the provider's |
 | a case fails with `no recorded args for grep` | the tool fired but the rollout fold dropped its args (Phase 0 regression) |
 | `model call hung` | a request stayed open past 300s; `freecode trace <id>` shows which |
-| gate says "no baseline yet" every run | `FREECODE_EVAL_HOME` is changing between runs, or the history file was deleted |
+| gate says "no baseline yet" every run | `FREECODE_EVAL_HOME` changing between runs, the history file deleted, every prior run blocked, or every prior run on a different model |
+| gate says "no baseline yet" in CI | the `eval_runs.jsonl` cache did not restore — a fresh runner has no history, and run zero passes unconditionally |
+| every run reports a regression after you deleted cases | the baseline is sticky by design; `--accept-baseline` once to re-set it |
 | a case is green locally and red in CI | different resolved model — see gap 2 |
+| `verify exit 1: …` with a real assertion message | the agent's fix is wrong — that is the scorer working. `FREECODE_EVAL_KEEP_SANDBOX=1` keeps the tmpdir so you can reproduce it by hand |
+| `verify could not run: …` | the command itself is broken (a missing binary), not the agent |
+| `modified immutable check.mjs` | the agent edited the checker instead of the code — sharpen the prompt, do not relax the guard |
+| every coding case fails having never written a file | the permission answer did not fire. Check the case actually has `files`; an unsandboxed case denies headlessly by design |
+| `verify runs 'x.mjs', which 'files' never creates` | a load-time rejection, not a run — add the file to `files` |
+| `eval add` says `no recorded user prompt` | the session's `messages.jsonl` is empty, pruned, or was compacted away — the trajectory alone cannot make a case |
+| `eval add` says `no rollout events recorded for turn N` | that turn never reached a provider; pick another with `--turn` |
+| `eval add --write` says `duplicate case id` | already harvested. Nothing was written — the whole file is validated first |
+| `Judge … resolves to the model under test` | set `FREECODE_JUDGE_PROVIDER`/`FREECODE_JUDGE_MODEL` to a different provider. This throws before any case runs, so it costs nothing |
+| every judged case says `not judged: no judge configured` | no `FREECODE_JUDGE_PROVIDER`. Under `--gate` this **closes the gate** — a judged suite nobody graded is not a pass |
+| `judged suite graded nothing — 0 of N case(s) scored` | the judge was configured but answered for nothing. The verdict quotes its error; a retired model id is the usual cause |
+| a judged case says `not judged: failed deterministically` | it broke an objective expectation; the reported reason names which |
+| `no such rubric: …` at load | `rubric` names a file under `evals/rubrics/<name>.md` — no path, no extension |
 
 ## Where to look
 
@@ -370,10 +919,18 @@ Found while writing this page; each is also tracked in `TODO.md`.
 | Argument matching semantics | `apps/core/src/eval/match.ts` |
 | Driving one real turn | `apps/core/src/eval/runner.ts` |
 | The trajectory scorer | `apps/core/src/eval/scorers/trajectory.ts` |
+| The outcome scorer (`verify`, `immutable`) | `apps/core/src/eval/scorers/outcome.ts` |
+| The Tier 1 sandbox | `apps/core/src/eval/sandbox.ts` |
+| Harvesting a session into a case | `apps/core/src/eval/harvest.ts` |
+| Model prices and USD estimates | `apps/core/src/providers/pricing.ts` |
+| Scores as OTLP spans | `apps/core/src/eval/otlp.ts` |
+| The judge scorer and its prompt | `apps/core/src/eval/scorers/judge.ts` |
+| Who may judge, and the refusal | `apps/core/src/eval/judge-config.ts` |
+| Rubrics (markdown, not code) | `evals/rubrics/*.md` |
 | Majority-of-N and the gate rules | `apps/core/src/eval/gate.ts` |
 | Quarantine thresholds and proposals | `apps/core/src/eval/quarantine.ts` |
 | Report + history persistence | `apps/core/src/eval/report.ts` |
 | Suite orchestration | `apps/core/src/eval/suite.ts` |
 | The CLI surface | `apps/core/src/cli/commands/eval.ts` |
-| The cases themselves | `evals/trajectory.jsonl`, `evals/quarantine.txt` |
+| The cases themselves | `evals/trajectory.jsonl`, `evals/coding.jsonl`, `evals/judged.jsonl`, `evals/quarantine.txt` |
 | The trace the scorers fold | `apps/core/src/rollout/trace.ts` — see [tracing](/guides/tracing) |

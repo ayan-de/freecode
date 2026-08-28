@@ -10,6 +10,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { suiteEfficiency, type SuiteEfficiency } from "./scorers/efficiency.js";
 import type { SuiteReport } from "./types.js";
 
 export function reportDir(): string {
@@ -48,22 +49,52 @@ export interface Baseline {
   total: number;
   /** Case ids that passed in the most recent run — §9.2's regression clause. */
   greenIds: Set<string>;
+  /** The model that produced it, so a cross-model comparison can be refused. */
+  model?: string;
+  ranAt: string;
+  /**
+   * Folded here rather than in the gate so `evaluateGate` stays pure — it takes
+   * a report and a baseline and does no IO, which is what makes every rule in
+   * it testable without spending a token.
+   */
+  efficiency: SuiteEfficiency;
 }
 
 /**
- * The baseline is the LAST recorded run of this suite, not the best ever.
- * Best-ever ratchets a flaky suite permanently red; last-run tracks reality
- * and leaves the "previously green went red" clause to catch real regressions.
+ * The baseline is the last recorded run of this suite **that did not close the
+ * gate**, and that ran on the same model as the run being judged.
+ *
+ * Last-run rather than best-ever: best-ever ratchets a flaky suite permanently
+ * red, while last-run tracks reality and leaves the "previously green went red"
+ * clause to catch real regressions.
+ *
+ * Skipping blocked runs is what makes the delta rule honest. Recording every
+ * run meant a regression became its own baseline and was forgiven on the next
+ * attempt — 18/20 → 14/20 closes the gate, re-run at 14/20 and it opens.
+ *
+ * Skipping other models is the other half. Comparing a cheap local run against
+ * a CI baseline from a different model reads as a regression with no way to see
+ * why, and the spec is explicit that a repriced baseline is worse than none
+ * because it looks like data. `undefined` on either side means a run recorded
+ * before the model was tracked — compared anyway rather than discarded, since
+ * refusing would throw away every baseline written before this change.
  */
-export function baselineFor(suite: string): Baseline | null {
+export function baselineFor(suite: string, model?: string): Baseline | null {
   const history = readHistory(suite);
-  const last = history[history.length - 1];
-  if (!last) return null;
-  return {
-    passed: last.passed,
-    total: last.total,
-    greenIds: new Set(
-      last.cases.filter((c) => c.passed && !c.quarantined).map((c) => c.id),
-    ),
-  };
+  for (let i = history.length - 1; i >= 0; i--) {
+    const run = history[i];
+    if (run.gateBlocked) continue;
+    if (model && run.model && run.model !== model) continue;
+    return {
+      passed: run.passed,
+      total: run.total,
+      greenIds: new Set(
+        run.cases.filter((c) => c.passed && !c.quarantined).map((c) => c.id),
+      ),
+      model: run.model,
+      ranAt: run.ranAt,
+      efficiency: suiteEfficiency(run),
+    };
+  }
+  return null;
 }

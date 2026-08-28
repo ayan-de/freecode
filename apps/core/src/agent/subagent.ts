@@ -68,6 +68,9 @@ export async function executeSubagent(
       // each subagent extract would multiply one user turn into several
       // extraction calls.
       memoryExtraction: false,
+      // Same reasoning for redirection: a subagent is turn-capped and
+      // disposable, so re-planning belongs to the parent that spawned it.
+      redirect: false,
       sessionStore,
     });
 

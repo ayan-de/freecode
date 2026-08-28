@@ -24,10 +24,22 @@ function report(cases: CaseResult[]): SuiteReport {
   };
 }
 
-const baseline = (passed: number, total: number, green: string[]): Baseline => ({
+const baseline = (
+  passed: number,
+  total: number,
+  green: string[],
+  efficiency: Baseline["efficiency"] = {
+    trials: 0,
+    tokensPerTrial: 0,
+    pricedTrials: 0,
+  },
+): Baseline => ({
   passed,
   total,
   greenIds: new Set(green),
+  // Defaults to "nothing measured", so the gate-semantics tests below stay
+  // about gate semantics: an unmeasured baseline can never warn.
+  efficiency,
 });
 
 test("majority tolerates one unlucky trial out of three", () => {
@@ -54,6 +66,26 @@ test("first run has no baseline and records itself as run zero", () => {
   );
   assert.equal(verdict.open, true);
   assert.match(verdict.reasons[0], /run zero/);
+});
+
+test("run zero where nothing passed is not releasable", () => {
+  // Refusing to invent a threshold does not oblige the gate to call 0/2 green.
+  const cases = [
+    summarise("a", [trial(false)], false),
+    summarise("b", [trial(false)], false),
+  ];
+  const verdict = evaluateGate(report(cases), null);
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /no case passed/);
+});
+
+test("an all-quarantined run zero has nothing to wipe out", () => {
+  // total === 0, so there is no failure to report — and no claim to make.
+  const verdict = evaluateGate(
+    report([summarise("flaky", [trial(false)], true)]),
+    null,
+  );
+  assert.equal(verdict.open, true);
 });
 
 test("matching the baseline is green even when not everything passes", () => {
@@ -100,4 +132,217 @@ test("quarantined cases never block and never count", () => {
   assert.equal(r.passed, 1);
   const verdict = evaluateGate(r, baseline(1, 1, ["a"]));
   assert.equal(verdict.open, true);
+});
+
+// --- judged cases (spec §7, §9.2) -----------------------------------------
+
+const judgedTrial = (score: number | null, passed = true): TrialResult => ({
+  ...trial(passed),
+  score,
+});
+
+test("a judged case's verdict is its score against the floor, not majority", () => {
+  const good = summarise("a", [judgedTrial(4)], false);
+  assert.equal(good.passed, true);
+  assert.equal(good.score, 4);
+
+  const bad = summarise("b", [judgedTrial(1)], false);
+  assert.equal(bad.passed, false);
+  assert.equal(bad.score, 1);
+});
+
+test("a judged case's score is the mean of the trials the judge answered", () => {
+  // An unanswered trial is EXCLUDED, not counted as zero — an outage must not
+  // drag the mean down.
+  const c = summarise("a", [judgedTrial(4), judgedTrial(2), judgedTrial(null)], false);
+  assert.equal(c.score, 3);
+});
+
+test("an unscored judged case whose trials passed still passes", () => {
+  // §7 constraint 3: a judge outage never fails a run.
+  const c = summarise("a", [judgedTrial(null)], false);
+  assert.equal(c.passed, true);
+  assert.equal(c.score, null);
+});
+
+test("an unscored judged case whose trials FAILED does not pass", () => {
+  // The other half of the same rule, and the bug it used to hide: "the judge
+  // did not answer" and "the case never got far enough to ask" both arrive as
+  // score: null. A crashed or forbidden-tool trial must not pass on the
+  // strength of the grader not having run.
+  const c = summarise("a", [judgedTrial(null, false)], false);
+  assert.equal(c.passed, false);
+  assert.equal(c.score, null);
+});
+
+test("a deterministic case is untouched by any of this", () => {
+  const c = summarise("a", [trial(true), trial(true), trial(false)], false);
+  assert.equal(c.passed, true);
+  assert.equal(c.score, undefined);
+});
+
+test("the judged gate blocks on a mean below 3.5", () => {
+  const cases = [
+    summarise("a", [judgedTrial(3)], false),
+    summarise("b", [judgedTrial(3)], false),
+  ];
+  const verdict = evaluateGate(report(cases), baseline(2, 2, ["a", "b"]));
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /judged mean 3\.00\/5 below 3\.5/);
+});
+
+test("a single catastrophe blocks even when the mean is fine", () => {
+  // The whole reason the floor exists: one 0/5 averages away behind four 5s.
+  const cases = [
+    summarise("a", [judgedTrial(5)], false),
+    summarise("b", [judgedTrial(5)], false),
+    summarise("c", [judgedTrial(5)], false),
+    summarise("d", [judgedTrial(5)], false),
+    summarise("bad", [judgedTrial(0)], false),
+  ];
+  const r = report(cases);
+  const verdict = evaluateGate(r, baseline(4, 5, ["a", "b", "c", "d", "bad"]));
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /below the 2\/5 floor: bad/);
+});
+
+test("a healthy judged suite opens the gate", () => {
+  const cases = [
+    summarise("a", [judgedTrial(4)], false),
+    summarise("b", [judgedTrial(5)], false),
+  ];
+  const verdict = evaluateGate(report(cases), baseline(2, 2, ["a", "b"]));
+  assert.equal(verdict.open, true);
+});
+
+test("a PARTIAL judge outage passes on the cases that were scored", () => {
+  // §7 constraint 3 where it earns its keep: one 429 must not fail a run.
+  const cases = [
+    summarise("a", [judgedTrial(5)], false),
+    summarise("b", [judgedTrial(null)], false),
+  ];
+  const verdict = evaluateGate(report(cases), baseline(2, 2, ["a", "b"]));
+  assert.equal(verdict.open, true);
+  assert.deepEqual(verdict.reasons, []);
+});
+
+test("a TOTAL judge blackout closes the gate rather than reporting 5/5", () => {
+  // Observed 2026-08-28 with a retired judge model id: every case reported
+  // PASS, score null, and the suite printed GATE OPEN having graded nothing.
+  const cases = [
+    summarise("a", [judgedTrial(null)], false),
+    summarise("b", [judgedTrial(null)], false),
+  ];
+  const verdict = evaluateGate(report(cases), baseline(2, 2, ["a", "b"]));
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /graded nothing — 0 of 2/);
+});
+
+test("the blackout reason carries the judge's own error", () => {
+  // Without it the operator sees "graded nothing" and has to go digging for
+  // the retired-model message that explains it.
+  const trials = [
+    { ...judgedTrial(null), reason: "judge unavailable: model retired" },
+  ];
+  const verdict = evaluateGate(
+    report([summarise("a", trials, false)]),
+    baseline(1, 1, ["a"]),
+  );
+  assert.match(verdict.reasons.join(" "), /model retired/);
+});
+
+test("an unconfigured judge closes the gate", () => {
+  // The one that made the whole ritual decorative: no FREECODE_JUDGE_PROVIDER
+  // meant every judged case reported skipped and the run printed GATE OPEN.
+  const cases = [
+    summarise("a", [judgedTrial(null)], false),
+    summarise("b", [judgedTrial(null)], false),
+  ];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured. Set FREECODE_JUDGE_PROVIDER" },
+    baseline(2, 2, ["a", "b"]),
+  );
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /ran with no judge/);
+});
+
+test("an unconfigured judge closes the gate on run zero too", () => {
+  // The first real judged run has no baseline, and the no-baseline path returns
+  // early — so the rule has to live where that path can still see it.
+  const cases = [summarise("a", [judgedTrial(null)], false)];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured." },
+    null,
+  );
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /ran with no judge/);
+});
+
+test("an unconfigured judge on a suite with no judged cases is irrelevant", () => {
+  // Deterministic suites never ask for a judge, and must not be blocked by one
+  // not being there.
+  const cases = [summarise("a", [trial(true)], false)];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured." },
+    baseline(1, 1, ["a"]),
+  );
+  assert.equal(verdict.open, true);
+});
+
+test("quarantining every judged case leaves nothing for the judge rule to block", () => {
+  const cases = [summarise("flaky", [judgedTrial(null)], true)];
+  const verdict = evaluateGate(
+    { ...report(cases), judgeSkipped: "No judge configured." },
+    null,
+  );
+  assert.equal(verdict.open, true);
+});
+
+test("judged rules apply on run zero, where deterministic ones cannot", () => {
+  // A rubric threshold is absolute: it does not get easier because there is no
+  // history to compare against.
+  const cases = [summarise("bad", [judgedTrial(0)], false)];
+  const verdict = evaluateGate(report(cases), null);
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /below the 2\/5 floor/);
+});
+
+test("a quarantined judged case never blocks", () => {
+  const cases = [
+    summarise("a", [judgedTrial(5)], false),
+    summarise("flaky", [judgedTrial(0)], true),
+  ];
+  const verdict = evaluateGate(report(cases), baseline(1, 1, ["a"]));
+  assert.equal(verdict.open, true);
+});
+
+test("an efficiency regression warns and never closes the gate", () => {
+  // Same cases, same verdict — only the tokens moved.
+  const cases = [summarise("a", [trial(true)], false)];
+  const verdict = evaluateGate(
+    report(cases),
+    baseline(1, 1, ["a"], { trials: 1, tokensPerTrial: 50, pricedTrials: 0 }),
+  );
+  assert.equal(verdict.open, true, "efficiency must never block");
+  assert.deepEqual(verdict.reasons, []);
+  assert.equal(verdict.warnings.length, 1);
+  assert.match(verdict.warnings[0], /tokens\/trial/);
+});
+
+test("a blocked run still reports its efficiency warning", () => {
+  // Slower AND worse should say both — the warning is computed before the
+  // blocking rules, not instead of them.
+  const cases = [summarise("a", [trial(false)], false)];
+  const verdict = evaluateGate(
+    report(cases),
+    baseline(1, 1, ["a"], { trials: 1, tokensPerTrial: 50, pricedTrials: 0 }),
+  );
+  assert.equal(verdict.open, false);
+  assert.match(verdict.reasons.join(" "), /previously green/);
+  assert.equal(verdict.warnings.length, 1);
+});
+
+test("run zero has nothing to compare efficiency against", () => {
+  const verdict = evaluateGate(report([summarise("a", [trial(true)], false)]), null);
+  assert.deepEqual(verdict.warnings, []);
 });

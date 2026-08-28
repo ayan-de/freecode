@@ -596,13 +596,30 @@ that page's **Known gaps**.
       permanently 0, and `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
       (`agent/types.ts:206`) have no reader. Implement it or delete the fields —
       right now the spec advertises four heuristics and three exist.
-- [ ] **"No progress" is invisible.** `stagnantTurns` increments per *tool call*
-      rather than per turn (`loop.ts:2344`), can only produce `warn`, and the warn
-      goes to `logger.debug` (`loop.ts:714`).
-- [ ] **Loop health is implemented twice.** `effect/loop-health.ts`
-      (`createLoopHealthEvaluator`) duplicates `AgentLoop.evaluateLoopHealth`; it is
-      imported by `effect/layers.ts` but never resolved by the loop, and its own
-      comment says the two are kept in sync by hand.
+- [x] **"No progress" counted tool calls, not turns.** ✅ Phase 0 of
+      `specs/2026-08-26-trajectory-redirection.md` (D1). `stagnantTurns` now advances
+      once per turn in `AgentLoop.advanceStagnation()` (`loop.ts:2498`) — five
+      consecutive reads no longer read as stagnation — and `oscillationScore` is a
+      count of reverts still inside the 30-edit window (`countReverts`,
+      `agent/oscillation.ts`) instead of a counter that only ever climbed. Tests:
+      `agent/stagnation.test.ts`, `agent/oscillation.test.ts`.
+- [x] **`no_progress` fired on healthy read-only exploration.** ✅ Fixed
+      2026-08-27. Found by the Phase 2 eval probe, not by reading the code: in
+      plan/review/explore nothing the agent is *permitted* to do can reset
+      `stagnantTurns`, so it climbed to the threshold on any exploration past five
+      turns and stayed there. Harmless while a warn was only `logger.debug`; with
+      redirection on it is a model call billed for doing exactly what the mode is
+      for. `advanceStagnation()` now skips read-only modes (`isReadOnlyMode()`,
+      `permission/mode-policy.ts`), tested over all three.
+- [ ] **A loop-health `warn` still reaches nobody by default.** The signal is now trustworthy,
+      but every `warn` goes to `logger.debug` (`loop.ts:737`) — invisible at the
+      default log level and never shown to the model, so nothing acts on a stuck
+      pattern until it doubles into a `stop`. Phase 1 of
+      `specs/2026-08-26-trajectory-redirection.md`.
+- [x] **Loop health was implemented twice.** ✅ Phase 0 (D10). The private
+      `AgentLoop.evaluateLoopHealth()` is deleted; the loop now calls
+      `createLoopHealthEvaluator()` from `effect/loop-health.ts`, which is the only
+      copy of the policy.
 - [ ] **The provider tool list ignores agent mode.** `getToolDefs()`
       (`tools/defs-cache.ts:30`) takes no mode, so a plan-mode session advertises
       `write`/`edit`/`bash` and then hard-denies them (`mode-policy.ts:77`) — one
@@ -1076,14 +1093,31 @@ spec's §12; these are the parts that are actionable independently of it.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
-- [ ] **A closed gate records its own baseline, so a regression is forgiven on the
+- [x] **A `question` tool call kills the suite silently, exit 0.** ✅ Fixed
+      2026-08-27 (`eval/runner.ts`): the runner subscribes to `question.asked` and
+      rejects — the tool already recovers — and every trial has a wall-clock cap
+      (`FREECODE_EVAL_TRIAL_TIMEOUT_MS`, default 5 min). Original report: hit on
+      2026-08-26 running the trajectory suite for the first time:
+      `todowrite-for-multistep` made the model ask a clarifying question and the
+      process ended right there — no summary, no report, no verdict, exit code 0,
+      remaining 8 cases never run. `askQuestion()` `unref()`s its 30-minute timer
+      (`bus/index.ts:346`) so a pending question cannot hold the event loop open,
+      and headless there is no frontend to answer it. Under `--gate` a CI job
+      reads that as green. `runner.ts` should subscribe to `question.asked` and
+      reject (the tool already recovers with "You can continue without this
+      information"), plus cap each trial's wall clock. This is why
+      `~/.freecode/eval_runs.jsonl` did not exist until 2026-08-26 — the suite had
+      never once completed.
+- [x] **A closed gate records its own baseline, so a regression is forgiven on the
       next run.** `runSuite` calls `writeReport(report)` unconditionally
       (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
       (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
       opens, because both the count and `greenIds` now come from the 14/20 run.
       The delta rule is only honest if a closed gate refuses to become the
       baseline (or history records a `gated` flag that `baselineFor` skips).
-- [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
+      Confirmed live 2026-08-26: the Phase 0 comparison recorded 15/20 then
+      14/20, so the next gated run baselines against the red 14/20.
+- [x] **`SuiteReport.model` records the CLI override, not the resolved model**
       (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
       say which model produced a baseline, and a cheap local run compared against
       a CI baseline from another model looks like a regression with no way to see
@@ -1094,22 +1128,22 @@ spec's §12; these are the parts that are actionable independently of it.
       anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
       cases also reference FreeCode's own source paths, so the suite is
       repo-specific and nothing in `--help` says so.
-- [ ] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
+- [x] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
       statistic spec §9.1 argues is too noisy to block on. Either default
       `--trials` to 3 when `--gate` is set, or warn.
-- [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+- [x] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
       only documented invocation from a source checkout is a raw `tsx` command.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
-- [ ] **A closed gate records its own baseline, so a regression is forgiven on the
+- [x] **A closed gate records its own baseline, so a regression is forgiven on the
       next run.** `runSuite` calls `writeReport(report)` unconditionally
       (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
       (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
       opens, because both the count and `greenIds` now come from the 14/20 run.
       The delta rule is only honest if a closed gate refuses to become the
       baseline (or history records a `gated` flag that `baselineFor` skips).
-- [ ] **`SuiteReport.model` records the CLI override, not the resolved model**
+- [x] **`SuiteReport.model` records the CLI override, not the resolved model**
       (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
       say which model produced a baseline, and a cheap local run compared against
       a CI baseline from another model looks like a regression with no way to see
@@ -1120,11 +1154,121 @@ spec's §12; these are the parts that are actionable independently of it.
       anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
       cases also reference FreeCode's own source paths, so the suite is
       repo-specific and nothing in `--help` says so.
-- [ ] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
+- [x] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
       statistic spec §9.1 argues is too noisy to block on. Either default
       `--trials` to 3 when `--gate` is set, or warn.
-- [ ] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
+- [x] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
       only documented invocation from a source checkout is a raw `tsx` command.
+
+### Docs findings (eval Phase 2 — sandbox + outcome scorer, 2026-08-27)
+
+- [ ] **`bash` escapes the sandbox.** `eval/sandbox.ts` scopes the *file* tools
+      and the runner's permission answers to the tmpdir, but a coding case needs
+      `bash` and `bash` reaches the whole filesystem (spec §6.3 says so
+      explicitly). Cases are trusted fixtures, so this is a limit rather than a
+      live hole — but it is why `danger` mode still has no eval coverage, and
+      why an untrusted case would need a container (spec §13).
+- [ ] **Coding cases are synthetic and small.** Six dependency-free `.mjs`
+      fixtures, three-to-four turns each. They catch a harness change that
+      breaks editing outright; they will not catch one that degrades work on a
+      real codebase. That is the Tier 2 sandbox, blocked on `node_modules`
+      (spec §6.2).
+- [ ] **`referencedFiles()` in `eval/dataset.ts` is a token scan.** It only
+      catches script paths ending `.mjs`/`.cjs`/`.js`/`.json`, so a `verify`
+      that reaches a fixture file some other way (a shell redirect, a path built
+      inside `node -e`) is not validated at load and will fail at score time,
+      reading as an agent failure. Deliberately narrow — broadening it to
+      "anything path-shaped" rejects `node --test` — but the gap is real.
+- [ ] **`immutable` is checked only against files the case seeded.** A case
+      cannot assert "the agent created no new files", so an agent that leaves
+      scratch files behind still passes. Nothing depends on this yet.
+
+### Findings (eval Phase 4 — `eval add`, 2026-08-27)
+
+- [ ] **The thread store's turn table is dead code.** `createTurn` is
+      implemented in `store/json-store.ts`, `store/sqlite-store.ts` and
+      `ThreadStore.addTurn` (`store/thread-store.ts:164`), and **nothing in the
+      repo calls any of them**. Verified against a real installation:
+      `~/.freecode/state/store.json` holds 118 threads and 0 turns. So
+      `StoredTurn`, `StoredToolCall` and `getTurnItemsView` are a persistence
+      layer with no writer. Either wire it up or delete it — but it should not
+      keep sitting there looking like a source of truth. It already misled the
+      eval spec (§5.1's table, corrected in §8.1).
+- [ ] **`eval add` cannot harvest a coding case.** A recorded session has no
+      `files` fixture, so `--suite coding` is refused. Harvesting a *sandboxed*
+      case would mean reconstructing the fixture from the tool calls that
+      created it — possible in principle, not attempted.
+- [ ] **`expectMaxTurns` is harvested as the observed count exactly**, so a
+      drafted case fails on a run one turn longer. A note says so, but a human
+      who skims it commits a case that is red by construction. Consider
+      emitting `observed + 1`, or a `--slack N` flag.
+
+### Findings (eval Phase 5 — LLMOps close-out, 2026-08-27)
+
+- [ ] **Daily usage has no USD.** `providers/pricing.ts` now exists and feeds
+      `freecode trace`, `freecode eval` and the OTLP export, but
+      `usage/tracker.ts` still records tokens only — `recordDailyUsage` never
+      receives the provider/model that spent them, so the `/usage` heatmap
+      cannot be priced without threading that through.
+- [ ] **The built-in price table has no refresh path.** Six models, stamped
+      `PRICES_AS_OF = "2026-05"`. Nothing warns when it goes stale, and a stale
+      table is only safe because the contract is *comparison, not billing* —
+      which holds only while everyone remembers it.
+- [ ] **`attrs()` in `rollout/otlp.ts` rounds numerics to integers**, with an
+      explicit `FRACTIONAL` exception set. Adding a future rate-valued
+      attribute outside that set silently reports 0.5 as 1 — this already
+      happened once with the suite pass rate, caught only because a test was
+      re-read rather than trusted.
+- [ ] **§12 item 2 (live OTLP export on turn end) is not built, on purpose.**
+      It reverses `2026-08-10-agent-observability.md` §7 and puts a network
+      call in the path of a normal run. Wants an explicit decision.
+
+### Findings (eval Phase 3 — the judge, 2026-08-27)
+
+- [ ] **The judged thresholds are uncalibrated.** `JUDGE_MEAN_FLOOR = 3.5` and
+      `JUDGE_CASE_FLOOR = 2` come from the spec, which itself says to set them
+      "from the first real run, not from this document". No real run has
+      happened — no second provider key is configured here. Until one does, a
+      judged `--gate` verdict is a guess with an exit code.
+- [ ] **No judged run has ever executed.** Everything is unit-tested through the
+      `complete` seam, and the unconfigured + same-model paths are verified
+      live, but no rubric has been graded by a real judge model. The rubric
+      wording in `evals/rubrics/answer-quality.md` is therefore untested against
+      an actual grader.
+- [ ] **The same-model check cannot see through a gateway route.** It compares
+      normalised ids and refuses on same-provider-with-no-model, which catches
+      the obvious cases. An OpenRouter path or a vanity alias serving the same
+      weights will pass. Mitigation is `SuiteReport.judge` disclosure; there is
+      no detection fix, because nothing in a response says what served it.
+- [ ] **Judged cases cannot be harvested.** `eval add` emits trajectory cases;
+      a rubric is a human judgement about what "good" means for that prompt.
+
+### Findings (eval gate hardening, 2026-08-27)
+
+Closes the four items above that stood between "the harness runs" and "the
+harness can block a release". Remaining:
+
+- [ ] **`evalsDir()` is still CWD-relative.** `pnpm eval` covers a checkout and
+      the CI workflow sets nothing, but an *installed* binary run from anywhere
+      but a repo root still needs `FREECODE_EVALS_DIR`.
+- [ ] **No shipped case pins `model`**, though spec §11 says every one should.
+      The hazard — comparing across models — is now caught by `baselineFor`
+      refusing a cross-model baseline, so this is belt-and-braces rather than an
+      open hole.
+- [ ] **The CI workflow has never run.** It needs `secrets.*_API_KEY` and
+      `vars.FREECODE_EVAL_MODEL` set on the repo, and is `workflow_dispatch`
+      only by choice — every case is a real paid agent turn, so billing should
+      scale with releases, not pushes. Uncomment `schedule:` to go nightly.
+- [x] **`gateBlocked` makes the baseline sticky when a suite is legitimately
+      re-scoped.** Fixed 2026-08-27 with `--accept-baseline`, which records the
+      run as the baseline anyway and marks it `baselineAccepted: true` for the
+      audit trail. Verified across the full re-scope scenario.
+
+### Housekeeping
+
+- [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —
+      2026-08-23)` block twice, verbatim** (the run of five items appears at
+      ~1094 and again at ~1137). Pre-existing; not touched while doing Phase 2.
 
 ### Deliberate — do NOT "fix"
 
