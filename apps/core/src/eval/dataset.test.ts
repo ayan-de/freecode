@@ -7,7 +7,9 @@ import { DatasetError, parseSuite } from "./dataset.js";
 const ok = `{"id":"a","prompt":"p","expectTool":"grep"}`;
 
 test("parses one case per line, skipping blanks and comments", () => {
-  const cases = parseSuite(`// header\n${ok}\n\n{"id":"b","prompt":"q","expectTool":null}\n`);
+  const cases = parseSuite(
+    `// header\n${ok}\n\n{"id":"b","prompt":"q","expectTool":null}\n`,
+  );
   assert.equal(cases.length, 2);
   assert.equal(cases[0].id, "a");
   assert.equal(cases[1].expectTool, null);
@@ -18,21 +20,24 @@ test("rejects a case that asserts nothing", () => {
   // pass count and hides that the case was never finished.
   assert.throws(
     () => parseSuite(`{"id":"a","prompt":"p"}`),
-    (e: Error) => e instanceof DatasetError && /asserts nothing/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /asserts nothing/.test(e.message),
   );
 });
 
 test("rejects expectInArgs without expectTool", () => {
   assert.throws(
     () => parseSuite(`{"id":"a","prompt":"p","expectInArgs":{"x":"y"}}`),
-    (e: Error) => e instanceof DatasetError && /requires 'expectTool'/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /requires 'expectTool'/.test(e.message),
   );
 });
 
 test("rejects duplicate ids", () => {
   assert.throws(
     () => parseSuite(`${ok}\n${ok}`),
-    (e: Error) => e instanceof DatasetError && /duplicate case id/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /duplicate case id/.test(e.message),
   );
 });
 
@@ -45,7 +50,10 @@ test("rejects malformed JSON with the line number", () => {
 
 test("rejects a non-integer expectMaxTurns", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p","expectTool":"grep","expectMaxTurns":0}`),
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p","expectTool":"grep","expectMaxTurns":0}`,
+      ),
     (e: Error) => e instanceof DatasetError && /integer >= 1/.test(e.message),
   );
 });
@@ -77,7 +85,8 @@ test("rejects danger even in a sandbox", () => {
       parseSuite(
         `{"id":"a","prompt":"p","agentMode":"danger","files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
       ),
-    (e: Error) => e instanceof DatasetError && /bypasses the permission/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /bypasses the permission/.test(e.message),
   );
 });
 
@@ -102,7 +111,8 @@ test("verify tolerates flags and quotes around the script name", () => {
 test("rejects verify without files", () => {
   assert.throws(
     () => parseSuite(`{"id":"a","prompt":"p","verify":"node check.mjs"}`),
-    (e: Error) => e instanceof DatasetError && /requires 'files'/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /requires 'files'/.test(e.message),
   );
 });
 
@@ -112,7 +122,8 @@ test("rejects an immutable path that is not one of files", () => {
       parseSuite(
         `{"id":"a","prompt":"p","files":{"a.mjs":"x"},"verify":"node a.mjs","immutable":["check.mjs"]}`,
       ),
-    (e: Error) => e instanceof DatasetError && /not one of 'files'/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /not one of 'files'/.test(e.message),
   );
 });
 
@@ -122,7 +133,8 @@ test("rejects a fixture path that escapes the sandbox", () => {
       parseSuite(
         `{"id":"a","prompt":"p","files":{"../escape.mjs":"x"},"expectMaxTurns":3}`,
       ),
-    (e: Error) => e instanceof DatasetError && /escapes the sandbox/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /escapes the sandbox/.test(e.message),
   );
 });
 
@@ -197,5 +209,59 @@ test("the shipped coding suite is valid, sandboxed, and guards its checkers", ()
       kase.immutable?.length,
       `${kase.id}: coding cases must mark their checker immutable`,
     );
+  }
+});
+
+test("every expectInArgs key names a parameter its tool actually declares", async () => {
+  // The bug this exists to prevent: three shipped cases asserted `file_path`
+  // while `read` declares `filePath`, so they could never match and had failed
+  // every run since they were written. Nothing complained — a key that names
+  // nothing simply never matches, and the suite reported the AGENT as worse
+  // than it was. A scorer that lies in this direction is as bad as one that
+  // lies in the other; it just gets ignored instead of trusted.
+  //
+  // A test rather than a `dataset.ts` check on purpose: this needs the tool
+  // registry, `dataset.ts` is pure fs + JSON today, and the failure is worth
+  // catching at commit time rather than after a run that costs money.
+  const { tools } = await import("../tools/index.js");
+  const dir = path.resolve(import.meta.dirname, "../../../../evals");
+  // `parseSuite` resolves a case's rubric against `evalsDir()`, which is
+  // cwd-relative — and the cwd here is apps/core, not the repo root.
+  const previous = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = dir;
+
+  try {
+    for (const file of fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".jsonl"))) {
+      for (const kase of parseSuite(
+        fs.readFileSync(path.join(dir, file), "utf-8"),
+        file,
+      )) {
+        if (!kase.expectInArgs || !kase.expectTool) continue;
+        // Only built-ins: an MCP tool is registered at runtime and has no schema
+        // to check against here.
+        const tool = (
+          tools as Record<
+            string,
+            {
+              schemas: { parameters: { properties?: Record<string, unknown> } };
+            }
+          >
+        )[kase.expectTool];
+        if (!tool) continue;
+        const declared = Object.keys(tool.schemas.parameters.properties ?? {});
+        for (const key of Object.keys(kase.expectInArgs)) {
+          assert.ok(
+            declared.includes(key),
+            `${file}: case '${kase.id}' expects arg '${key}' on tool '${kase.expectTool}', ` +
+              `which declares only: ${declared.join(", ")}`,
+          );
+        }
+      }
+    }
+  } finally {
+    if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = previous;
   }
 });
