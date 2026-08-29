@@ -178,8 +178,26 @@ async function executeTodoWrite(
 
 export const TodoWriteTool: Tool<TodoWriteParams> = buildTool({
   id: "todowrite",
-  description:
-    "Create and update a structured task list for the current session. Use it to plan multi-step work and track progress; call it again with the full updated list whenever a task's status changes.",
+  // Long on purpose. This is the tool whose "when" is hardest to get right —
+  // claude-code spends 184 lines on it and opencode 44, because a one-line
+  // description reliably produces a model that plans *after* it has already
+  // explored, which is a plan that organised nothing. The ordering rule below
+  // is the part that was missing.
+  description: [
+    "Create and maintain a structured task list for the current session. Each call replaces the whole list.",
+    "",
+    "Use it proactively when:",
+    "- the work needs 3+ distinct steps (distinct steps, not 3 tool calls for one step)",
+    "- the user named several deliverables at once, numbered or comma-separated",
+    "- the user explicitly asked for a plan or a todo list",
+    "- new instructions arrive mid-task — capture them before acting on them",
+    "",
+    "Write the list BEFORE exploring, not after. When the request already names the work, you do not need to read the codebase to know what the steps are — the plan is the frame that exploration fills in.",
+    "",
+    "Do NOT use it for a single straightforward task, for work under 3 trivial steps, or for a purely informational question. Doing the task is better than tracking it.",
+    "",
+    "States: pending, in_progress (exactly ONE at a time), completed. Mark items completed as you finish them, never batched at the end, and only when the work is genuinely done rather than intended. If you are blocked, leave the item in_progress and add a follow-up item naming the blocker.",
+  ].join("\n"),
   schemas: { parameters: todoSchema },
   permissions: { operations: [] },
   behavior: {
