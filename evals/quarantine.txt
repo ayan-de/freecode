@@ -11,3 +11,23 @@
 # a gate that silently quarantines its own failures always passes.
 #
 # Format:  <case-id>    # why, and when to revisit
+
+# ---------------------------------------------------------------------------
+# Populated 2026-08-29 from the first 3-trial bootstrap run (spec
+# `2026-08-23-eval-harness.md` §14: "run the suite 3x, quarantine anything
+# below 0.9, treat that as run zero").
+#
+# `--quarantine-report` proposed SEVEN cases. Four were rejected, because it
+# computes a pass rate over the whole of `eval_runs.jsonl` and has NO NOTION OF
+# A SCORING EPOCH: `read-named-file`, `read-respects-path-arg`,
+# `read-to-summarise` and `find-symbol-uses-grep` all gained an
+# `expectFirstToolIn` on 2026-08-29, so their 80–87% is a rate under scoring
+# that no longer exists — and all four ran 3/3 under the current rules. A rate
+# spanning a scoring change is not a rate of anything.
+#
+# The three below have rates under UNCHANGED scoring, or no history at all.
+# ---------------------------------------------------------------------------
+
+todowrite-for-multistep    # 27% over 30 trials, and 2/3 in the bootstrap. Scoring unchanged since it was written, so the rate is real. Revisit after the next 3 runs: if it stays under 90% the case is wrong, not the agent — `forbidTools` lists ten tools and one stray read fails it.
+review-mode-readonly       # 50% over 30 trials, though 3/3 in the bootstrap. Scoring unchanged. A coin-flip case cannot anchor a gate; revisit once ~5 more runs exist to tell a bad case from a bimodal one.
+frustrated-user-wants-one-line  # 1/3 in the bootstrap, its only run. Carries a `knownGap`: under an impatient prompt this model guesses the file instead of verifying. Quarantined so a documented gap does not sit as a permanent -1 on the blocking count. Revisit when the gap closes, and delete this line then.

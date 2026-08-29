@@ -763,7 +763,57 @@ and tool-orchestration attributes above are provisional and may be renamed.
   by not being inside the repo.
 - **The judge threshold (3.5/5) and the per-case floor (2/5) are both guesses.** They
   should be set from the first real run of the judged suite. They are written down so the
-  gate is implementable, not because the numbers are known.
+  gate is implementable, not because the numbers are known. **Measured 2026-08-29 — see
+  §14.1. Deliberately left unchanged.**
+
+### 14.1 Calibration run, 2026-08-29
+
+The bootstrap this section asks for was run: all three gate suites, `--trials 3`, on
+`minimax/MiniMax-M3`, judge `gemini/gemini-3.6-flash`. All three opened the gate —
+trajectory 20/21, coding 11/11, judged 6/6 — and those are now the recorded baselines.
+
+**Quarantine is populated** (three entries), and populating it turned up a defect in the
+mechanism. `--quarantine-report` proposed seven trajectory cases; **four were rejected**,
+because `proposeQuarantine` computes a pass rate over the whole of `eval_runs.jsonl` and
+has *no notion of a scoring epoch*. `read-named-file`, `read-respects-path-arg`,
+`read-to-summarise` and `find-symbol-uses-grep` each gained an `expectFirstToolIn` on
+2026-08-29, so their 80–87% is a rate under scoring that no longer exists — and all four
+ran 3/3 under the current rules. **A rate spanning a scoring change is not a rate of
+anything**, and the report gives a reader no way to see that it happened. Recording it
+here rather than fixing it: the fix wants a scoring-version stamp on `SuiteReport`, which
+is baseline substrate and deserves its own decision.
+
+**The judged distribution, over 18 trials:**
+
+| | |
+| --- | --- |
+| min / max | 4 / 5 |
+| mean | 4.61 |
+| stdev (per trial) | 0.49 |
+| distribution | seven 4s, eleven 5s |
+| worst case mean | 4.00 (`explain-a-module`) |
+| max spread within a case | 1 point |
+
+**Both thresholds are left as they are, on purpose.** The reasoning, so the next person
+does not have to redo it:
+
+- **The mean floor (3.5) has ~1.1 of slack** against an observed 4.61. With 18 trials the
+  standard error of the suite mean is ≈0.12, so the floor sits roughly nine standard
+  errors below the observation — it cannot fire on noise, and equally it cannot fire until
+  quality has fallen a long way. A floor of 4.0 would be defensible on this data.
+- **The per-case floor (2) currently cannot fire.** Nothing has ever scored below 4, and
+  judge noise within a case is at most 1 point. Its job — *one catastrophic case blocks
+  even when the mean is fine* — is real: one case dropping to 2 moves the mean of six only
+  to 4.17, which clears 3.5. But at 2 it is set too low to do that job.
+- **And yet: n = 1.** A threshold set from a single run is still a guess, just one with a
+  number attached. Both figures move the gate in the direction of *more* blocking, and a
+  false red is how a gate gets ignored.
+
+**Decision rule, so this does not stay open forever:** after three more judged runs on the
+same judge model, if the per-trial minimum has stayed ≥ 4, set the mean floor to 4.0 and
+the per-case floor to 3. If any trial has scored below 4 by then, keep both and record
+what produced it. Whoever does this should check `SuiteReport.judge` first — the numbers
+above are for `gemini-3.6-flash`, and a judge model change invalidates them.
 - **`expect_in_args` on structured arguments is underspecified.** Substring matching over
   `String(args[key])` degrades badly when the value is an object or array — `$eq` and
   `$regex` cover the cases that matter today, but a case needing "this array contains this
