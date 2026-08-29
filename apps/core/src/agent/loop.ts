@@ -59,11 +59,9 @@ import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
 import {
-  evaluateTodoGate,
   shouldNudgeTodo,
   todoNudgeReminder,
   wrapUpReminder,
-  TODO_GATE_MAX_FORCES,
 } from "./reminders.js";
 import {
   resolveVerifyCommand,
@@ -326,10 +324,9 @@ export class AgentLoop {
   // copy used to live here as a private method; they were free to drift.
   private loopHealthEvaluator = createLoopHealthEvaluator();
   private fileStateHash: string = "";
-  // Reminder state (Phase 2): transient <system-reminder> blocks drained into
-  // the next turn's prompt, plus counters for the todo nudge/gate.
+  // Reminder state: transient <system-reminder> blocks drained into the next
+  // turn's prompt, plus counters for the todo nudge.
   private pendingReminders: string[] = [];
-  private todoGateForces = 0;
   private turnsSinceTodoWrite = 0;
   // Did the model save a memory itself during this run? If so, extraction is
   // skipped — it has already said what it wanted to keep.
@@ -602,7 +599,6 @@ export class AgentLoop {
     this.recentToolCalls = [];
     this.recentEdits = [];
     this.pendingReminders = [];
-    this.todoGateForces = 0;
     this.turnsSinceTodoWrite = 0;
     this.turnsSinceLastNudge = 0;
     this.filesMutatedThisRun = false;
@@ -908,29 +904,11 @@ export class AgentLoop {
           }
         }
 
-        // No tool calls means the model wants to stop. Before completing, run
-        // the todo-completion gate (grok-build style): if the plan still has
-        // unfinished items, inject a reminder and force another turn — up to a
-        // per-run cap so a stubborn list can't loop forever.
+        // No tool calls means the model wants to stop. Outstanding todos do
+        // not override that choice: planning-only requests legitimately leave
+        // every item pending, and a forced continuation turns a requested
+        // plan into unsolicited implementation work.
         if (turnResult.toolResults.length === 0) {
-          const gate = evaluateTodoGate(this.state.sessionId);
-          if (
-            gate.forceContinue &&
-            this.todoGateForces < TODO_GATE_MAX_FORCES
-          ) {
-            this.todoGateForces += 1;
-            if (gate.reminder) this.pendingReminders.push(gate.reminder);
-            console.log(
-              `[AgentLoop] Todo gate ${this.todoGateForces}/${TODO_GATE_MAX_FORCES}: unfinished todos — forcing another turn.`,
-            );
-            this.state = {
-              ...this.state,
-              iterationCount: this.state.iterationCount + 1,
-              turnCount: this.state.turnCount + 1,
-            };
-            continue;
-          }
-
           // Verification gate: if this run changed files, run the project's
           // typecheck/build before finishing. On failure, feed the output back
           // and force another turn — capped so a red project still terminates.
