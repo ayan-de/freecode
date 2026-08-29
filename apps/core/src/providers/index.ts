@@ -19,6 +19,8 @@ export {
   getProvider,
   listProviders,
   initProviders,
+  allowsAuxiliaryCalls,
+  providerRequiresApiKey,
 } from "./registry.js";
 
 // Initialize providers by eagerly importing all provider modules

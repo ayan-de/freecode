@@ -13,7 +13,12 @@ import {
   initProviders,
   listProviders,
   getProvider,
+  providerRequiresApiKey,
 } from "./providers/index.js";
+import {
+  LOCAL_PROVIDERS,
+  localProvider,
+} from "./providers/local-catalogue.js";
 import { MemoryService } from "./compaction/service.js";
 import { createLlmSummarizer } from "./compaction/llm-summarizer.js";
 import { applyCompaction } from "./session/compact-apply.js";
@@ -696,12 +701,17 @@ const methodHandlers: Record<
   },
 
   "providers.list": async (): Promise<unknown[]> => {
-    const providers = await getProviders();
+    const providers = [...(await getProviders()), ...LOCAL_PROVIDERS];
     return providers.map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,
-      hasApiKey: hasApiKey(p.id as ProviderId),
+      // A provider that needs no key is always "configured". Reporting false
+      // here makes the picker demand a key before it will let you select it,
+      // which for a web-session provider means inventing a meaningless one.
+      hasApiKey:
+        !providerRequiresApiKey(p.id as ProviderId) ||
+        hasApiKey(p.id as ProviderId),
     }));
   },
 
@@ -709,8 +719,9 @@ const methodHandlers: Record<
     params: Record<string, unknown>,
   ): Promise<unknown[]> => {
     const { providerId } = params as { providerId: string };
-    const models = await getProviderModels(providerId);
-    return models;
+    const local = localProvider(providerId);
+    if (local) return local.models;
+    return getProviderModels(providerId);
   },
 
   "models.contextLimit": async (
