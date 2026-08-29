@@ -4,7 +4,11 @@ import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RolloutRecorder } from "./recorder.js";
-import type { FunctionOutputEvent, RolloutEvent } from "./types.js";
+import type {
+  FunctionDeniedEvent,
+  FunctionOutputEvent,
+  RolloutEvent,
+} from "./types.js";
 
 function readEvents(dir: string): RolloutEvent[] {
   return readFileSync(join(dir, "events.jsonl"), "utf-8")
@@ -111,6 +115,30 @@ test("model.error records the stall kind", () => {
     assert.equal(event.type, "model.error");
     assert.equal(event.kind, "stall");
     assert.equal(event.duration_ms, 120_000);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("function.denied records the tool, the gate, and the reason", () => {
+  const dir = mkdtempSync(join(tmpdir(), "freecode-rollout-"));
+  try {
+    const recorder = new RolloutRecorder("s1", { rolloutDir: dir });
+    recorder.recordFunctionDenied(
+      "edit",
+      { filePath: "match.ts" },
+      "mode",
+      'Tool "edit" is not allowed in review mode (read-only)',
+      "turn-3",
+    );
+
+    const [event] = readEvents(dir) as FunctionDeniedEvent[];
+    assert.equal(event.type, "function.denied");
+    assert.equal(event.tool, "edit");
+    assert.equal(event.source, "mode");
+    assert.equal(event.turnId, "turn-3");
+    assert.deepEqual(event.args, { filePath: "match.ts" });
+    assert.match(event.reason, /review mode/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

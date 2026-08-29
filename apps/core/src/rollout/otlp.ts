@@ -193,6 +193,26 @@ export function traceToOtlp(trace: Trace, serviceName = "freecode"): unknown {
       }),
       status: { code: STATUS_OK },
     })),
+    // Zero-duration spans: the call was refused, so there is no work to time.
+    // Exported as ERROR because from the model's side that is what it was —
+    // a request that came back with nothing done.
+    ...trace.deniedSpans.map((span, i) => ({
+      traceId,
+      spanId: hexId(`${traceId}:denied:${i}`, 8),
+      parentSpanId: rootSpanId,
+      name: `execute_tool ${span.tool}`,
+      kind: 1,
+      startTimeUnixNano: nano(span.at),
+      endTimeUnixNano: nano(span.at),
+      attributes: attrs({
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.name": span.tool,
+        "gen_ai.conversation.id": trace.sessionId,
+        "freecode.denied": true,
+        "freecode.deny_source": span.source,
+      }),
+      status: { code: STATUS_ERROR, message: span.reason },
+    })),
   ];
 
   return {

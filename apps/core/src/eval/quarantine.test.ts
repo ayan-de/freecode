@@ -80,12 +80,29 @@ test("flags thin history so early rates read as advisory", () => {
   assert.equal(report.thin, true);
 });
 
-test("the shipped quarantine file parses and starts empty", () => {
+test("every quarantined id names a case that actually exists", async () => {
+  // Was "starts empty", which stopped being the invariant when the 2026-08-29
+  // bootstrap populated the file (eval-harness spec §14.1). Empty was never the
+  // property worth protecting anyway — a STALE id is, because a quarantine
+  // entry for a case that has been renamed or deleted silently protects
+  // nothing, and nothing else in the system would ever mention it again.
   const dir = path.resolve(import.meta.dirname, "../../../../evals");
   const prev = process.env.FREECODE_EVALS_DIR;
   process.env.FREECODE_EVALS_DIR = dir;
   try {
-    assert.equal(loadQuarantine().size, 0);
+    const { parseSuite } = await import("./dataset.js");
+    const known = new Set<string>();
+    for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"))) {
+      for (const kase of parseSuite(
+        fs.readFileSync(path.join(dir, file), "utf-8"),
+        file,
+      )) {
+        known.add(kase.id);
+      }
+    }
+    for (const id of loadQuarantine()) {
+      assert.ok(known.has(id), `quarantined id '${id}' matches no case`);
+    }
   } finally {
     if (prev === undefined) delete process.env.FREECODE_EVALS_DIR;
     else process.env.FREECODE_EVALS_DIR = prev;

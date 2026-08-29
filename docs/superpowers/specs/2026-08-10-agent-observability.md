@@ -125,6 +125,37 @@ breakdown (model / tools / other). When a log contains no model events at all
 it says so explicitly rather than reporting "no hangs" — silence there means
 nothing was recorded, not that nothing went wrong.
 
+### 5.1 Refused calls (`function.denied`)
+
+A tool call stopped by a hook, a mode, a rule, or the user **used to leave no
+event at all**: `loop.ts` returns before `recordFunctionCall`, so there was no
+`function.call`/`function.output` pair for the fold to pair, and a model
+burning six turns retrying a command the mode forbids folded into a trace that
+said it had done nothing. That is the exact shape loop-health exists to catch,
+and it was the one shape the log could not express.
+
+`function.denied` carries `{ tool, args, source, reason }`, where `source` is
+`hook | mode | rule | permission-hook | user`. Every refusal in `loop.ts` goes
+through one `denyToolCall()` exit so a future deny site cannot forget to record
+one.
+
+It folds into **`Trace.deniedSpans`, deliberately not into `toolSpans`**. Seven
+consumers read `toolSpans` and every one of them means "tools that ran" — the
+trajectory scorer, the judge's tool list, `harvest`'s drafted `expectTool`,
+`countRepeatedCalls`, `tool_ms`, evidence, OTLP. A `denied` flag on the
+existing array would keep each correct only while each remembered to filter,
+and a forgotten filter reads as a mutation that never happened. Additive is the
+shape where the unsafe default is impossible.
+
+Consequences worth stating: `forbidTools` in an eval still cannot see a refused
+call, and **that is correct** — it scores mutations that landed, so on a
+read-only-mode case it stays silent while enforcement works and fires only if
+enforcement breaks. It therefore asserts nothing about the model on its own and
+must be paired with an `expectTool`. In the evidence packet a denial is
+`denied`, never `failed`: a failed call did work and it went wrong, so the fix
+is different arguments; a denied call did nothing and the arguments were never
+the problem.
+
 ```
 freecode trace                 # most recent session
 freecode trace <id> --follow   # live, 1s redraw — watch a hang happen

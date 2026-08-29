@@ -10,6 +10,7 @@ import * as path from "path";
 import * as os from "os";
 import type {
   BaseEvent,
+  DenySource,
   ModelErrorEvent,
   ModelRequestEvent,
   ModelResponseEvent,
@@ -204,12 +205,14 @@ export class RolloutRecorder {
     tool: string,
     args: Record<string, unknown>,
     turnId: string,
+    callId?: string,
   ): void {
     const event = this.makeEvent("function.call", {
       aggregateID: this.sessionId,
       tool,
       args,
       turnId,
+      ...(callId ? { fields: { callId } } : {}),
     });
     this.write(event);
   }
@@ -223,14 +226,43 @@ export class RolloutRecorder {
     duration_ms: number,
     turnId: string,
     failed?: boolean,
+    callId?: string,
   ): void {
+    const fields: Record<string, unknown> = {};
+    if (failed !== undefined) fields.failed = failed;
+    if (callId) fields.callId = callId;
     const event = this.makeEvent("function.output", {
       aggregateID: this.sessionId,
       tool,
       output,
       duration_ms,
       turnId,
-      ...(failed === undefined ? {} : { fields: { failed } }),
+      ...(Object.keys(fields).length > 0 ? { fields } : {}),
+    });
+    this.write(event);
+  }
+
+  // ===========================================================================
+  // PUBLIC: recordFunctionDenied()
+  // ===========================================================================
+  /**
+   * A tool call that was refused before it ran. Paired with nothing — there is
+   * no output to wait for — so `buildTrace` folds it on its own.
+   */
+  recordFunctionDenied(
+    tool: string,
+    args: Record<string, unknown>,
+    source: DenySource,
+    reason: string,
+    turnId: string,
+  ): void {
+    const event = this.makeEvent("function.denied", {
+      aggregateID: this.sessionId,
+      tool,
+      args,
+      reason,
+      turnId,
+      fields: { source },
     });
     this.write(event);
   }

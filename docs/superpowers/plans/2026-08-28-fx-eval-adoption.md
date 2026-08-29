@@ -1,7 +1,11 @@
 # Adopting from fx — what its eval layer has that ours doesn't
 
 > **Date:** 2026-08-28
-> **Status:** Proposed
+> **Status:** Proposed. **Superseded in part (2026-08-29)** by
+> `specs/2026-08-29-eval-case-registry.md`, which settles §4, §5 and §6 as a spec
+> and adds fx's known-gap ledger. §3 (the scripted provider) is untouched and is
+> still the item worth planning around. §7's premise is stale: `scorers/efficiency.ts`
+> has since been built and wired (`runner.ts:309`, `gate.ts:104`).
 > **Extends:** `specs/2026-08-23-eval-harness.md` (Phases 0–5, built). This doc proposes
 > Phase 6+; it changes no existing decision in that spec except where §9 says so.
 > **Prior art:** `fx` (`vercel-labs/fx`), a Zig coding agent. Local clone read for this

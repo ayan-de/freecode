@@ -2,13 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
-import { DatasetError, parseSuite } from "./dataset.js";
+import { DatasetError, parseSuite, staleUnmeasured } from "./dataset.js";
+import { FAILURE_CATEGORIES } from "./types.js";
+import type { EvalCase, FailureCategory } from "./types.js";
 
-const ok = `{"id":"a","prompt":"p","expectTool":"grep"}`;
+// Every case now needs a category and a justification. Neither says anything
+// about what these tests actually check, so they are injected rather than
+// repeated in twenty-odd fixtures.
+const REQUIRED = `"failureCategory":"tool-routing","whyModelBacked":"w"`;
+
+const ok = `{"id":"a","prompt":"p",${REQUIRED},${REQUIRED},"expectTool":"grep"}`;
 
 test("parses one case per line, skipping blanks and comments", () => {
   const cases = parseSuite(
-    `// header\n${ok}\n\n{"id":"b","prompt":"q","expectTool":null}\n`,
+    `// header\n${ok}\n\n{"id":"b","prompt":"q",${REQUIRED},"expectTool":null}\n`,
   );
   assert.equal(cases.length, 2);
   assert.equal(cases[0].id, "a");
@@ -19,7 +26,7 @@ test("rejects a case that asserts nothing", () => {
   // Such a case always passes, which is worse than useless: it inflates the
   // pass count and hides that the case was never finished.
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p"}`),
+    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED}}`),
     (e: Error) =>
       e instanceof DatasetError && /asserts nothing/.test(e.message),
   );
@@ -27,9 +34,50 @@ test("rejects a case that asserts nothing", () => {
 
 test("rejects expectInArgs without expectTool", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p","expectInArgs":{"x":"y"}}`),
+    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectInArgs":{"x":"y"}}`),
     (e: Error) =>
       e instanceof DatasetError && /requires 'expectTool'/.test(e.message),
+  );
+});
+
+test("expectFirstToolIn and expectBashMatches each count as an assertion", () => {
+  const cases = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectFirstToolIn":["grep","glob"]}\n` +
+      `{"id":"b","prompt":"p",${REQUIRED},"expectBashMatches":"^git\\\\b"}`,
+  );
+  assert.deepEqual(cases[0].expectFirstToolIn, ["grep", "glob"]);
+  assert.equal(cases[1].expectBashMatches, "^git\\b");
+});
+
+test("rejects an empty or non-string expectFirstToolIn", () => {
+  for (const bad of ["[]", '"grep"', "[1]", '[""]']) {
+    assert.throws(
+      () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectFirstToolIn":${bad}}`),
+      (e: Error) =>
+        e instanceof DatasetError && /expectFirstToolIn/.test(e.message),
+      `should reject expectFirstToolIn: ${bad}`,
+    );
+  }
+});
+
+test("rejects expectFirstToolIn alongside expectTool null", () => {
+  // One requires a first tool, the other requires none: unsatisfiable, so it is
+  // a load error rather than a case that reports a false red every run.
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectTool":null,"expectFirstToolIn":["grep"]}`,
+      ),
+    (e: Error) => e instanceof DatasetError && /contradicts/.test(e.message),
+  );
+});
+
+test("rejects an uncompilable expectBashMatches at load, not at score time", () => {
+  // A bad pattern discovered mid-fold throws after a real turn has been paid
+  // for, and reads as an agent failure.
+  assert.throws(
+    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectBashMatches":"git ("}`),
+    (e: Error) => e instanceof DatasetError && /not a valid regex/.test(e.message),
   );
 });
 
@@ -52,7 +100,7 @@ test("rejects a non-integer expectMaxTurns", () => {
   assert.throws(
     () =>
       parseSuite(
-        `{"id":"a","prompt":"p","expectTool":"grep","expectMaxTurns":0}`,
+        `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep","expectMaxTurns":0}`,
       ),
     (e: Error) => e instanceof DatasetError && /integer >= 1/.test(e.message),
   );
@@ -63,7 +111,7 @@ test("rejects a mutating agent mode while there is no sandbox", () => {
   assert.throws(
     () =>
       parseSuite(
-        `{"id":"a","prompt":"p","expectTool":"read","agentMode":"build"}`,
+        `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"read","agentMode":"build"}`,
       ),
     (e: Error) => e instanceof DatasetError && /no sandbox/.test(e.message),
   );
@@ -71,7 +119,7 @@ test("rejects a mutating agent mode while there is no sandbox", () => {
 
 test("allows a mutating mode once the case is sandboxed", () => {
   const [kase] = parseSuite(
-    `{"id":"a","prompt":"p","agentMode":"build","files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
+    `{"id":"a","prompt":"p",${REQUIRED},"agentMode":"build","files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
   );
   assert.equal(kase.agentMode, "build");
   assert.deepEqual(kase.files, { "a.mjs": "x" });
@@ -83,7 +131,7 @@ test("rejects danger even in a sandbox", () => {
   assert.throws(
     () =>
       parseSuite(
-        `{"id":"a","prompt":"p","agentMode":"danger","files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
+        `{"id":"a","prompt":"p",${REQUIRED},"agentMode":"danger","files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
       ),
     (e: Error) =>
       e instanceof DatasetError && /bypasses the permission/.test(e.message),
@@ -95,7 +143,7 @@ test("rejects a verify that runs a file the fixture never creates", () => {
   assert.throws(
     () =>
       parseSuite(
-        `{"id":"a","prompt":"p","files":{"calc.mjs":"x"},"verify":"node check.mjs"}`,
+        `{"id":"a","prompt":"p",${REQUIRED},"files":{"calc.mjs":"x"},"verify":"node check.mjs"}`,
       ),
     (e: Error) => e instanceof DatasetError && /never creates/.test(e.message),
   );
@@ -103,14 +151,14 @@ test("rejects a verify that runs a file the fixture never creates", () => {
 
 test("verify tolerates flags and quotes around the script name", () => {
   const [kase] = parseSuite(
-    `{"id":"a","prompt":"p","files":{"check.mjs":"x"},"verify":"node --no-warnings ./check.mjs"}`,
+    `{"id":"a","prompt":"p",${REQUIRED},"files":{"check.mjs":"x"},"verify":"node --no-warnings ./check.mjs"}`,
   );
   assert.equal(kase.verify, "node --no-warnings ./check.mjs");
 });
 
 test("rejects verify without files", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p","verify":"node check.mjs"}`),
+    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"verify":"node check.mjs"}`),
     (e: Error) =>
       e instanceof DatasetError && /requires 'files'/.test(e.message),
   );
@@ -120,7 +168,7 @@ test("rejects an immutable path that is not one of files", () => {
   assert.throws(
     () =>
       parseSuite(
-        `{"id":"a","prompt":"p","files":{"a.mjs":"x"},"verify":"node a.mjs","immutable":["check.mjs"]}`,
+        `{"id":"a","prompt":"p",${REQUIRED},"files":{"a.mjs":"x"},"verify":"node a.mjs","immutable":["check.mjs"]}`,
       ),
     (e: Error) =>
       e instanceof DatasetError && /not one of 'files'/.test(e.message),
@@ -131,7 +179,7 @@ test("rejects a fixture path that escapes the sandbox", () => {
   assert.throws(
     () =>
       parseSuite(
-        `{"id":"a","prompt":"p","files":{"../escape.mjs":"x"},"expectMaxTurns":3}`,
+        `{"id":"a","prompt":"p",${REQUIRED},"files":{"../escape.mjs":"x"},"expectMaxTurns":3}`,
       ),
     (e: Error) =>
       e instanceof DatasetError && /escapes the sandbox/.test(e.message),
@@ -141,7 +189,7 @@ test("rejects a fixture path that escapes the sandbox", () => {
 test("verify alone is a real assertion", () => {
   // Otherwise every coding case would need a redundant expectMaxTurns to load.
   const [kase] = parseSuite(
-    `{"id":"a","prompt":"p","files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
+    `{"id":"a","prompt":"p",${REQUIRED},"files":{"a.mjs":"x"},"verify":"node a.mjs"}`,
   );
   assert.equal(kase.verify, "node a.mjs");
 });
@@ -182,14 +230,14 @@ test("the shipped judged suite is valid and every rubric it names exists", () =>
 
 test("rejects a rubric that does not exist", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p","rubric":"no-such-rubric"}`),
+    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"rubric":"no-such-rubric"}`),
     (e: Error) => e instanceof DatasetError && /no such rubric/.test(e.message),
   );
 });
 
 test("rejects a rubric given as a path", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p","rubric":"../../etc/passwd"}`),
+    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"rubric":"../../etc/passwd"}`),
     (e: Error) => e instanceof DatasetError && /not a path/.test(e.message),
   );
 });
@@ -263,5 +311,190 @@ test("every expectInArgs key names a parameter its tool actually declares", asyn
   } finally {
     if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
     else process.env.FREECODE_EVALS_DIR = previous;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Registry assertions — spec `2026-08-29-eval-case-registry.md` §7.
+//
+// These cost nothing and run on every commit. fx does the same thing: its
+// `agent-quality-matrix.test.ts` tests the REGISTRY, not the agent, and is the
+// cheapest test in that repo.
+// ---------------------------------------------------------------------------
+
+/** Loads every shipped suite with `evalsDir()` pointed at the repo's `evals/`. */
+function allShippedCases(): Array<{ file: string; cases: EvalCase[] }> {
+  const dir = path.resolve(import.meta.dirname, "../../../../evals");
+  const previous = process.env.FREECODE_EVALS_DIR;
+  process.env.FREECODE_EVALS_DIR = dir;
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((file) => ({
+        file,
+        cases: parseSuite(fs.readFileSync(path.join(dir, file), "utf-8"), file),
+      }));
+  } finally {
+    if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
+    else process.env.FREECODE_EVALS_DIR = previous;
+  }
+}
+
+test("rejects a case with no failureCategory, or one outside the closed set", () => {
+  for (const bad of ["", '"prompt-stuff"', "null", "3"]) {
+    const field = bad === "" ? "" : `,"failureCategory":${bad}`;
+    assert.throws(
+      () =>
+        parseSuite(
+          `{"id":"a","prompt":"p","whyModelBacked":"w","expectTool":"grep"${field}}`,
+        ),
+      (e: Error) =>
+        e instanceof DatasetError && /failureCategory/.test(e.message),
+      `should reject failureCategory: ${bad || "<missing>"}`,
+    );
+  }
+});
+
+test("rejects a case that does not say why it needs a real model", () => {
+  // The rule that a non-model test belongs in a *.test.ts was prose in
+  // CLAUDE.md with nothing enforcing it.
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p","failureCategory":"tool-routing","whyModelBacked":"  ","expectTool":"grep"}`,
+      ),
+    (e: Error) => e instanceof DatasetError && /whyModelBacked/.test(e.message),
+  );
+});
+
+test("rejects a knownGap whose notes and target are the same string", () => {
+  // With one field doing both jobs the aspiration gets written into the status
+  // and the gap vanishes from the record without anyone fixing it.
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+          `"knownGap":{"status":"known-gap","notes":"same","target":"same"}}`,
+      ),
+    (e: Error) => e instanceof DatasetError && /the same string/.test(e.message),
+  );
+});
+
+test("accepts a knownGap that separates observation from aspiration", () => {
+  const [kase] = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"partial","notes":"opens with websearch","target":"opens with grep"}}`,
+  );
+  assert.equal(kase.knownGap?.status, "partial");
+});
+
+test("rejects an unknown knownGap status", () => {
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+          `"knownGap":{"status":"broken","notes":"a","target":"b"}}`,
+      ),
+    (e: Error) => e instanceof DatasetError && /knownGap.status/.test(e.message),
+  );
+});
+
+test("every shipped case explains why it needs a real model", () => {
+  for (const { file, cases } of allShippedCases()) {
+    for (const kase of cases) {
+      assert.ok(
+        kase.whyModelBacked.trim().length > 20,
+        `${file}: case '${kase.id}' has a whyModelBacked too short to mean anything`,
+      );
+    }
+  }
+});
+
+test("case ids are unique ACROSS suites, not just within one", () => {
+  // `parseSuite` only sees one file, so harvesting into the wrong suite can
+  // produce a collision no loader catches — and `eval_runs.jsonl` keys the
+  // baseline's green set by id alone.
+  const seen = new Map<string, string>();
+  for (const { file, cases } of allShippedCases()) {
+    for (const kase of cases) {
+      const first = seen.get(kase.id);
+      assert.ok(
+        first === undefined,
+        `case id '${kase.id}' appears in both ${first} and ${file}`,
+      );
+      seen.set(kase.id, file);
+    }
+  }
+});
+
+// Every category with no case today. Kept as a golden list rather than an
+// `assert(covered)`: the empty ones ARE the finding — we have code for recovery,
+// compaction boundaries, resume and memory recall and no eval touching any of
+// it — and failing the build over that would just get the categories deleted,
+// which destroys the very signal the closed set exists to give. As a golden
+// list, adding the first case in a category fails this test and you delete the
+// line; removing the last case fails it and you notice.
+// The four left are not "unwritten" — they are UNREACHABLE for a harness that
+// drives exactly one `loop.runEffect({ prompt })` per trial (`runner.ts`) and
+// seeds nothing but a tmpdir of files. Each needs a harness change first, named
+// in the spec's §9 Phase 4 row:
+//   compaction-boundary  needs a turn long enough to compact — not deterministic
+//   memory-recall        needs a seeded memory dir; `files` cannot escape the sandbox
+//   resume               needs a prior session to resume from
+//   mcp-failure          needs a fixture MCP server; `initMcpServers()` reads real config
+const CATEGORIES_WITHOUT_CASES: FailureCategory[] = [
+  "compaction-boundary",
+  "memory-recall",
+  "resume",
+  "mcp-failure",
+];
+
+test("coverage by failure category is what we think it is", () => {
+  const covered = new Set(
+    allShippedCases().flatMap(({ cases }) => cases.map((c) => c.failureCategory)),
+  );
+  const empty = FAILURE_CATEGORIES.filter((c) => !covered.has(c));
+  assert.deepEqual(
+    [...empty],
+    CATEGORIES_WITHOUT_CASES,
+    "coverage changed — update CATEGORIES_WITHOUT_CASES to match, and say so in review",
+  );
+});
+
+test("an 'unmeasured' case that has run history is stale", () => {
+  // Spec §5: if we ran it, it is measured. A record saying nobody has looked,
+  // when the history says otherwise, is worse than no record.
+  const cases = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"unmeasured","notes":"never run","target":"passes"}}\n` +
+      `{"id":"b","prompt":"p",${REQUIRED},"expectTool":"grep"}`,
+  );
+  assert.deepEqual(
+    staleUnmeasured(cases, [{ cases: [{ id: "a" }, { id: "b" }] }]),
+    ["a"],
+  );
+});
+
+test("'unmeasured' with no history, and other statuses with history, are fine", () => {
+  const unmeasured = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"unmeasured","notes":"never run","target":"passes"}}`,
+  );
+  assert.deepEqual(staleUnmeasured(unmeasured, []), []);
+  assert.deepEqual(staleUnmeasured(unmeasured, [{ cases: [{ id: "other" }] }]), []);
+
+  const known = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"known-gap","notes":"guesses","target":"greps"}}`,
+  );
+  assert.deepEqual(staleUnmeasured(known, [{ cases: [{ id: "a" }] }]), []);
+});
+
+test("no shipped case claims to be unmeasured after it has run", async () => {
+  const { readHistory } = await import("./report.js");
+  for (const { file, cases } of allShippedCases()) {
+    const stale = staleUnmeasured(cases, readHistory());
+    assert.deepEqual(stale, [], `${file}: stale 'unmeasured' on ${stale.join(", ")}`);
   }
 });

@@ -101,7 +101,18 @@ export interface ExecuteResult {
   usage?: ExecuteUsage;
   stopReason: "stop" | "tool_use" | "max_tokens" | "unknown";
   provider: string;
+  /** What we ASKED for. */
   model: string;
+  /**
+   * What the provider says it actually served, when it says anything.
+   *
+   * Distinct from `model` because an alias resolves server-side: asking for
+   * `claude-sonnet-4-6` can be answered by a dated snapshot, and a silent roll
+   * of that snapshot reprices every eval baseline pinned to the alias without
+   * changing a single recorded id. Undefined means the provider did not say —
+   * never assume it matches.
+   */
+  echoedModel?: string;
 }
 
 export type ProviderChunk =
@@ -117,7 +128,13 @@ export type ProviderChunk =
       type: "usage";
       usage: NonNullable<ExecuteResult["usage"]>;
     }
-  | { type: "done"; stopReason: ExecuteResult["stopReason"] }
+  | {
+      type: "done";
+      stopReason: ExecuteResult["stopReason"];
+      /** See `ExecuteResult.echoedModel`. Carried on `done` rather than as its
+       *  own chunk so no consumer has to learn a new case to ignore. */
+      echoedModel?: string;
+    }
   | { type: "error"; error: string };
 
 export interface AIProvider {

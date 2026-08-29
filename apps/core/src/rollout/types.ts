@@ -29,6 +29,7 @@ export type RolloutEvent =
   | TurnAbortedEvent
   | FunctionCallEvent
   | FunctionOutputEvent
+  | FunctionDeniedEvent
   | CompactOccurredEvent
   | SubagentStartEvent
   | SubagentStopEvent
@@ -61,6 +62,17 @@ export interface FunctionCallEvent extends BaseEvent {
   tool: string;
   args: Record<string, unknown>;
   seq: number;
+  /**
+   * The model's own id for this call, so an output can be paired back to the
+   * call that produced it.
+   *
+   * Needed because a parallel batch (`Promise.all` in `loop.ts`) writes its
+   * outputs in COMPLETION order: two calls to the same tool are otherwise
+   * indistinguishable, and the fold could attribute one call's arguments to
+   * the other's result. Optional — logs written before this field existed are
+   * still valid, and `trace.ts` falls back to pairing oldest-call-first.
+   */
+  callId?: string;
 }
 
 export interface FunctionOutputEvent extends BaseEvent {
@@ -78,6 +90,36 @@ export interface FunctionOutputEvent extends BaseEvent {
    */
   failed?: boolean;
   duration_ms: number;
+  seq: number;
+  /** See `FunctionCallEvent.callId`. */
+  callId?: string;
+}
+
+/** Which gate refused the call. Kept distinct so "the mode forbids this" and
+ *  "the user said no" do not read as the same event. */
+export type DenySource = "hook" | "mode" | "rule" | "permission-hook" | "user";
+
+/**
+ * A tool call the model made that never ran.
+ *
+ * Without this the refusal leaves NO trace at all: `loop.ts` returns before
+ * `recordFunctionCall`, so there is no `function.call`/`function.output` pair
+ * and `buildTrace` has nothing to pair. A model burning six turns retrying a
+ * command the mode forbids looked, in the log, like a model that did nothing —
+ * which is the one shape loop-health most needs to see.
+ *
+ * Deliberately NOT a `function.call` with a failed output: the tool did not
+ * execute, so counting it as one would put attempted mutations into
+ * `changedFiles` and satisfy an eval's `expectTool` with work never done.
+ */
+export interface FunctionDeniedEvent extends BaseEvent {
+  type: "function.denied";
+  turnId: string;
+  tool: string;
+  args: Record<string, unknown>;
+  source: DenySource;
+  /** The message the model was handed back, so the trace says why. */
+  reason: string;
   seq: number;
 }
 
@@ -168,7 +210,15 @@ export interface ModelResponseEvent extends BaseEvent {
   type: "model.response";
   turnId: string;
   provider: string;
+  /** What we asked for — the same id `model.request` carries. */
   model: string;
+  /**
+   * What the provider says it served, when it says anything. An alias resolves
+   * server-side, so a snapshot can roll under a stable id and reprice every
+   * baseline pinned to that id while the log still reads identical. Recording
+   * the echo is the only way that becomes visible after the fact.
+   */
+  echoedModel?: string;
   duration_ms: number;
   ttft_ms?: number;
   inputTokens?: number;

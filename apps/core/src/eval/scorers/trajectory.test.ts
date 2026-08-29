@@ -5,7 +5,15 @@ import type { Trace, ToolSpan, ModelSpan } from "../../rollout/trace.js";
 import type { EvalCase, RunRecord } from "../types.js";
 
 function tool(name: string, args?: Record<string, unknown>): ToolSpan {
-  return { tool: name, startedAt: 0, duration_ms: 10, ...(args ? { args } : {}) };
+  // `callSeq` is assigned by `run()` from array position: these fixtures are
+  // written in the order the model called them, which is what the scorer reads.
+  return {
+    tool: name,
+    callSeq: 0,
+    startedAt: 0,
+    duration_ms: 10,
+    ...(args ? { args } : {}),
+  };
 }
 
 function modelSpan(status: ModelSpan["status"] = "ok"): ModelSpan {
@@ -24,6 +32,7 @@ function modelSpan(status: ModelSpan["status"] = "ok"): ModelSpan {
 }
 
 function run(toolSpans: ToolSpan[], modelSpans = [modelSpan()]): RunRecord {
+  toolSpans = toolSpans.map((s, i) => ({ ...s, callSeq: i }));
   const trace: Trace = {
     sessionId: "s1",
     startedAt: 0,
@@ -103,6 +112,55 @@ test("exceeding the turn budget fails", () => {
   );
   assert.equal(score.passed, false);
   assert.match(score.reason, /3 turns/);
+});
+
+test("expectFirstToolIn scores position, where expectTool scores membership", () => {
+  const late = run([tool("websearch"), tool("grep")]);
+  // The distinction the suite exists for: both runs greped, only one led with it.
+  assert.equal(scoreTrajectory(late, kase({ expectTool: "grep" })).passed, true);
+
+  const score = scoreTrajectory(late, kase({ expectFirstToolIn: ["grep", "glob"] }));
+  assert.equal(score.passed, false);
+  assert.match(score.reason, /expected first tool in \[grep,glob\], called websearch/);
+
+  const early = run([tool("glob"), tool("read")]);
+  assert.equal(
+    scoreTrajectory(early, kase({ expectFirstToolIn: ["grep", "glob"] })).passed,
+    true,
+  );
+});
+
+test("expectFirstToolIn fails when no tool fired at all", () => {
+  const score = scoreTrajectory(run([]), kase({ expectFirstToolIn: ["grep"] }));
+  assert.equal(score.passed, false);
+  assert.match(score.reason, /called nothing/);
+});
+
+test("expectBashMatches is satisfied by any bash span, not just the first", () => {
+  const score = scoreTrajectory(
+    run([tool("bash", { command: "ls -la" }), tool("bash", { command: "git log -3" })]),
+    kase({ expectBashMatches: "^git\\s+log\\b" }),
+  );
+  assert.equal(score.passed, true);
+});
+
+test("expectBashMatches names the commands that did run when none match", () => {
+  const score = scoreTrajectory(
+    run([tool("bash", { command: "ls -la" })]),
+    kase({ expectBashMatches: "^git\\s+log\\b" }),
+  );
+  assert.equal(score.passed, false);
+  assert.match(score.reason, /no bash command matched/);
+  assert.match(score.reason, /ls -la/);
+});
+
+test("expectBashMatches distinguishes 'ran no bash' from 'ran the wrong bash'", () => {
+  const score = scoreTrajectory(
+    run([tool("grep")]),
+    kase({ expectBashMatches: "^git\\b" }),
+  );
+  assert.equal(score.passed, false);
+  assert.match(score.reason, /ran none/);
 });
 
 test("a hung or errored model call is never a pass", () => {

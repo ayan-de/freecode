@@ -75,6 +75,11 @@ export async function runSuite(
   }
 
   const blocking = results.filter((c) => !c.quarantined);
+  const echoed = [
+    ...new Set(
+      results.flatMap((c) => c.trials.flatMap((t) => t.echoedModels ?? [])),
+    ),
+  ].sort();
   const report: SuiteReport = {
     suite: options.suite,
     ranAt: new Date().toISOString(),
@@ -93,6 +98,9 @@ export async function runSuite(
     // report for a reader to check.
     ...(config.judge ? { judge: config.judge } : {}),
     ...(judgeSkipped ? { judgeSkipped } : {}),
+    // Same reason as `judge` above: what we asked for is already recorded, and
+    // what was actually served is the thing a stable id cannot tell you.
+    ...(echoed.length > 0 ? { echoedModels: echoed } : {}),
   };
 
   // Read the baseline BEFORE writing, or this run becomes its own baseline

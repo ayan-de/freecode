@@ -10,7 +10,7 @@
 // Pure: no IO, no formatting. Rendering lives in trace-render.ts.
 // =============================================================================
 
-import type { RolloutEvent } from "./types.js";
+import type { DenySource, RolloutEvent } from "./types.js";
 
 export type SpanStatus = "ok" | "error" | "in_flight" | "hung";
 
@@ -29,7 +29,14 @@ export const HANG_THRESHOLD_MS = 300_000;
 export interface ModelSpan {
   turnId: string;
   provider: string;
+  /** What we asked for, from `model.request`. */
   model: string;
+  /**
+   * What the provider said it served, from `model.response`. Absent when the
+   * provider said nothing, when the call errored, or when the span is still
+   * open — so `echoedModel !== model` is only a disagreement if it is set.
+   */
+  echoedModel?: string;
   startedAt: number;
   status: SpanStatus;
   /** Wall time of the call. For a hung span, time until the log went quiet. */
@@ -55,6 +62,19 @@ export interface ModelSpan {
 
 export interface ToolSpan {
   tool: string;
+  /**
+   * Position in CALL order — the `seq` of the `function.call` that opened it.
+   *
+   * `toolSpans` is built from `function.output`, which arrives in COMPLETION
+   * order: a parallel batch (`Promise.all` in `loop.ts`) can finish a later
+   * call first, and before this existed the fold reported that later call as
+   * the opening move. `buildTrace` sorts on this, so `toolSpans[0]` is the
+   * tool the model actually reached for first.
+   *
+   * Falls back to the output's own `seq` when the opening call was never
+   * logged, which keeps such a span ordered sanely against the rest.
+   */
+  callSeq: number;
   startedAt: number;
   duration_ms: number;
   /**
@@ -70,13 +90,35 @@ export interface ToolSpan {
   failed?: boolean;
 }
 
+/**
+ * A call that was refused before it ran, from `function.denied`.
+ *
+ * Kept in its own array rather than as a flag on `ToolSpan` on purpose.
+ * `toolSpans` has seven consumers — the trajectory scorer, the judge's tool
+ * list, `harvest`'s drafted `expectTool`, `countRepeatedCalls`, `tool_ms`,
+ * evidence, OTLP — and every one of them means "tools that ran". Mixing
+ * denials in would keep each of them correct only for as long as each
+ * remembered to filter, and a forgotten filter reads as a mutation that never
+ * happened. Additive is the shape where the unsafe default is impossible.
+ */
+export interface DeniedSpan {
+  tool: string;
+  at: number;
+  args?: Record<string, unknown>;
+  source: DenySource;
+  reason: string;
+}
+
 export interface Trace {
   sessionId: string;
   startedAt: number;
   endedAt: number;
   wall_ms: number;
   modelSpans: ModelSpan[];
+  /** Tools that RAN. A refused call is in `deniedSpans`, never here. */
   toolSpans: ToolSpan[];
+  /** Calls refused before execution. Empty on logs predating the event. */
+  deniedSpans: DeniedSpan[];
   /** Sum of model call time; the number that usually explains a slow session. */
   model_ms: number;
   tool_ms: number;
@@ -110,13 +152,20 @@ export function buildTrace(
 ): Trace {
   const modelSpans: ModelSpan[] = [];
   const toolSpans: ToolSpan[] = [];
+  const deniedSpans: DeniedSpan[] = [];
   const open: ModelSpan[] = [];
   let redirects = 0;
   let redirectsSkipped = 0;
-  const pendingTools = new Map<
-    string,
-    { startedAt: number; args?: Record<string, unknown> }
-  >();
+  // Two indexes over the same pending calls. `byId` is exact; `byTool` is the
+  // fallback for logs written before `callId` existed, and pops OLDEST-FIRST so
+  // two concurrent calls to the same tool still yield ascending call order.
+  interface PendingCall {
+    startedAt: number;
+    callSeq: number;
+    args?: Record<string, unknown>;
+  }
+  const pendingById = new Map<string, PendingCall>();
+  const pendingByTool = new Map<string, PendingCall[]>();
 
   for (const event of events) {
     switch (event.type) {
@@ -148,6 +197,7 @@ export function buildTrace(
         const span = takeOpen(open, event.turnId, true);
         if (!span) break;
         span.status = "ok";
+        span.echoedModel = event.echoedModel;
         span.duration_ms = event.duration_ms;
         span.ttft_ms = event.ttft_ms ?? span.ttft_ms;
         span.inputTokens = event.inputTokens;
@@ -166,24 +216,50 @@ export function buildTrace(
         span.error = event.error;
         break;
       }
-      case "function.call":
-        pendingTools.set(event.tool, {
+      case "function.call": {
+        const pending: PendingCall = {
           startedAt: event.timestamp,
+          callSeq: event.seq,
           args: event.args,
-        });
+        };
+        if (event.callId) {
+          pendingById.set(event.callId, pending);
+        } else {
+          const queue = pendingByTool.get(event.tool) ?? [];
+          queue.push(pending);
+          pendingByTool.set(event.tool, queue);
+        }
         break;
+      }
       case "function.output": {
-        const pending = pendingTools.get(event.tool);
+        let pending: PendingCall | undefined;
+        if (event.callId && pendingById.has(event.callId)) {
+          pending = pendingById.get(event.callId);
+          pendingById.delete(event.callId);
+        } else {
+          pending = pendingByTool.get(event.tool)?.shift();
+        }
         toolSpans.push({
           tool: event.tool,
+          callSeq: pending?.callSeq ?? event.seq,
           startedAt: pending?.startedAt ?? event.timestamp,
           duration_ms: event.duration_ms,
           ...(pending?.args ? { args: pending.args } : {}),
           ...(event.failed === undefined ? {} : { failed: event.failed }),
         });
-        pendingTools.delete(event.tool);
         break;
       }
+      // No pairing: the refusal is the whole story, and `function.call` was
+      // never written for it. Duration is meaningless — nothing ran.
+      case "function.denied":
+        deniedSpans.push({
+          tool: event.tool,
+          at: event.timestamp,
+          ...(event.args ? { args: event.args } : {}),
+          source: event.source,
+          reason: event.reason,
+        });
+        break;
       case "redirect.triggered":
         redirects++;
         break;
@@ -203,6 +279,13 @@ export function buildTrace(
     if (span.duration_ms >= HANG_THRESHOLD_MS) span.status = "hung";
   }
 
+  // Spans were appended on `function.output`, so this array arrived in
+  // COMPLETION order. Every consumer means "the tools it called, in order" —
+  // and one of them, `expectFirstToolIn`, is only correct if that is true.
+  // Sorting is safe for the rest: `tool_ms` is a sum, and the render and OTLP
+  // paths carry their own timestamps.
+  toolSpans.sort((a, b) => a.callSeq - b.callSeq);
+
   return {
     sessionId,
     startedAt,
@@ -210,6 +293,7 @@ export function buildTrace(
     wall_ms: Math.max(0, (now ?? endedAt) - startedAt),
     modelSpans,
     toolSpans,
+    deniedSpans,
     model_ms: modelSpans.reduce((n, s) => n + s.duration_ms, 0),
     tool_ms: toolSpans.reduce((n, s) => n + s.duration_ms, 0),
     inputTokens: sum(modelSpans, "inputTokens"),

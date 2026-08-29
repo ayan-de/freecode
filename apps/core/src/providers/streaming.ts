@@ -29,9 +29,19 @@ export async function* normalizeAiSdkStream(
 ): AsyncGenerator<ProviderChunk> {
   let stopReason: ExecuteResult["stopReason"] = "stop";
   let usageEmitted = false;
+  let echoedModel: string | undefined;
 
   for await (const chunk of fullStream) {
     switch (chunk.type) {
+      // The only part of the stream that carries what the provider actually
+      // served. A multi-step call emits one per step; they should agree, and
+      // if they ever don't, the last is the one that produced the final answer.
+      case "finish-step": {
+        const id = (chunk.response as { modelId?: unknown } | undefined)
+          ?.modelId;
+        if (typeof id === "string" && id) echoedModel = id;
+        break;
+      }
       case "text-delta":
       case "text": {
         const delta = pickDelta(chunk);
@@ -114,5 +124,5 @@ export async function* normalizeAiSdkStream(
   if (!usageEmitted) {
     // some finish events omit usage; still emit a done chunk
   }
-  yield { type: "done", stopReason };
+  yield { type: "done", stopReason, echoedModel };
 }

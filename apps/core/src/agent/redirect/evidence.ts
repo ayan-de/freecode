@@ -33,6 +33,14 @@ export interface EvidenceCall {
   /** One-line digest of the arguments. */
   args: string;
   failed: boolean;
+  /**
+   * The call was refused before it ran (mode, rule, hook, or the user). Not
+   * the same as `failed`: a failed call did work and it went wrong, and the
+   * fix is usually different arguments. A denied call did nothing and the
+   * arguments were never the problem — retrying them is the trap this flag
+   * exists to let the supervisor see.
+   */
+  denied?: boolean;
 }
 
 export interface EvidencePacket {
@@ -62,13 +70,29 @@ export interface BuildEvidenceInput {
 
 export function buildEvidence(input: BuildEvidenceInput): EvidencePacket {
   const trace = buildTrace(input.sessionId, input.events);
-  const spans = trace.toolSpans.slice(-MAX_RECENT_CALLS);
 
-  const recentCalls: EvidenceCall[] = spans.map((s) => ({
-    tool: s.tool,
-    args: digestArgs(s.args),
-    failed: s.failed === true,
-  }));
+  // Executed and refused calls interleaved in time order. Kept as one list
+  // because "you tried this six times" is the same observation whether the
+  // tool ran or the mode refused it, and splitting them would hide a loop
+  // that alternates between the two.
+  const recentCalls: EvidenceCall[] = [
+    ...trace.toolSpans.map((s) => ({
+      at: s.startedAt,
+      tool: s.tool,
+      args: digestArgs(s.args),
+      failed: s.failed === true,
+    })),
+    ...trace.deniedSpans.map((s) => ({
+      at: s.at,
+      tool: s.tool,
+      args: digestArgs(s.args),
+      failed: false,
+      denied: true,
+    })),
+  ]
+    .sort((a, b) => a.at - b.at)
+    .slice(-MAX_RECENT_CALLS)
+    .map(({ at: _at, ...call }) => call);
 
   const changedFiles: string[] = [];
   for (const span of trace.toolSpans) {
@@ -80,11 +104,21 @@ export function buildEvidence(input: BuildEvidenceInput): EvidencePacket {
   const errors: string[] = [];
   const evidenceEventIds: string[] = [];
   for (const event of input.events) {
-    if (event.type === "function.call" || event.type === "function.output") {
+    if (
+      event.type === "function.call" ||
+      event.type === "function.output" ||
+      event.type === "function.denied"
+    ) {
       evidenceEventIds.push(event.id);
     }
     if (event.type === "function.output" && event.failed) {
       const text = event.output.trim().slice(0, ERROR_CHARS);
+      if (text && !errors.includes(text)) errors.push(text);
+    }
+    // The refusal message is the most actionable error in the log: it names
+    // the gate, so the advice can be "stop trying" rather than "try again".
+    if (event.type === "function.denied") {
+      const text = event.reason.trim().slice(0, ERROR_CHARS);
       if (text && !errors.includes(text)) errors.push(text);
     }
     if (event.type === "model.error") {

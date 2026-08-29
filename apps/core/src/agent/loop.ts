@@ -59,11 +59,9 @@ import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
 import {
-  evaluateTodoGate,
   shouldNudgeTodo,
   todoNudgeReminder,
   wrapUpReminder,
-  TODO_GATE_MAX_FORCES,
 } from "./reminders.js";
 import {
   resolveVerifyCommand,
@@ -130,6 +128,7 @@ import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
 import { bus, BusEvents } from "../bus/index.js";
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js";
+import type { DenySource } from "../rollout/types.js";
 import {
   type SessionStore,
   type SerializedMessage,
@@ -325,10 +324,9 @@ export class AgentLoop {
   // copy used to live here as a private method; they were free to drift.
   private loopHealthEvaluator = createLoopHealthEvaluator();
   private fileStateHash: string = "";
-  // Reminder state (Phase 2): transient <system-reminder> blocks drained into
-  // the next turn's prompt, plus counters for the todo nudge/gate.
+  // Reminder state: transient <system-reminder> blocks drained into the next
+  // turn's prompt, plus counters for the todo nudge.
   private pendingReminders: string[] = [];
-  private todoGateForces = 0;
   private turnsSinceTodoWrite = 0;
   // Did the model save a memory itself during this run? If so, extraction is
   // skipped — it has already said what it wanted to keep.
@@ -601,7 +599,6 @@ export class AgentLoop {
     this.recentToolCalls = [];
     this.recentEdits = [];
     this.pendingReminders = [];
-    this.todoGateForces = 0;
     this.turnsSinceTodoWrite = 0;
     this.turnsSinceLastNudge = 0;
     this.filesMutatedThisRun = false;
@@ -907,29 +904,11 @@ export class AgentLoop {
           }
         }
 
-        // No tool calls means the model wants to stop. Before completing, run
-        // the todo-completion gate (grok-build style): if the plan still has
-        // unfinished items, inject a reminder and force another turn — up to a
-        // per-run cap so a stubborn list can't loop forever.
+        // No tool calls means the model wants to stop. Outstanding todos do
+        // not override that choice: planning-only requests legitimately leave
+        // every item pending, and a forced continuation turns a requested
+        // plan into unsolicited implementation work.
         if (turnResult.toolResults.length === 0) {
-          const gate = evaluateTodoGate(this.state.sessionId);
-          if (
-            gate.forceContinue &&
-            this.todoGateForces < TODO_GATE_MAX_FORCES
-          ) {
-            this.todoGateForces += 1;
-            if (gate.reminder) this.pendingReminders.push(gate.reminder);
-            console.log(
-              `[AgentLoop] Todo gate ${this.todoGateForces}/${TODO_GATE_MAX_FORCES}: unfinished todos — forcing another turn.`,
-            );
-            this.state = {
-              ...this.state,
-              iterationCount: this.state.iterationCount + 1,
-              turnCount: this.state.turnCount + 1,
-            };
-            continue;
-          }
-
           // Verification gate: if this run changed files, run the project's
           // typecheck/build before finishing. On failure, feed the output back
           // and force another turn — capped so a red project still terminates.
@@ -1917,6 +1896,9 @@ export class AgentLoop {
         let usage: ExecuteUsage | undefined;
 
         let ttft_ms: number | undefined;
+        // What the provider says it actually served, if it says anything. Only
+        // the `done` chunk carries it, so it has to outlive the switch.
+        let echoedModel: string | undefined;
         // Holds back the citation tag so it never reaches a frontend (D12).
         const citationFilter = new CitationStreamFilter();
 
@@ -1988,6 +1970,7 @@ export class AgentLoop {
             case "error":
               throw new Error(chunk.error);
             case "done":
+              echoedModel = chunk.echoedModel;
               break;
           }
         }
@@ -2005,6 +1988,7 @@ export class AgentLoop {
         this.recorder.recordModelResponse(turnId, {
           provider,
           model: resolvedModel,
+          echoedModel,
           duration_ms: Date.now() - startedAt,
           ttft_ms,
           inputTokens: usage?.inputTokens,
@@ -2043,6 +2027,7 @@ export class AgentLoop {
       this.recorder.recordModelResponse(turnId, {
         provider,
         model: resolvedModel,
+        echoedModel: result.echoedModel,
         duration_ms: Date.now() - startedAt,
         inputTokens: result.usage?.inputTokens,
         outputTokens: result.usage?.outputTokens,
@@ -2214,6 +2199,34 @@ export class AgentLoop {
   }
 
   // ===========================================================================
+  // PRIVATE: denyToolCall()
+  // The single exit for "this tool will not run". Every refusal goes through
+  // here so it lands in the rollout log: a deny returns before
+  // recordFunctionCall(), so without this the attempt left no trace at all and
+  // a model burning turns against a mode it cannot satisfy read as idle.
+  // ===========================================================================
+  private denyToolCall(
+    toolCall: ToolCall,
+    source: DenySource,
+    error: string,
+  ): ToolResult {
+    this.recorder.recordFunctionDenied(
+      toolCall.tool,
+      (toolCall.args ?? {}) as Record<string, unknown>,
+      source,
+      error,
+      `turn-${this.state.turnCount}`,
+    );
+    return {
+      id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      toolCallId: toolCall.id,
+      tool: toolCall.tool,
+      title: `Tool ${toolCall.tool}`,
+      error,
+    };
+  }
+
+  // ===========================================================================
   // PRIVATE: executeTool()
   // Execute a single tool via orchestrator, return ToolResult
   // Integrates PreToolUse and PostToolUse hooks for interception
@@ -2236,19 +2249,18 @@ export class AgentLoop {
       logger.warn(
         `[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.blockReason ?? "no reason"}`,
       );
-      const blockedResult = {
-        id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        toolCallId: toolCall.id,
-        tool: toolCall.tool,
-        title: `Tool ${toolCall.tool}`,
-        error: `Blocked by hook: ${preResult.blockReason ?? "no reason"}`,
-      };
-      // Record function.call blocked event
+      // hook.blocked names the hook; function.denied names the TOOL, which is
+      // what the trace fold pairs on. Both, because they answer different
+      // questions.
       this.recorder.recordHookBlocked(
         hookContext.toolName ?? toolCall.tool,
         preResult.blockReason ?? "no reason",
       );
-      return blockedResult;
+      return this.denyToolCall(
+        toolCall,
+        "hook",
+        `Blocked by hook: ${preResult.blockReason ?? "no reason"}`,
+      );
     }
 
     // Apply input modifications from hook if any
@@ -2285,16 +2297,16 @@ export class AgentLoop {
 
       // Rule/mode deny is absolute — hooks cannot override deny→allow
       if (evaluation.decision === "deny") {
-        return {
-          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          toolCallId: toolCall.id,
-          tool: toolCall.tool,
-          title: `Tool ${toolCall.tool}`,
-          error:
-            evaluation.source === "mode-enforced" && evaluation.matchedRule
-              ? evaluation.matchedRule
-              : `Permission denied${evaluation.matchedRule ? ` by rule: ${evaluation.matchedRule}` : ` (${evaluation.source})`}`,
-        };
+        const modeRule =
+          evaluation.source === "mode-enforced"
+            ? evaluation.matchedRule
+            : undefined;
+        return this.denyToolCall(
+          toolCall,
+          modeRule ? "mode" : "rule",
+          modeRule ??
+            `Permission denied${evaluation.matchedRule ? ` by rule: ${evaluation.matchedRule}` : ` (${evaluation.source})`}`,
+        );
       }
 
       permResult = await this.hooks.runPermissionRequest(toolCall, hookContext);
@@ -2308,13 +2320,11 @@ export class AgentLoop {
         logger.warn(
           `[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`,
         );
-        return {
-          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          toolCallId: toolCall.id,
-          tool: toolCall.tool,
-          title: `Tool ${toolCall.tool}`,
-          error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
-        };
+        return this.denyToolCall(
+          toolCall,
+          "permission-hook",
+          `Permission denied: ${permResult.reason ?? "requires approval"}`,
+        );
       }
 
       if (decision === "ask") {
@@ -2336,13 +2346,11 @@ export class AgentLoop {
             })
           : { allowed: false, reason: "Permission system unavailable" };
         if (!outcome.allowed) {
-          return {
-            id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            toolCallId: toolCall.id,
-            tool: toolCall.tool,
-            title: `Tool ${toolCall.tool}`,
-            error: `Permission denied: ${outcome.reason ?? "user declined"}`,
-          };
+          return this.denyToolCall(
+            toolCall,
+            "user",
+            `Permission denied: ${outcome.reason ?? "user declined"}`,
+          );
         }
       }
     }
@@ -2371,6 +2379,7 @@ export class AgentLoop {
       toolCall.tool,
       toolCall.args as Record<string, unknown>,
       `turn-${this.state.turnCount}`,
+      toolCall.id,
     );
 
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`);
@@ -2447,6 +2456,7 @@ export class AgentLoop {
       Date.now() - startTime,
       `turn-${this.state.turnCount}`,
       result.error !== undefined,
+      toolCall.id,
     );
 
     // Emit tool_complete event for streaming

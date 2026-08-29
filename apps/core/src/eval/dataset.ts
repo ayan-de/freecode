@@ -9,7 +9,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { assertSafeRelativePath, SandboxError } from "./sandbox.js";
-import type { EvalCase } from "./types.js";
+import { FAILURE_CATEGORIES } from "./types.js";
+import type { EvalCase, FailureCategory, KnownGap } from "./types.js";
 
 export class DatasetError extends Error {}
 
@@ -76,15 +77,39 @@ function validate(raw: unknown, where: string): EvalCase {
     throw new DatasetError(`${where}: 'prompt' is required`);
   }
 
+  const failureCategory = o.failureCategory;
+  if (
+    typeof failureCategory !== "string" ||
+    !(FAILURE_CATEGORIES as readonly string[]).includes(failureCategory)
+  ) {
+    throw new DatasetError(
+      `${where}: 'failureCategory' must be one of ` +
+        `${FAILURE_CATEGORIES.join(", ")} — got ${JSON.stringify(failureCategory)}`,
+    );
+  }
+  const whyModelBacked = o.whyModelBacked;
+  if (typeof whyModelBacked !== "string" || !whyModelBacked.trim()) {
+    throw new DatasetError(
+      `${where}: 'whyModelBacked' is required — say why a *.test.ts cannot ` +
+        `cover this, or make it a *.test.ts`,
+    );
+  }
+  const knownGap = validateKnownGap(o.knownGap, where);
+
   // `expectInArgs` without `expectTool` can never be satisfied — there is no
   // tool whose arguments it could name. Reject at load, not at score time.
   if (o.expectInArgs !== undefined && o.expectTool == null) {
     throw new DatasetError(`${where}: 'expectInArgs' requires 'expectTool'`);
   }
+  const expectFirstToolIn = validateFirstToolIn(o, where);
+  const expectBashMatches = validateBashMatches(o.expectBashMatches, where);
+
   // A case that asserts nothing always passes, which is worse than useless:
   // it inflates the pass count and hides that the case was never finished.
   const asserts =
     o.expectTool !== undefined ||
+    expectFirstToolIn !== undefined ||
+    expectBashMatches !== undefined ||
     o.expectMaxTurns !== undefined ||
     o.verify !== undefined ||
     o.rubric !== undefined ||
@@ -129,10 +154,15 @@ function validate(raw: unknown, where: string): EvalCase {
   return {
     id,
     prompt,
+    failureCategory: failureCategory as FailureCategory,
+    whyModelBacked,
+    knownGap,
     model: typeof o.model === "string" ? o.model : undefined,
     agentMode: o.agentMode as EvalCase["agentMode"],
     expectTool: o.expectTool as EvalCase["expectTool"],
+    expectFirstToolIn,
     expectInArgs: o.expectInArgs as EvalCase["expectInArgs"],
+    expectBashMatches,
     expectMaxTurns: o.expectMaxTurns as number | undefined,
     forbidTools: Array.isArray(o.forbidTools)
       ? (o.forbidTools as string[])
@@ -142,6 +172,128 @@ function validate(raw: unknown, where: string): EvalCase {
     immutable,
     rubric,
   };
+}
+
+/**
+ * Cases claiming `knownGap.status: "unmeasured"` that HAVE been measured.
+ *
+ * Spec `2026-08-29-eval-case-registry.md` §5: if we ran it, it is measured, and
+ * a stale "unmeasured" is a case whose record says nobody has looked when the
+ * history says otherwise.
+ *
+ * Deliberately not part of `validate()`. That is a pure fs+JSON fold over one
+ * suite file, called from `parseSuite` — including by `freecode eval add`,
+ * which validates a draft before it is appended and must not depend on run
+ * history existing. Same reasoning as the `expectInArgs`-names-a-real-parameter
+ * check, which is a test for the same reason.
+ *
+ * Pure: takes the history rather than reading it, so it is testable without a
+ * `~/.freecode` to arrange.
+ */
+export function staleUnmeasured(
+  cases: EvalCase[],
+  history: Array<{ cases: Array<{ id: string }> }>,
+): string[] {
+  const measured = new Set<string>();
+  for (const run of history) {
+    for (const c of run.cases) measured.add(c.id);
+  }
+  return cases
+    .filter((k) => k.knownGap?.status === "unmeasured" && measured.has(k.id))
+    .map((k) => k.id);
+}
+
+/**
+ * A `knownGap` records an observation and an aspiration in separate fields.
+ *
+ * `notes === target` is the failure this validation exists for: with one field
+ * doing both jobs, the aspiration gets written into the status and the gap
+ * disappears from the record without anyone fixing it. fx asserts the same
+ * thing (`agent-quality-matrix.test.ts`, "separates current baseline
+ * observations from target behavior") and it is what keeps the field honest.
+ */
+function validateKnownGap(raw: unknown, where: string): KnownGap | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new DatasetError(`${where}: 'knownGap' must be an object`);
+  }
+  const g = raw as Record<string, unknown>;
+  const STATUSES = ["partial", "known-gap", "unmeasured"];
+  if (typeof g.status !== "string" || !STATUSES.includes(g.status)) {
+    throw new DatasetError(
+      `${where}: 'knownGap.status' must be one of ${STATUSES.join(", ")}`,
+    );
+  }
+  for (const key of ["notes", "target"]) {
+    if (typeof g[key] !== "string" || !(g[key] as string).trim()) {
+      throw new DatasetError(`${where}: 'knownGap.${key}' must be non-empty`);
+    }
+  }
+  if ((g.notes as string).trim() === (g.target as string).trim()) {
+    throw new DatasetError(
+      `${where}: 'knownGap.notes' and 'knownGap.target' are the same string — ` +
+        `notes is what happens today, target is what passing looks like`,
+    );
+  }
+  return g as unknown as KnownGap;
+}
+
+/**
+ * `expectFirstToolIn` names the tools that may open the run. Spec
+ * `2026-08-29-eval-case-registry.md` §3.
+ *
+ * `expectTool: null` asserts that nothing fired, so pairing the two states that
+ * the run must both begin with a tool and contain none. Rejected at load rather
+ * than scored as an unsatisfiable case.
+ */
+function validateFirstToolIn(
+  o: Record<string, unknown>,
+  where: string,
+): string[] | undefined {
+  const raw = o.expectFirstToolIn;
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new DatasetError(
+      `${where}: 'expectFirstToolIn' must be a non-empty array of tool names`,
+    );
+  }
+  for (const name of raw) {
+    if (typeof name !== "string" || !name.trim()) {
+      throw new DatasetError(
+        `${where}: 'expectFirstToolIn' entries must be non-empty strings`,
+      );
+    }
+  }
+  if (o.expectTool === null) {
+    throw new DatasetError(
+      `${where}: 'expectFirstToolIn' contradicts 'expectTool: null' — ` +
+        `one requires a first tool, the other requires none`,
+    );
+  }
+  return raw as string[];
+}
+
+/**
+ * Compiled at LOAD time. A bad pattern discovered at score time throws inside
+ * the fold, after a real agent turn has been paid for, and reads as an agent
+ * failure — the most expensive kind of wrong answer this harness can give.
+ */
+function validateBashMatches(
+  raw: unknown,
+  where: string,
+): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new DatasetError(`${where}: 'expectBashMatches' must be a non-empty string`);
+  }
+  try {
+    new RegExp(raw);
+  } catch (err) {
+    throw new DatasetError(
+      `${where}: 'expectBashMatches' is not a valid regex — ${(err as Error).message}`,
+    );
+  }
+  return raw;
 }
 
 /**
