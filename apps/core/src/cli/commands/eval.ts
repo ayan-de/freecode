@@ -142,6 +142,139 @@ const evalAddCommand: CommandModule<object, EvalAddArgs> = {
   },
 };
 
+interface EvalAbArgs {
+  suite: string;
+  baseline: string;
+  candidate: string;
+  trials: number;
+  cases?: string;
+  json: boolean;
+  out?: string;
+}
+
+// `freecode eval ab` — run two variants over the same cases, interleaved.
+//
+// Deliberately NOT a gate: no baseline, no history, always exits 0. A paired
+// model-backed comparison is a noisy signal, and the moment one exits non-zero
+// somebody wires it into CI and starts reverting on noise.
+const evalAbCommand: CommandModule<object, EvalAbArgs> = {
+  command: "ab <suite>",
+  describe: "Compare two variants on the same cases, interleaved",
+  builder: (yargs) =>
+    yargs
+      .positional("suite", { type: "string", demandOption: true })
+      .option("baseline", {
+        type: "string",
+        default: "",
+        describe:
+          "variant: model=<p/m> and/or env:NAME=value, comma-separated. " +
+          "Empty means whatever the config already resolves.",
+      })
+      .option("candidate", { type: "string", default: "" })
+      .option("trials", {
+        type: "number",
+        default: 3,
+        describe: "paired trials per case; below 2 every delta is inconclusive",
+      })
+      .option("cases", {
+        type: "string",
+        describe: "comma-separated case ids; default is the whole suite",
+      })
+      .option("json", { type: "boolean", default: false })
+      .option("out", { type: "string", describe: "write the full report here" }),
+  handler: async (argv) => {
+    const { parseVariant, AbError, NOTABLE } = await import("../../eval/ab.js");
+    const { runAb } = await import("../../eval/ab-run.js");
+
+    try {
+      const baseline = parseVariant(argv.baseline, "--baseline");
+      const candidate = parseVariant(argv.candidate, "--candidate");
+      if (
+        JSON.stringify(baseline) === JSON.stringify(candidate)
+      ) {
+        throw new AbError(
+          "--baseline and --candidate are identical, so this measures nothing " +
+            "but noise. Change one of them.",
+        );
+      }
+      if (argv.trials < 2) {
+        console.error(
+          `${yellow}--trials ${argv.trials}: every delta will be inconclusive. ` +
+            `A single paired trial cannot separate an effect from one sample ` +
+            `of a stochastic model.${reset}`,
+        );
+      }
+
+      const report = await runAb(
+        {
+          suite: argv.suite,
+          baseline,
+          candidate,
+          trials: argv.trials,
+          only: argv.cases?.split(",").map((s) => s.trim()).filter(Boolean) ?? [],
+        },
+        (c) => {
+          if (argv.json) return;
+          const colour =
+            c.delta === "regressed"
+              ? red
+              : c.delta === "improved"
+                ? green
+                : c.delta === "inconclusive"
+                  ? yellow
+                  : dim;
+          console.log(
+            `${colour}${c.delta.padEnd(15)}${reset} ${c.id} ` +
+              `${dim}(${c.baseline.passed}/${argv.trials} → ${c.candidate.passed}/${argv.trials})${reset}`,
+          );
+        },
+      );
+
+      if (argv.out) {
+        const fs = await import("fs");
+        fs.writeFileSync(argv.out, JSON.stringify(report, null, 2), "utf-8");
+        console.error(`${dim}wrote ${argv.out}${reset}`);
+      }
+      if (argv.json) {
+        console.log(JSON.stringify(report, null, 2));
+        return;
+      }
+
+      const counts = new Map<string, number>();
+      for (const c of report.cases) {
+        counts.set(c.delta, (counts.get(c.delta) ?? 0) + 1);
+      }
+      const summary = [...counts]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${n} ${k}`)
+        .join(" · ");
+      console.log(`\n${summary}`);
+      console.log(
+        `${dim}baseline ${JSON.stringify(report.sides.baseline)} · ` +
+          `candidate ${JSON.stringify(report.sides.candidate)}` +
+          (report.commit ? ` · ${report.commit}` : "") +
+          `${reset}`,
+      );
+      if (report.served.baseline.length || report.served.candidate.length) {
+        console.log(
+          `${dim}served ${report.served.baseline.join(",") || "?"} vs ` +
+            `${report.served.candidate.join(",") || "?"}${reset}`,
+        );
+      }
+      // Said every time, not only when it is convenient: this is a reported
+      // signal, and the reader is the one who decides what it means.
+      const notable = report.cases.filter((c) => NOTABLE.includes(c.delta));
+      console.log(
+        `${dim}not a gate — ${notable.length} case(s) worth a look, nothing ` +
+          `recorded as a baseline${reset}`,
+      );
+    } catch (err) {
+      console.error(`${red}${(err as Error).message}${reset}`);
+      process.exit(1);
+    }
+  },
+};
+
 export const evalCommand: CommandModule<object, EvalArgs> = {
   command: "eval [suite]",
   describe: "Run an eval suite against the agent loop",
@@ -205,7 +338,8 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           "record this run as the baseline even if it fails — for when the " +
           "suite was deliberately re-scoped, not when the agent got worse",
       })
-      .command(evalAddCommand),
+      .command(evalAddCommand)
+      .command(evalAbCommand),
   handler: async (argv) => {
     const { runSuite } = await import("../../eval/suite.js");
     const { loadQuarantine, proposeQuarantine } =

@@ -1,13 +1,13 @@
 # Eval Case Registry — ordering, justification, known gaps, and paired A/B
 
 > **Date:** 2026-08-29
-> **Status:** **Phases 1–4 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
+> **Status:** **COMPLETE — all five phases shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
 > (`expectFirstToolIn`, `expectBashMatches`), §6's model-echo check end to end
 > from the provider adapters through the rollout log, and §4/§5's registry
 > fields with all 39 cases backfilled and §7's assertions live, and Phase 4's
 > seven new cases (39 → 46) closing four of the eight empty categories. The
 > other four need harness work first — §9.1. Phase 5 (`freecode eval ab`)
-> is the only part still unbuilt. Four changes, all
+> is built too, as in-process variants rather than git refs (§6). Four changes, all
 > additive to `EvalCase` and its scorers; none of them alters an existing gate
 > decision.
 > **Extends:** `specs/2026-08-23-eval-harness.md` (Phases 0–5, built). This spec
@@ -61,7 +61,7 @@ its analysis:
 | --- | --- |
 | "`scorers/efficiency.ts` … **was never written**; `gate.ts` has no efficiency rule" (§7) | **Built.** `scorers/efficiency.ts` exists, folded per trial at `runner.ts:309`, compared at `gate.ts:104` as a reported-never-blocking row. Phase B is done. |
 | "Our 20 trajectory cases" / "backfill the 31 existing cases" (§4, §9) | Still accurate. 39 cases across five suites — `trajectory` 20, `coding` 6, `judged` 5, `redirect` 5, `redirect-build` 3. The two redirect suites were added since. |
-| `evals/quarantine.txt` populated as part of calibration (§9 closing note) | Still comments only. Zero entries. |
+| `evals/quarantine.txt` populated as part of calibration (§9 closing note) | **Done 2026-08-29** — three entries, from the first 3-trial bootstrap. See eval-harness spec §14.1, including why four of `--quarantine-report`'s seven proposals were rejected. |
 
 Phases A, C, D, E and F of the plan remain unbuilt. This spec is A, C, F, plus one
 item the plan described in fx and then did not propose adopting (§5 below).
@@ -332,8 +332,27 @@ an *id* change. It cannot catch the same id serving different weights.
 A new subcommand, deliberately **outside the gate**:
 
 ```
-freecode eval ab <suite> --baseline <ref> --candidate <ref> [--trials N] [--cases a,b,c]
+freecode eval ab <suite> --baseline <variant> --candidate <variant> \
+                 [--trials N] [--cases a,b,c] [--json] [--out FILE]
 ```
+
+**A side is an in-process VARIANT, not a git ref** — §10's open question, settled
+in Phase 5. A variant is `model=<p/m>` and/or `env:NAME=value`, comma-separated;
+an empty string is the identity, so one axis can be A/B'd while the other stays
+at whatever the config resolves. `env:NAME=` *unsets* rather than empties.
+
+Git refs were the other candidate and are the more general instrument — they are
+what you would want for a system-prompt change. They were rejected for now
+because they fight the runner: `runner.ts` is deliberately in-process so a case
+can be stepped through in a debugger, and a ref-based A/B needs worktree, build
+and spawn plumbing around it. Variants cost a day and answer the two questions
+we actually have — *is this model better here*, and *does redirect help* — the
+second of which is the measurement parked since 2026-08-27.
+
+This works **only because every setting worth flipping is read per turn**:
+`loadRedirectSettings` re-reads `process.env` on each loop iteration. A setting
+cached at boot would not vary between interleaved trials, and would do so
+silently. That is the constraint to check before adding an axis.
 
 Four properties, all taken from `agent-quality-ab.ts`:
 
@@ -460,7 +479,7 @@ the agent, and is the cheapest test in its repo.
 | ~~**2**~~ | §6 smallest slice. **Done 2026-08-29**, but only one of its three items existed: the model-echo check, plumbed from the providers through the rollout log rather than bolted onto the report. The other two were already fixed or guarded nothing — see §6 | — |
 | ~~**3**~~ | §4 + §5 — `failureCategory`, `whyModelBacked`, `knownGap`; the §7 assertions; all 39 cases backfilled. **Done 2026-08-29.** Three categories were added to the closed set and §7's first assertion became a golden list; both are explained in place | — |
 | ~~**4**~~ | Cases for the eight empty categories. **Half done 2026-08-29**: recovery (2), large-output (2), frustration (2), stale-context (1) — 7 new cases, 39 → 46. The other four are not unwritten but UNREACHABLE; see §9.1 | — |
-| **5** | §6 in full — `freecode eval ab` with interleaving | nothing |
+| ~~**5**~~ | §6 in full — `freecode eval ab` with interleaving. **Done 2026-08-29.** In-process variants rather than git refs; see §6 for why | — |
 
 ### 9.1 The four categories the harness cannot express
 
@@ -483,7 +502,7 @@ The cheapest unlock is `resume` (a second `runEffect` on the same session id);
 larger. None of it is Phase 4 work — it is harness work, and it should be
 specified before it is built.
 
-**Phase 5 is what is left here.** Phases 1–3 improved how the suite reports and Phase 4 added the coverage that could be added without new harness capability.
+**Every phase in this spec is now built.** What is left is not in this spec: the harness capability §9.1 names, and plan §3's scripted provider. Phases 1–3 improved how the suite reports and Phase 4 added the coverage that could be added without new harness capability.
 
 Phase 1 changes what the trajectory suite measures, so run it **before** any
 baseline recalibration, and expect the first post-change run to need
@@ -506,9 +525,10 @@ better scorer measured against no baseline is still not a gate.
   too?**~~ **Settled in Phase 3: required everywhere**, redirect suites included.
   An exemption is how a required field becomes optional, and the backfill was
   eight cases rather than the wasted effort this question assumed.
-- **What is a `<ref>` for `eval ab`?** A git ref means building twice and is the
-  honest version; a pair of already-built binaries is what fx does and is simpler.
-  Neither is decided.
+- ~~**What is a `<ref>` for `eval ab`?**~~ **Settled in Phase 5: an in-process
+  variant** (`model=` and/or `env:`), not a git ref and not a built binary. See
+  §6. Git refs remain the right answer for A/B'ing a code change and are a
+  documented follow-on, not a closed door.
 - **Does `knownGap` need an expiry?** A gap with no revisit date is a gap that
   becomes permanent. A `revisit` field is the obvious answer and also the field
   everyone lies in.
