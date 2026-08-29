@@ -67,3 +67,50 @@ test("only gemini-web waives the API key requirement", async () => {
   // be unnecessary is recoverable; skipping one that IS needed is not.
   assert.equal(providerRequiresApiKey("no-such-provider"), true);
 });
+
+test("a web session's credential is read from browsers, then providers", async () => {
+  // Config is passed in, never read from disk: an earlier draft of this test
+  // wrote to the real ~/.freecode/config.json and restored it in a finally,
+  // which loses the user's API keys if the runner is killed mid-test.
+  const { readSessionCredential } = await import("./config.js");
+
+  assert.equal(
+    readSessionCredential("x-web", {
+      providers: { "x-web": { apiKey: "from-providers" } },
+      browsers: { "x-web": { apiKey: "from-browsers" } },
+    }).apiKey,
+    "from-browsers",
+  );
+
+  // Legacy configs that predate `browsers` keep working.
+  assert.equal(
+    readSessionCredential("x-web", {
+      providers: { "x-web": { apiKey: "from-providers" } },
+    }).apiKey,
+    "from-providers",
+  );
+
+  // An empty browsers entry must not shadow a real providers one, or moving
+  // half a config over silently blanks the credential.
+  assert.equal(
+    readSessionCredential("x-web", {
+      providers: { "x-web": { apiKey: "from-providers" } },
+      browsers: { "x-web": {} as never },
+    }).apiKey,
+    "from-providers",
+  );
+
+  assert.deepEqual(readSessionCredential("absent", {}), {});
+});
+
+test("mergeCredential keeps sibling fields", async () => {
+  const { mergeCredential } = await import("./config.js");
+  const merged = mergeCredential(
+    { apiKey: "old", realUserID: "keep" } as never,
+    "new",
+  );
+  assert.equal(merged.apiKey, "new");
+  // Wholesale assignment used to drop this, silently discarding a hand-written
+  // realUserID whenever the key was re-entered in the TUI.
+  assert.equal((merged as Record<string, unknown>).realUserID, "keep");
+});

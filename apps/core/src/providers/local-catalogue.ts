@@ -11,7 +11,8 @@
 // =============================================================================
 
 import type { Provider } from "../models-dev.js";
-import { MODELS } from "./gemini-web/models.js";
+import { MODELS as GEMINI_MODELS } from "./gemini-web/models.js";
+import { MODELS as MINIMAX_MODELS } from "./minimax-web/models.js";
 
 export const LOCAL_PROVIDERS: Provider[] = [
   {
@@ -20,7 +21,19 @@ export const LOCAL_PROVIDERS: Provider[] = [
     description:
       "Ask/review over a gemini.google.com session. No API key. Reads files " +
       "you @mention; cannot edit, run commands, or search.",
-    models: Object.entries(MODELS).map(([id, model]) => ({
+    models: Object.entries(GEMINI_MODELS).map(([id, model]) => ({
+      id,
+      name: id,
+      description: model.description,
+    })),
+  },
+  {
+    id: "minimax-web",
+    name: "MiniMax (web session)",
+    description:
+      "Ask/review over an agent.minimaxi.com session. Needs a JWT from a " +
+      "signed-in tab. Reads files you @mention; cannot edit or run commands.",
+    models: Object.entries(MINIMAX_MODELS).map(([id, model]) => ({
       id,
       name: id,
       description: model.description,

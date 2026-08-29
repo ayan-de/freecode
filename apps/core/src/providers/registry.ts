@@ -62,9 +62,10 @@ export async function initProviders(): Promise<void> {
     import("./minimax.js"),
     import("./deepseek.js"),
     import("./zai.js"),
-    // Ask/review over a logged-in Gemini web session (see gemini-web/index.ts).
-    // Registration is metadata-only and the sidecar is only contacted on first
-    // use, so a provider nobody selects costs one module import at startup.
+    // Ask/review over a logged-in web session. Registration is metadata-only
+    // and no network call happens until the provider is actually used, so one
+    // nobody selects costs a single module import at startup.
     import("./gemini-web/index.js"),
+    import("./minimax-web/index.js"),
   ]);
 }

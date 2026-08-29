@@ -29,7 +29,7 @@
 // nothing for a permission profile to deny.
 // =============================================================================
 
-import type { Message, MessagePart } from "../../agent/types.js";
+import type { Message } from "../../agent/types.js";
 import {
   AIProvider,
   ExecuteOptions,
@@ -37,29 +37,12 @@ import {
   ProviderChunk,
 } from "../types.js";
 import { registerProvider } from "../registry.js";
-import { findMentions, inlineFiles } from "./inline.js";
+import {
+  ASK_REVIEW_SYSTEM_PROMPT,
+  flattenConversation,
+} from "../web-session/prompt.js";
 import { generate, generateStream } from "./client.js";
 import { DEFAULT_MODEL, resolveGeminiWebModel } from "./models.js";
-
-// Short on purpose. The 100 KB freecode preamble scored no better than 1.8 KB,
-// and every byte here is re-sent on every turn against an opaque quota.
-// The last sentence is the load-bearing one: without it the model reaches for
-// tools it has not been given and narrates the call instead of answering.
-const SYSTEM_PROMPT = [
-  "You are a code reading assistant. The user works in a software project and",
-  "will reference files with @mentions; the full contents of those files are",
-  "included in the message.",
-  "",
-  "Answer the question directly and concisely. Quote exactly — never invent",
-  "code, filenames, line numbers or output that is not present in what you were",
-  "given. You cannot open files, run commands, or edit anything.",
-  "",
-  // An earlier draft ended "say which one and stop", and it was obeyed too
-  // well: one mistyped filename among several made the model refuse the whole
-  // question instead of answering the parts it had the files for.
-  "If a file you need was not included, name it and answer whatever the",
-  "included files do cover — do not guess at the rest.",
-].join("\n");
 
 const PROVIDER_INFO = {
   id: "gemini-web" as const,
@@ -82,59 +65,15 @@ const PROVIDER_INFO = {
   requiresApiKey: false,
 };
 
-/** Text of a message. Tool and image parts are dropped rather than rendered —
- *  this provider never produces them, and a resumed session that carries them
- *  should not start narrating a tool history the model cannot act on. */
-function textOf(message: Message): string {
-  return message.parts
-    .map((part: MessagePart) =>
-      part.type === "text"
-        ? part.content
-        : part.type === "code"
-          ? `\`\`\`${part.language}\n${part.content}\n\`\`\``
-          : "",
-    )
-    .filter(Boolean)
-    .join("\n");
-}
+// Gemini's endpoint rejects payloads somewhere past ~60 KB, so the inlining
+// budget leaves room for the preamble, the history and the reply.
+const INLINE_BUDGET_BYTES = 45_000;
 
-/** History as plain text, with every file the conversation has mentioned
- *  inlined ONCE, appended to the newest user message.
- *
- *  Not "mentions in the newest message only", which is what this did first: the
- *  transport keeps no server-side thread, so a file named on turn 1 is simply
- *  gone by turn 2 — measured, the follow-up turn dropped to 634 bytes and the
- *  model correctly answered that it had never been shown the file. Not "expand
- *  in place" either, which re-sends the same bytes once per turn that mentioned
- *  them. Collected newest-first so that when the budget runs out it is the
- *  stalest file that gets dropped, not the one just asked about. */
-export function buildPrompt(messages: Message[]): string {
-  // The loop prepends a synthetic message carrying the file tree, git head and
-  // clock. It is the single largest contributor to the 100 KB measured above
-  // and answers nothing here, since the files come in by name.
-  const usable = messages.filter((m) => m.id !== "dynamic-context");
-  const lastUserIndex = usable.map((m) => m.role).lastIndexOf("user");
-
-  const mentions: string[] = [];
-  for (let i = usable.length - 1; i >= 0; i--) {
-    if (usable[i].role !== "user") continue;
-    for (const mention of findMentions(textOf(usable[i]))) {
-      if (!mentions.includes(mention)) mentions.push(mention);
-    }
-  }
-  const { block } = inlineFiles(mentions);
-
-  // The endpoint takes ONE string, so roles are rendered as labels. Only the
-  // assistant is labelled: an unlabelled paragraph reads as the user speaking,
-  // which is what the model should treat as the live instruction.
-  const parts = [`[System instruction]: ${SYSTEM_PROMPT}`];
-  usable.forEach((message, index) => {
-    let text = textOf(message);
-    if (index === lastUserIndex && block) text = `${text}\n\n${block}`;
-    if (!text) return;
-    parts.push(message.role === "assistant" ? `[Assistant]: ${text}` : text);
+function buildPrompt(messages: Message[]): string {
+  return flattenConversation(messages, {
+    system: ASK_REVIEW_SYSTEM_PROMPT,
+    budgetBytes: INLINE_BUDGET_BYTES,
   });
-  return parts.join("\n\n");
 }
 
 function createGeminiWebProvider(_apiKey: string): AIProvider {

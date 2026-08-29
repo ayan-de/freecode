@@ -835,7 +835,15 @@ const methodHandlers: Record<
       apiKey: string;
       model?: string;
     };
-    setApiKey(provider as ProviderId, apiKey, model);
+    // A web-session credential belongs in `browsers`, not `providers` — the
+    // local catalogue is exactly the set of providers driven from a browser
+    // session, so it doubles as the discriminator without a third flag.
+    setApiKey(
+      provider as ProviderId,
+      apiKey,
+      model,
+      localProvider(provider) ? "browsers" : "providers",
+    );
   },
 
   "config.setCurrentModel": async (
