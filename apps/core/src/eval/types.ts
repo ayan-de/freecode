@@ -21,9 +21,27 @@ export interface EvalCase {
   agentMode?: "plan" | "build" | "review" | "explore" | "danger";
 
   // --- trajectory expectations -------------------------------------------
-  /** `null` asserts that NO tool fired. */
+  /** `null` asserts that NO tool fired. Satisfied by a call ANYWHERE in the run. */
   expectTool?: string | null;
+  /**
+   * The run's FIRST tool must be one of these (spec
+   * `2026-08-29-eval-case-registry.md` §3). `expectTool` asks whether the right
+   * tool fired; this asks whether it fired *first*, which is the question the
+   * trajectory suite exists for — a model that websearches, flails, then greps
+   * scores identically to one that greps immediately under `expectTool` alone.
+   *
+   * A set, not a needle: several openings are usually legitimate, and naming one
+   * tests the model's phrasing rather than its behaviour.
+   */
+  expectFirstToolIn?: string[];
   expectInArgs?: Record<string, ArgMatcher>;
+  /**
+   * Regex over the `command` argument of any `bash` span, for cases whose
+   * correct action is a shell verb rather than a tool choice. Anchoring is the
+   * author's business. Compiled at LOAD time — a bad pattern is a dataset error,
+   * never a failed case.
+   */
+  expectBashMatches?: string;
   expectMaxTurns?: number;
   forbidTools?: string[];
 

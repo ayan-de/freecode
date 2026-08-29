@@ -81,10 +81,15 @@ function validate(raw: unknown, where: string): EvalCase {
   if (o.expectInArgs !== undefined && o.expectTool == null) {
     throw new DatasetError(`${where}: 'expectInArgs' requires 'expectTool'`);
   }
+  const expectFirstToolIn = validateFirstToolIn(o, where);
+  const expectBashMatches = validateBashMatches(o.expectBashMatches, where);
+
   // A case that asserts nothing always passes, which is worse than useless:
   // it inflates the pass count and hides that the case was never finished.
   const asserts =
     o.expectTool !== undefined ||
+    expectFirstToolIn !== undefined ||
+    expectBashMatches !== undefined ||
     o.expectMaxTurns !== undefined ||
     o.verify !== undefined ||
     o.rubric !== undefined ||
@@ -132,7 +137,9 @@ function validate(raw: unknown, where: string): EvalCase {
     model: typeof o.model === "string" ? o.model : undefined,
     agentMode: o.agentMode as EvalCase["agentMode"],
     expectTool: o.expectTool as EvalCase["expectTool"],
+    expectFirstToolIn,
     expectInArgs: o.expectInArgs as EvalCase["expectInArgs"],
+    expectBashMatches,
     expectMaxTurns: o.expectMaxTurns as number | undefined,
     forbidTools: Array.isArray(o.forbidTools)
       ? (o.forbidTools as string[])
@@ -142,6 +149,64 @@ function validate(raw: unknown, where: string): EvalCase {
     immutable,
     rubric,
   };
+}
+
+/**
+ * `expectFirstToolIn` names the tools that may open the run. Spec
+ * `2026-08-29-eval-case-registry.md` §3.
+ *
+ * `expectTool: null` asserts that nothing fired, so pairing the two states that
+ * the run must both begin with a tool and contain none. Rejected at load rather
+ * than scored as an unsatisfiable case.
+ */
+function validateFirstToolIn(
+  o: Record<string, unknown>,
+  where: string,
+): string[] | undefined {
+  const raw = o.expectFirstToolIn;
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new DatasetError(
+      `${where}: 'expectFirstToolIn' must be a non-empty array of tool names`,
+    );
+  }
+  for (const name of raw) {
+    if (typeof name !== "string" || !name.trim()) {
+      throw new DatasetError(
+        `${where}: 'expectFirstToolIn' entries must be non-empty strings`,
+      );
+    }
+  }
+  if (o.expectTool === null) {
+    throw new DatasetError(
+      `${where}: 'expectFirstToolIn' contradicts 'expectTool: null' — ` +
+        `one requires a first tool, the other requires none`,
+    );
+  }
+  return raw as string[];
+}
+
+/**
+ * Compiled at LOAD time. A bad pattern discovered at score time throws inside
+ * the fold, after a real agent turn has been paid for, and reads as an agent
+ * failure — the most expensive kind of wrong answer this harness can give.
+ */
+function validateBashMatches(
+  raw: unknown,
+  where: string,
+): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || !raw.trim()) {
+    throw new DatasetError(`${where}: 'expectBashMatches' must be a non-empty string`);
+  }
+  try {
+    new RegExp(raw);
+  } catch (err) {
+    throw new DatasetError(
+      `${where}: 'expectBashMatches' is not a valid regex — ${(err as Error).message}`,
+    );
+  }
+  return raw;
 }
 
 /**

@@ -40,6 +40,18 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
     return fired.length === 0 ? pass : fail(`expected no tool, called ${fired}`);
   }
 
+  // Position, not membership. `expectTool` cannot distinguish "greped" from
+  // "greped eventually"; this is the distinction the suite exists to score.
+  if (kase.expectFirstToolIn !== undefined) {
+    const first = fired[0];
+    if (first === undefined || !kase.expectFirstToolIn.includes(first)) {
+      return fail(
+        `expected first tool in [${kase.expectFirstToolIn.join(",")}], ` +
+          `called ${first ?? "nothing"}`,
+      );
+    }
+  }
+
   if (kase.expectTool !== undefined) {
     if (!fired.includes(kase.expectTool)) {
       return fail(
@@ -65,6 +77,24 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
       if (!ok) {
         return fail(`${describeMatcher(matcher)} not in args[${key}]`);
       }
+    }
+  }
+
+  // Any bash span may satisfy it: a model that runs `ls` and then `git log` has
+  // still run `git log`. Use `expectFirstToolIn` when the ordering also matters.
+  if (kase.expectBashMatches !== undefined) {
+    const re = new RegExp(kase.expectBashMatches);
+    const commands = spans
+      .filter((s) => s.tool === "bash")
+      .map((s) => s.args?.command)
+      .filter((c): c is string => typeof c === "string");
+    if (commands.length === 0) {
+      return fail(`expected a bash command matching /${kase.expectBashMatches}/, ran none`);
+    }
+    if (!commands.some((c) => re.test(c))) {
+      return fail(
+        `no bash command matched /${kase.expectBashMatches}/: ${commands.join(" ; ")}`,
+      );
     }
   }
 

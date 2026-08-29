@@ -1,0 +1,432 @@
+# Eval Case Registry — ordering, justification, known gaps, and paired A/B
+
+> **Date:** 2026-08-29
+> **Status:** **Phase 1 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3 is
+> built (`expectFirstToolIn`, `expectBashMatches`) and 12 of the 20 trajectory
+> cases carry a first-tool expectation. Phases 2–5 are design. Four changes, all
+> additive to `EvalCase` and its scorers; none of them alters an existing gate
+> decision.
+> **Extends:** `specs/2026-08-23-eval-harness.md` (Phases 0–5, built). This spec
+> settles four of the items that `plans/2026-08-28-fx-eval-adoption.md` proposed
+> and left open; where the two disagree, this one is later and wins.
+> **Prior art:** `fx` (`vercel-labs/fx`), a Zig coding agent. Local clone read for
+> this spec: `~/Projects/githubProjects/agents/fx` (the plan read it at
+> `~/Projects/githubProjects/fx`, before the move). Relevant files:
+> `tests/evals/agent-quality-matrix.ts`, `agent-quality-matrix.test.ts`,
+> `agent-quality-ab.ts`.
+> **Explicitly not:** fx's scripted provider (that is plan §3 / Phase E, still
+> open and much larger), fx's judge, fx's mega-file case format, or fx's
+> "evals are just `bun test` files" structure. See §8.
+
+---
+
+## 0. Read this first (plain language)
+
+Our eval harness asks one question per case — *did the right tool fire* — and it
+asks it in the weakest form available: **anywhere in the run**. A case that greps
+immediately and a case that websearches, flails, reads three wrong files, and
+*then* greps score identically. That is the exact distinction §4 of the eval spec
+was written to capture ("trajectory over outcome"), and we currently score the
+outcome of the trajectory rather than its shape.
+
+Separately, an `EvalCase` carries no record of **why it exists**. There is no
+field saying which failure mode it defends against, no field saying why a
+deterministic unit test could not cover it, and no field recording that a case is
+a *known gap* rather than a break. So a suite of 20 trajectory cases cannot tell
+you what it covers, what it does not, or which of its reds are news.
+
+fx solved both with schema rather than machinery: every case is a row that
+declares its failure category, its justification for costing money, its expected
+*first* action, and its current-versus-target result. A free, model-less test then
+audits the registry itself. That is the part worth taking.
+
+The fourth change is unrelated to schema. Our `compare.ts` diffs two *finished
+reports*, so every A/B we run is confounded with whatever drifted between the two
+run dates. fx runs both sides now, interleaved. That is a better instrument for
+the one question we keep needing to answer — *did that prompt edit help?*
+
+---
+
+## 1. State of play (what changed since the plan)
+
+The plan is nine days old at the time of writing and three of its premises have
+moved. Recorded here because it is the plan's phasing table that is stale, not
+its analysis:
+
+| Plan says | Actually |
+| --- | --- |
+| "`scorers/efficiency.ts` … **was never written**; `gate.ts` has no efficiency rule" (§7) | **Built.** `scorers/efficiency.ts` exists, folded per trial at `runner.ts:309`, compared at `gate.ts:104` as a reported-never-blocking row. Phase B is done. |
+| "Our 20 trajectory cases" / "backfill the 31 existing cases" (§4, §9) | Still accurate. 39 cases across five suites — `trajectory` 20, `coding` 6, `judged` 5, `redirect` 5, `redirect-build` 3. The two redirect suites were added since. |
+| `evals/quarantine.txt` populated as part of calibration (§9 closing note) | Still comments only. Zero entries. |
+
+Phases A, C, D, E and F of the plan remain unbuilt. This spec is A, C, F, plus one
+item the plan described in fx and then did not propose adopting (§5 below).
+
+---
+
+## 2. The four changes
+
+| # | Change | Shape | Cost |
+| --- | --- | --- | --- |
+| 1 | **First tool as a set** — `expectFirstToolIn`, `expectBashMatches` | pure fold over `trace.toolSpans` | ~half a day |
+| 2 | **Justification fields** — `failureCategory`, `whyModelBacked` | two fields + closed set + free assertions | ~1 day + backfill |
+| 3 | **Known-gap ledger** — `knownGap: { status, notes, target }` | one field + a non-equality assertion | ~half a day |
+| 4 | **Paired A/B** — `freecode eval ab` | new runner, alternating order | ~2 days |
+
+1–3 are schema and cost nothing at run time. 4 is a new command and does not touch
+the gate.
+
+---
+
+## 3. Change 1 — the first tool is the signal
+
+### The defect
+
+`scorers/trajectory.ts:44`:
+
+```ts
+if (kase.expectTool !== undefined) {
+  if (!fired.includes(kase.expectTool)) { ... }
+}
+```
+
+Membership, not position. Two consequences:
+
+1. **Order is unscored.** "Did it grep before reading" and "did it grep at all" are
+   different questions. The harness exists to ask the first and asks the second.
+2. **A needle is over-specific.** Our own history contains `read-named-file`
+   failing as `'rollout/types.ts' not in args[file_path]` — the model did the right
+   *kind* of thing and the case tested a spelling. Eval spec §4.1 warns about
+   exactly this and supplies no tool to avoid it.
+
+### The change
+
+Two optional fields on `EvalCase`, both scored by folding `run.trace.toolSpans` —
+no new instrumentation, so the eval spec's standing rule holds:
+
+```ts
+/**
+ * The run's FIRST tool must be one of these. A set, not a needle: several
+ * openings are usually legitimate and a single expected name tests the model's
+ * phrasing rather than its behaviour.
+ */
+expectFirstToolIn?: string[];
+
+/**
+ * Regex over the bash command, for cases whose correct action is a shell verb
+ * rather than a tool choice. Anchored by the author, not by us.
+ */
+expectBashMatches?: string;
+```
+
+### Semantics
+
+- `expectFirstToolIn` reads `spans[0].tool`. **Empty `toolSpans` fails** with
+  `expected one of [...], called nothing` — same as `expectTool` does today.
+- Denied calls stay invisible here, as everywhere: `toolSpans` means *tools that
+  ran* and a refusal is a `deniedSpan` (`specs/2026-08-10-agent-observability.md`
+  §5.1). A case that wants to assert on a refusal still cannot, and this change
+  does not pretend otherwise.
+- `expectBashMatches` is satisfied by **any** `bash` span whose command matches —
+  a model that runs `ls` then `git log` has still run `git log`. Pair it with
+  `expectFirstToolIn: ["bash"]` when the ordering matters too.
+- Both compose with `expectTool` rather than replacing it. `expectTool` keeps its
+  membership semantics, including `expectTool: null` meaning *nothing fired*.
+  Nothing in the existing 39 cases changes meaning.
+- An invalid regex is a **dataset error, not a failed case** — `parseSuite`
+  compiles it at load, alongside the existing `expectInArgs` check. A suite that
+  cannot be loaded is better than a suite that reports a false red.
+- **Added during implementation:** `expectFirstToolIn` together with
+  `expectTool: null` is rejected at load. One requires a first tool and the other
+  requires none, so the pair is unsatisfiable — scoring it would report a false
+  red on every run forever.
+- Both fields count toward `dataset.ts`'s "case asserts nothing" check, so a case
+  may now be built from a first-tool expectation alone.
+
+### What shipped, and what it actually does to the suite
+
+The spec predicted a **lift**, on the theory that some current reds are
+over-specific needles rather than bad behaviour. Reading `match.ts` during
+implementation showed that theory is unsupported: matching is case-insensitive
+**substring**, so `"rollout/types.ts"` already matches any absolute path
+containing it. The one historical failure the plan cites
+(`'rollout/types.ts' not in args[file_path]`) names a key, `file_path`, that no
+current case uses — it predates a rename and is now guarded by the existing
+"every `expectInArgs` key names a real parameter" test. No needle was relaxed,
+because none was shown to need it.
+
+So Phase 1 **tightens** rather than lifts. 12 of 20 trajectory cases gained a
+first-tool expectation — every case whose prompt makes the opening unambiguous
+(`grep`/`glob` for "where is X defined", `read` for "read this exact path",
+`ls`/`glob` for "list this directory"). The eight left alone are the three
+`expectTool: null` cases, the four mode-enforcement cases (whose subject is the
+permission layer, not the opening move), and `todowrite-for-multistep`, where
+`forbidTools` already makes the first tool the only tool.
+
+**Expect the next gated run to need `--accept-baseline`.** A tightened suite
+scores lower against a baseline earned under the looser rule, and that is a
+re-scope, not a regression — exactly the case eval spec §9.2's escape hatch
+exists for.
+
+`expectBashMatches` ships with **no consumer**. `bash` is not in `READONLY_TOOLS`,
+so the trajectory suite has no bash case until the sandbox rule allows one; the
+field is there for the sandboxed suites.
+
+---
+
+## 4. Change 2 — a case must say why it costs money
+
+### The defect
+
+`EvalCase` (`eval/types.ts:16`) has `id`, `prompt`, expectations, fixtures, rubric.
+Nothing answers *why does this need a real model*. The eval spec's own rule —
+anything that does not run a real agent turn is a `*.test.ts` and belongs next to
+its code — is prose in `CLAUDE.md` with no mechanism enforcing it. `dataset.ts:93`
+rejects a case that asserts nothing; it accepts a case that a unit test should
+have covered.
+
+### The change
+
+```ts
+/**
+ * Closed set. A case that fits no category is a case nobody has thought about;
+ * add the category deliberately or reconsider the case.
+ */
+failureCategory:
+  | "tool-routing"          // wrong tool, or right tool too late
+  | "recovery"              // agent/recovery/ — recovering from a failed call
+  | "stale-context"         // acting on a tree/file state that has moved
+  | "permission"            // behaviour under a mode or rule that says no
+  | "compaction-boundary"   // survives a compaction mid-task
+  | "memory-recall"         // retrieves the right memory, or correctly none
+  | "large-output"          // does not drown in a 10k-line result
+  | "resume"                // correct after a resume/fork
+  | "frustration"           // "this is taking forever, what are you doing"
+  | "mcp-failure";          // an MCP server that is down, slow, or lying
+
+/** Why a deterministic test cannot cover this. Asserted non-empty. */
+whyModelBacked: string;
+```
+
+Both **required**, not optional. An optional justification field is one nobody
+fills in.
+
+### The coverage payoff
+
+This is the larger half of the value. Tagging the existing 39 cases will show —
+predictably — that nearly all of them are `tool-routing`, and that we have
+subsystems with zero eval coverage but real code: `agent/recovery/`, compaction
+boundaries, resume, memory recall. `frustration` is the sharpest example: *"This
+is taking too long. What are you doing?"* is a real user turn with a real correct
+behaviour, and nothing in `evals/` asks for it.
+
+Per-category pass rate then becomes the number that directs work. It is nearly
+free once the field exists — but it is a new column in `eval_runs.jsonl`, which is
+baseline substrate, so §10 keeps it as an open question rather than assuming it.
+
+### Format
+
+Take the fields, **not** fx's container. fx's registry is one 1,154-line
+TypeScript file. Ours stays JSONL — diffable, appendable, one case per line, which
+is what makes `freecode eval add --write` safe.
+
+---
+
+## 5. Change 3 — known gaps belong in the case, not in a sidecar
+
+### The defect
+
+Today a case that fails for a reason we already understand has exactly one home:
+`evals/quarantine.txt`, which encodes *"do not turn the build red"* and nothing
+else. No why, no definition of passing, no way to tell a genuinely flaky case from
+a known-broken behaviour we have chosen not to fix yet. The file is also empty,
+so in practice we have no vocabulary for a known gap at all.
+
+fx's rows carry `currentBaselineResult: { status, notes }` alongside
+`targetResult` — the observation and the aspiration, in separate fields. The plan
+described this (§4) and then proposed only `failureCategory` and `whyModelBacked`.
+This spec adopts it.
+
+### The change
+
+```ts
+/**
+ * A documented gap: this case does not pass, and we know why. Distinct from
+ * quarantine, which is about FLAKINESS — a quarantined case might pass; a
+ * knownGap case reliably does not, and we have decided that is acceptable
+ * for now.
+ */
+knownGap?: {
+  status: "partial" | "known-gap" | "unmeasured";
+  /** What actually happens today. Observation. */
+  notes: string;
+  /** What passing would look like. Aspiration. */
+  target: string;
+};
+```
+
+### Semantics
+
+- **`knownGap` does not affect scoring.** The case runs, scores, and reports
+  exactly as before. It is documentation attached to the artifact it documents.
+- **It does not suppress the gate either.** That is quarantine's job and the two
+  stay separate: quarantine is a pass-rate-driven mechanism with `--quarantine-report`
+  proposing promotion and demotion, and folding "known gap" into it would corrupt
+  those pass rates with cases that were never expected to pass.
+- A case may be both. `knownGap` explains, `quarantine.txt` unblocks.
+- **`notes` must not equal `target`.** fx asserts this
+  (`agent-quality-matrix.test.ts:112`, *"separates current baseline observations
+  from target behavior"*) and it is the assertion that makes the field honest —
+  otherwise the aspiration gets written into the status field and the gap
+  disappears without being fixed.
+- `status: "unmeasured"` is illegal on a case that has ever produced a trial
+  result in `eval_runs.jsonl`. If we ran it, it is measured.
+
+---
+
+## 6. Change 4 — paired A/B, run now, not diffed from history
+
+### The defect
+
+`compare.ts` (`compareReports`, `:93`) diffs two `SuiteReport`s. Both are already
+finished; typically one is days old. Everything that drifted in between — a
+silently updated model behind a stable id, a provider-side routing change, a
+different cache state — is confounded into the delta and reported as ours.
+
+Eval spec §9.2 makes the resolved model part of baseline identity, which catches
+an *id* change. It cannot catch the same id serving different weights.
+
+### The change
+
+A new subcommand, deliberately **outside the gate**:
+
+```
+freecode eval ab <suite> --baseline <ref> --candidate <ref> [--trials N] [--cases a,b,c]
+```
+
+Four properties, all taken from `agent-quality-ab.ts`:
+
+| Property | Why |
+| --- | --- |
+| **Alternate which side runs first each trial** (`trialIndex % 2`) | Cancels ordering and warm-cache bias. A fixed order silently advantages one side, and with prompt caching in play the advantage is not small. |
+| **Record each side's identity in every artifact** — commit sha, resolved provider/model, and the model the response *echoed back* | "Which build produced this number" must be answerable a week later. The echo check is the one that matters: `eval_runs.jsonl` holds runs with `model: undefined`, and a gateway serving something other than what was asked is invisible without it. |
+| **Redact credential-shaped env values** before writing artifacts | We write reports under `~/.freecode/` and export to OTLP. The OTLP path is already committed to being leak-free; this is the same rule one layer out. |
+| **Classify each case as `improved` / `regressed` / `unchanged-pass` / `unchanged-fail` / `inconclusive`** | The fifth bucket is the honest verdict for a low-trial paired run. Refusing to emit it is how an A/B harness launders noise into a decision. |
+
+### What it is not
+
+Not a gate, not CI-wired, not a baseline writer. It writes nothing to
+`eval_runs.jsonl`. It is an instrument you point at a prompt change; the gate
+remains majority-of-N against a sticky baseline, unchanged.
+
+`fx` labels its own version *"intentionally not a no-key CI gate: results are
+noisy model-backed signals, reported as paired pass-rate deltas with raw artifacts
+for inspection."* That framing is correct and we adopt it verbatim in intent.
+
+### Smallest useful slice
+
+The **model-echo check** and **env redaction** are independent of the interleaving
+runner and belong in the existing report path regardless of whether §6 is ever
+built. Do those first; they are hours, not days.
+
+---
+
+## 7. The free tests
+
+Everything in §4 and §5 is auditable without a model. These go in
+`dataset.test.ts`, cost nothing, and run on every commit:
+
+1. Every `failureCategory` in the closed set has **at least one case**. A category
+   with no cases is either dead or an admission.
+2. Every case has a non-empty `whyModelBacked`.
+3. `knownGap.notes !== knownGap.target` (§5).
+4. No case is `knownGap.status === "unmeasured"` while appearing in
+   `eval_runs.jsonl`.
+5. `expectBashMatches` compiles as a regex.
+6. Case ids are unique **across suites**, not just within one. `dataset.ts:54`
+   checks within a file; harvesting into the wrong suite can currently produce a
+   collision no loader sees.
+
+fx does the same thing — `agent-quality-matrix.test.ts` tests the *registry*, not
+the agent, and is the cheapest test in its repo.
+
+---
+
+## 8. What this spec does not adopt
+
+- **fx's scripted provider.** Genuinely the most valuable thing in fx's eval layer
+  and much larger than these four; it stays as plan §3 / Phase E with its open
+  decision intact. Nothing here depends on it.
+- **fx's judge.** `eval-judge.ts` defaults the judge to the model under test
+  (`opts.judgeModel ?? EVAL_MODEL`), runs it *through the agent binary*, dumps up
+  to 150,000 chars of the work dir into the prompt, and grades 1–10 with pass ≥ 7.
+  `judge-config.ts` throws on the first of those and eval spec §7 argues the last.
+  The one idea worth lifting later is its **per-requirement decomposition**
+  (`{requirement, implemented, evidence}[]` before a score), which localises
+  failure — but that is a rubric-format change and belongs in its own pass.
+- **Evals as bare test files.** `bun test tests/evals/` yields no pass rate, no
+  baseline delta, no majority-of-N, no quarantine. A flaky live eval becomes a red
+  build, which is how a suite gets disabled.
+- **fx's hard latency budgets.** `check_budgets.py` enforces 2 ms per command on a
+  7.8 MiB static binary. The PASS/FAIL/**INFO-when-no-budget** shape is the right
+  instinct — the same instinct as pricing an unknown model as `undefined` rather
+  than 0 — and `scorers/efficiency.ts` now exists to carry it. The millisecond
+  numbers do not transfer.
+
+---
+
+## 9. Phasing
+
+| Phase | Deliverable | Blocks |
+| --- | --- | --- |
+| ~~**1**~~ | §3 — `expectFirstToolIn` + `expectBashMatches` in `scorers/trajectory.ts` and `dataset.ts`. **Done 2026-08-29.** No case was re-expressed; see §3 for why the "relax the needles" half of this phase turned out to rest on a false premise | — |
+| **2** | §6 smallest slice — model-echo check + env redaction in the report path | nothing |
+| **3** | §4 + §5 — `failureCategory`, `whyModelBacked`, `knownGap`; the §7 assertions; backfill 39 cases | nothing |
+| **4** | Cases for the categories Phase 3 exposes as empty — recovery, stale context, resume, large output, frustration, compaction boundary | 3 |
+| **5** | §6 in full — `freecode eval ab` with interleaving | nothing |
+
+1 and 2 are cheap and independent. **3 is the one with the widest blast radius** — it
+backfill is 39 cases across five suites, and the two redirect suites may not survive Phase E.
+
+Phase 1 changes what the trajectory suite measures, so run it **before** any
+baseline recalibration, and expect the first post-change run to need
+`--accept-baseline`.
+
+None of this substitutes for the calibration eval spec §14 still owes: thresholds
+set from a real run, the 3× bootstrap, and a populated `evals/quarantine.txt`. A
+better scorer measured against no baseline is still not a gate.
+
+---
+
+## 10. Open questions
+
+- **Does `failureCategory` become a reporting dimension?** Per-category pass rate
+  is the number that would direct work, and it is nearly free once the field
+  exists. But it means a new column in `eval_runs.jsonl`, which is baseline
+  substrate — and `baselineFor` has to keep working across the schema change.
+  Undecided.
+- **Are `failureCategory` and `whyModelBacked` required on the redirect suites
+  too?** They are the two suites most likely to be superseded wholesale by Phase E,
+  and backfilling 57 cases we may delete is waste. Leaning: required everywhere,
+  because an exemption is how a required field becomes optional.
+- **What is a `<ref>` for `eval ab`?** A git ref means building twice and is the
+  honest version; a pair of already-built binaries is what fx does and is simpler.
+  Neither is decided.
+- **Does `knownGap` need an expiry?** A gap with no revisit date is a gap that
+  becomes permanent. A `revisit` field is the obvious answer and also the field
+  everyone lies in.
+
+---
+
+## 11. References
+
+- `plans/2026-08-28-fx-eval-adoption.md` — the fuller comparison, including
+  the scripted provider (§3) this spec defers.
+- `specs/2026-08-23-eval-harness.md` — §4 (trajectory over outcome), §7 (judge
+  independence), §9 (gate semantics), §14 (calibration still owed).
+- `specs/2026-08-10-agent-observability.md` §5.1 — why a denied call is not a
+  `toolSpan`, and therefore why §3 cannot score refusals.
+- `fx` — `~/Projects/githubProjects/agents/fx`, re-read 2026-08-29 at `cef08aa`.
+  `tests/evals/agent-quality-matrix.ts` (row schema, closed category set),
+  `agent-quality-matrix.test.ts` (the free registry assertions),
+  `agent-quality-ab.ts` (paired A/B).

@@ -33,6 +33,47 @@ test("rejects expectInArgs without expectTool", () => {
   );
 });
 
+test("expectFirstToolIn and expectBashMatches each count as an assertion", () => {
+  const cases = parseSuite(
+    `{"id":"a","prompt":"p","expectFirstToolIn":["grep","glob"]}\n` +
+      `{"id":"b","prompt":"p","expectBashMatches":"^git\\\\b"}`,
+  );
+  assert.deepEqual(cases[0].expectFirstToolIn, ["grep", "glob"]);
+  assert.equal(cases[1].expectBashMatches, "^git\\b");
+});
+
+test("rejects an empty or non-string expectFirstToolIn", () => {
+  for (const bad of ["[]", '"grep"', "[1]", '[""]']) {
+    assert.throws(
+      () => parseSuite(`{"id":"a","prompt":"p","expectFirstToolIn":${bad}}`),
+      (e: Error) =>
+        e instanceof DatasetError && /expectFirstToolIn/.test(e.message),
+      `should reject expectFirstToolIn: ${bad}`,
+    );
+  }
+});
+
+test("rejects expectFirstToolIn alongside expectTool null", () => {
+  // One requires a first tool, the other requires none: unsatisfiable, so it is
+  // a load error rather than a case that reports a false red every run.
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p","expectTool":null,"expectFirstToolIn":["grep"]}`,
+      ),
+    (e: Error) => e instanceof DatasetError && /contradicts/.test(e.message),
+  );
+});
+
+test("rejects an uncompilable expectBashMatches at load, not at score time", () => {
+  // A bad pattern discovered mid-fold throws after a real turn has been paid
+  // for, and reads as an agent failure.
+  assert.throws(
+    () => parseSuite(`{"id":"a","prompt":"p","expectBashMatches":"git ("}`),
+    (e: Error) => e instanceof DatasetError && /not a valid regex/.test(e.message),
+  );
+});
+
 test("rejects duplicate ids", () => {
   assert.throws(
     () => parseSuite(`${ok}\n${ok}`),
