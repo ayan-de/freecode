@@ -110,7 +110,8 @@ import {
   modelSupportsImages,
   resolveMaxOutputTokens,
 } from "../models-dev.js";
-import { getProvider } from "../providers/index.js";
+import { getProvider, allowsAuxiliaryCalls } from "../providers/index.js";
+import type { ProviderId } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import { isTimeoutError } from "../providers/fetch-timeout.js";
 import { recordInvalidation } from "../providers/cache-invalidation.js";
@@ -1105,6 +1106,9 @@ export class AgentLoop {
     provider: string,
     model: string | undefined,
   ): CompactOptions {
+    // Same fallback an unregistered provider gets: MemoryService.compact drops
+    // to the heuristic summary, which costs nothing and needs no model.
+    if (!allowsAuxiliaryCalls(provider as ProviderId)) return {};
     try {
       const aiProvider = getProvider(provider as any);
       return {
@@ -1254,6 +1258,16 @@ export class AgentLoop {
   // failure must never surface as a task failure.
   private kickMemoryExtraction(provider: string): void {
     if (!this.memoryExtraction || this.abort.signal.aborted) return;
+    // Guards extraction AND the consolidation that takes its slot below, which
+    // is why it sits above shouldExtract rather than inside it: the policy
+    // decides whether a run is worth mining, this decides whether the provider
+    // can afford to be asked at all.
+    if (!allowsAuxiliaryCalls(provider as ProviderId)) {
+      logger.debug(
+        `[MemoryExtract] skipped: ${provider} does not allow auxiliary calls`,
+      );
+      return;
+    }
 
     const { text, turns } = this.buildTranscript();
     // Gates before the call, cheapest first: a skipped run costs a settings
@@ -1384,7 +1398,12 @@ export class AgentLoop {
       // behind a cadence carry that fires it on topic changes rather than turns.
       const memGraph = getMemoryGraphService(context.projectPath);
       const currentUserText = this.getLastUserText();
-      const judgeEnabled = loadMemorySettings(context.projectPath).retrievalJudge;
+      // Omitting the context is the judge's designed off switch (graph/index.ts
+      // "omit it and judging is skipped entirely"), so a provider that cannot
+      // afford the call reuses that path rather than adding a second one.
+      const judgeEnabled =
+        loadMemorySettings(context.projectPath).retrievalJudge &&
+        allowsAuxiliaryCalls(provider as ProviderId);
       const retrievedMemories = await memGraph.prepareMemories(
         this.state.sessionId,
         currentUserText,
@@ -2604,8 +2623,13 @@ export class AgentLoop {
       turnCount: this.state.turnCount,
       state: this.state.redirect,
       // Subagents are already turn-capped and disposable; their parent is the
-      // right place to re-plan.
-      enabled: settings.enabled && this.config.redirect,
+      // right place to re-plan. A provider that cannot afford a background call
+      // cannot afford the supervisor's either — it is one more model round trip
+      // spent on something the user did not ask for.
+      enabled:
+        settings.enabled &&
+        this.config.redirect &&
+        allowsAuxiliaryCalls(provider as ProviderId),
       // An unattended run's budget caps its own recovery attempts; undefined
       // for every interactive run, which is all of them until autonomous
       // execution ships.

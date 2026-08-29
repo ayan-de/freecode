@@ -15,6 +15,27 @@ export interface ProviderInfo {
   // input budget is (context limit - this), not the full limit — compaction
   // subtracts it before deciding whether to fire.
   maxOutputTokens: number;
+  /**
+   * May this provider be spent on model calls the user did not ask for —
+   * memory extraction, consolidation, the retrieval judge, LLM compaction
+   * summaries, trajectory redirection?
+   *
+   * Undefined means yes, so every metered provider is unaffected: there the
+   * calls are small, cheap, and ride a warm prompt cache. Set false for a
+   * provider whose budget is a request quota rather than tokens, where one
+   * background call costs exactly as much as the user's own turn. Consumers
+   * read it through `allowsAuxiliaryCalls()`, which fails open.
+   */
+  auxiliaryCalls?: boolean;
+  /**
+   * Does this provider need an API key before it can be used?
+   *
+   * Undefined means yes, which is every metered provider. Set false for one
+   * authenticated some other way (a browser session cookie, or nothing at
+   * all) — otherwise the model picker treats "no key on file" as "not
+   * configured" and demands the user invent one before letting them select it.
+   */
+  requiresApiKey?: boolean;
 }
 
 export interface ToolDef {
