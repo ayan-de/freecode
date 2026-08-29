@@ -87,6 +87,14 @@ export function harvestCase(input: HarvestInput): HarvestResult {
   const kase: EvalCase = {
     id: caseId(chosen.text, input.sessionId, turn),
     prompt: chosen.text,
+    // A harvested case is always a trajectory, and the sentence below is true
+    // of every one of them — so this is a real default, not a placeholder that
+    // validates while saying nothing. Both are still worth sharpening by hand,
+    // which the notes say.
+    failureCategory: "tool-routing",
+    whyModelBacked:
+      "The first action is selected by the model from the prompt and context, " +
+      "not by deterministic runtime code.",
     ...(model ? { model: `${model.provider}/${model.model}` } : {}),
     expectTool: first ? first.tool : null,
     ...(first ? argExpectations(trace, first.tool) : {}),
@@ -122,6 +130,12 @@ export function harvestCase(input: HarvestInput): HarvestResult {
       );
     }
   }
+  notes.push(
+    "failureCategory defaults to 'tool-routing' and whyModelBacked to the " +
+      "generic first-action reason. If this case is really about recovery, " +
+      "stale context, resume or a stuck loop, say so — the category is how the " +
+      "suite reports what it covers.",
+  );
   notes.push(
     `expectMaxTurns is the OBSERVED count (${kase.expectMaxTurns}), so the ` +
       `case fails on a run one turn longer. Loosen it unless the turn count is ` +
@@ -252,10 +266,15 @@ export function formatCase(kase: EvalCase): string {
   for (const key of [
     "id",
     "prompt",
+    "failureCategory",
+    "whyModelBacked",
+    "knownGap",
     "model",
     "agentMode",
     "expectTool",
+    "expectFirstToolIn",
     "expectInArgs",
+    "expectBashMatches",
     "expectMaxTurns",
     "forbidTools",
   ] as const) {

@@ -1,10 +1,11 @@
 # Eval Case Registry — ordering, justification, known gaps, and paired A/B
 
 > **Date:** 2026-08-29
-> **Status:** **Phases 1–2 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
-> is built (`expectFirstToolIn`, `expectBashMatches`, on 12 of 20 trajectory
-> cases) and §6's model-echo check is built end to end, from the provider
-> adapters through the rollout log to the report. Phases 3–5 are design. Four changes, all
+> **Status:** **Phases 1–3 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
+> (`expectFirstToolIn`, `expectBashMatches`), §6's model-echo check end to end
+> from the provider adapters through the rollout log, and §4/§5's registry
+> fields with all 39 cases backfilled and §7's assertions live. Phases 4–5
+> remain: Phase 4 is now specified by data — see §4's coverage table. Four changes, all
 > additive to `EvalCase` and its scorers; none of them alters an existing gate
 > decision.
 > **Extends:** `specs/2026-08-23-eval-harness.md` (Phases 0–5, built). This spec
@@ -195,9 +196,12 @@ have covered.
  */
 failureCategory:
   | "tool-routing"          // wrong tool, or right tool too late
+  | "code-edit"             // produced the wrong code, or none
+  | "answer-quality"        // the reply itself is the deliverable
+  | "stuck-loop"            // repetition / no progress on a tedious task
+  | "permission"            // behaviour under a mode or rule that says no
   | "recovery"              // agent/recovery/ — recovering from a failed call
   | "stale-context"         // acting on a tree/file state that has moved
-  | "permission"            // behaviour under a mode or rule that says no
   | "compaction-boundary"   // survives a compaction mid-task
   | "memory-recall"         // retrieves the right memory, or correctly none
   | "large-output"          // does not drown in a 10k-line result
@@ -212,14 +216,34 @@ whyModelBacked: string;
 Both **required**, not optional. An optional justification field is one nobody
 fills in.
 
+**Three categories were added during implementation.** fx's taxonomy is
+failure-modes-only, because fx's matrix registers known misbehaviours and its
+scenario evals sit outside it. Ours has one field for all five suites, and three
+of them do not describe misbehaviour at all: `coding` asks whether the agent can
+edit code, `judged` asks whether the prose was good, and the two `redirect`
+suites ask whether it stalls. Forcing those into a misbehaviour taxonomy would
+have meant either a junk-drawer category or an honest field that half the suite
+lies in, so the set covers both readings of *what breaks if this goes red*.
+
 ### The coverage payoff
 
-This is the larger half of the value. Tagging the existing 39 cases will show —
-predictably — that nearly all of them are `tool-routing`, and that we have
-subsystems with zero eval coverage but real code: `agent/recovery/`, compaction
-boundaries, resume, memory recall. `frustration` is the sharpest example: *"This
-is taking too long. What are you doing?"* is a real user turn with a real correct
-behaviour, and nothing in `evals/` asks for it.
+This is the larger half of the value, and the tagging confirmed it. Across all
+39 cases:
+
+| Category | Cases |
+| --- | --- |
+| `tool-routing` | 17 |
+| `stuck-loop` | 8 |
+| `code-edit` | 6 |
+| `answer-quality` | 5 |
+| `permission` | 3 |
+| **the other eight** | **0** |
+
+We have real code and zero eval coverage for `recovery` (`agent/recovery/`),
+`stale-context`, `compaction-boundary`, `memory-recall`, `large-output`,
+`resume`, `frustration` and `mcp-failure`. `frustration` is the sharpest of them:
+*"This is taking too long. What are you doing?"* is a real user turn with a real
+correct behaviour, and nothing in `evals/` asks for it.
 
 Per-category pass rate then becomes the number that directs work. It is nearly
 free once the field exists — but it is a new column in `eval_runs.jsonl`, which is
@@ -378,8 +402,13 @@ after the fact.
 Everything in §4 and §5 is auditable without a model. These go in
 `dataset.test.ts`, cost nothing, and run on every commit:
 
-1. Every `failureCategory` in the closed set has **at least one case**. A category
-   with no cases is either dead or an admission.
+1. ~~Every `failureCategory` has at least one case.~~ **Built as a golden list
+   instead** (`CATEGORIES_WITHOUT_CASES` in `dataset.test.ts`), asserted equal to
+   the actual empty set. As written this assertion would have failed the moment
+   it was added, and the pressure it creates is to delete the eight empty
+   categories — which destroys the exact signal the closed set exists to give. A
+   golden list makes coverage *changes* fail review instead: adding the first
+   case in a category breaks the test, and so does removing the last one.
 2. Every case has a non-empty `whyModelBacked`.
 3. `knownGap.notes !== knownGap.target` (§5).
 4. No case is `knownGap.status === "unmeasured"` while appearing in
@@ -423,12 +452,11 @@ the agent, and is the cheapest test in its repo.
 | --- | --- | --- |
 | ~~**1**~~ | §3 — `expectFirstToolIn` + `expectBashMatches` in `scorers/trajectory.ts` and `dataset.ts`. **Done 2026-08-29.** No case was re-expressed; see §3 for why the "relax the needles" half of this phase turned out to rest on a false premise | — |
 | ~~**2**~~ | §6 smallest slice. **Done 2026-08-29**, but only one of its three items existed: the model-echo check, plumbed from the providers through the rollout log rather than bolted onto the report. The other two were already fixed or guarded nothing — see §6 | — |
-| **3** | §4 + §5 — `failureCategory`, `whyModelBacked`, `knownGap`; the §7 assertions; backfill 39 cases | nothing |
-| **4** | Cases for the categories Phase 3 exposes as empty — recovery, stale context, resume, large output, frustration, compaction boundary | 3 |
+| ~~**3**~~ | §4 + §5 — `failureCategory`, `whyModelBacked`, `knownGap`; the §7 assertions; all 39 cases backfilled. **Done 2026-08-29.** Three categories were added to the closed set and §7's first assertion became a golden list; both are explained in place | — |
+| **4** | Cases for the eight categories Phase 3 exposed as empty: recovery, stale-context, compaction-boundary, memory-recall, large-output, resume, frustration, mcp-failure. Deleting a line from `CATEGORIES_WITHOUT_CASES` is the definition of done for each | — |
 | **5** | §6 in full — `freecode eval ab` with interleaving | nothing |
 
-1 and 2 are cheap and independent. **3 is the one with the widest blast radius** — it
-backfill is 39 cases across five suites, and the two redirect suites may not survive Phase E.
+**Phase 4 is the one that matters now.** Phases 1–3 improved how the suite reports; Phase 4 is the only one that adds coverage, and §4's table says exactly where.
 
 Phase 1 changes what the trajectory suite measures, so run it **before** any
 baseline recalibration, and expect the first post-change run to need

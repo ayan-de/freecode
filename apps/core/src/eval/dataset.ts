@@ -9,7 +9,8 @@
 import * as fs from "fs";
 import * as path from "path";
 import { assertSafeRelativePath, SandboxError } from "./sandbox.js";
-import type { EvalCase } from "./types.js";
+import { FAILURE_CATEGORIES } from "./types.js";
+import type { EvalCase, FailureCategory, KnownGap } from "./types.js";
 
 export class DatasetError extends Error {}
 
@@ -76,6 +77,25 @@ function validate(raw: unknown, where: string): EvalCase {
     throw new DatasetError(`${where}: 'prompt' is required`);
   }
 
+  const failureCategory = o.failureCategory;
+  if (
+    typeof failureCategory !== "string" ||
+    !(FAILURE_CATEGORIES as readonly string[]).includes(failureCategory)
+  ) {
+    throw new DatasetError(
+      `${where}: 'failureCategory' must be one of ` +
+        `${FAILURE_CATEGORIES.join(", ")} — got ${JSON.stringify(failureCategory)}`,
+    );
+  }
+  const whyModelBacked = o.whyModelBacked;
+  if (typeof whyModelBacked !== "string" || !whyModelBacked.trim()) {
+    throw new DatasetError(
+      `${where}: 'whyModelBacked' is required — say why a *.test.ts cannot ` +
+        `cover this, or make it a *.test.ts`,
+    );
+  }
+  const knownGap = validateKnownGap(o.knownGap, where);
+
   // `expectInArgs` without `expectTool` can never be satisfied — there is no
   // tool whose arguments it could name. Reject at load, not at score time.
   if (o.expectInArgs !== undefined && o.expectTool == null) {
@@ -134,6 +154,9 @@ function validate(raw: unknown, where: string): EvalCase {
   return {
     id,
     prompt,
+    failureCategory: failureCategory as FailureCategory,
+    whyModelBacked,
+    knownGap,
     model: typeof o.model === "string" ? o.model : undefined,
     agentMode: o.agentMode as EvalCase["agentMode"],
     expectTool: o.expectTool as EvalCase["expectTool"],
@@ -149,6 +172,41 @@ function validate(raw: unknown, where: string): EvalCase {
     immutable,
     rubric,
   };
+}
+
+/**
+ * A `knownGap` records an observation and an aspiration in separate fields.
+ *
+ * `notes === target` is the failure this validation exists for: with one field
+ * doing both jobs, the aspiration gets written into the status and the gap
+ * disappears from the record without anyone fixing it. fx asserts the same
+ * thing (`agent-quality-matrix.test.ts`, "separates current baseline
+ * observations from target behavior") and it is what keeps the field honest.
+ */
+function validateKnownGap(raw: unknown, where: string): KnownGap | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new DatasetError(`${where}: 'knownGap' must be an object`);
+  }
+  const g = raw as Record<string, unknown>;
+  const STATUSES = ["partial", "known-gap", "unmeasured"];
+  if (typeof g.status !== "string" || !STATUSES.includes(g.status)) {
+    throw new DatasetError(
+      `${where}: 'knownGap.status' must be one of ${STATUSES.join(", ")}`,
+    );
+  }
+  for (const key of ["notes", "target"]) {
+    if (typeof g[key] !== "string" || !(g[key] as string).trim()) {
+      throw new DatasetError(`${where}: 'knownGap.${key}' must be non-empty`);
+    }
+  }
+  if ((g.notes as string).trim() === (g.target as string).trim()) {
+    throw new DatasetError(
+      `${where}: 'knownGap.notes' and 'knownGap.target' are the same string — ` +
+        `notes is what happens today, target is what passing looks like`,
+    );
+  }
+  return g as unknown as KnownGap;
 }
 
 /**

@@ -13,9 +13,91 @@ export type ArgMatcher =
   | { $eq: unknown }
   | { $regex: string; $flags?: string };
 
+/**
+ * What a red on this case would mean. Spec `2026-08-29-eval-case-registry.md` §4.
+ *
+ * CLOSED on purpose: a case that fits no category is a case nobody has thought
+ * about. Add a category deliberately — and then answer why it has no cases —
+ * rather than reaching for a free-text label that makes the list unqueryable.
+ *
+ * fx's original taxonomy is failure-modes-only, which does not fit a suite where
+ * `coding` asks whether the agent can edit code at all and `judged` asks whether
+ * the prose was any good. Those are capabilities, not misbehaviours, so the set
+ * below covers both readings of "what breaks if this goes red".
+ */
+export const FAILURE_CATEGORIES = [
+  /** Wrong tool, or the right tool only after wasted ones. */
+  "tool-routing",
+  /** Produced the wrong code, or none. The end state is the assertion. */
+  "code-edit",
+  /** The reply itself is the deliverable — accuracy, honesty, brevity. */
+  "answer-quality",
+  /** Repetition or no progress on a tedious or unanswerable task. */
+  "stuck-loop",
+  /** Behaviour under an agent mode or permission rule that says no. */
+  "permission",
+  /** Recovering from a failed tool call (`agent/recovery/`). */
+  "recovery",
+  /** Acting on a tree or file state that has since moved. */
+  "stale-context",
+  /** Still correct across a compaction mid-task. */
+  "compaction-boundary",
+  /** Retrieves the right memory, or correctly retrieves none. */
+  "memory-recall",
+  /** Does not drown in a 10k-line tool result. */
+  "large-output",
+  /** Correct after a resume or fork. */
+  "resume",
+  /** "This is taking forever, what are you doing" — a real turn with a real
+   *  correct answer. */
+  "frustration",
+  /** An MCP server that is down, slow, or lying. */
+  "mcp-failure",
+] as const;
+
+export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
+
+/**
+ * A documented gap: this case does not pass, and we know why.
+ *
+ * Distinct from quarantine, which is about FLAKINESS — a quarantined case might
+ * pass. A `knownGap` case reliably does not, and we have decided that is
+ * acceptable for now. Recording it here rather than in `quarantine.txt` keeps
+ * the two mechanisms from corrupting each other: quarantine's promotion and
+ * demotion are driven by observed pass rate, and a case that was never expected
+ * to pass would drag those rates without meaning anything.
+ *
+ * Carries no scoring weight. The case runs, scores and reports exactly as
+ * before; this is documentation attached to the artifact it documents.
+ */
+export interface KnownGap {
+  status: "partial" | "known-gap" | "unmeasured";
+  /** What actually happens today. An OBSERVATION. */
+  notes: string;
+  /** What passing would look like. An ASPIRATION, and never the same string. */
+  target: string;
+}
+
 export interface EvalCase {
   id: string;
   prompt: string;
+  /**
+   * What a red here would mean. REQUIRED — an optional justification field is
+   * one nobody fills in, and the point is to make the suite able to say what it
+   * covers and what it does not.
+   */
+  failureCategory: FailureCategory;
+  /**
+   * Why a deterministic test cannot cover this. REQUIRED and asserted non-empty.
+   *
+   * The rule that anything not running a real agent turn belongs in a
+   * `*.test.ts` was prose in `CLAUDE.md` with nothing enforcing it: `dataset.ts`
+   * rejected a case that asserts nothing, and happily accepted a case a unit
+   * test should have covered.
+   */
+  whyModelBacked: string;
+  /** See `KnownGap`. Documentation only — never affects the score or the gate. */
+  knownGap?: KnownGap;
   /** Pinned so a provider default change cannot silently reprice the baseline. */
   model?: string;
   agentMode?: "plan" | "build" | "review" | "explore" | "danger";
