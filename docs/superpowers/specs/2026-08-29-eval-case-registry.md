@@ -502,10 +502,10 @@ better scorer measured against no baseline is still not a gate.
   exists. But it means a new column in `eval_runs.jsonl`, which is baseline
   substrate — and `baselineFor` has to keep working across the schema change.
   Undecided.
-- **Are `failureCategory` and `whyModelBacked` required on the redirect suites
-  too?** They are the two suites most likely to be superseded wholesale by Phase E,
-  and backfilling 57 cases we may delete is waste. Leaning: required everywhere,
-  because an exemption is how a required field becomes optional.
+- ~~**Are `failureCategory` and `whyModelBacked` required on the redirect suites
+  too?**~~ **Settled in Phase 3: required everywhere**, redirect suites included.
+  An exemption is how a required field becomes optional, and the backfill was
+  eight cases rather than the wasted effort this question assumed.
 - **What is a `<ref>` for `eval ab`?** A git ref means building twice and is the
   honest version; a pair of already-built binaries is what fx does and is simpler.
   Neither is decided.
