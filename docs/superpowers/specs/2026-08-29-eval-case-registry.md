@@ -1,11 +1,13 @@
 # Eval Case Registry — ordering, justification, known gaps, and paired A/B
 
 > **Date:** 2026-08-29
-> **Status:** **Phases 1–3 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
+> **Status:** **Phases 1–4 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
 > (`expectFirstToolIn`, `expectBashMatches`), §6's model-echo check end to end
 > from the provider adapters through the rollout log, and §4/§5's registry
-> fields with all 39 cases backfilled and §7's assertions live. Phases 4–5
-> remain: Phase 4 is now specified by data — see §4's coverage table. Four changes, all
+> fields with all 39 cases backfilled and §7's assertions live, and Phase 4's
+> seven new cases (39 → 46) closing four of the eight empty categories. The
+> other four need harness work first — §9.1. Phase 5 (`freecode eval ab`)
+> is the only part still unbuilt. Four changes, all
 > additive to `EvalCase` and its scorers; none of them alters an existing gate
 > decision.
 > **Extends:** `specs/2026-08-23-eval-harness.md` (Phases 0–5, built). This spec
@@ -239,6 +241,10 @@ This is the larger half of the value, and the tagging confirmed it. Across all
 | `permission` | 3 |
 | **the other eight** | **0** |
 
+Phase 4 then closed four of the eight, taking the suite to 46 cases: `recovery`
+2, `large-output` 2, `frustration` 2, `stale-context` 1. The remaining four are
+not unwritten but unreachable — §9.1.
+
 We have real code and zero eval coverage for `recovery` (`agent/recovery/`),
 `stale-context`, `compaction-boundary`, `memory-recall`, `large-output`,
 `resume`, `frustration` and `mcp-failure`. `frustration` is the sharpest of them:
@@ -453,10 +459,31 @@ the agent, and is the cheapest test in its repo.
 | ~~**1**~~ | §3 — `expectFirstToolIn` + `expectBashMatches` in `scorers/trajectory.ts` and `dataset.ts`. **Done 2026-08-29.** No case was re-expressed; see §3 for why the "relax the needles" half of this phase turned out to rest on a false premise | — |
 | ~~**2**~~ | §6 smallest slice. **Done 2026-08-29**, but only one of its three items existed: the model-echo check, plumbed from the providers through the rollout log rather than bolted onto the report. The other two were already fixed or guarded nothing — see §6 | — |
 | ~~**3**~~ | §4 + §5 — `failureCategory`, `whyModelBacked`, `knownGap`; the §7 assertions; all 39 cases backfilled. **Done 2026-08-29.** Three categories were added to the closed set and §7's first assertion became a golden list; both are explained in place | — |
-| **4** | Cases for the eight categories Phase 3 exposed as empty: recovery, stale-context, compaction-boundary, memory-recall, large-output, resume, frustration, mcp-failure. Deleting a line from `CATEGORIES_WITHOUT_CASES` is the definition of done for each | — |
+| ~~**4**~~ | Cases for the eight empty categories. **Half done 2026-08-29**: recovery (2), large-output (2), frustration (2), stale-context (1) — 7 new cases, 39 → 46. The other four are not unwritten but UNREACHABLE; see §9.1 | — |
 | **5** | §6 in full — `freecode eval ab` with interleaving | nothing |
 
-**Phase 4 is the one that matters now.** Phases 1–3 improved how the suite reports; Phase 4 is the only one that adds coverage, and §4's table says exactly where.
+### 9.1 The four categories the harness cannot express
+
+`runner.ts` drives exactly one `loop.runEffect({ prompt })` per trial and seeds
+nothing but a tmpdir of `files`. Four of the eight empty categories need
+something that does not exist, and writing a case for them today would produce a
+case that fails for infrastructure reasons and reads as an agent failure — the
+most expensive kind of wrong answer this harness can give.
+
+| Category | What it needs first |
+| --- | --- |
+| `compaction-boundary` | A turn long enough to compact. Reachable only by accident today, and an accident is not a p ≥ 0.99 case. |
+| `memory-recall` | A seeded memory dir. `files` paths are sandbox-relative and `assertSafeRelativePath` refuses to escape, which is correct — so a fixture cannot reach `~/.freecode`. |
+| `resume` | A prior session to resume from. One `runEffect` per trial means there is no earlier turn. |
+| `mcp-failure` | A fixture MCP server. `initRunner` calls `initMcpServers()` against the user's real config, so the suite is not hermetic here and could not be made to fail on purpose. |
+
+They stay in `CATEGORIES_WITHOUT_CASES` with that reason recorded next to them.
+The cheapest unlock is `resume` (a second `runEffect` on the same session id);
+`memory-recall` wants a `memory` fixture key alongside `files`; the other two are
+larger. None of it is Phase 4 work — it is harness work, and it should be
+specified before it is built.
+
+**Phase 5 is what is left here.** Phases 1–3 improved how the suite reports and Phase 4 added the coverage that could be added without new harness capability.
 
 Phase 1 changes what the trajectory suite measures, so run it **before** any
 baseline recalibration, and expect the first post-change run to need

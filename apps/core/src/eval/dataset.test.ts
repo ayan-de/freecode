@@ -435,14 +435,18 @@ test("case ids are unique ACROSS suites, not just within one", () => {
 // which destroys the very signal the closed set exists to give. As a golden
 // list, adding the first case in a category fails this test and you delete the
 // line; removing the last case fails it and you notice.
+// The four left are not "unwritten" — they are UNREACHABLE for a harness that
+// drives exactly one `loop.runEffect({ prompt })` per trial (`runner.ts`) and
+// seeds nothing but a tmpdir of files. Each needs a harness change first, named
+// in the spec's §9 Phase 4 row:
+//   compaction-boundary  needs a turn long enough to compact — not deterministic
+//   memory-recall        needs a seeded memory dir; `files` cannot escape the sandbox
+//   resume               needs a prior session to resume from
+//   mcp-failure          needs a fixture MCP server; `initMcpServers()` reads real config
 const CATEGORIES_WITHOUT_CASES: FailureCategory[] = [
-  "recovery",
-  "stale-context",
   "compaction-boundary",
   "memory-recall",
-  "large-output",
   "resume",
-  "frustration",
   "mcp-failure",
 ];
 
