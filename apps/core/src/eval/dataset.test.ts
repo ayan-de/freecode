@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "fs";
 import * as path from "path";
-import { DatasetError, parseSuite } from "./dataset.js";
+import { DatasetError, parseSuite, staleUnmeasured } from "./dataset.js";
 import { FAILURE_CATEGORIES } from "./types.js";
 import type { EvalCase, FailureCategory } from "./types.js";
 
@@ -460,4 +460,41 @@ test("coverage by failure category is what we think it is", () => {
     CATEGORIES_WITHOUT_CASES,
     "coverage changed — update CATEGORIES_WITHOUT_CASES to match, and say so in review",
   );
+});
+
+test("an 'unmeasured' case that has run history is stale", () => {
+  // Spec §5: if we ran it, it is measured. A record saying nobody has looked,
+  // when the history says otherwise, is worse than no record.
+  const cases = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"unmeasured","notes":"never run","target":"passes"}}\n` +
+      `{"id":"b","prompt":"p",${REQUIRED},"expectTool":"grep"}`,
+  );
+  assert.deepEqual(
+    staleUnmeasured(cases, [{ cases: [{ id: "a" }, { id: "b" }] }]),
+    ["a"],
+  );
+});
+
+test("'unmeasured' with no history, and other statuses with history, are fine", () => {
+  const unmeasured = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"unmeasured","notes":"never run","target":"passes"}}`,
+  );
+  assert.deepEqual(staleUnmeasured(unmeasured, []), []);
+  assert.deepEqual(staleUnmeasured(unmeasured, [{ cases: [{ id: "other" }] }]), []);
+
+  const known = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+      `"knownGap":{"status":"known-gap","notes":"guesses","target":"greps"}}`,
+  );
+  assert.deepEqual(staleUnmeasured(known, [{ cases: [{ id: "a" }] }]), []);
+});
+
+test("no shipped case claims to be unmeasured after it has run", async () => {
+  const { readHistory } = await import("./report.js");
+  for (const { file, cases } of allShippedCases()) {
+    const stale = staleUnmeasured(cases, readHistory());
+    assert.deepEqual(stale, [], `${file}: stale 'unmeasured' on ${stale.join(", ")}`);
+  }
 });

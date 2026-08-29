@@ -2379,6 +2379,7 @@ export class AgentLoop {
       toolCall.tool,
       toolCall.args as Record<string, unknown>,
       `turn-${this.state.turnCount}`,
+      toolCall.id,
     );
 
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`);
@@ -2455,6 +2456,7 @@ export class AgentLoop {
       Date.now() - startTime,
       `turn-${this.state.turnCount}`,
       result.error !== undefined,
+      toolCall.id,
     );
 
     // Emit tool_complete event for streaming

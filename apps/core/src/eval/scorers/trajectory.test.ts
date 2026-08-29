@@ -5,7 +5,15 @@ import type { Trace, ToolSpan, ModelSpan } from "../../rollout/trace.js";
 import type { EvalCase, RunRecord } from "../types.js";
 
 function tool(name: string, args?: Record<string, unknown>): ToolSpan {
-  return { tool: name, startedAt: 0, duration_ms: 10, ...(args ? { args } : {}) };
+  // `callSeq` is assigned by `run()` from array position: these fixtures are
+  // written in the order the model called them, which is what the scorer reads.
+  return {
+    tool: name,
+    callSeq: 0,
+    startedAt: 0,
+    duration_ms: 10,
+    ...(args ? { args } : {}),
+  };
 }
 
 function modelSpan(status: ModelSpan["status"] = "ok"): ModelSpan {
@@ -24,6 +32,7 @@ function modelSpan(status: ModelSpan["status"] = "ok"): ModelSpan {
 }
 
 function run(toolSpans: ToolSpan[], modelSpans = [modelSpan()]): RunRecord {
+  toolSpans = toolSpans.map((s, i) => ({ ...s, callSeq: i }));
   const trace: Trace = {
     sessionId: "s1",
     startedAt: 0,

@@ -205,12 +205,14 @@ export class RolloutRecorder {
     tool: string,
     args: Record<string, unknown>,
     turnId: string,
+    callId?: string,
   ): void {
     const event = this.makeEvent("function.call", {
       aggregateID: this.sessionId,
       tool,
       args,
       turnId,
+      ...(callId ? { fields: { callId } } : {}),
     });
     this.write(event);
   }
@@ -224,14 +226,18 @@ export class RolloutRecorder {
     duration_ms: number,
     turnId: string,
     failed?: boolean,
+    callId?: string,
   ): void {
+    const fields: Record<string, unknown> = {};
+    if (failed !== undefined) fields.failed = failed;
+    if (callId) fields.callId = callId;
     const event = this.makeEvent("function.output", {
       aggregateID: this.sessionId,
       tool,
       output,
       duration_ms,
       turnId,
-      ...(failed === undefined ? {} : { fields: { failed } }),
+      ...(Object.keys(fields).length > 0 ? { fields } : {}),
     });
     this.write(event);
   }

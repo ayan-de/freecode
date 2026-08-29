@@ -175,6 +175,35 @@ function validate(raw: unknown, where: string): EvalCase {
 }
 
 /**
+ * Cases claiming `knownGap.status: "unmeasured"` that HAVE been measured.
+ *
+ * Spec `2026-08-29-eval-case-registry.md` §5: if we ran it, it is measured, and
+ * a stale "unmeasured" is a case whose record says nobody has looked when the
+ * history says otherwise.
+ *
+ * Deliberately not part of `validate()`. That is a pure fs+JSON fold over one
+ * suite file, called from `parseSuite` — including by `freecode eval add`,
+ * which validates a draft before it is appended and must not depend on run
+ * history existing. Same reasoning as the `expectInArgs`-names-a-real-parameter
+ * check, which is a test for the same reason.
+ *
+ * Pure: takes the history rather than reading it, so it is testable without a
+ * `~/.freecode` to arrange.
+ */
+export function staleUnmeasured(
+  cases: EvalCase[],
+  history: Array<{ cases: Array<{ id: string }> }>,
+): string[] {
+  const measured = new Set<string>();
+  for (const run of history) {
+    for (const c of run.cases) measured.add(c.id);
+  }
+  return cases
+    .filter((k) => k.knownGap?.status === "unmeasured" && measured.has(k.id))
+    .map((k) => k.id);
+}
+
+/**
  * A `knownGap` records an observation and an aspiration in separate fields.
  *
  * `notes === target` is the failure this validation exists for: with one field

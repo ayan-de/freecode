@@ -150,7 +150,7 @@ test("a refused call is exported as an errored span, not omitted", () => {
 test("denied spans do not collide with tool span ids", () => {
   const spans = spansOf(
     trace({
-      toolSpans: [{ tool: "read", startedAt: 1100, duration_ms: 10 }],
+      toolSpans: [{ tool: "read", callSeq: 1, startedAt: 1100, duration_ms: 10 }],
       deniedSpans: [{ tool: "edit", at: 1500, source: "mode", reason: "no" }],
     }),
   ) as unknown as Array<{ spanId: string }>;

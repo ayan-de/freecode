@@ -37,6 +37,7 @@ after(() => {
 });
 
 const tool = (name: string): ToolSpan => ({
+  callSeq: 0,
   tool: name,
   startedAt: 0,
   duration_ms: 1,

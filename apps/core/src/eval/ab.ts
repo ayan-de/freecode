@@ -22,6 +22,33 @@ export interface Variant {
 export class AbError extends Error {}
 
 /**
+ * Env vars a variant may set — and ONLY these.
+ *
+ * `runAb` calls `initRunner()` once, before either side's environment is
+ * applied, because `initProviders()`/`initMcpServers()` are global and
+ * stateful. So a variant can only move a setting that is re-read AFTER init.
+ * Every name below has been checked to be read per turn or per call:
+ *
+ *   FREECODE_DISABLE_REDIRECT          `loadRedirectSettings`, every iteration
+ *   FREECODE_DISABLE_MEMORY_EXTRACTION `shouldExtract`, every turn
+ *   FREECODE_DISABLE_MEMORY_JUDGE      `loadMemorySettings`, every call
+ *   FREECODE_DISABLE_MEMORY_CONSOLIDATION `shouldConsolidate`, every call
+ *
+ * A startup-read var (a provider key, a config path, a fetch timeout baked into
+ * the client at `createTimeoutFetch`) would be swapped into `process.env` and
+ * then read by nobody. Both sides would run identically and the report would
+ * say `unchanged-pass` — a confident verdict on an experiment that never
+ * happened, which is the exact failure this command exists to avoid. An
+ * allowlist fails loudly instead; extend it only after checking the read site.
+ */
+export const VARIABLE_ENV_KEYS = [
+  "FREECODE_DISABLE_REDIRECT",
+  "FREECODE_DISABLE_MEMORY_EXTRACTION",
+  "FREECODE_DISABLE_MEMORY_JUDGE",
+  "FREECODE_DISABLE_MEMORY_CONSOLIDATION",
+] as const;
+
+/**
  * `model=p/m,env:FOO=1,env:BAR=` — comma-separated assignments.
  *
  * An empty string is the identity variant, which is how you A/B one axis while
@@ -48,6 +75,15 @@ export function parseVariant(spec: string, label: string): Variant {
     } else if (key.startsWith("env:")) {
       const name = key.slice(4).trim();
       if (!name) throw new AbError(`${label}: 'env:' needs a variable name`);
+      if (!(VARIABLE_ENV_KEYS as readonly string[]).includes(name)) {
+        throw new AbError(
+          `${label}: '${name}' is not known to be re-read after the runner ` +
+            `boots, so both sides would run identically and the report would ` +
+            `say "unchanged" about an experiment that never happened. ` +
+            `Supported: ${VARIABLE_ENV_KEYS.join(", ")}. To add one, check ` +
+            `its read site is per-turn and extend VARIABLE_ENV_KEYS.`,
+        );
+      }
       variant.env[name] = value === "" ? undefined : value;
     } else {
       throw new AbError(

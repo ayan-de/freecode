@@ -62,6 +62,17 @@ export interface FunctionCallEvent extends BaseEvent {
   tool: string;
   args: Record<string, unknown>;
   seq: number;
+  /**
+   * The model's own id for this call, so an output can be paired back to the
+   * call that produced it.
+   *
+   * Needed because a parallel batch (`Promise.all` in `loop.ts`) writes its
+   * outputs in COMPLETION order: two calls to the same tool are otherwise
+   * indistinguishable, and the fold could attribute one call's arguments to
+   * the other's result. Optional — logs written before this field existed are
+   * still valid, and `trace.ts` falls back to pairing oldest-call-first.
+   */
+  callId?: string;
 }
 
 export interface FunctionOutputEvent extends BaseEvent {
@@ -80,6 +91,8 @@ export interface FunctionOutputEvent extends BaseEvent {
   failed?: boolean;
   duration_ms: number;
   seq: number;
+  /** See `FunctionCallEvent.callId`. */
+  callId?: string;
 }
 
 /** Which gate refused the call. Kept distinct so "the mode forbids this" and

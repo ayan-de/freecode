@@ -168,6 +168,8 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
         default: "",
         describe:
           "variant: model=<p/m> and/or env:NAME=value, comma-separated. " +
+          "Only env vars re-read after the runner boots are accepted — " +
+          "anything else would leave both sides identical. " +
           "Empty means whatever the config already resolves.",
       })
       .option("candidate", { type: "string", default: "" })

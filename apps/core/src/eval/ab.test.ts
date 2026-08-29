@@ -7,12 +7,37 @@ import {
   redactValue,
   redactVariant,
   trialOrder,
+  VARIABLE_ENV_KEYS,
 } from "./ab.js";
 
 test("parses a model and env assignments", () => {
-  const v = parseVariant("model=anthropic/claude-sonnet-4-6,env:FOO=1", "--x");
+  const v = parseVariant(
+    "model=anthropic/claude-sonnet-4-6,env:FREECODE_DISABLE_REDIRECT=1",
+    "--x",
+  );
   assert.equal(v.model, "anthropic/claude-sonnet-4-6");
-  assert.deepEqual(v.env, { FOO: "1" });
+  assert.deepEqual(v.env, { FREECODE_DISABLE_REDIRECT: "1" });
+});
+
+test("rejects an env key that is not re-read after the runner boots", () => {
+  // The failure this prevents: the var is swapped into process.env, read by
+  // nobody because it was consumed at init, and both sides run identically —
+  // reported as a confident "unchanged" about an experiment that never
+  // happened.
+  assert.throws(
+    () => parseVariant("env:ANTHROPIC_API_KEY=sk-x", "--candidate"),
+    (e: Error) => e instanceof AbError && /not known to be re-read/.test(e.message),
+  );
+  assert.throws(() => parseVariant("env:PATH=/tmp", "--candidate"), AbError);
+});
+
+test("every allowlisted key is one a variant can actually move", () => {
+  // Guards the list against drift: each name must still be spelled the way the
+  // code that reads it spells it.
+  for (const key of VARIABLE_ENV_KEYS) {
+    assert.match(key, /^FREECODE_/);
+    assert.doesNotThrow(() => parseVariant(`env:${key}=1`, "--x"));
+  }
 });
 
 test("an empty spec is the identity variant", () => {
@@ -52,12 +77,20 @@ test("credential-shaped env values never reach an artifact", () => {
 });
 
 test("a redacted variant keeps the shape a reader needs", () => {
-  const v = parseVariant("model=p/m,env:OPENAI_API_KEY=sk-x,env:DEBUG=1", "--x");
-  assert.deepEqual(redactVariant(v), {
-    model: "p/m",
-    "env:OPENAI_API_KEY": "[redacted]",
-    "env:DEBUG": "1",
-  });
+  // Built directly rather than parsed: the allowlist now refuses a
+  // credential-shaped key at parse time, but redaction still has to hold for
+  // anything that reaches an artifact by another route.
+  assert.deepEqual(
+    redactVariant({
+      model: "p/m",
+      env: { OPENAI_API_KEY: "sk-x", FREECODE_DISABLE_REDIRECT: "1" },
+    }),
+    {
+      model: "p/m",
+      "env:OPENAI_API_KEY": "[redacted]",
+      "env:FREECODE_DISABLE_REDIRECT": "1",
+    },
+  );
 });
 
 // --- classify --------------------------------------------------------------

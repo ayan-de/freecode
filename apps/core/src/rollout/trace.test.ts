@@ -324,3 +324,77 @@ test("an errored call carries no served model", () => {
   assert.equal(trace.modelSpans[0].status, "error");
   assert.equal(trace.modelSpans[0].echoedModel, undefined);
 });
+
+test("a parallel batch is ordered by CALL, not by which finished first", () => {
+  // The blocker this fixes: spans are appended on `function.output`, and
+  // `Promise.all` in loop.ts lets a later call finish first. `expectFirstToolIn`
+  // then scored the fast tool as the opening move.
+  const trace = buildTrace("s1", [
+    event("function.call", 1000, { turnId: "t", tool: "grep", args: {}, callId: "c1" }),
+    event("function.call", 1001, { turnId: "t", tool: "read", args: {}, callId: "c2" }),
+    // `read` finishes first.
+    event("function.output", 1100, {
+      turnId: "t", tool: "read", output: "", duration_ms: 99, callId: "c2",
+    }),
+    event("function.output", 1500, {
+      turnId: "t", tool: "grep", output: "", duration_ms: 500, callId: "c1",
+    }),
+  ]);
+  assert.deepEqual(
+    trace.toolSpans.map((s) => s.tool),
+    ["grep", "read"],
+  );
+});
+
+test("concurrent calls to the SAME tool keep their own arguments", () => {
+  // Pairing used to be keyed by tool name, so the second call overwrote the
+  // first's pending entry and both outputs read the surviving args.
+  const trace = buildTrace("s1", [
+    event("function.call", 1000, {
+      turnId: "t", tool: "read", args: { filePath: "first.ts" }, callId: "a",
+    }),
+    event("function.call", 1001, {
+      turnId: "t", tool: "read", args: { filePath: "second.ts" }, callId: "b",
+    }),
+    event("function.output", 1100, {
+      turnId: "t", tool: "read", output: "", duration_ms: 5, callId: "b",
+    }),
+    event("function.output", 1200, {
+      turnId: "t", tool: "read", output: "", duration_ms: 9, callId: "a",
+    }),
+  ]);
+  assert.deepEqual(
+    trace.toolSpans.map((s) => s.args?.filePath),
+    ["first.ts", "second.ts"],
+  );
+});
+
+test("a log with no callId still yields ascending call order", () => {
+  // Logs written before callId existed. Oldest pending call of that tool wins,
+  // so the ORDER is right even though two same-tool calls cannot be told apart.
+  const trace = buildTrace("s1", [
+    event("function.call", 1000, { turnId: "t", tool: "grep", args: {} }),
+    event("function.call", 1001, { turnId: "t", tool: "read", args: {} }),
+    event("function.output", 1100, {
+      turnId: "t", tool: "read", output: "", duration_ms: 5,
+    }),
+    event("function.output", 1500, {
+      turnId: "t", tool: "grep", output: "", duration_ms: 400,
+    }),
+  ]);
+  assert.deepEqual(trace.toolSpans.map((s) => s.tool), ["grep", "read"]);
+});
+
+test("an output whose opening call was lost is still ordered sanely", () => {
+  const trace = buildTrace("s1", [
+    event("function.call", 1000, { turnId: "t", tool: "grep", args: {}, callId: "c1" }),
+    event("function.output", 1100, {
+      turnId: "t", tool: "grep", output: "", duration_ms: 5, callId: "c1",
+    }),
+    // No matching call — truncated log, or resumed mid-turn.
+    event("function.output", 1200, {
+      turnId: "t", tool: "write", output: "", duration_ms: 5, callId: "gone",
+    }),
+  ]);
+  assert.deepEqual(trace.toolSpans.map((s) => s.tool), ["grep", "write"]);
+});

@@ -62,6 +62,19 @@ export interface ModelSpan {
 
 export interface ToolSpan {
   tool: string;
+  /**
+   * Position in CALL order — the `seq` of the `function.call` that opened it.
+   *
+   * `toolSpans` is built from `function.output`, which arrives in COMPLETION
+   * order: a parallel batch (`Promise.all` in `loop.ts`) can finish a later
+   * call first, and before this existed the fold reported that later call as
+   * the opening move. `buildTrace` sorts on this, so `toolSpans[0]` is the
+   * tool the model actually reached for first.
+   *
+   * Falls back to the output's own `seq` when the opening call was never
+   * logged, which keeps such a span ordered sanely against the rest.
+   */
+  callSeq: number;
   startedAt: number;
   duration_ms: number;
   /**
@@ -143,10 +156,16 @@ export function buildTrace(
   const open: ModelSpan[] = [];
   let redirects = 0;
   let redirectsSkipped = 0;
-  const pendingTools = new Map<
-    string,
-    { startedAt: number; args?: Record<string, unknown> }
-  >();
+  // Two indexes over the same pending calls. `byId` is exact; `byTool` is the
+  // fallback for logs written before `callId` existed, and pops OLDEST-FIRST so
+  // two concurrent calls to the same tool still yield ascending call order.
+  interface PendingCall {
+    startedAt: number;
+    callSeq: number;
+    args?: Record<string, unknown>;
+  }
+  const pendingById = new Map<string, PendingCall>();
+  const pendingByTool = new Map<string, PendingCall[]>();
 
   for (const event of events) {
     switch (event.type) {
@@ -197,22 +216,37 @@ export function buildTrace(
         span.error = event.error;
         break;
       }
-      case "function.call":
-        pendingTools.set(event.tool, {
+      case "function.call": {
+        const pending: PendingCall = {
           startedAt: event.timestamp,
+          callSeq: event.seq,
           args: event.args,
-        });
+        };
+        if (event.callId) {
+          pendingById.set(event.callId, pending);
+        } else {
+          const queue = pendingByTool.get(event.tool) ?? [];
+          queue.push(pending);
+          pendingByTool.set(event.tool, queue);
+        }
         break;
+      }
       case "function.output": {
-        const pending = pendingTools.get(event.tool);
+        let pending: PendingCall | undefined;
+        if (event.callId && pendingById.has(event.callId)) {
+          pending = pendingById.get(event.callId);
+          pendingById.delete(event.callId);
+        } else {
+          pending = pendingByTool.get(event.tool)?.shift();
+        }
         toolSpans.push({
           tool: event.tool,
+          callSeq: pending?.callSeq ?? event.seq,
           startedAt: pending?.startedAt ?? event.timestamp,
           duration_ms: event.duration_ms,
           ...(pending?.args ? { args: pending.args } : {}),
           ...(event.failed === undefined ? {} : { failed: event.failed }),
         });
-        pendingTools.delete(event.tool);
         break;
       }
       // No pairing: the refusal is the whole story, and `function.call` was
@@ -244,6 +278,13 @@ export function buildTrace(
     span.duration_ms = Math.max(0, asOf - span.startedAt);
     if (span.duration_ms >= HANG_THRESHOLD_MS) span.status = "hung";
   }
+
+  // Spans were appended on `function.output`, so this array arrived in
+  // COMPLETION order. Every consumer means "the tools it called, in order" —
+  // and one of them, `expectFirstToolIn`, is only correct if that is true.
+  // Sorting is safe for the rest: `tool_ms` is a sum, and the render and OTLP
+  // paths carry their own timestamps.
+  toolSpans.sort((a, b) => a.callSeq - b.callSeq);
 
   return {
     sessionId,

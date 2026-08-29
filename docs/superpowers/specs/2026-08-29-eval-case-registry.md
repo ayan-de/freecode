@@ -127,6 +127,16 @@ expectBashMatches?: string;
 
 - `expectFirstToolIn` reads `spans[0].tool`. **Empty `toolSpans` fails** with
   `expected one of [...], called nothing` — same as `expectTool` does today.
+- **Fixed after review (2026-08-29): `toolSpans` was in COMPLETION order.** Spans
+  are appended on `function.output`, and a parallel batch (`Promise.all` in
+  `loop.ts`) can finish a later call first — so a fast second tool was scored as
+  the opening move, which is a wrong answer from the one assertion this phase
+  exists to add. `ToolSpan` now carries `callSeq` (the `seq` of the paired
+  `function.call`) and `buildTrace` sorts on it. Both function events also carry
+  an optional `callId`, because pairing was keyed on the tool NAME and two
+  concurrent calls to the same tool swapped each other's arguments. Old logs
+  without `callId` fall back to oldest-call-first, which still yields ascending
+  call order.
 - Denied calls stay invisible here, as everywhere: `toolSpans` means *tools that
   ran* and a refusal is a `deniedSpan` (`specs/2026-08-10-agent-observability.md`
   §5.1). A case that wants to assert on a refusal still cannot, and this change
@@ -311,7 +321,14 @@ knownGap?: {
   otherwise the aspiration gets written into the status field and the gap
   disappears without being fixed.
 - `status: "unmeasured"` is illegal on a case that has ever produced a trial
-  result in `eval_runs.jsonl`. If we ran it, it is measured.
+  result in `eval_runs.jsonl`. If we ran it, it is measured. **Implemented as
+  `staleUnmeasured(cases, history)` plus a `dataset.test.ts` assertion, not as a
+  `validate()` rule**: `validate()` is a pure fs+JSON fold over one suite file
+  and is called by `freecode eval add` to check a draft before appending, which
+  must not require run history to exist. Same reason the
+  `expectInArgs`-names-a-real-parameter check is a test. The function takes the
+  history rather than reading it, so it is testable without arranging a
+  `~/.freecode`.
 
 ---
 
@@ -350,9 +367,21 @@ we actually have — *is this model better here*, and *does redirect help* — t
 second of which is the measurement parked since 2026-08-27.
 
 This works **only because every setting worth flipping is read per turn**:
-`loadRedirectSettings` re-reads `process.env` on each loop iteration. A setting
-cached at boot would not vary between interleaved trials, and would do so
-silently. That is the constraint to check before adding an axis.
+`loadRedirectSettings` re-reads `process.env` on each loop iteration. `runAb`
+calls `initRunner()` once, before either side's env is applied, because
+`initProviders`/`initMcpServers` are global and stateful — so a setting consumed
+at boot would be swapped into `process.env` and read by nobody. Both sides would
+run identically and the report would say `unchanged-pass`: a confident verdict on
+an experiment that never happened, which is precisely what this command exists to
+prevent.
+
+**Fixed after review (2026-08-29): env keys are an allowlist, not free text.**
+`VARIABLE_ENV_KEYS` names the four `FREECODE_DISABLE_*` vars whose read sites
+have been checked to be per-turn or per-call; anything else is refused at parse
+time with a message saying why. Enforcement rather than a warning, because the
+failure is silent by construction and a warning about a silent failure is one
+nobody connects to the number they are reading. Extending the list means checking
+the read site first.
 
 Four properties, all taken from `agent-quality-ab.ts`:
 
