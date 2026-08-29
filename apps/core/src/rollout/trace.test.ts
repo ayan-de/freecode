@@ -288,3 +288,39 @@ test("a trace with no denials says nothing about them", () => {
   });
   assert.ok(!/denied/.test(text));
 });
+
+test("keeps the served model id off model.response", () => {
+  // `model.request` records what we asked for and `model.response` what was
+  // served; the fold used to drop the second, so a stable alias answered by a
+  // rolled snapshot left no trace of the roll anywhere we keep.
+  const served = {
+    ...response(4000, 3000),
+    echoedModel: "MiniMax-M3-20260215",
+  } as RolloutEvent;
+  const trace = buildTrace("s1", [request(1000), served]);
+  assert.equal(trace.modelSpans[0].model, "MiniMax-M3");
+  assert.equal(trace.modelSpans[0].echoedModel, "MiniMax-M3-20260215");
+});
+
+test("a response with no served model leaves the span's echo undefined", () => {
+  const trace = buildTrace("s1", [request(1000), response(4000, 3000)]);
+  assert.equal(trace.modelSpans[0].echoedModel, undefined);
+});
+
+test("an errored call carries no served model", () => {
+  // model.error has no echo to record, and defaulting it to the requested id
+  // would manufacture agreement out of a call that never completed.
+  const trace = buildTrace("s1", [
+    request(1000),
+    event("model.error", 2000, {
+      turnId: "turn-0",
+      provider: "minimax",
+      model: "MiniMax-M3",
+      duration_ms: 1000,
+      kind: "provider",
+      error: "boom",
+    }),
+  ]);
+  assert.equal(trace.modelSpans[0].status, "error");
+  assert.equal(trace.modelSpans[0].echoedModel, undefined);
+});

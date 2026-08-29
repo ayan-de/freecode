@@ -332,6 +332,22 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         const perTrial = formatEfficiency(suiteEfficiency(report));
         if (perTrial) console.log(`${dim}${perTrial}${reset}`);
 
+        // Disclosure, not detection: `model` above is what we ASKED for, and a
+        // stable alias can be served by a rolled snapshot that reprices the
+        // baseline without changing a recorded id. Never gated on — an alias
+        // resolving to a dated snapshot is normal, so only a genuine
+        // disagreement is raised, and then only in yellow.
+        if (report.echoedModels?.length) {
+          const { echoDisagreements } =
+            await import("../../eval/model-echo.js");
+          const odd = echoDisagreements(report.model, report.echoedModels);
+          console.log(
+            `${odd.length ? yellow : dim}served ${report.echoedModels.join(", ")}` +
+              (odd.length ? ` — does not answer ${report.model}` : "") +
+              reset,
+          );
+        }
+
         for (const reason of verdict.reasons) {
           console.log(`${verdict.open ? dim : red}${reason}${reset}`);
         }

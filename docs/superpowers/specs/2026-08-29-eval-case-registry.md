@@ -1,9 +1,10 @@
 # Eval Case Registry — ordering, justification, known gaps, and paired A/B
 
 > **Date:** 2026-08-29
-> **Status:** **Phase 1 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3 is
-> built (`expectFirstToolIn`, `expectBashMatches`) and 12 of the 20 trajectory
-> cases carry a first-tool expectation. Phases 2–5 are design. Four changes, all
+> **Status:** **Phases 1–2 shipped (2026-08-29)** on `feat/denied-tool-trace` — §3
+> is built (`expectFirstToolIn`, `expectBashMatches`, on 12 of 20 trajectory
+> cases) and §6's model-echo check is built end to end, from the provider
+> adapters through the rollout log to the report. Phases 3–5 are design. Four changes, all
 > additive to `EvalCase` and its scorers; none of them alters an existing gate
 > decision.
 > **Extends:** `specs/2026-08-23-eval-harness.md` (Phases 0–5, built). This spec
@@ -323,11 +324,52 @@ remains majority-of-N against a sticky baseline, unchanged.
 noisy model-backed signals, reported as paired pass-rate deltas with raw artifacts
 for inspection."* That framing is correct and we adopt it verbatim in intent.
 
-### Smallest useful slice
+### Smallest useful slice — built, and not where this section put it
 
-The **model-echo check** and **env redaction** are independent of the interleaving
-runner and belong in the existing report path regardless of whether §6 is ever
-built. Do those first; they are hours, not days.
+Two of the three items in the table were **already dead** when Phase 2 started,
+and finding that out is most of what Phase 2 was:
+
+- **`model: undefined` in `eval_runs.jsonl`** — fixed by `fc4be56` before this
+  spec was written. `suite.ts` records the *resolved* model, and all 18 runs in
+  history carry one. The plan's observation was stale; so was this section's
+  repetition of it.
+- **Env redaction** — nothing in the eval report or OTLP path writes an env var
+  at all. Redacting it would be code for a scenario that cannot occur.
+
+The **echo check** was real, and could not be done "in the report path" as
+claimed: `model.response` recorded `resolvedModel`, the same local variable
+`model.request` used, so **both sides of the round trip were the id we sent** and
+there was no echo anywhere in the pipeline to check. It needed the value plumbed
+from the providers, which is a different subsystem and a bigger change than
+"hours, not days" allowed for.
+
+Built as (all four adapters use the AI SDK, so the stream path is one change,
+not four):
+
+| Layer | Change |
+| --- | --- |
+| `providers/types.ts` | `ExecuteResult.echoedModel`; the `done` chunk carries it too, rather than a new chunk type every consumer must learn to ignore |
+| `providers/streaming.ts` | reads `finish-step`'s `response.modelId` — the only `fullStream` part that carries it; `finish` does not |
+| the four adapters | `result.response?.modelId` on the `execute()` path |
+| `rollout/types.ts`, `trace.ts` | `echoedModel` on `ModelResponseEvent` and `ModelSpan` |
+| `agent/loop.ts` | both `recordModelResponse` sites |
+| `eval/model-echo.ts` | `echoedModels()` fold + `echoDisagreements()`; surfaced on `TrialResult`, `SuiteReport`, and one CLI line |
+
+**Reported, never gated on** — the same call `SuiteReport.judge` makes, and for a
+sharper reason than fx had. fx fails the trial on a mismatch because it routes
+through a gateway. We call providers directly, where the common case is an alias
+resolving to a dated snapshot (`claude-sonnet-4-6` → `claude-sonnet-4-6-2026…`),
+which is correct behaviour. `echoDisagreements` therefore treats an echo that
+*extends* the request, or drops our `provider/` routing prefix, as agreement, and
+flags only an echo that is not the requested model at all. A provider that echoes
+nothing stays `undefined` rather than defaulting to the requested id — silence is
+not evidence of agreement.
+
+The payoff is bigger for us than the gateway argument suggests: a snapshot
+rolling under a stable alias reprices every baseline pinned to that alias while
+every recorded id stays byte-identical. That is the model drift making
+`--compare` untrustworthy in the first place, and it was previously undetectable
+after the fact.
 
 ---
 
@@ -380,7 +422,7 @@ the agent, and is the cheapest test in its repo.
 | Phase | Deliverable | Blocks |
 | --- | --- | --- |
 | ~~**1**~~ | §3 — `expectFirstToolIn` + `expectBashMatches` in `scorers/trajectory.ts` and `dataset.ts`. **Done 2026-08-29.** No case was re-expressed; see §3 for why the "relax the needles" half of this phase turned out to rest on a false premise | — |
-| **2** | §6 smallest slice — model-echo check + env redaction in the report path | nothing |
+| ~~**2**~~ | §6 smallest slice. **Done 2026-08-29**, but only one of its three items existed: the model-echo check, plumbed from the providers through the rollout log rather than bolted onto the report. The other two were already fixed or guarded nothing — see §6 | — |
 | **3** | §4 + §5 — `failureCategory`, `whyModelBacked`, `knownGap`; the §7 assertions; backfill 39 cases | nothing |
 | **4** | Cases for the categories Phase 3 exposes as empty — recovery, stale context, resume, large output, frustration, compaction boundary | 3 |
 | **5** | §6 in full — `freecode eval ab` with interleaving | nothing |

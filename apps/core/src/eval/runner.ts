@@ -12,6 +12,7 @@ import { createSandbox, insideSandbox, type Sandbox } from "./sandbox.js";
 import type { JudgeConfig } from "./judge-config.js";
 import type { EvalCase, RunRecord, TrialResult } from "./types.js";
 import { trialEfficiency } from "./scorers/efficiency.js";
+import { echoedModels } from "./model-echo.js";
 import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
 
@@ -277,6 +278,7 @@ async function runTrialIn(
 
   const { JUDGE_CASE_FLOOR } = await import("./gate.js");
   const { totalUsd } = await import("../providers/pricing.js");
+  const echoed = echoedModels(trace);
 
   // A judged case that scored below the floor is a failure; one the judge
   // could not answer for keeps the deterministic verdict, because an outage
@@ -307,6 +309,7 @@ async function runTrialIn(
     redirectsSkipped: trace.redirectsSkipped,
     questionsRejected,
     efficiency: trialEfficiency(trace),
+    ...(echoed.length > 0 ? { echoedModels: echoed } : {}),
     sessionId,
   };
 }

@@ -182,3 +182,56 @@ test("normalizeAiSdkStream still completes with a done chunk when usage is absen
   );
   assert.ok(chunks.some((c) => (c as { type: string }).type === "done"));
 });
+
+// The echoed model is only reachable from the per-step "finish-step" part —
+// the "finish" part that ends the stream carries no response metadata. Without
+// this the streaming path recorded the model we ASKED for on both sides of the
+// round trip, so a stable alias served by a rolled snapshot was invisible.
+test("normalizeAiSdkStream carries the served model id on the done chunk", async () => {
+  const chunks = await collect(
+    normalizeAiSdkStream(
+      fakeStream([
+        { type: "text-delta", text: "hi" },
+        {
+          type: "finish-step",
+          response: { modelId: "claude-sonnet-4-6-20260101" },
+        },
+        { type: "finish", finishReason: "stop" },
+      ]),
+    ),
+  );
+  const done = chunks.find(
+    (c): c is { type: "done"; echoedModel?: string } =>
+      (c as { type: string }).type === "done",
+  );
+  assert.equal(done?.echoedModel, "claude-sonnet-4-6-20260101");
+});
+
+test("a stream whose provider says nothing leaves the served model undefined", async () => {
+  // Absent must stay distinguishable from "matched": silence is not evidence.
+  const chunks = await collect(
+    normalizeAiSdkStream(fakeStream([{ type: "finish", finishReason: "stop" }])),
+  );
+  const done = chunks.find(
+    (c): c is { type: "done"; echoedModel?: string } =>
+      (c as { type: string }).type === "done",
+  );
+  assert.equal(done?.echoedModel, undefined);
+});
+
+test("the last step wins when a multi-step call reports more than one", async () => {
+  const chunks = await collect(
+    normalizeAiSdkStream(
+      fakeStream([
+        { type: "finish-step", response: { modelId: "first" } },
+        { type: "finish-step", response: { modelId: "second" } },
+        { type: "finish", finishReason: "stop" },
+      ]),
+    ),
+  );
+  const done = chunks.find(
+    (c): c is { type: "done"; echoedModel?: string } =>
+      (c as { type: string }).type === "done",
+  );
+  assert.equal(done?.echoedModel, "second");
+});

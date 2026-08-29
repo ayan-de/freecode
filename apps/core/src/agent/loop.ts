@@ -1896,6 +1896,9 @@ export class AgentLoop {
         let usage: ExecuteUsage | undefined;
 
         let ttft_ms: number | undefined;
+        // What the provider says it actually served, if it says anything. Only
+        // the `done` chunk carries it, so it has to outlive the switch.
+        let echoedModel: string | undefined;
         // Holds back the citation tag so it never reaches a frontend (D12).
         const citationFilter = new CitationStreamFilter();
 
@@ -1967,6 +1970,7 @@ export class AgentLoop {
             case "error":
               throw new Error(chunk.error);
             case "done":
+              echoedModel = chunk.echoedModel;
               break;
           }
         }
@@ -1984,6 +1988,7 @@ export class AgentLoop {
         this.recorder.recordModelResponse(turnId, {
           provider,
           model: resolvedModel,
+          echoedModel,
           duration_ms: Date.now() - startedAt,
           ttft_ms,
           inputTokens: usage?.inputTokens,
@@ -2022,6 +2027,7 @@ export class AgentLoop {
       this.recorder.recordModelResponse(turnId, {
         provider,
         model: resolvedModel,
+        echoedModel: result.echoedModel,
         duration_ms: Date.now() - startedAt,
         inputTokens: result.usage?.inputTokens,
         outputTokens: result.usage?.outputTokens,

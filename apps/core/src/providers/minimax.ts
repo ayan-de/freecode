@@ -129,6 +129,7 @@ function createMiniMaxProvider(_apiKey: string): AIProvider {
             : "stop",
       provider: PROVIDER_INFO.id,
       model,
+      echoedModel: result.response?.modelId,
     };
   }
 

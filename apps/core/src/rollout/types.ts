@@ -197,7 +197,15 @@ export interface ModelResponseEvent extends BaseEvent {
   type: "model.response";
   turnId: string;
   provider: string;
+  /** What we asked for — the same id `model.request` carries. */
   model: string;
+  /**
+   * What the provider says it served, when it says anything. An alias resolves
+   * server-side, so a snapshot can roll under a stable id and reprice every
+   * baseline pinned to that id while the log still reads identical. Recording
+   * the echo is the only way that becomes visible after the fact.
+   */
+  echoedModel?: string;
   duration_ms: number;
   ttft_ms?: number;
   inputTokens?: number;

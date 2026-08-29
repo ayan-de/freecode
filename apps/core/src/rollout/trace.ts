@@ -29,7 +29,14 @@ export const HANG_THRESHOLD_MS = 300_000;
 export interface ModelSpan {
   turnId: string;
   provider: string;
+  /** What we asked for, from `model.request`. */
   model: string;
+  /**
+   * What the provider said it served, from `model.response`. Absent when the
+   * provider said nothing, when the call errored, or when the span is still
+   * open — so `echoedModel !== model` is only a disagreement if it is set.
+   */
+  echoedModel?: string;
   startedAt: number;
   status: SpanStatus;
   /** Wall time of the call. For a hung span, time until the log went quiet. */
@@ -171,6 +178,7 @@ export function buildTrace(
         const span = takeOpen(open, event.turnId, true);
         if (!span) break;
         span.status = "ok";
+        span.echoedModel = event.echoedModel;
         span.duration_ms = event.duration_ms;
         span.ttft_ms = event.ttft_ms ?? span.ttft_ms;
         span.inputTokens = event.inputTokens;

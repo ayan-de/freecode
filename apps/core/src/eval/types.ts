@@ -140,6 +140,12 @@ export interface TrialResult {
    */
   efficiency?: TrialEfficiency;
   /**
+   * Distinct model ids the provider echoed back on this trial's calls
+   * (`model-echo.ts`). Omitted when no call carried one — absent means the
+   * provider said nothing, never that it agreed.
+   */
+  echoedModels?: string[];
+  /**
    * Judge verdict 0–5. `null` means the judge was asked and could not answer —
    * reported as skipped, never as a failure (spec §7 constraint 3). Absent
    * entirely on a case with no rubric.
@@ -193,6 +199,14 @@ export interface SuiteReport {
    * report lets a reader catch what the comparison cannot.
    */
   judge?: { provider: string; model?: string };
+  /**
+   * Every distinct model id the provider echoed back across the run
+   * (`model-echo.ts`). Recorded for the same reason `judge` is: `model` above
+   * is what we ASKED for, and a stable alias can be served by a rolled snapshot
+   * that reprices the baseline while every recorded id stays identical.
+   * Disclosure only — a disagreement is printed, never gated on.
+   */
+  echoedModels?: string[];
   /** Why no judge ran, when none did. Judged cases then report as skipped. */
   judgeSkipped?: string;
   /**
