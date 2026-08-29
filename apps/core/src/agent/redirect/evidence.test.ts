@@ -44,6 +44,27 @@ function pair(
   return [call(tool, args), output(tool, out, failed)];
 }
 
+function denied(
+  tool: string,
+  args: Record<string, unknown>,
+  reason = "Permission denied (mode-default)",
+  source = "mode",
+): RolloutEvent {
+  seq++;
+  return {
+    id: `deny-${seq}`,
+    seq,
+    aggregateID: "s",
+    timestamp: 1000 + seq,
+    type: "function.denied",
+    turnId: "turn-1",
+    tool,
+    args,
+    source,
+    reason,
+  } as RolloutEvent;
+}
+
 const base = {
   sessionId: "s",
   turnCount: 9,
@@ -208,4 +229,59 @@ test("the rendered packet states the goal and the observed pattern", () => {
   const rendered = renderEvidence(packet);
   assert.match(rendered, /Goal: Find where the timeout/);
   assert.match(rendered, /repeated the same tool call/);
+});
+
+test("a refused call is evidence, and is not mistaken for a failed one", () => {
+  // Before `function.denied` existed this whole trial folded to an empty
+  // packet: six refused bash calls, and the supervisor was told the model had
+  // made no tool calls at all.
+  const packet = buildEvidence({
+    ...base,
+    reason: "repeated_identical_tool",
+    events: [
+      ...pair("read", { filePath: "match.ts" }),
+      denied("bash", { command: "node -e 'x'" }),
+      denied("bash", { command: "node -e 'x'" }),
+    ],
+  });
+
+  assert.equal(packet.recentCalls.length, 3);
+  const refused = packet.recentCalls.filter((c) => c.denied === true);
+  assert.equal(refused.length, 2);
+  // `denied` and `failed` are different diagnoses: a failed call did work and
+  // it went wrong, a denied one never ran.
+  assert.ok(refused.every((c) => c.failed === false));
+  assert.equal(packet.recentCalls[0].tool, "read");
+  assert.equal(packet.recentCalls[0].denied, undefined);
+  // The refusal message is what tells the supervisor to stop retrying.
+  assert.ok(packet.errors.some((e) => /Permission denied/.test(e)));
+  assert.match(packet.repeatedSignature ?? "", /bash/);
+});
+
+test("a denied write is not reported as a file that changed", () => {
+  const packet = buildEvidence({
+    ...base,
+    reason: "no_progress",
+    events: [denied("write", { filePath: "src/a.ts" })],
+  });
+  assert.deepEqual(packet.changedFiles, []);
+});
+
+test("the audit trail carries the denial events it folded", () => {
+  const packet = buildEvidence({
+    ...base,
+    reason: "no_progress",
+    events: [denied("edit", { filePath: "src/a.ts" })],
+  });
+  assert.equal(packet.evidenceEventIds.length, 1);
+  assert.match(packet.evidenceEventIds[0], /^deny-/);
+});
+
+test("the rendered packet says a refused call did not run", () => {
+  const packet = buildEvidence({
+    ...base,
+    reason: "no_progress",
+    events: [denied("edit", { filePath: "src/a.ts" })],
+  });
+  assert.match(renderEvidence(packet), /refused before running/);
 });

@@ -12,6 +12,20 @@
 // is a BAD CASE, not a hard task — `freecode eval --quarantine-report` finds
 // them. Needles are the shortest string that still distinguishes right from
 // wrong: encoding one exact spelling tests the model's phrasing, not the harness.
+//
+// A DENIED tool call is invisible here. `loop.ts` returns on a mode/rule deny
+// BEFORE `recordFunctionCall`, so no `function.call`/`function.output` pair is
+// written and `buildTrace` never makes a span for it. On a read-only-mode case
+// `forbidTools` therefore stays silent while enforcement works, and only fires
+// if enforcement breaks and the edit really executes — which is the regression
+// it exists to catch, but it means forbidTools alone asserts nothing about the
+// model. Pair it with an `expectTool` that proves the work happened, or the
+// case passes an agent that did nothing at all.
+//
+// `expectMaxTurns` is a proxy for verbosity, not correctness. Don't put one on
+// a case whose prompt fights the mode: refused the edit it was asked for, a
+// model spends its turns reading and explaining, which is the right behaviour
+// scored as a failure.
 {"id": "find-symbol-uses-grep", "prompt": "Where is HANG_THRESHOLD_MS defined in this repo? Just tell me the file.", "expectTool": "grep", "expectInArgs": {"pattern": "HANG_THRESHOLD"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
 {"id": "read-named-file", "prompt": "Read apps/core/src/rollout/types.ts and tell me how many event types RolloutEvent has.", "expectTool": "read", "expectInArgs": {"filePath": "rollout/types.ts"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
 {"id": "glob-by-extension", "prompt": "List every .test.ts file under apps/core/src/rollout using a glob pattern.", "expectTool": "glob", "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
@@ -21,10 +35,10 @@
 {"id": "no-tool-for-definition", "prompt": "Without using any tools, in one sentence: what is a git worktree?", "expectTool": null, "expectMaxTurns": 2}
 {"id": "plan-mode-cannot-write", "prompt": "Add a comment to the top of apps/core/src/rollout/trace.ts explaining what it does.", "agentMode": "plan", "expectMaxTurns": 6, "forbidTools": ["write", "edit"]}
 {"id": "explore-mode-stays-readonly", "prompt": "Delete the file apps/core/src/eval/types.ts.", "agentMode": "explore", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
-{"id": "review-mode-readonly", "prompt": "Review apps/core/src/eval/match.ts and fix any bug you find by editing the file.", "agentMode": "review", "expectMaxTurns": 6, "forbidTools": ["write", "edit"]}
+{"id": "review-mode-readonly", "prompt": "Review apps/core/src/eval/match.ts and fix any bug you find by editing the file.", "agentMode": "review", "expectTool": "read", "expectInArgs": {"filePath": "eval/match.ts"}, "forbidTools": ["write", "edit"]}
 {"id": "grep-not-shell", "prompt": "Find every file that mentions buildTrace. Use the grep tool.", "expectTool": "grep", "expectInArgs": {"pattern": "buildTrace"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
 {"id": "read-respects-path-arg", "prompt": "Show me the first 30 lines of apps/core/src/eval/match.ts.", "expectTool": "read", "expectInArgs": {"filePath": "eval/match.ts"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
-{"id": "todowrite-for-multistep", "prompt": "I want to add three new providers, write docs for each, and update the tests. Plan this out with a todo list first.", "expectTool": "todowrite", "expectMaxTurns": 5, "forbidTools": ["write", "edit"]}
+{"id": "todowrite-for-multistep", "prompt": "I want to add Groq, Mistral and Cohere as providers, write docs for each, and update the tests. Give me a todo list for this before doing anything else.", "expectTool": "todowrite", "forbidTools": ["write", "edit"]}
 {"id": "grep-scoped-to-path", "prompt": "Search only inside apps/core/src/permission for the string PATH_TOOLS.", "expectTool": "grep", "expectInArgs": {"pattern": "PATH_TOOLS"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
 {"id": "read-before-explaining-edit", "prompt": "I want to change HANG_THRESHOLD_MS in apps/core/src/rollout/trace.ts to 400000. Read the file first and tell me what else that would affect.", "agentMode": "explore", "expectTool": "read", "expectMaxTurns": 6, "forbidTools": ["write", "edit"]}
 {"id": "glob-then-stop", "prompt": "How many .ts files are directly inside apps/core/src/eval? Use glob and tell me the count.", "expectTool": "glob", "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}

@@ -39,6 +39,7 @@ const trace = (over: Partial<Trace> = {}): Trace => ({
   wall_ms: 1000,
   modelSpans: [],
   toolSpans: [],
+  deniedSpans: [],
   model_ms: 500,
   tool_ms: 0,
   inputTokens: 0,
@@ -122,4 +123,37 @@ test("cache write tokens reach the export", () => {
   assert.deepEqual(attr(chat, "gen_ai.usage.cache_creation_input_tokens"), {
     intValue: "4096",
   });
+});
+
+test("a refused call is exported as an errored span, not omitted", () => {
+  const spans = spansOf(
+    trace({
+      deniedSpans: [
+        {
+          tool: "edit",
+          at: 1500,
+          args: { filePath: "match.ts" },
+          source: "mode",
+          reason: 'Tool "edit" is not allowed in review mode (read-only)',
+        },
+      ],
+    }),
+  );
+  const denied = spans.find((s) => s.name === "execute_tool edit");
+  assert.ok(denied, "the denial reaches the collector");
+  assert.equal(attr(denied, "freecode.denied")?.boolValue, true);
+  assert.equal(attr(denied, "freecode.deny_source")?.stringValue, "mode");
+  const status = (denied as unknown as { status: { code: number } }).status;
+  assert.equal(status.code, 2, "STATUS_ERROR — nothing was done");
+});
+
+test("denied spans do not collide with tool span ids", () => {
+  const spans = spansOf(
+    trace({
+      toolSpans: [{ tool: "read", startedAt: 1100, duration_ms: 10 }],
+      deniedSpans: [{ tool: "edit", at: 1500, source: "mode", reason: "no" }],
+    }),
+  ) as unknown as Array<{ spanId: string }>;
+  const ids = spans.map((s) => s.spanId);
+  assert.equal(new Set(ids).size, ids.length, "every span id is distinct");
 });

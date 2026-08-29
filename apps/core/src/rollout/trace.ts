@@ -10,7 +10,7 @@
 // Pure: no IO, no formatting. Rendering lives in trace-render.ts.
 // =============================================================================
 
-import type { RolloutEvent } from "./types.js";
+import type { DenySource, RolloutEvent } from "./types.js";
 
 export type SpanStatus = "ok" | "error" | "in_flight" | "hung";
 
@@ -70,13 +70,35 @@ export interface ToolSpan {
   failed?: boolean;
 }
 
+/**
+ * A call that was refused before it ran, from `function.denied`.
+ *
+ * Kept in its own array rather than as a flag on `ToolSpan` on purpose.
+ * `toolSpans` has seven consumers — the trajectory scorer, the judge's tool
+ * list, `harvest`'s drafted `expectTool`, `countRepeatedCalls`, `tool_ms`,
+ * evidence, OTLP — and every one of them means "tools that ran". Mixing
+ * denials in would keep each of them correct only for as long as each
+ * remembered to filter, and a forgotten filter reads as a mutation that never
+ * happened. Additive is the shape where the unsafe default is impossible.
+ */
+export interface DeniedSpan {
+  tool: string;
+  at: number;
+  args?: Record<string, unknown>;
+  source: DenySource;
+  reason: string;
+}
+
 export interface Trace {
   sessionId: string;
   startedAt: number;
   endedAt: number;
   wall_ms: number;
   modelSpans: ModelSpan[];
+  /** Tools that RAN. A refused call is in `deniedSpans`, never here. */
   toolSpans: ToolSpan[];
+  /** Calls refused before execution. Empty on logs predating the event. */
+  deniedSpans: DeniedSpan[];
   /** Sum of model call time; the number that usually explains a slow session. */
   model_ms: number;
   tool_ms: number;
@@ -110,6 +132,7 @@ export function buildTrace(
 ): Trace {
   const modelSpans: ModelSpan[] = [];
   const toolSpans: ToolSpan[] = [];
+  const deniedSpans: DeniedSpan[] = [];
   const open: ModelSpan[] = [];
   let redirects = 0;
   let redirectsSkipped = 0;
@@ -184,6 +207,17 @@ export function buildTrace(
         pendingTools.delete(event.tool);
         break;
       }
+      // No pairing: the refusal is the whole story, and `function.call` was
+      // never written for it. Duration is meaningless — nothing ran.
+      case "function.denied":
+        deniedSpans.push({
+          tool: event.tool,
+          at: event.timestamp,
+          ...(event.args ? { args: event.args } : {}),
+          source: event.source,
+          reason: event.reason,
+        });
+        break;
       case "redirect.triggered":
         redirects++;
         break;
@@ -210,6 +244,7 @@ export function buildTrace(
     wall_ms: Math.max(0, (now ?? endedAt) - startedAt),
     modelSpans,
     toolSpans,
+    deniedSpans,
     model_ms: modelSpans.reduce((n, s) => n + s.duration_ms, 0),
     tool_ms: toolSpans.reduce((n, s) => n + s.duration_ms, 0),
     inputTokens: sum(modelSpans, "inputTokens"),

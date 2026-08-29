@@ -130,6 +130,7 @@ import { createHookRuntime, type HookRuntime } from "../hooks/runtime.js";
 import type { HookResult } from "../agent/types.js";
 import { bus, BusEvents } from "../bus/index.js";
 import { createRecorder, type RolloutRecorder } from "../rollout/recorder.js";
+import type { DenySource } from "../rollout/types.js";
 import {
   type SessionStore,
   type SerializedMessage,
@@ -2214,6 +2215,34 @@ export class AgentLoop {
   }
 
   // ===========================================================================
+  // PRIVATE: denyToolCall()
+  // The single exit for "this tool will not run". Every refusal goes through
+  // here so it lands in the rollout log: a deny returns before
+  // recordFunctionCall(), so without this the attempt left no trace at all and
+  // a model burning turns against a mode it cannot satisfy read as idle.
+  // ===========================================================================
+  private denyToolCall(
+    toolCall: ToolCall,
+    source: DenySource,
+    error: string,
+  ): ToolResult {
+    this.recorder.recordFunctionDenied(
+      toolCall.tool,
+      (toolCall.args ?? {}) as Record<string, unknown>,
+      source,
+      error,
+      `turn-${this.state.turnCount}`,
+    );
+    return {
+      id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      toolCallId: toolCall.id,
+      tool: toolCall.tool,
+      title: `Tool ${toolCall.tool}`,
+      error,
+    };
+  }
+
+  // ===========================================================================
   // PRIVATE: executeTool()
   // Execute a single tool via orchestrator, return ToolResult
   // Integrates PreToolUse and PostToolUse hooks for interception
@@ -2236,19 +2265,18 @@ export class AgentLoop {
       logger.warn(
         `[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.blockReason ?? "no reason"}`,
       );
-      const blockedResult = {
-        id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        toolCallId: toolCall.id,
-        tool: toolCall.tool,
-        title: `Tool ${toolCall.tool}`,
-        error: `Blocked by hook: ${preResult.blockReason ?? "no reason"}`,
-      };
-      // Record function.call blocked event
+      // hook.blocked names the hook; function.denied names the TOOL, which is
+      // what the trace fold pairs on. Both, because they answer different
+      // questions.
       this.recorder.recordHookBlocked(
         hookContext.toolName ?? toolCall.tool,
         preResult.blockReason ?? "no reason",
       );
-      return blockedResult;
+      return this.denyToolCall(
+        toolCall,
+        "hook",
+        `Blocked by hook: ${preResult.blockReason ?? "no reason"}`,
+      );
     }
 
     // Apply input modifications from hook if any
@@ -2285,16 +2313,16 @@ export class AgentLoop {
 
       // Rule/mode deny is absolute — hooks cannot override deny→allow
       if (evaluation.decision === "deny") {
-        return {
-          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          toolCallId: toolCall.id,
-          tool: toolCall.tool,
-          title: `Tool ${toolCall.tool}`,
-          error:
-            evaluation.source === "mode-enforced" && evaluation.matchedRule
-              ? evaluation.matchedRule
-              : `Permission denied${evaluation.matchedRule ? ` by rule: ${evaluation.matchedRule}` : ` (${evaluation.source})`}`,
-        };
+        const modeRule =
+          evaluation.source === "mode-enforced"
+            ? evaluation.matchedRule
+            : undefined;
+        return this.denyToolCall(
+          toolCall,
+          modeRule ? "mode" : "rule",
+          modeRule ??
+            `Permission denied${evaluation.matchedRule ? ` by rule: ${evaluation.matchedRule}` : ` (${evaluation.source})`}`,
+        );
       }
 
       permResult = await this.hooks.runPermissionRequest(toolCall, hookContext);
@@ -2308,13 +2336,11 @@ export class AgentLoop {
         logger.warn(
           `[AgentLoop] Tool requires permission: ${toolCall.tool} — ${permResult.reason ?? "approval needed"}`,
         );
-        return {
-          id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          toolCallId: toolCall.id,
-          tool: toolCall.tool,
-          title: `Tool ${toolCall.tool}`,
-          error: `Permission denied: ${permResult.reason ?? "requires approval"}`,
-        };
+        return this.denyToolCall(
+          toolCall,
+          "permission-hook",
+          `Permission denied: ${permResult.reason ?? "requires approval"}`,
+        );
       }
 
       if (decision === "ask") {
@@ -2336,13 +2362,11 @@ export class AgentLoop {
             })
           : { allowed: false, reason: "Permission system unavailable" };
         if (!outcome.allowed) {
-          return {
-            id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            toolCallId: toolCall.id,
-            tool: toolCall.tool,
-            title: `Tool ${toolCall.tool}`,
-            error: `Permission denied: ${outcome.reason ?? "user declined"}`,
-          };
+          return this.denyToolCall(
+            toolCall,
+            "user",
+            `Permission denied: ${outcome.reason ?? "user declined"}`,
+          );
         }
       }
     }

@@ -125,6 +125,18 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
         ],
       });
     }
+    // Denials are shown in the timeline unconditionally: a refused call took
+    // no time, so a duration threshold would hide exactly the turns that
+    // explain a session where nothing got done.
+    for (const span of trace.deniedSpans) {
+      rows.push({
+        at: span.at,
+        lines: [
+          `${dim(clock(span.at))} ${dim("      —")} ` +
+            `${dim("deny ")} ${span.tool} ${dim(`(${span.source}) ${span.reason}`)}`,
+        ],
+      });
+    }
   }
   rows.sort((a, b) => a.at - b.at);
   for (const row of rows) out.push(...row.lines);
@@ -135,8 +147,9 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
   out.push(
     `  model   ${formatDuration(trace.model_ms).padStart(8)}  ${pct(trace.model_ms, trace.wall_ms)}  ${dim(`${trace.modelSpans.length} calls`)}`,
   );
+  const denied = trace.deniedSpans.length;
   out.push(
-    `  tools   ${formatDuration(trace.tool_ms).padStart(8)}  ${pct(trace.tool_ms, trace.wall_ms)}  ${dim(`${trace.toolSpans.length} calls`)}`,
+    `  tools   ${formatDuration(trace.tool_ms).padStart(8)}  ${pct(trace.tool_ms, trace.wall_ms)}  ${dim(`${trace.toolSpans.length} calls${denied ? `, ${denied} denied` : ""}`)}`,
   );
   out.push(
     `  other   ${formatDuration(other).padStart(8)}  ${pct(other, trace.wall_ms)}  ${dim("user input, idle")}`,

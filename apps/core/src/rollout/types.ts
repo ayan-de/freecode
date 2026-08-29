@@ -29,6 +29,7 @@ export type RolloutEvent =
   | TurnAbortedEvent
   | FunctionCallEvent
   | FunctionOutputEvent
+  | FunctionDeniedEvent
   | CompactOccurredEvent
   | SubagentStartEvent
   | SubagentStopEvent
@@ -78,6 +79,34 @@ export interface FunctionOutputEvent extends BaseEvent {
    */
   failed?: boolean;
   duration_ms: number;
+  seq: number;
+}
+
+/** Which gate refused the call. Kept distinct so "the mode forbids this" and
+ *  "the user said no" do not read as the same event. */
+export type DenySource = "hook" | "mode" | "rule" | "permission-hook" | "user";
+
+/**
+ * A tool call the model made that never ran.
+ *
+ * Without this the refusal leaves NO trace at all: `loop.ts` returns before
+ * `recordFunctionCall`, so there is no `function.call`/`function.output` pair
+ * and `buildTrace` has nothing to pair. A model burning six turns retrying a
+ * command the mode forbids looked, in the log, like a model that did nothing —
+ * which is the one shape loop-health most needs to see.
+ *
+ * Deliberately NOT a `function.call` with a failed output: the tool did not
+ * execute, so counting it as one would put attempted mutations into
+ * `changedFiles` and satisfy an eval's `expectTool` with work never done.
+ */
+export interface FunctionDeniedEvent extends BaseEvent {
+  type: "function.denied";
+  turnId: string;
+  tool: string;
+  args: Record<string, unknown>;
+  source: DenySource;
+  /** The message the model was handed back, so the trace says why. */
+  reason: string;
   seq: number;
 }
 

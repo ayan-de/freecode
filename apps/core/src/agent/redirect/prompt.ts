@@ -55,9 +55,17 @@ export function renderEvidence(packet: EvidencePacket): string {
     lines.push(
       "Recent tool calls (oldest first):",
       ...packet.recentCalls.map(
-        (c) => `  ${c.failed ? "✗" : "·"} ${c.tool}(${c.args})`,
+        (c) =>
+          `  ${c.denied ? "⊘" : c.failed ? "✗" : "·"} ${c.tool}(${c.args})`,
       ),
     );
+    // Explained once rather than per line: the phrase costs ~26 chars and
+    // twelve of them is a sixth of the whole evidence budget.
+    if (packet.recentCalls.some((c) => c.denied)) {
+      lines.push(
+        "  (⊘ = refused before running; the arguments were never the problem)",
+      );
+    }
   }
   if (packet.changedFiles.length > 0) {
     lines.push(`Files changed this run: ${packet.changedFiles.join(", ")}`);

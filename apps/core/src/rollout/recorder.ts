@@ -10,6 +10,7 @@ import * as path from "path";
 import * as os from "os";
 import type {
   BaseEvent,
+  DenySource,
   ModelErrorEvent,
   ModelRequestEvent,
   ModelResponseEvent,
@@ -231,6 +232,31 @@ export class RolloutRecorder {
       duration_ms,
       turnId,
       ...(failed === undefined ? {} : { fields: { failed } }),
+    });
+    this.write(event);
+  }
+
+  // ===========================================================================
+  // PUBLIC: recordFunctionDenied()
+  // ===========================================================================
+  /**
+   * A tool call that was refused before it ran. Paired with nothing — there is
+   * no output to wait for — so `buildTrace` folds it on its own.
+   */
+  recordFunctionDenied(
+    tool: string,
+    args: Record<string, unknown>,
+    source: DenySource,
+    reason: string,
+    turnId: string,
+  ): void {
+    const event = this.makeEvent("function.denied", {
+      aggregateID: this.sessionId,
+      tool,
+      args,
+      reason,
+      turnId,
+      fields: { source },
     });
     this.write(event);
   }

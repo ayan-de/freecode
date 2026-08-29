@@ -183,6 +183,59 @@ test("leaves args undefined when the opening call was never logged", () => {
   assert.equal(trace.toolSpans[0].startedAt, 300);
 });
 
+test("a denied call is recorded, and is not counted as a tool that ran", () => {
+  // The bug this fixes: `loop.ts` returns on a permission deny BEFORE
+  // recordFunctionCall, so the attempt left no event at all and a model
+  // burning turns against a mode it cannot satisfy folded to an empty trace.
+  const trace = buildTrace("s1", [
+    event("function.denied", 500, {
+      turnId: "turn-0",
+      tool: "edit",
+      args: { filePath: "apps/core/src/eval/match.ts" },
+      source: "mode",
+      reason: 'Tool "edit" is not allowed in review mode (read-only)',
+    }),
+  ]);
+  assert.equal(trace.deniedSpans.length, 1);
+  assert.equal(trace.deniedSpans[0].tool, "edit");
+  assert.equal(trace.deniedSpans[0].source, "mode");
+  assert.match(trace.deniedSpans[0].reason, /review mode/);
+  assert.deepEqual(trace.deniedSpans[0].args, {
+    filePath: "apps/core/src/eval/match.ts",
+  });
+  // The whole point of the separate array: nothing that reads `toolSpans` as
+  // "tools that ran" starts seeing a mutation that never happened.
+  assert.equal(trace.toolSpans.length, 0);
+  assert.equal(trace.tool_ms, 0);
+});
+
+test("denied calls do not consume the pairing state of a real call", () => {
+  const trace = buildTrace("s1", [
+    event("function.call", 100, { turnId: "turn-0", tool: "bash", args: {} }),
+    event("function.denied", 150, {
+      turnId: "turn-0",
+      tool: "bash",
+      args: { command: "rm -rf /" },
+      source: "rule",
+      reason: "Permission denied by rule: bash(rm:*)",
+    }),
+    event("function.output", 300, {
+      turnId: "turn-0",
+      tool: "bash",
+      output: "ok",
+      duration_ms: 200,
+    }),
+  ]);
+  assert.equal(trace.toolSpans.length, 1);
+  assert.equal(trace.toolSpans[0].startedAt, 100);
+  assert.equal(trace.deniedSpans.length, 1);
+});
+
+test("a log written before function.denied existed folds to no denials", () => {
+  const trace = buildTrace("s1", [request(1000), response(2000, 1000)]);
+  assert.deepEqual(trace.deniedSpans, []);
+});
+
 test("a response after a turnId reset still closes the open request", () => {
   // Resuming a session restarts turn numbering; matching purely on turnId
   // would orphan the response and invent a hang that did not happen.
@@ -208,4 +261,30 @@ test("says so when a log has no model events at all", () => {
   const text = renderTrace(trace);
   assert.match(text, /no model calls recorded/);
   assert.doesNotMatch(text, /no hangs/);
+});
+
+test("the rendered trace names refused calls and counts them", () => {
+  const events = [
+    request(1000),
+    response(2000, 1000),
+    event("function.denied", 1500, {
+      turnId: "turn-0",
+      tool: "bash",
+      args: { command: "node -e 'x'" },
+      source: "mode",
+      reason: "Permission denied (mode-default)",
+    }),
+  ];
+  const text = renderTrace(buildTrace("s1", events), { showTools: true });
+  assert.match(text, /deny/, "the timeline shows the refusal");
+  assert.match(text, /bash/);
+  assert.match(text, /mode-default/, "and says which gate refused it");
+  assert.match(text, /1 denied/, "the summary counts it separately");
+});
+
+test("a trace with no denials says nothing about them", () => {
+  const text = renderTrace(buildTrace("s1", [request(1000), response(2000, 1000)]), {
+    showTools: true,
+  });
+  assert.ok(!/denied/.test(text));
 });
