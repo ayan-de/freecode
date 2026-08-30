@@ -19,6 +19,7 @@ import type {
   ClaudeTranscript,
   ContextBreakdown,
   ProviderInfo,
+  WebCredentials,
   CommandInfo,
   StreamEvent,
   EffortLevel,
@@ -577,8 +578,11 @@ export async function rejectPermission(requestId: string): Promise<void> {
 // Provider Methods
 // =============================================================================
 
-export async function listProviders(): Promise<ProviderInfo[]> {
-  return (await sendRequest("providers.list")) as ProviderInfo[];
+/** `kind` narrows the list: "api" for /model, "web" for /web, omitted for both. */
+export async function listProviders(
+  kind?: "api" | "web",
+): Promise<ProviderInfo[]> {
+  return (await sendRequest("providers.list", { kind })) as ProviderInfo[];
 }
 
 export interface ModelInfo {
@@ -700,6 +704,13 @@ export async function setApiKey(
   model?: string,
 ): Promise<void> {
   await sendRequest("config.setApiKey", { provider, apiKey, model });
+}
+
+export async function setWebCredential(
+  provider: string,
+  credential: WebCredentials,
+): Promise<void> {
+  await sendRequest("config.setWebCredential", { provider, credential });
 }
 
 export async function setCurrentModel(

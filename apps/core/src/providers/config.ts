@@ -11,8 +11,38 @@ export interface ProviderCredentials {
   model?: string;
 }
 
+/**
+ * What a web-session provider needs to authenticate, if anything.
+ *
+ * Every field is optional, and an absent entry is the normal case: a session
+ * that works anonymously has nothing to store. Absence means "anonymous", never
+ * "misconfigured" — see `hasWebCredential`.
+ */
+export interface WebCredentials {
+  /** Raw Cookie header value from a signed-in tab. */
+  cookie?: string;
+  /** Path to a file holding that header, when it is too long to paste. */
+  cookieFile?: string;
+  /** Account index, when the signed-in URL carries one (`/u/<n>/app`). */
+  authUser?: string;
+  /** Page XSRF token, sent as a form field by some endpoints. */
+  xsrfToken?: string;
+  /** A bearer token lifted from a signed-in tab, for sessions that use one. */
+  apiKey?: string;
+}
+
 export interface Config {
   providers?: Record<string, ProviderCredentials>;
+  /**
+   * Web-session providers, deliberately kept out of `providers`.
+   *
+   * `providers` holds metered API keys — a key there bills a card. `web` holds
+   * whatever a browser session needs instead: a cookie, a JWT lifted from a
+   * signed-in tab, or nothing at all. Different secrets, different lifetimes,
+   * different blast radius, and one block means you cannot tell by looking
+   * whether an entry costs money.
+   */
+  web?: Record<string, WebCredentials>;
   current?: {
     provider: string;
     model: string;
@@ -131,5 +161,48 @@ export function setApiKey(
   if (!config.providers) config.providers = {};
 
   config.providers[providerId] = { apiKey, ...(model && { model }) };
+  writeConfig(config);
+}
+
+/**
+ * A web-session provider's stored credential: the `web` block, then
+ * `providers` as a fallback.
+ *
+ * The fallback is not permanent kindness. `gemini-web` shipped documenting its
+ * cookie under `providers["gemini-web"]`, so dropping that read would make an
+ * existing cookie silently stop applying — which surfaces as Pro quietly
+ * serving Flash, not as an error.
+ */
+export function readWebCredential(
+  providerId: string,
+  config: Config = readConfig(),
+): WebCredentials {
+  const web = config.web?.[providerId];
+  if (web && Object.keys(web).length > 0) return web;
+  return (config.providers?.[providerId] ?? {}) as WebCredentials;
+}
+
+/**
+ * Is a credential actually on file for this web provider?
+ *
+ * `authUser` and `xsrfToken` deliberately do not count: they modify a session
+ * rather than authenticate one, so an entry holding only those is still
+ * anonymous and should say so.
+ */
+export function hasWebCredential(providerId: string): boolean {
+  const credential = readWebCredential(providerId);
+  return Boolean(
+    credential.cookie || credential.cookieFile || credential.apiKey,
+  );
+}
+
+/** Merges, rather than replaces, so saving a cookie keeps `authUser` beside it. */
+export function setWebCredential(
+  providerId: string,
+  credential: WebCredentials,
+): void {
+  const config = readConfig();
+  if (!config.web) config.web = {};
+  config.web[providerId] = { ...config.web[providerId], ...credential };
   writeConfig(config);
 }

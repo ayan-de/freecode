@@ -32,6 +32,13 @@ export interface MessageCreators {
 export interface CommandContext extends MessageCreators {
   showMessage(content: string): void;
   showModelSelector?(): void;
+  /**
+   * Pick a web-session provider (the /web command). Separate from
+   * `showModelSelector` because the two lists answer different questions: one
+   * spends an API key, the other spends a browser session's request quota and
+   * cannot run tools at all.
+   */
+  showWebSelector?(): void;
   showEffortPicker?(): void;
   showResumePicker?(): void;
   /** Trigger manual compaction of the current session (the /compact command). */
