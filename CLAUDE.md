@@ -9,6 +9,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | ------------------- | ------------------------------------------------------- |
 | Agent loop          | `specs/2026-05-25-agent-loop.md`                        |
 | Multi-provider API  | `specs/2026-05-28-multi-provider-api-design.md`         |
+| Web-session provider | `specs/2026-08-29-gemini-web-provider.md` — incl. the measurements behind `supportsTools: false` |
 | Memory + sessions   | `specs/2026-06-02-memory-session-design.md`             |
 | Memory graph        | `specs/2026-07-26-memory-knowledge-graph.md`            |
 | Memory write path   | `specs/2026-08-09-memory-write-path.md`                 |

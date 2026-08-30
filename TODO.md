@@ -1415,3 +1415,55 @@ Two bugs that every unit test passed through, plus one limitation:
       `Supersedes` (the writer-knows case) only.
 - [ ] **VectorStore id→index `Map`.** O(n²) full sync matters more now that
       consolidation does pairwise-cosine candidate selection.
+
+## Findings (gemini-web provider — 2026-08-29)
+
+Found while writing `docs/superpowers/specs/2026-08-29-gemini-web-provider.md`.
+Ranked by value. Full context in §8 of that spec.
+
+### Real fixes
+
+- [ ] **`writeConfig` sets no file mode** — highest value here. A fresh
+      `config.json` lands `0644` on a default umask while holding every API key,
+      and now a session cookie too. `web/auth.ts` already does this correctly
+      (`0o600` on write, plus a `chmod` for pre-existing files); reuse it.
+      Explicitly deferred at ship in `698e1fa`.
+- [ ] **E1–E5 are not eval cases.** Every measurement behind the provider's
+      design (no tools, mention inlining across turns) was run by hand, so
+      nothing detects a regression that re-introduces tools here or breaks
+      cross-turn `@mention` collection. The `evals/` sandbox landed 2026-08-27
+      and could hold at least E2 (tools vs inlining) and E5 (turn-1 file still
+      present on turn 2).
+- [ ] **A stale model id degrades silently.** `resolveGeminiWebModel` falls back
+      to the default rather than erroring (deliberate — see D8), but the user is
+      then served a different model than the one they picked with no signal.
+      Wants a one-line notice on fallback, not a throw.
+- [ ] **No per-provider "usage not measurable" affordance.** `gemini-web`
+      reports no usage on purpose (the endpoint returns no token counts, and
+      `chars / 4` would reach the daily tracker as though measured). The
+      consequence is a blank meter that reads as "zero spend" rather than
+      "unmeasured".
+
+### Housekeeping
+
+- [ ] **`readWebCredential`'s `providers` fallback** is a compatibility shim for
+      configs written before the `web` block existed, with no removal plan.
+      Dropping it would surface as Pro quietly serving Flash, not as an error,
+      so it needs a migration rather than a deletion.
+- [ ] **`ProviderCredentials.model` is declared and read by nothing** —
+      pre-existing dead field, noticed while designing the `web` block.
+
+### Deliberate — do NOT "fix"
+
+- **`supportsTools: false`.** Measured, not unfinished: the session emitted a
+  tool call ~56% of the time and fabricated on the rest. Shrinking the prompt
+  55× and cutting 16 tools to 1 did not move it; removing the *need* for a tool
+  call did. See spec §4 E1/E2 before touching this.
+- **`allowsAuxiliaryCalls` fails open** (`!== false`, not `=== true`). A wrong
+  `false` would switch memory off for every provider — far worse than one extra
+  request against a quota.
+- **The pinned build label rots by design.** It is a fallback; the live scrape
+  is the source of truth, and a 4xx force-refreshes it.
+- **Every request is a fresh chat** (empty ids in payload slot 2). Using the
+  server-side thread would put conversation state somewhere `session/` cannot
+  inspect, resume, fork or export.
