@@ -1,6 +1,6 @@
 {
   "name": "@thisisayande/freecode-core",
-  "version": "0.26.1",
+  "version": "0.27.0",
   "type": "module",
   "description": "CLI backend for FreeCode AI coding assistant",
   "license": "MIT",
