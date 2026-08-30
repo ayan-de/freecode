@@ -186,12 +186,12 @@ Everything the agent does emits an event to
 | `aggregateID` | what this is a record *of* — usually the session |
 | `timestamp` | wall clock |
 
-Eighteen event types, grouped by what they record:
+Nineteen event types, grouped by what they record:
 
 | Group | Events |
 | --- | --- |
 | Turn | `turn.started`, `turn.aborted` |
-| Tools | `function.call`, `function.output` |
+| Tools | `function.call`, `function.output`, `function.denied` |
 | Model | `model.request`, `model.first_token`, `model.response`, `model.error` |
 | Context | `compact.occurred`, `context.overflow` |
 | Extensions | `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`, `hook.blocked` |
@@ -201,6 +201,26 @@ Eighteen event types, grouped by what they record:
 `redirect.triggered` records that the loop was advised to change approach, and
 which events the advice was formed on — but never the advice text. See
 [trajectory redirection](/internals/agent-loop#trajectory-redirection).
+
+### A refused call is not a failed call
+
+`function.denied` records a tool call the model made that **never ran** — blocked
+by a hook, the agent mode, a permission rule, or you saying no. Its `source` field
+says which of those it was, so "the mode forbids this" and "the user declined" do
+not read as the same event.
+
+It exists because without it a refusal left *no trace at all*: `loop.ts` returns
+before `recordFunctionCall`, so there was no `function.call`/`function.output`
+pair for `buildTrace` to fold. A model burning six turns retrying a command its
+mode forbids looked, in the log, like a model that did nothing — which is the one
+shape loop health most needs to see. All four refusal sites now exit through a
+single `denyToolCall()`.
+
+It is deliberately **not** a `function.call` with a failed output. The tool did not
+execute, so counting it as one would put attempted mutations into `changedFiles`
+and let an eval's `expectTool` be satisfied by work that never happened. The same
+split runs through the fold: `Trace.toolSpans` means *tools that ran*, and a
+denial goes to `Trace.deniedSpans` instead.
 
 ### The one ordering decision that matters
 
@@ -275,12 +295,12 @@ transcript contains file contents and command output from your machine.
 
 ## Known gaps
 
-1. **Seven of the sixteen event types have no emitter.** `turn.aborted`,
+1. **Seven of the nineteen event types have no emitter.** `turn.aborted`,
    `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
    `context.overflow`, and `parse.error` are defined, typed, and recordable — but
    nothing in the live path calls their `record*` method. A replay therefore shows
-   turns, tool calls, model calls, compactions, and blocked hooks, and is silent
-   about sub-agents, skills, aborts, and overflows. The recorder methods exist;
+   turns, tool calls, denials, model calls, compactions, and blocked hooks, and is
+   silent about sub-agents, skills, aborts, and overflows. The recorder methods exist;
    they just need call sites at the moments the loop already knows about.
 2. **The thread store is written but not used** (above). Two systems answer "what
    sessions exist?"; only one of them is consulted.

@@ -353,7 +353,7 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Session delete is a status flag** — files stay on disk
       (`session/store.ts:337`). Recoverable by design, but a transcript holds file
       contents and command output; add `--purge` rather than changing the default.
-- [ ] **7 of 16 rollout event types have no emitter** — `turn.aborted`,
+- [ ] **7 of 19 rollout event types have no emitter** — `turn.aborted`,
       `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
       `context.overflow`, `parse.error` are defined and recordable, but no live
       call site invokes their `record*` method. Replay is silent about sub-agents,
