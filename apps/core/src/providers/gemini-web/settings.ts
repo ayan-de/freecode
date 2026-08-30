@@ -6,13 +6,15 @@
 // buys `gemini-3.1-pro` real Pro routing (and only on a Gemini Advanced
 // account — a free account authenticates and then silently serves Flash).
 //
-// Read from ~/.freecode/config.json under providers["gemini-web"]:
+// Read from ~/.freecode/config.json under web["gemini-web"] (and still under
+// providers["gemini-web"], where this was documented before the `web` block
+// existed — see readWebCredential):
 //   { "cookie": "SID=…; SAPISID=…", "cookieFile": "/path", "authUser": "1",
 //     "xsrfToken": "AOOh0P…" }
 // =============================================================================
 
 import * as fs from "fs";
-import { readConfig } from "../config.js";
+import { readWebCredential } from "../config.js";
 
 export interface GeminiWebSettings {
   /** Raw Cookie header value, or "" for anonymous. */
@@ -55,8 +57,7 @@ function readCookieFile(file: string): string {
 }
 
 export function loadGeminiWebSettings(): GeminiWebSettings {
-  const raw = (readConfig().providers?.["gemini-web"] ??
-    {}) as unknown as RawSettings;
+  const raw = readWebCredential("gemini-web") as unknown as RawSettings;
 
   const cookie = raw.cookie?.trim()
     ? raw.cookie.trim()

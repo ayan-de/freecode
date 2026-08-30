@@ -73,10 +73,48 @@ export interface CommandInfo {
 // Provider Types
 // =============================================================================
 
+/**
+ * How ready a provider is to be selected.
+ *
+ * Four states rather than a boolean, because a web session that authenticates
+ * anonymously is usable with nothing on file — `ready` is a working provider,
+ * and collapsing it into "not configured" sends the user looking for a
+ * credential that does not exist.
+ */
+export type ProviderStatus =
+  | "ready" // Works now, no credential needed (anonymous web session).
+  | "signed-in" // Optional credential on file, session upgraded.
+  | "configured" // Required credential on file.
+  | "needs-setup"; // Required credential missing — cannot be used yet.
+
+/** What signing in to a web session costs, so a frontend can prompt for it. */
+export interface WebCredentialSpec {
+  field: "cookie" | "apiKey";
+  label: string;
+  hint: string;
+  required: boolean;
+}
+
+/** A web session's stored credential. Every field optional — absent is anonymous. */
+export interface WebCredentials {
+  cookie?: string;
+  cookieFile?: string;
+  authUser?: string;
+  xsrfToken?: string;
+  apiKey?: string;
+}
+
 export interface ProviderInfo {
   id: string;
   name: string;
   description: string;
+  /** `api` is metered and keyed (/model); `web` drives a browser session (/web). */
+  kind?: "api" | "web";
+  status?: ProviderStatus;
+  /** Present only on `web` providers. */
+  credential?: WebCredentialSpec;
+  /** Selectable right now. Kept for shells that predate `status`. */
+  hasApiKey?: boolean;
 }
 
 export interface ProviderDefinition {

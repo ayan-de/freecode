@@ -17,7 +17,8 @@ const helpCommand: Command = {
 
 - **/help** - Show this help message
 - **/clear** - Clear all messages
-- **/model** - Select AI model
+- **/model** - Select an API model (uses your API key)
+- **/web** - Select a web session (free, ask-only — no tools)
 - **/effort** - Set reasoning effort (low/medium/high/xhigh/max)
 - **/resume** - Resume a previous session
 - **/compact** - Summarize older turns to free up context
@@ -55,9 +56,17 @@ const exitCommand: Command = {
 
 const modelCommand: Command = {
   name: "model",
-  description: "Select AI model",
+  description: "Select an API model (uses your API key)",
   execute: (_args, ctx) => {
     ctx.showModelSelector?.();
+  },
+};
+
+const webCommand: Command = {
+  name: "web",
+  description: "Select a web session (free, ask-only — no tools)",
+  execute: (_args, ctx) => {
+    ctx.showWebSelector?.();
   },
 };
 
@@ -234,6 +243,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(clearCommand);
   registerCommand(exitCommand);
   registerCommand(modelCommand);
+  registerCommand(webCommand);
   registerCommand(effortCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);

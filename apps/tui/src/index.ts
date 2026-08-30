@@ -65,6 +65,7 @@ import {
   getPromptHistory,
   appendPromptHistory,
   setApiKey,
+  setWebCredential,
   answerQuestion,
   rejectQuestion,
   answerPermission,
@@ -129,6 +130,7 @@ import { EffortPicker } from "./components/effort-picker.js";
 import type {
   ClaudeSessionMeta,
   ContextBreakdown,
+  ProviderInfo,
   SerializedMessage,
   StreamEvent,
   EffortLevel,
@@ -466,6 +468,14 @@ function hideModelSelector(): void {
   removeSelector(providerSelector);
   modelSelector = null;
   providerSelector = null;
+  // Focus goes back to the editor HERE, not at each call site. The selector was
+  // just spliced out of tui.children, so whatever held focus is no longer in
+  // the tree and every keystroke lands on a detached component — the input
+  // looks dead until restart. The cancel paths each remembered to restore it;
+  // picking a model did not, which is the path everyone actually takes.
+  // Callers that want focus elsewhere (the provider list, the model list, the
+  // credential prompt) set it immediately after this returns.
+  tui.setFocus(editor);
   tui.requestRender();
 }
 
@@ -497,18 +507,33 @@ function removeApiKeyEditor(): void {
   }
 }
 
-async function showProviderSelector(): Promise<void> {
+/**
+ * The provider picker, for both /model (metered APIs) and /web (browser
+ * sessions). One flow, two lists: they differ only in which providers core
+ * returns and which credential the picker offers to store.
+ */
+async function showProviderSelector(kind: "api" | "web" = "api"): Promise<void> {
   hideModelSelector();
   removeApiKeyEditor();
 
   try {
-    const providers = await listProviders();
+    const providers = await listProviders(kind);
+
+    if (providers.length === 0) {
+      showMessage(
+        kind === "web"
+          ? "**No web session providers available.**"
+          : "**No API providers available.**",
+      );
+      return;
+    }
 
     providerSelector = createProviderSelector(
       providers,
       {
         onSelect: async (providerId: string) => {
-          await showModelSelector(providerId);
+          const provider = providers.find((p) => p.id === providerId);
+          if (provider) await showModelSelector(provider);
         },
         onCancel: () => {
           hideModelSelector();
@@ -528,24 +553,28 @@ async function showProviderSelector(): Promise<void> {
   }
 }
 
-async function showModelSelector(providerId: string): Promise<void> {
+async function showModelSelector(provider: ProviderInfo): Promise<void> {
   hideModelSelector();
 
+  const providerId = provider.id;
+
   try {
-    const [models, providers] = await Promise.all([
-      listModels(providerId),
-      listProviders(),
-    ]);
+    const models = await listModels(providerId);
 
     if (models.length === 0) {
       showMessage(`**No models available** for provider: ${providerId}`);
       return;
     }
 
-    const providerInfo = (providers as any[]).find(
-      (p: any) => p.id === providerId,
-    );
-    const hasApiKey = Boolean(providerInfo?.hasApiKey);
+    // Only a hard blocker forces the credential prompt. A web session that
+    // works anonymously ("ready") must go straight through to the model —
+    // demanding a cookie there asks for something the provider does not need.
+    const needsCredential = provider.status === "needs-setup";
+    // Nothing on file yet, so the extra entry offers rather than replaces.
+    const credentialMissing =
+      provider.status === "ready" || provider.status === "needs-setup";
+    const credentialLabel =
+      provider.kind === "web" ? provider.credential?.label : "API key";
 
     modelSelector = createModelSelector(
       models,
@@ -555,8 +584,8 @@ async function showModelSelector(providerId: string): Promise<void> {
           currentModel = modelId;
 
           hideModelSelector();
-          if (!hasApiKey) {
-            await showApiKeyInput(providerId, modelId);
+          if (needsCredential) {
+            await showCredentialInput(provider, modelId);
           } else {
             await setCurrentModel(providerId, modelId);
             updateModelDisplay();
@@ -568,12 +597,17 @@ async function showModelSelector(providerId: string): Promise<void> {
           tui.setFocus(editor);
           tui.requestRender();
         },
-        ...(hasApiKey && {
-          onUpdateApiKey: async () => {
-            hideModelSelector();
-            await showApiKeyInput(providerId);
-          },
-        }),
+        // Offered whenever the provider takes a credential at all, including
+        // the optional cookie that upgrades an already-working web session.
+        ...(!needsCredential &&
+          credentialLabel && {
+            credentialLabel,
+            credentialMissing,
+            onUpdateCredential: async () => {
+              hideModelSelector();
+              await showCredentialInput(provider);
+            },
+          }),
       },
       defaultSelectListTheme,
     );
@@ -631,20 +665,33 @@ function showEffortPicker(): void {
   tui.requestRender();
 }
 
-async function showApiKeyInput(
-  providerId: string,
+/**
+ * Prompt for a provider's credential — an API key for /model, whatever the web
+ * provider declared (a cookie, a session token) for /web. The wording and the
+ * destination block both come from core: the shell renders, it does not carry a
+ * table of which provider wants what.
+ */
+async function showCredentialInput(
+  provider: ProviderInfo,
   modelId?: string,
 ): Promise<void> {
   removeApiKeyEditor();
   hideModelSelector();
 
+  const providerId = provider.id;
+  const isWeb = provider.kind === "web";
+  const noun = isWeb ? (provider.credential?.label ?? "credential") : "API key";
+  const hint = isWeb ? provider.credential?.hint : undefined;
+
   apiKeyPrompt = new Text(
-    chalk.bold(`Paste your API key for ${providerId} `) +
-      chalk.dim("(Enter to save, Esc to cancel)"),
+    chalk.bold(`Paste your ${noun} for ${providerId} `) +
+      chalk.dim("(Enter to save, Esc to cancel)") +
+      (hint ? "\n" + chalk.dim(hint) : ""),
     1,
     0,
   );
-  // MaskedInput, not Input: the key must not be painted in clear text.
+  // MaskedInput, not Input: a key or a session cookie is a secret either way
+  // and must not be painted in clear text.
   apiKeyEditor = new MaskedInput();
 
   const editorIdx = tui.children.indexOf(editor);
@@ -659,13 +706,18 @@ async function showApiKeyInput(
   };
 
   apiKeyEditor.onSubmit = async (value: string) => {
-    const apiKey = value.trim();
-    if (!apiKey) {
-      showMessage("**API key cannot be empty**");
+    const secret = value.trim();
+    if (!secret) {
+      showMessage(`**${noun} cannot be empty**`);
       return;
     }
 
-    await setApiKey(providerId, apiKey, modelId);
+    if (isWeb) {
+      const field = provider.credential?.field ?? "apiKey";
+      await setWebCredential(providerId, { [field]: secret });
+    } else {
+      await setApiKey(providerId, secret, modelId);
+    }
 
     if (modelId) {
       await setCurrentModel(providerId, modelId);
@@ -673,10 +725,10 @@ async function showApiKeyInput(
       currentModel = modelId;
       updateModelDisplay();
       showMessage(
-        `**API key saved and model set to:** ${providerId}/${modelId}`,
+        `**${noun} saved and model set to:** ${providerId}/${modelId}`,
       );
     } else {
-      showMessage(`**API key updated for:** ${providerId}`);
+      showMessage(`**${noun} updated for:** ${providerId}`);
     }
 
     removeApiKeyEditor();
@@ -1377,7 +1429,8 @@ editor.onSubmit = async (value: string) => {
         editor.setText("");
         command.execute(args, {
           showMessage,
-          showModelSelector: showProviderSelector,
+          showModelSelector: () => showProviderSelector("api"),
+          showWebSelector: () => showProviderSelector("web"),
           showEffortPicker,
           showResumePicker: showResumePicker,
           // Undefined until a run completes, so /cost omits the Session row

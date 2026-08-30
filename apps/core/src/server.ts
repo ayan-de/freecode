@@ -33,10 +33,13 @@ import {
   setApiKey,
   setCurrentModel,
   hasApiKey,
+  hasWebCredential,
+  setWebCredential,
   getCurrentModel,
   getLastAgentMode,
   setLastAgentMode,
   type ProviderId,
+  type WebCredentials,
 } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import { formatFatalError } from "./cli/format-fatal-error.js";
@@ -700,19 +703,51 @@ const methodHandlers: Record<
     }
   },
 
-  "providers.list": async (): Promise<unknown[]> => {
-    const providers = [...(await getProviders()), ...LOCAL_PROVIDERS];
-    return providers.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: p.description,
-      // A provider that needs no key is always "configured". Reporting false
-      // here makes the picker demand a key before it will let you select it,
-      // which for a web-session provider means inventing a meaningless one.
-      hasApiKey:
-        !providerRequiresApiKey(p.id as ProviderId) ||
-        hasApiKey(p.id as ProviderId),
-    }));
+  "providers.list": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    // `kind` splits the two pickers: /model lists metered APIs, /web lists
+    // browser sessions. Absent means both, which is what every existing caller
+    // sends and what the VS Code and desktop shells still expect.
+    const { kind } = (params ?? {}) as { kind?: "api" | "web" };
+
+    const api = kind === "web" ? [] : await getProviders();
+    const web = kind === "api" ? [] : LOCAL_PROVIDERS;
+
+    return [
+      ...api.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        kind: "api" as const,
+        status: hasApiKey(p.id as ProviderId) ? "configured" : "needs-setup",
+        hasApiKey: hasApiKey(p.id as ProviderId),
+      })),
+      ...web.map((p) => {
+        const stored = hasWebCredential(p.id);
+        // Four states, not a boolean. A session that authenticates anonymously
+        // is READY with nothing on file, and calling that "not configured"
+        // is a lie about the only provider that works out of the box.
+        const status = providerRequiresApiKey(p.id as ProviderId)
+          ? stored
+            ? "configured"
+            : "needs-setup"
+          : stored
+            ? "signed-in"
+            : "ready";
+        return {
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          kind: "web" as const,
+          status,
+          credential: p.credential,
+          // Retained for the shells that still read a boolean. "Can this be
+          // selected right now" is the question it was always answering.
+          hasApiKey: status !== "needs-setup",
+        };
+      }),
+    ];
   },
 
   "models.list": async (
@@ -836,6 +871,16 @@ const methodHandlers: Record<
       model?: string;
     };
     setApiKey(provider as ProviderId, apiKey, model);
+  },
+
+  "config.setWebCredential": async (
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const { provider, credential } = params as {
+      provider: string;
+      credential: WebCredentials;
+    };
+    setWebCredential(provider, credential);
   },
 
   "config.setCurrentModel": async (

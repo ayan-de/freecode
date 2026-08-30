@@ -280,8 +280,16 @@ export const METHODS = {
     result: {} as import("../types.js").ClaudeTranscript,
   },
   "providers.list": {
-    params: undefined,
+    // Omit `kind` for every provider; "api" for /model, "web" for /web.
+    params: {} as { kind?: "api" | "web" } | undefined,
     result: [] as import("../types.js").ProviderInfo[],
+  },
+  "config.setWebCredential": {
+    params: {} as {
+      provider: string;
+      credential: import("../types.js").WebCredentials;
+    },
+    result: undefined,
   },
   "commands.list": {
     params: { projectPath: "" },
