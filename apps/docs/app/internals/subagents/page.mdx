@@ -5,14 +5,133 @@ description: "Nested loops, isolation, and result handoff."
 
 # Sub-agent runtime
 
-A sub-agent is a full agent loop with its own session id, capability profile, and
-iteration budget. The parent sees only the final result, which is what keeps
-delegation from flooding the parent's context.
+A sub-agent is a full agent loop with its own session id, capability profile,
+and iteration budget. The parent sees only the final result, which is what
+keeps delegation from flooding the parent's context — a sub-agent can burn
+fifty tool calls exploring a codebase and the parent's context only grows by
+one tool result: a summary.
 
-## On this page (coming soon)
+## Spawning from the `agent` tool
 
-- Spawning from the `agent` tool
-- Role definitions and their modes
-- Tool-set restriction by capability profile
-- Bus events and progress reporting
-- Iteration budgets and failure handling
+The parent model spawns a sub-agent the same way it calls any other tool —
+`tools/agent.ts` defines an `agent` tool with two required parameters,
+`task` (a short label) and `prompt` (the actual instruction):
+
+```ts
+interface AgentParams {
+  task: string;
+  prompt: string;
+  agentType?: string;   // optional provider override
+  forkContext?: boolean; // start with the parent's full conversation instead of just the prompt
+}
+```
+
+By default a sub-agent starts with an **isolated context** — only the
+`prompt` string, nothing from the parent conversation. `forkContext: true`
+switches this: `agent/subagent.ts`'s `executeSubagent()` calls
+`sessionStore.fork(config.forkFrom)`, cloning the parent's session so the
+sub-agent's transcript begins with the full parent history. Use this when
+the sub-agent needs to *continue* work the parent already has context for;
+leave it off for a fresh, independent investigation (exploring, reviewing) —
+which is both cheaper and keeps the sub-agent from anchoring on the parent's
+assumptions.
+
+## Role definitions and their modes
+
+Five built-in roles are declared in `agent/types.ts` as `SUBAGENT_DEFINITIONS`,
+each with a description and a default read-only flag:
+
+| Role | Default | Purpose |
+| --- | --- | --- |
+| `explorer` | read-only | find patterns, understand architecture |
+| `reviewer` | read-only | find bugs, security issues, performance problems |
+| `tester` | **can write** | write and run tests, verify functionality |
+| `summarizer` | read-only | condense long conversations or documents |
+| `verifier` | read-only | independently, adversarially check completed work — see below |
+
+The read-only flag isn't just documentation — it decides the sub-agent's
+[agent mode](/internals/permissions):
+
+```ts
+const readOnly = config.readOnly ?? SUBAGENT_DEFINITIONS[config.type].defaultReadOnly;
+
+const result = await loop.run({
+  ...
+  agentMode: readOnly ? "explore" : "build",
+});
+```
+
+A `reviewer` sub-agent runs in `explore` mode, which the permission engine
+hard-denies mutation on regardless of any allow rule — the isolation is
+enforced by the same mode machinery every top-level session uses, not by a
+separate sandbox. `tester` is the one role that defaults to `build`, since
+its whole job is to write and run test files.
+
+## Isolation, not a lighter loop
+
+`executeSubagent()` builds the child with `createAgentLoop()` — the same
+function that builds the top-level loop — but disables two behaviors that
+only make sense for durable user conversations:
+
+```ts
+const loop = createAgentLoop(id, {
+  maxIterations: config.maxIterations ?? 20,
+  memoryExtraction: false, // delegated machine work, nothing durable to learn from it
+  redirect: false,         // a subagent is turn-capped and disposable
+  sessionStore,
+});
+```
+
+Turning off `memoryExtraction` avoids multiplying one user turn into several
+memory-extraction calls (one per sub-agent spawned). Turning off `redirect`
+(the trajectory-redirection system covered in the eval/agent-loop docs)
+reflects that re-planning belongs to whoever spawned the sub-agent, not the
+disposable child itself.
+
+## Bus events and progress reporting
+
+A spawn publishes `subagent.started` and, on completion or error,
+`subagent.completed` on the [event bus](/internals/bus):
+
+```ts
+BusEvents.subagentStarted(id, config.type, "", config.taskPrompt);
+// ... loop runs ...
+BusEvents.subagentCompleted(id, config.type, "", result.success, result.message);
+```
+
+The parent's frontend renders these as a nested progress indicator, but the
+parent *model* never sees the sub-agent's intermediate tool calls — only the
+final `SubagentResult` (`success`, `content`, `message`, `turnCount`,
+`iterationCount`) comes back as the `agent` tool's result.
+
+## The verifier: an adversarial exception
+
+Every other role reports what it found; `verifier` is asked to assign a
+verdict the *main* agent is not allowed to assign itself. `agent/subagent.ts`
+parses the verifier's final message for a `VERDICT: PASS|FAIL|PARTIAL` line:
+
+```ts
+export function parseVerdict(text: string): Verdict {
+  const m = text.match(/VERDICT:\s*(PASS|FAIL|PARTIAL)/i);
+  if (!m) return "PARTIAL"; // a missing/garbled verdict is never a false PASS
+  return m[1].toUpperCase() as Verdict;
+}
+```
+
+A missing or unparseable verdict defaults to `PARTIAL` — unverified — rather
+than passing by default, so a verifier that fails to produce clean output
+never silently green-lights a change. Verification only triggers for
+non-trivial diffs (`VERIFIER_MIN_FILES = 3`), and a `FAIL` verdict can drive
+at most `MAX_VERIFIER_ATTEMPTS = 2` fix-and-reverify cycles before the loop
+gives up and surfaces the failure, bounding cost and preventing an infinite
+verify → fix → verify spiral.
+
+## Failure handling
+
+`executeSubagent()` wraps the whole run in try/catch: an exception (provider
+error, thrown by a tool) is caught, turned into
+`{ success: false, message }`, still reported via `subagent.completed`, and
+returned to the parent as a tool result rather than propagating up and
+killing the parent's own turn. A sub-agent failing is just information the
+parent model receives and can act on — retry, try a different approach, or
+surface the failure to the user.
