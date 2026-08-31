@@ -5,13 +5,128 @@ description: "Layers, services, and loop health."
 
 # Effect runtime & DI
 
-Core is wired with Effect: services are declared as context tags and composed
-into layers, so the loop depends on interfaces rather than concrete modules. That
-is what makes the store, the provider, and the memory backend swappable in tests.
+Core is wired with [Effect](https://effect.website): services are declared as
+context tags and composed into layers, so the loop depends on interfaces
+rather than concrete modules. That is what makes the store, the provider, and
+the memory backend swappable in tests — a test suite hands the runtime an
+in-memory layer instead of the real one, and nothing else in the loop notices.
 
-## On this page (coming soon)
+## The three files
 
-- Context tags and service definitions
-- Layer composition and the runtime entry point
-- Loop-health as a service
-- Testing against layers instead of mocks
+The whole system is three small files in `apps/core/src/effect/`:
+
+- **`context.ts`** — declares every service as a `Context.Tag`. This is just a
+  name and a type, no implementation.
+- **`layers.ts`** — provides two competing implementations for those tags:
+  `AppLayerLive` (real services, talks to disk/network) and `makeTestLayer()`
+  (in-memory, no side effects).
+- **`runtime.ts`** — builds a `ManagedRuntime` from a layer and hands out a
+  singleton (`getAppRuntime()`) that `server.ts` and `cli.ts` both call.
+
+## Context tags
+
+A tag is just an identity for a service — it carries no logic of its own:
+
+```ts
+export class SessionStoreTag extends Context.Tag("freecode/SessionStore")<
+  SessionStoreTag,
+  SessionStore
+>() {}
+```
+
+`apps/core/src/effect/context.ts` declares one tag per service: `HookRuntimeTag`,
+`ToolOrchestratorTag`, `SessionStoreTag`, `BusTag`, `ProviderRegistryTag`,
+`MemoryFactoryTag`, `RecorderFactoryTag`, `SessionManagerTag`, and
+`RecoveryManagerTag`. Code that needs the session store never imports
+`session/store.js` directly — it asks the runtime for `SessionStoreTag` and
+gets back whatever layer is currently providing it.
+
+Two services are declared as **factories** rather than singletons —
+`MemoryFactoryTag` and `RecorderFactoryTag`. Memory and rollout recording are
+per-session state, so the DI graph owns the *recipe* for building one
+(`forSession(sessionId)`) instead of a single shared instance.
+
+## Layers: Live vs. Test
+
+`apps/core/src/effect/layers.ts` is the composition root. Each tag gets a Live
+implementation built from the real modules:
+
+```ts
+export const BusLive = Layer.succeed(BusTag, bus);
+
+export const SessionStoreLive = Layer.effect(
+  SessionStoreTag,
+  Effect.promise(() => createSessionStore(SESSION_BASE_DIR)),
+);
+```
+
+`AppLayerLive` merges all nine Live layers into one graph — this is what
+`getAppRuntime()` boots in production. Layers are memoized by reference, so a
+layer depended on twice (e.g. `SessionStoreLive` underlies both
+`SessionStoreTag` and `SessionManagerTag`) is still only built once.
+
+`makeTestLayer(overrides)` builds the same nine-tag graph but with disk and
+network side effects removed by default: an in-memory `MemoryStorage` instead
+of `~/.freecode-memory`, a rollout recorder with `enabled: false` so tests
+never write to `~/.freecode`, and a session store rooted in a temp directory.
+Any single service can be swapped in for a real test double via the
+`overrides` argument, without touching the rest of the graph.
+
+## The runtime entry point
+
+`apps/core/src/effect/runtime.ts` turns a layer into something callable:
+
+```ts
+export function getAppRuntime(): AppRuntime {
+  if (!appRuntime) {
+    appRuntime = ManagedRuntime.make(AppLayerLive);
+  }
+  return appRuntime;
+}
+```
+
+Server code resolves a service by running an effect against this runtime
+(`getAppRuntime().runPromise(...)`) rather than importing a module-level
+singleton. `makeRuntime(layer)` is the same construction exposed for tests, so
+a test can build a runtime from `makeTestLayer()` and exercise the exact same
+composition path production uses — only the layer underneath differs.
+
+`disposeAppRuntime()` tears the singleton down; tests call it in `afterEach`
+so one test's runtime never leaks into the next.
+
+## Loop health as a service
+
+`apps/core/src/effect/loop-health.ts` is the one piece of actual policy living
+in this directory: `createLoopHealthEvaluator()` decides whether a running
+session should keep going, warn, or hard-stop, based on four independent
+heuristics tracked on `SessionState.loopHealth`:
+
+| Heuristic | Signal | Warn at | Stop at |
+| --- | --- | --- | --- |
+| Repeated identical tool call | same call fired over and over | threshold | 2× threshold |
+| Stagnant turns | no file changed for N turns | threshold | — |
+| Oscillation | edit → revert → edit pattern | threshold | 2× threshold |
+| Iteration cap | hard ceiling regardless of pattern | — | `totalIterationLimit` |
+
+Every check uses a two-tier warn-then-stop braking scheme, on purpose:
+legitimate long tasks routinely re-read or re-edit the same file, so the
+first breach only warns the model (via a system reminder next turn) instead
+of ending the session. A hard stop only fires at double the threshold, where
+the pattern is almost certainly a genuine stuck loop rather than real work.
+
+This evaluator used to live inline in `agent/loop.ts` as a second, duplicate
+implementation — it was collapsed into the one here so there is exactly one
+copy of the policy (see `docs/superpowers/specs/2026-08-26-trajectory-redirection.md`,
+decision D10). `layers.ts` re-exports it from its old import path for
+backward compatibility.
+
+## Why this exists
+
+Before this refactor, modules reached for module-level singletons directly
+(`import { bus } from "../bus/index.js"`), which meant a unit test exercising
+`agent/loop.ts` also touched the real session store on disk unless every
+singleton was individually mocked. With the DI graph, a test provides
+`makeTestLayer()` once and every dependency underneath — including transitive
+ones like `SessionManagerLive`, which itself depends on `SessionStoreTag` — is
+swapped consistently. See `apps/core/src/effect/runtime.test.ts` for the
+tests that exercise this composition directly.
