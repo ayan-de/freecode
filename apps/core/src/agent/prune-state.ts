@@ -117,3 +117,24 @@ export class PruneState {
     this.seen.clear();
   }
 }
+
+// Keyed by sessionId like read-state and cache-awareness: a fresh AgentLoop is
+// built per user message (server.ts), so a field on the instance forgets every
+// decision between messages and re-sends full-size results the model was
+// already shown — mutating the cached prefix on every single turn (known gap
+// #1). The ids are derived deterministically from persisted message ids, so
+// they stay meaningful across the whole session, not just one run().
+const sessionStates = new Map<string, PruneState>();
+
+export function getPruneState(sessionId: string): PruneState {
+  let state = sessionStates.get(sessionId);
+  if (!state) {
+    state = new PruneState();
+    sessionStates.set(sessionId, state);
+  }
+  return state;
+}
+
+export function disposePruneState(sessionId: string): void {
+  sessionStates.delete(sessionId);
+}

@@ -286,15 +286,6 @@ that page's **Known gaps**.
 
 ### Real fixes
 
-- [ ] **`PruneState` doesn't survive the user turn, so it invalidates the cache it
-      exists to protect.** It is a private field (`loop.ts:315`) and a fresh
-      `AgentLoop` is constructed per user message (`server.ts:199`), so on message
-      N+1 every tool result is `fresh` again and a result previously sent as a
-      marker is re-sent at full size — mutating the prefix at message granularity
-      instead of turn granularity. Candidate ids are derived deterministically from
-      persisted message ids (`loop.ts:379`), so keying the state by `sessionId` —
-      as `read-state` and `cache-awareness` already do — fixes it without changing
-      the algorithm.
 - [ ] **The `Stop` hook never fires on a normal finish.** Only `stop()`
       (`loop.ts:2455`) runs it: iteration cap, loop-health stop, spend budget. The
       `"Done"` path returns straight from `complete()` (`loop.ts:938`) and `fail()`
@@ -314,19 +305,6 @@ that page's **Known gaps**.
       file tree is permanently the one from its first turn. Fix the compiler cache
       key first, then consider giving the freeze an explicit refresh point (e.g.
       after compaction, which rebuilds the prefix anyway).
-- [ ] **`ToolContext.projectPath` is never set by the loop.** `executeTool` builds
-      `{ cwd: process.cwd(), sessionId, abort }` (`loop.ts:2199`), so relative paths
-      resolve against core's working directory rather than `state.projectPath`, and
-      `lsp` / `memory` (which read `ctx.projectPath ?? ctx.cwd`) act on the wrong
-      project whenever core was launched elsewhere.
-- [ ] **The `agent` tool spawns subagents on an unregistered provider.**
-      `provider: params.agentType || "chatgpt"` (`tools/agent.ts:126`) while
-      `initProviders` registers only anthropic/openai/gemini/minimax/deepseek/zai
-      (`providers/registry.ts:35`), so `getProvider` throws on the subagent's first
-      turn unless the model puts a real provider id in a field whose description
-      calls it an agent type. It also drops the parent's model and omits
-      `memoryExtraction: false`, which `agent/subagent.ts:70` sets for the same
-      reason.
 - [ ] **Loop-health heuristic D was never implemented.** `recentReasoning`
       (`loop.ts:276`) is declared and never written, `repeatedReasoningScore` is
       permanently 0, and `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
@@ -337,10 +315,6 @@ that page's **Known gaps**.
       default log level and never shown to the model, so nothing acts on a stuck
       pattern until it doubles into a `stop`. Phase 1 of
       `specs/2026-08-26-trajectory-redirection.md`.
-- [ ] **The provider tool list ignores agent mode.** `getToolDefs()`
-      (`tools/defs-cache.ts:30`) takes no mode, so a plan-mode session advertises
-      `write`/`edit`/`bash` and then hard-denies them (`mode-policy.ts:77`) — one
-      wasted round trip to learn something the harness already knew.
 - [ ] **`validateParams` in the orchestrator is dead** (`tools/orchestrator.ts:64`)
       — defined, never called. Required-argument checking therefore happens only in
       a tool's own `validateInput`.
@@ -354,21 +328,13 @@ that page's **Known gaps**.
       it cannot bracket the call it names; `model.request` is the real turn start.
 - [ ] **`[TOOL_CALLS]` parsing exists twice** with independent implementations —
       `loop.ts:1959` and `session/normalize/index.ts:77`.
-- [ ] **`estimatePromptChars` ignores tool-call arguments** (`loop.ts:218`) — it
-      sums text, code, image and tool *results*, so a large `write` payload is
-      invisible in the trace's `promptChars`.
-- [ ] **Headless runs are unbounded and there is no flag to bound them.**
-      `loop.ts:324` says headless/`-p` invocations pass `maxIterations` explicitly;
-      `cli/commands/run.ts:145` doesn't, and its own comment points at a
-      `--max-turns` option that was never added. So an unattended `freecode run`
-      has no turn cap at all — only loop-health and the gates. Add the flag, or fix
-      both comments.
 - [ ] **The spend circuit breaker is off by default** (`loop.ts:812`,
       `compaction/tokens.ts:105`). `FREECODE_MAX_TURN_TOKENS` is unset unless the
-      user sets it, so nothing caps actual spend. Combined with the item above, an
-      unattended run has neither a turn cap nor a token cap, and loop-health only
-      *warns* on the stuck patterns most likely to burn quota (stagnation never
-      stops at all). Consider a default ceiling for headless runs.
+      user sets it, so nothing caps actual spend. `freecode run` now has
+      `--max-turns` for a turn cap, but nothing caps tokens by default, and
+      loop-health only *warns* on the stuck patterns most likely to burn quota
+      (stagnation never stops at all). Consider a default ceiling for headless
+      runs.
 
 ### Deliberate — do NOT "fix"
 

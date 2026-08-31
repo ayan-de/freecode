@@ -16,6 +16,7 @@ import { disposeSessionMemory } from "../memory/index.js";
 import { resetExtractPolicy } from "../memory/extract-policy.js";
 import { disposeOutputStore } from "../tools/output-store/index.js";
 import { disposeReadState } from "../tools/read-state.js";
+import { disposePruneState } from "../agent/prune-state.js";
 import { disposeCacheAwareness } from "../providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "../context/session-context.js";
 import { logger } from "../utils/logger.js";
@@ -85,6 +86,7 @@ export async function endSession(
     ["extractPolicy", () => resetExtractPolicy(sessionId)],
     ["outputStore", () => disposeOutputStore(sessionId)],
     ["readState", () => disposeReadState(sessionId)],
+    ["pruneState", () => disposePruneState(sessionId)],
     ["cacheAwareness", () => disposeCacheAwareness(sessionId)],
     ["sessionContext", () => disposeFrozenSessionContext(sessionId)],
   ];

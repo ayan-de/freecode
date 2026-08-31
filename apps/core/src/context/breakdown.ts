@@ -118,7 +118,7 @@ export async function buildContextBreakdown(
   }
 
   // --- tool schemas ---------------------------------------------------------
-  const tools = getToolDefs();
+  const tools = getToolDefs(agentMode);
   let builtinTokens = 0;
   let mcpTokens = 0;
   let mcpCount = 0;

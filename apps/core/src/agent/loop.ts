@@ -79,7 +79,11 @@ import type { ToolOrchestrator } from "../tools/orchestrator.js";
 import { getToolDefs } from "../tools/defs-cache.js";
 import { planToolBatches } from "../tools/batching.js";
 import { markReadPruned } from "../tools/read-state.js";
-import { PruneState, type PruneCandidate } from "./prune-state.js";
+import {
+  PruneState,
+  getPruneState,
+  type PruneCandidate,
+} from "./prune-state.js";
 import { applySystemPromptHookRewrite } from "./apply-system-hook.js";
 import { getFrozenSessionContext } from "../context/session-context.js";
 import { ensureWatching } from "../context/tree-watcher.js";
@@ -267,6 +271,10 @@ function estimatePromptChars(
           total += part.content.length;
           break;
         case "tool":
+          // The call's own arguments, not just its result — a large `write`
+          // payload lives here and used to be invisible to this number
+          // (fixed known gap, see TODO.md's agent-loop docs-audit section).
+          total += JSON.stringify(part.tool.args).length;
           total += part.result?.length ?? 0;
           break;
         case "image":
@@ -361,8 +369,11 @@ export class AgentLoop {
   // verified against it rather than trusted (spec D12).
   private lastInjectedMemories: MemoryEntry[] = [];
   // Which tool results have gone to the provider, and how, so the cached
-  // prompt prefix stays byte-stable across the turns of this run.
-  private readonly pruneState = new PruneState();
+  // prompt prefix stays byte-stable across turns — kept in the module-level
+  // store (keyed by sessionId) since a fresh AgentLoop is built per message.
+  private get pruneState(): PruneState {
+    return getPruneState(this.state.sessionId);
+  }
 
   constructor(sessionId: string, config?: AgentLoopConfig) {
     this.state = createInitialSessionState(sessionId, ""); // projectPath set in run()
@@ -610,9 +621,11 @@ export class AgentLoop {
     this.lastMemoryBlock = undefined;
     this.lastMemoryEmittedFor = undefined;
     this.memoryToolUsedThisRun = false;
-    // History is reloaded below, and the ids are only meaningful against that
-    // load — so decisions from a previous run cannot be carried over.
-    this.pruneState.reset();
+    // pruneState is intentionally NOT reset here: ids are derived
+    // deterministically from persisted message ids, so decisions from earlier
+    // messages in this session stay valid and must be carried forward — see
+    // prune-state.ts. It is cleared only when the session itself ends
+    // (end-session.ts).
 
     // Watch for external file/git changes so the project-context cache doesn't
     // go stale between turns (grok #4). Idempotent per project.
@@ -1804,7 +1817,7 @@ export class AgentLoop {
     streamed?: boolean;
   }> {
     const aiProvider = getProvider(provider as any);
-    const tools = getToolDefs();
+    const tools = getToolDefs(this.state.agentMode);
 
     // Cap tool results in old history turns to prevent token explosion on long
     // sessions. The model already processed those results fully when they were
@@ -2410,6 +2423,7 @@ export class AgentLoop {
     console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`);
     const context = {
       cwd: process.cwd(),
+      projectPath: this.state.projectPath,
       sessionId: this.state.sessionId,
       abort: this.abort.signal,
     };

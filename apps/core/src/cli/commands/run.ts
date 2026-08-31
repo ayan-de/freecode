@@ -12,6 +12,7 @@ interface RunArgs {
   agent: string;
   continue: boolean;
   session?: string;
+  maxTurns?: number;
 }
 
 type AgentMode = "plan" | "build" | "review" | "explore" | "danger";
@@ -57,6 +58,11 @@ export const runCommand: CommandModule<object, RunArgs> = {
         alias: "s",
         type: "string",
         describe: "session id to continue",
+      })
+      .option("max-turns", {
+        type: "number",
+        describe:
+          "cap on agent iterations; unbounded (loop-health + gates only) if omitted",
       }),
   handler: async (argv) => {
     // Lazy imports: `run` pulls in the full backend, which no other command
@@ -140,9 +146,12 @@ export const runCommand: CommandModule<object, RunArgs> = {
     const agentMode = argv.agent as AgentMode;
     try {
       const loop = await getAppRuntime().runPromise(
-        // Unbounded, matching Claude Code's headless mode (maxTurns is opt-in
-        // via --max-turns there too, not a default cap).
-        createAgentLoopEffect(sessionId),
+        // Unbounded unless --max-turns is passed, matching Claude Code's
+        // headless mode (maxTurns is opt-in there too, not a default cap).
+        createAgentLoopEffect(
+          sessionId,
+          argv.maxTurns ? { maxIterations: argv.maxTurns } : undefined,
+        ),
       );
       const result = await getAppRuntime().runPromise(
         loop.runEffect({
