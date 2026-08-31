@@ -342,21 +342,27 @@ Fixed since this page was first written:
   unconditionally, so a batch of MCP mutations no longer runs in parallel —
   the same object already avoids re-running `create_issue` on retry; now it
   avoids running it *twice at once*, too.
+- **MCP schema conversion no longer drops `required`, `items`, or nested
+  `properties`.** `convertJsonSchema`/`convertProperty` now carry `required`
+  through, recurse into nested `properties` for object params, and convert
+  `items` for array params — required fields reach the provider and
+  `coerceArgs` can descend into object/array parameters. A schema that isn't a
+  plain object-with-properties (`$ref`, `allOf`, `oneOf`) still collapses to
+  `{ type: "object" }` — that needs a real JSON Schema resolver and is still
+  open, listed below.
+- **`validateParams` is wired in.** It runs as step 1.75 of
+  `orchestrator.execute()`, right after `coerceArgs`, so a missing required
+  argument — MCP or built-in — now fails at the orchestrator boundary instead
+  of surfacing as `undefined` inside the remote/tool call.
 
 Still open:
 
-1. **MCP schema conversion drops `required`, `items`, and nested
-   `properties`.** `convertJsonSchema` returns `{ type, properties }` with no
-   `required` array, and `convertProperty` keeps only
-   `description`/`type`/`enum` (`convert-tool.ts:79`). Required fields are
-   therefore never declared to the provider, array element types are lost, and
-   `coerceArgs` cannot reach inside an object or array parameter. A schema that
-   isn't a plain object-with-properties (`$ref`, `allOf`, `oneOf`) collapses to
-   `{ type: "object" }` — the model is told the tool takes no parameters.
-5. **`validateParams` is dead** (`orchestrator.ts:64`) — defined, never called.
-   Combined with gap 4, a missing required argument on an MCP tool is caught
-   nowhere and surfaces as `undefined` inside the remote call.
-6. **Four `Tool` fields have no readers at all.** `behavior.maxResultSizeChars`
+1. **`$ref`/`allOf`/`oneOf` in an MCP schema still collapses to
+   `{ type: "object" }`.** `convertJsonSchema` only handles a plain
+   object-with-properties shape; anything using JSON Schema composition tells
+   the model the tool takes no parameters. Needs a real resolver, not just
+   more cases.
+2. **Four `Tool` fields have no readers at all.** `behavior.maxResultSizeChars`
    (every tool sets it; truncation uses a global 30K budget instead),
    `behavior.interruptBehavior`, `permissions.operations`, and
    `permissions.requiresApproval` — `bash` sets the last one to `true` and

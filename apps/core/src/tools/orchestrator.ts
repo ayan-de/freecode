@@ -172,6 +172,25 @@ export function createToolOrchestrator(
       // rejected by validateToolInput and re-sends the identical call.
       const args = coerceArgs(toolDef.schemas?.parameters, call.args);
 
+      // 1.75 Required-argument check against the declared schema. Catches
+      // what a tool's own validateInput doesn't bother re-checking (MCP tools
+      // define none), so a missing required arg fails here instead of
+      // surfacing as `undefined` inside the remote/tool call.
+      const schemaError = validateParams(
+        args,
+        toolDef.schemas?.parameters?.required ?? [],
+        toolDef.schemas?.parameters?.properties ?? {},
+      );
+      if (schemaError) {
+        return {
+          id: `result-${Date.now()}`,
+          toolCallId: toolId,
+          tool,
+          title: toolDef.description,
+          error: schemaError.message,
+        };
+      }
+
       // 2. Per-tool input validation
       const validationResult = validateToolInput(toolDef, args);
       if (validationResult && !validationResult.valid) {

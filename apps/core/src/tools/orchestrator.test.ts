@@ -36,3 +36,51 @@ test("orchestrator surfaces structured .output as stdout, not JSON", async () =>
     unregisterMcpTools("test-structured");
   }
 });
+
+const requiresTitleTool = {
+  id: "test-requires-title",
+  description: "test",
+  schemas: {
+    parameters: {
+      type: "object",
+      required: ["title"],
+      properties: { title: { type: "string" } },
+    },
+  },
+  behavior: {},
+  execute: async () => ({
+    success: true,
+    result: { title: "ok", output: "ok" },
+  }),
+} as unknown as Tool;
+
+test("orchestrator rejects a call missing a required schema param before execute() runs", async () => {
+  registerMcpTool(requiresTitleTool);
+  try {
+    const orch = createToolOrchestrator();
+    const res = await orch.execute({
+      id: "c1",
+      tool: "test-requires-title",
+      args: {},
+    } as any);
+    assert.match(res.error ?? "", /Missing required param: title/);
+  } finally {
+    unregisterMcpTools("test-requires-title");
+  }
+});
+
+test("orchestrator lets a call through once the required param is present", async () => {
+  registerMcpTool(requiresTitleTool);
+  try {
+    const orch = createToolOrchestrator();
+    const res = await orch.execute({
+      id: "c1",
+      tool: "test-requires-title",
+      args: { title: "hi" },
+    } as any);
+    assert.equal(res.error, undefined);
+    assert.equal(res.stdout, "ok");
+  } finally {
+    unregisterMcpTools("test-requires-title");
+  }
+});

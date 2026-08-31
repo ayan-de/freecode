@@ -94,6 +94,9 @@ function convertJsonSchema(schema: unknown): JsonSchema {
     return {
       type: "object",
       properties: converted,
+      required: Array.isArray(s.required)
+        ? (s.required as string[])
+        : undefined,
     };
   }
 
@@ -105,9 +108,29 @@ function convertProperty(value: unknown): JsonSchemaProperty {
     return { type: "string" };
   }
   const v = value as Record<string, unknown>;
+
+  const properties =
+    v.type === "object" && v.properties && typeof v.properties === "object"
+      ? Object.fromEntries(
+          Object.entries(v.properties as Record<string, unknown>).map(
+            ([key, prop]) => [key, convertProperty(prop)],
+          ),
+        )
+      : undefined;
+
+  const items =
+    v.type === "array" && v.items && typeof v.items === "object"
+      ? Array.isArray(v.items)
+        ? (v.items as unknown[]).map(convertProperty)
+        : convertProperty(v.items)
+      : undefined;
+
   return {
     description: v.description as string | undefined,
     type: v.type as string | undefined,
     enum: v.enum as string[] | undefined,
+    properties,
+    items,
+    required: Array.isArray(v.required) ? (v.required as string[]) : undefined,
   };
 }

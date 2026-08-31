@@ -1,16 +1,5 @@
 # FreeCode Implementation TODOs
 
-## Completed
-
-- [x] Rollout/Event Sourcing system
-- [x] Two-phase context collection
-- [x] Phase 1 Skills infrastructure (manager, loader, registry, injection)
-- [x] 10 Hook Types (8 fully wired, 2 stubbed)
-- [x] Provider-specific prompts (session/prompt/\*.txt files)
-- [x] Subagent Lifecycle (agent tool with hooks + Bus events)
-- [x] Thread Store (SQLite + JSON persistence)
-- [x] Permission Profiles (sandbox levels for tool permissions)
-
 ## Pending
 
 ### Extensibility gaps (audit 2026-07-31)
@@ -19,12 +8,6 @@ What a user can extend without editing FreeCode's source. Covered today: MCP ser
 skills (incl. `~/.claude/plugins` scope), permission rules via `.freecode/settings.json`,
 and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
 
-- [x] **1. Hooks from `settings.json`** — ✅ DONE. All 14 events are implemented and
-      `hooks/executors/command.ts` can already shell out. Added `hooks/settings.ts` loader
-      that reads `.freecode/settings.json` (project) and `~/.freecode/settings.json` (user),
-      with project → user merge, fail-closed validation, file watching (300ms debounce),
-      and automatic injection of `type: "command"`. Wired into `server.ts`. Spec:
-      `docs/superpowers/specs/2026-07-31-hooks-settings-design.md`.
 
 - [ ] **2. User-defined slash commands** — `apps/core/src/commands/registry.ts` is a
       hardcoded map with exactly one entry (`/init`). See the detailed section below;
@@ -55,35 +38,9 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
       there's no user-facing way to undo a turn's file changes. Mostly a command + a
       file-state diff on top of machinery we already paid for.
 
-- [x] **9. TUI `@`-file mentions** — done. The audit was wrong: `CombinedAutocompleteProvider`
-      was already wired in `apps/tui/src/index.ts`, but with `fdPath = null`, and pi-tui's
-      `getFuzzyFileSuggestions` bails immediately without an fd binary — so `@` produced
-      nothing while slash-command completion kept working. Fixed by resolving fd from PATH
-      (`apps/tui/src/utils/fd-path.ts`) and passing it to both provider constructions.
-      Matches pi's `interactive-mode.ts:651`. Still open follow-ups:
-  - `@` is inert on machines without fd installed. pi downloads a copy
-        (`coding-agent/src/utils/tools-manager.ts`); we could instead fall back to the
-        readdir-based path completion pi-tui already has for non-`@` prefixes.
-  - Nothing tells the model what `@path` means — like pi, we insert the path as plain
-        text and rely on it calling `read`. A line in the system prompt would make that
-        explicit. (Content expansion at send time, Claude Code style, is the other option;
-        pi only does that for CLI `@file` args, in `cli/file-processor.ts`.)
 
-**Suggested order:** 1 → 2 → 3 (2 and 3 share one markdown loader), then 4. Items 5 and 8
+**Suggested order:** 2 → 3 (share one markdown loader), then 4. Items 5 and 8
 are larger, self-contained projects.
-
-
-
-
-  - Stale entries in ## Completed — it says "10 Hook Types (8 fully wired, 2 stubbed)" (there are 14 now), and ### 
-  Effect/Layer DI sits under Pending marked "Skipped", though apps/core/src/effect/ is implemented and documented as
-  live in CLAUDE.md. Reads as contradictory next to a fresh audit.
-  - Lines ~37–176 are a pasted terminal transcript (MCP subagent run output, "Input suggestion", progress spinners)
-  sitting mid-file between the two Pending entries. Looks accidental. The only real content buried in it is the remote
-  MCP server support note at the end (mcp/service.ts rejects non-local servers; config schema already has a url
-  field) — that's a genuine TODO worth keeping.
-
-  Want me to fix the stale statuses and strip the transcript, promoting the remote-MCP note to a proper entry?
 
 ### User-defined prompt commands loader
 
@@ -106,185 +63,6 @@ for `description`/`argHint`, body as the prompt template, `$ARGUMENTS` substitut
 
 **Reference:** opencode's `packages/opencode/src/effect/` directory for `makeRuntime<I, S, E>()` pattern
 
-## Input suggestion
-
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-❯ push  
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-✶ Adding dependency to package.json… (1m 25s · ↓ 1.8k tokens · thought for 4s)
-⎿ ◼ Task 1: Add dependency and configure package.json
-◻ Task 2: Create MCP types and Zod schemas  
- ◻ Task 3: Create MCP config loader  
- ◻ Task 4: Create MCP transport implementation
-◻ Task 5: Create MCP service with Effect/Layer  
- ◻ Task 6: Create CLI entry point with yargs  
- ◻ Task 7: Implement convertMcpTool function  
- ◻ Task 8: Integrate MCP tools into agent tool system  
- ◻ Task 9: Add Bus events for MCP  
- ◻ Task 10: End-to-end test with contextcarry MCP
-
-       ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ctrl+t to hide tasks                  ⧉ In pnpm-lock.yaml
-
-
-       ● Read 1 file (ctrl+o to expand)
-
-
-● Bash(Task 1: Add MCP dependency)  
- ⎿ Done (4 tool uses · 10.2k tokens · 33s)  
- (ctrl+o to expand)
-
-● Task(Task 2: Create MCP types)  
- ⎿  
- Search(pattern: "apps/core/src/\*_/_.test.ts")
-
-     +8 more tool uses (ctrl+o to expand)
-     ctrl+b to run in background
-                                                         ● Bash(Task 1: Add MCP dependency)
-
-⎿ Done (4 tool uses · 10.2k tokens · 33s)
-(ctrl+o to expand)
-
-● Task(Task 2: Create MCP types)
-⎿ Done (22 tool uses · 30.6k tokens · 4m 48s)
-(ctrl+o to expand)  
- ⎿ Found 7 new diagnostic issues in 2 files (ctrl+o to expand)
-
-● Task(Task 3: Create MCP config loader)  
- ⎿ Done (6 tool uses · 20.5k tokens · 1m 8s)  
- (ctrl+o to expand)
-
-● Task(Task 4: Create MCP transport)  
- ⎿ Done (7 tool uses · 18.6k tokens · 32s)  
- (ctrl+o to expand)
-
-● Task(Task 5: Create MCP service)  
- ⎿ Done (16 tool uses · 25.9k tokens · 2m 45s)  
- (ctrl+o to expand)
-
-Task(Task 6: Create CLI entry point)  
- ⎿  
- Search(pattern: "export.\*getConfigDir|function getConfigDir|const getConfigDir", path: "apps/core/src")
-
-     +9 more tool uses (ctrl+o to expand)
-     ctrl+b to run in background
-
-
-· Creating CLI entry point with yargs… (13m 28s · ↓ 17.6k tokens · thought for 16s)  
- ⎿ ◼ Task 6: Create CLI entry point with yargs  
- ◻ Task 7: Implement convertMcpTool function  
- ◻ Task 8: Integrate MCP tools into agent tool system  
- ◻ Task 9: Add Bus events for MCP  
- ◻ Task 10: End-to-end test with contextcarry MCP  
- ✔ Task 1: Add dependency and configure package.json  
- ✔ Task 2: Create MCP types and Zod schemas  
- ✔ Task 3: Create MCP config loader  
- ✔ Task 4: Create MCP transport implementation  
- ✔ Task 5: Create MCP service with Effect/Layer  
- Skill(superpowers:subagent-driven-development)
-⎿ Successfully loaded skill
-
-● I'm using Subagent-Driven Development to implement this plan.
-
-Let me first read the plan and extract all tasks, then create the todo list and start dispatching implementer subagents.
-
-● Read 1 file (ctrl+o to expand)
-
-● Bash(Task 1: Add MCP dependency)
-⎿ Done (4 tool uses · 10.2k tokens · 33s)
-(ctrl+o to expand)
-
-● Task(Task 2: Create MCP types)
-⎿ Done (22 tool uses · 30.6k tokens · 4m 48s)
-(ctrl+o to expand)  
- ⎿ Found 7 new diagnostic issues in 2 files (ctrl+o to expand)
-
-● Task(Task 3: Create MCP config loader)  
- ⎿ Done (6 tool uses · 20.5k tokens · 1m 8s)  
- (ctrl+o to expand)
-
-● Task(Task 4: Create MCP transport)  
- ⎿ Done (7 tool uses · 18.6k tokens · 32s)  
- (ctrl+o to expand)
-
-● Task(Task 5: Create MCP service)  
- ⎿ Done (16 tool uses · 25.9k tokens · 2m 45s)  
- (ctrl+o to expand)
-
-● Task(Task 6: Create CLI entry point)  
- ⎿ Done (37 tool uses · 47.6k tokens · 5m 44s)  
- (ctrl+o to expand)
-
-● Task(Task 7: Implement convertMcpTool)  
- ⎿ Done (6 tool uses · 16.7k tokens · 43s)  
- (ctrl+o to expand)
-
-● Task(Task 8: Integrate MCP tools)  
- ⎿ Done (9 tool uses · 28.7k tokens · 2m 24s)  
- (ctrl+o to expand)
-
-● Task(Task 9: Add Bus events for MCP)  
- ⎿  
- Waiting… diff apps/core/src/bus/index.ts)
-
-     +8 more tool uses (ctrl+o to expand)
-     ctrl+b to run in background
-
-
-✶ Adding Bus events for MCP… (24m 49s · ↓ 32.8k tokens · thought for 9s)  
- ⎿ ◼ Task 9: Add Bus events for MCP  
- ◻ Task 10: End-to-end test with contextcarry MCP  
- ✔ Task 1: Add dependency and configure package.json  
- ✔ Task 2: Create MCP types and Zod schemas  
- ✔ Task 3: Create MCP config loader  
- ✔ Task 4: Create MCP transport implementation  
- ✔ Task 5: Create MCP service with Effect/Layer  
- ✔ Task 6: Create CLI entry point with yargs  
- ✔ Task 7: Implement convertMcpTool function  
- ✔ Task 8: Integrate MCP tools into agent tool system
-
-     ///////////////////////////
-
-     ---
-
-2. Remote MCP server support
-
-This would enable:
-freecode mcp add myserver remote "https://mcp.example.com/server"
-
-Why it's not done: The current connect() function in mcp/service.ts (line 46-48) explicitly rejects remote servers:
-if (server.type !== 'local') {
-yield\* Effect.fail(new Error('Remote MCP servers not yet supported'));
-return;
-}
-
-What's needed to implement it:
-
-- Use SSEClientTransport or StreamableHTTPClientTransport from @modelcontextprotocol/sdk instead of
-  StdioClientTransport
-- Handle authentication (API keys, OAuth tokens)
-- Handle connection lifecycle (reconnecting on failure)
-- The init.ts connect logic would need a branch for local vs remote transport
-
-The config schema already supports remote (url field in McpServerSchema), but the actual connection code only
-handles local stdio.
-
-Need a feature like this 
- ~128k uncached · /clear to start fresh
-                                                                              new task? /clear to save 128.2k tokens
-
-3) Unknown command: /apps/tui. Type /help for available commands
-
-
-4)One real gotcha worth knowing, not just for this feature but for the whole memory system: it's basename only, not the full path. Two unrelated repos both named freecode on your machine (e.g. a fork checked out elsewhere) would collide into the same memory namespace. That's pre-existing behavior from before this session, not something the graph explorer introduced — flagging it since you asked how project identity works, not proposing to change it unless you want that looked at separately.
-
-5)The conversation isn't stored anywhere on the provider's side. There is no session. Anthropic's Messages API is fully stateless — your client reconstructs the entire conversation from scratch on every call, and the model re-reads all of it every time. "Memory" is an illusion your loop maintains by resending.
-
-(Partial exceptions exist — OpenAI's Responses API can store state server-side via previous_response_id, Gemini has explicit cache objects — but your loop treats providers uniformly and resends, which is the right call for portability.)
-
-6) Subagent UI
-
-
 ## Docs-audit findings (memory, sessions, knowledge graph — 2026-08-23)
 
 Found while writing `apps/docs/app/internals/{memory,sessions,knowledge-graph}`.
@@ -293,48 +71,14 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 
 ### A. Real fixes
 
-- [x] **Dead code: `apps/core/src/session/normalize/`** — ✅ DONE. Deleted; had zero
-      importers, normalization lives in `providers/streaming.ts`.
-- [x] **Stale `CLAUDE.md` row** — ✅ DONE. Removed `session/service.ts` (never
-      existed) and `session/normalize/` (deleted above) from the Sessions row;
-      added `session/end-session.ts`.
-- [x] **Thread store is written but never read** — ✅ DONE. Removed the dead write
-      (`threadStore.create()` was its only live call site, and nothing ever read a
-      thread back). `SessionManager` no longer takes or constructs a `ThreadStoreService`;
-      session listing still reads `meta.json` as it always did — one answer to "what
-      sessions exist?" now, not two.
 - [ ] **Memory project key collides** — `mem-store.ts:31` keys on
       `path.basename()`, so `~/work/api` and `~/side/api` share one memory store.
       Sessions already solved this with `store/path-formatter.ts` (full reversible
       path). Reuse it; needs a rename migration for existing `~/.freecode/projects/`.
-- [x] **No session-end signal** — ✅ DONE. `session/end-session.ts` consolidates all
-      six disposers (`disposeSessionMemory`, `resetExtractPolicy`, `disposeOutputStore`,
-      `disposeReadState`, `disposeCacheAwareness`, `disposeFrozenSessionContext`) behind
-      one idempotent `endSession()`, wired at every real end point: `session.switch`,
-      `session.archive`, `session.delete`, and process exit (`server.ts:1090,1104,
-      1115,1265`). `session.stop` deliberately does not call it — it only interrupts an
-      in-flight turn, the session itself keeps running. Also includes the end-of-session
-      extraction flush (D4), bounded to 2s on process exit so a leaving process doesn't
-      hang.
 - [ ] **`Contradicts` edges are never produced** — the kind, its zero weight, and
       the cascade skip are implemented and tested (`graph-types.ts:17`,
       `cascade.ts:59`), but nothing detects that two memories disagree. Contradiction
       handling is `supersedes:` only, which requires the writer to already know.
-- [x] **Keyword fallback overrides a confident vector miss** — `seed()`
-      (`graph/index.ts:253`) falls back to `findRelevantMemories()` whenever
-      `cosineTopK(10, 0.4)` returns nothing, and `retrieve()` does it again
-      (`out.length > 0 ? out : fallback()`). The keyword floor is `score > 0`, and
-      `score()` awards +1 for any 3-char *substring* overlap (`add`↔`address`), so
-      "what's 2+2" against a populated store injects up to 8 irrelevant memories.
-      **The fix is not "gate the fallback off"** — see the prior-art section
-      below; it is BM25 + rank fusion with the floor applied after fusion.
-      Spec: `specs/2026-08-23-memory-consolidation.md` D1 (revised 2026-08-23).
-- [x] **The injected memory block has no byte ceiling** —
-      `renderRetrievedMemories()` (`mem-prompt.ts:128`) emits full bodies for up to
-      8 entries with `cache: false` (`loop.ts:1325`). A count cap can't see "one
-      memory with a 4 KB body"; claude-code caps its entrypoint at
-      `MAX_ENTRYPOINT_BYTES = 25_000` for exactly this. Add a byte budget with
-      degradation to `name — description`. Spec: same doc, D2.
 - [ ] **VectorStore rewrites everything on every write** — `put()`/`remove()` call
       `persist()`, re-serializing all vectors + both files (`vector-store.ts:181`).
       ~768 KB rewritten per save at 500 memories.
@@ -352,22 +96,6 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Dangling wikilinks are invisible** — skipped correctly (`builder.ts:78`),
       but a typo'd `[[link]]` never surfaces anywhere. The explorer should list
       unresolved links.
-- [x] **Session delete is a status flag** — ✅ DONE. Default behavior unchanged
-      (recoverable status flag); `SessionStore.deleteSession()` and
-      `SessionManager.delete()` now take an optional `purge` flag, and
-      `session.delete` accepts `{ sessionId, purge: true }` over IPC to `rm -rf` the
-      session directory. No CLI flag added yet (the CLI's `session delete` already
-      purges unconditionally via a separate direct-filesystem path in
-      `cli/utils/sessions.ts` — untouched).
-- [x] **7 of 19 rollout event types have no emitter** — ✅ DONE. All seven now have a
-      live call site: `context.overflow` in `compactAndRetry` (`loop.ts`, using the
-      compaction outcome's `tokensBefore`), `turn.aborted` in `interrupt()`,
-      `hook.triggered` alongside `PreToolUse`'s existing `recordHookBlocked` call,
-      `subagent.start`/`subagent.stop` in `tools/agent.ts` (recorded against the
-      *parent* session, both success and catch paths), `skill.invoked` in
-      `tools/skill.ts`'s `execute` (explicit-invocation only, `implicit: false`),
-      and `parse.error` in `parseArgs()`'s catch branch (previously silently
-      swallowed).
 - [ ] **Compaction summaries never see tool activity** — `MemoryService` records
       only user prompts and assistant text; a tool-calling turn is stored as the
       stub `[Executed N tools]` (`loop.ts:1567`). The transcript handed to the
@@ -604,30 +332,11 @@ that page's **Known gaps**.
       permanently 0, and `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
       (`agent/types.ts:206`) have no reader. Implement it or delete the fields —
       right now the spec advertises four heuristics and three exist.
-- [x] **"No progress" counted tool calls, not turns.** ✅ Phase 0 of
-      `specs/2026-08-26-trajectory-redirection.md` (D1). `stagnantTurns` now advances
-      once per turn in `AgentLoop.advanceStagnation()` (`loop.ts:2498`) — five
-      consecutive reads no longer read as stagnation — and `oscillationScore` is a
-      count of reverts still inside the 30-edit window (`countReverts`,
-      `agent/oscillation.ts`) instead of a counter that only ever climbed. Tests:
-      `agent/stagnation.test.ts`, `agent/oscillation.test.ts`.
-- [x] **`no_progress` fired on healthy read-only exploration.** ✅ Fixed
-      2026-08-27. Found by the Phase 2 eval probe, not by reading the code: in
-      plan/review/explore nothing the agent is *permitted* to do can reset
-      `stagnantTurns`, so it climbed to the threshold on any exploration past five
-      turns and stayed there. Harmless while a warn was only `logger.debug`; with
-      redirection on it is a model call billed for doing exactly what the mode is
-      for. `advanceStagnation()` now skips read-only modes (`isReadOnlyMode()`,
-      `permission/mode-policy.ts`), tested over all three.
 - [ ] **A loop-health `warn` still reaches nobody by default.** The signal is now trustworthy,
       but every `warn` goes to `logger.debug` (`loop.ts:737`) — invisible at the
       default log level and never shown to the model, so nothing acts on a stuck
       pattern until it doubles into a `stop`. Phase 1 of
       `specs/2026-08-26-trajectory-redirection.md`.
-- [x] **Loop health was implemented twice.** ✅ Phase 0 (D10). The private
-      `AgentLoop.evaluateLoopHealth()` is deleted; the loop now calls
-      `createLoopHealthEvaluator()` from `effect/loop-health.ts`, which is the only
-      copy of the policy.
 - [ ] **The provider tool list ignores agent mode.** `getToolDefs()`
       (`tools/defs-cache.ts:30`) takes no mode, so a plan-mode session advertises
       `write`/`edit`/`bash` and then hard-denies them (`mode-policy.ts:77`) — one
@@ -809,30 +518,6 @@ page's **Known gaps**.
 
 ### Real fixes
 
-- [x] **An ambiguous `edit` silently rewrites the LAST occurrence.** ✅ DONE.
-      `applyEdit` now throws `"oldString is ambiguous: found N matches..."` the
-      moment a replacer yields more than one candidate and `replaceAll` is false,
-      instead of silently walking to the last one. `tools/edit.test.ts` added
-      (didn't exist before).
-- [x] **`bash` and `agent` declare `isDestructive: false`** — ✅ DONE. Both now
-      declare `isDestructive: true`, matching `edit`/`write`: triggers the verify
-      gate, counts toward stagnation, and the orchestrator's retry rule now agrees
-      with its own comment instead of contradicting it.
-- [x] **Mutating MCP tools are marked concurrency-safe.** — ✅ DONE.
-      `convertMcpTool` now sets `isConcurrencySafe: isReadOnly` instead of `true`
-      unconditionally.
-- [ ] **MCP schema conversion loses `required`, `items` and nested
-      `properties`.** `convertJsonSchema` returns `{ type, properties }` with no
-      `required`, and `convertProperty` keeps only `description`/`type`/`enum`
-      (`convert-tool.ts:79-111`). Consequences: required fields are never declared
-      to the provider; array element types are gone; `coerceArgs` cannot descend
-      into object/array parameters; and any schema that isn't a plain
-      object-with-properties (`$ref`, `allOf`, `oneOf`) collapses to
-      `{ type: "object" }`, telling the model the tool takes no parameters.
-- [ ] **`validateParams` is dead** (`orchestrator.ts:64`) — defined, never
-      called. Together with the item above, a missing required argument on an MCP
-      tool is validated nowhere and surfaces as `undefined` inside the remote
-      call. (Also listed in the agent-loop audit.)
 - [ ] **Four `Tool` metadata fields have zero readers.**
       `behavior.maxResultSizeChars` (set by every tool and by MCP; truncation
       actually uses the global 30K `adaptiveTruncate` budget),
@@ -1058,17 +743,6 @@ spec's §12; these are the parts that are actionable independently of it.
 
 ### Real fixes
 
-- [x] **The trace fold discards tool call arguments** — ✅ DONE (Phase 0).
-      `ToolSpan.args` is carried through (`rollout/trace.ts:58,149,158`) and
-      `scorers/trajectory.ts` scores `expectInArgs` off it. Original finding:
-      (`rollout/trace.ts:137-139`).
-      `FunctionCallEvent` carries `args: Record<string, unknown>`, but the
-      `function.call` case folds it into nothing but a timestamp in `pendingTools`,
-      so `ToolSpan` is `{ tool, startedAt, duration_ms }` and the args are gone.
-      The log recorded the right thing and the fold throws it away. Carrying
-      `args` through is ~3 lines, makes `freecode trace --json` materially more
-      useful, and is a hard prerequisite for the eval harness's `expect_in_args`
-      (spec §5.1, Phase 0).
 - [ ] **There is no cost accounting in USD anywhere.** `usage/tracker.ts` records
       tokens and `usage.get` serves them, but a price table exists in exactly one
       file — `providers/minimax.ts`. A shared `providers/pricing.ts` keyed by
@@ -1089,72 +763,19 @@ spec's §12; these are the parts that are actionable independently of it.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
-- [x] **A `question` tool call kills the suite silently, exit 0.** ✅ Fixed
-      2026-08-27 (`eval/runner.ts`): the runner subscribes to `question.asked` and
-      rejects — the tool already recovers — and every trial has a wall-clock cap
-      (`FREECODE_EVAL_TRIAL_TIMEOUT_MS`, default 5 min). Original report: hit on
-      2026-08-26 running the trajectory suite for the first time:
-      `todowrite-for-multistep` made the model ask a clarifying question and the
-      process ended right there — no summary, no report, no verdict, exit code 0,
-      remaining 8 cases never run. `askQuestion()` `unref()`s its 30-minute timer
-      (`bus/index.ts:346`) so a pending question cannot hold the event loop open,
-      and headless there is no frontend to answer it. Under `--gate` a CI job
-      reads that as green. `runner.ts` should subscribe to `question.asked` and
-      reject (the tool already recovers with "You can continue without this
-      information"), plus cap each trial's wall clock. This is why
-      `~/.freecode/eval_runs.jsonl` did not exist until 2026-08-26 — the suite had
-      never once completed.
-- [x] **A closed gate records its own baseline, so a regression is forgiven on the
-      next run.** `runSuite` calls `writeReport(report)` unconditionally
-      (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
-      (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
-      opens, because both the count and `greenIds` now come from the 14/20 run.
-      The delta rule is only honest if a closed gate refuses to become the
-      baseline (or history records a `gated` flag that `baselineFor` skips).
-      Confirmed live 2026-08-26: the Phase 0 comparison recorded 15/20 then
-      14/20, so the next gated run baselines against the red 14/20.
-- [x] **`SuiteReport.model` records the CLI override, not the resolved model**
-      (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
-      say which model produced a baseline, and a cheap local run compared against
-      a CI baseline from another model looks like a regression with no way to see
-      why. Record `RunnerConfig`'s resolved `provider/model` instead. Related:
-      **none of the 20 shipped cases pins `model`**, though spec §11 requires it.
 - [ ] **`evalsDir()` is CWD-relative** (`eval/dataset.ts:19`,
       `path.resolve("evals")`), so `freecode eval` fails with "no such suite"
       anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
       cases also reference FreeCode's own source paths, so the suite is
       repo-specific and nothing in `--help` says so.
-- [x] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
-      statistic spec §9.1 argues is too noisy to block on. Either default
-      `--trials` to 3 when `--gate` is set, or warn.
-- [x] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
-      only documented invocation from a source checkout is a raw `tsx` command.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
-- [x] **A closed gate records its own baseline, so a regression is forgiven on the
-      next run.** `runSuite` calls `writeReport(report)` unconditionally
-      (`eval/suite.ts:50`), and `baselineFor` is the *last* recorded run
-      (`eval/report.ts:73`). 18/20 → 14/20 closes the gate; re-run at 14/20 and it
-      opens, because both the count and `greenIds` now come from the 14/20 run.
-      The delta rule is only honest if a closed gate refuses to become the
-      baseline (or history records a `gated` flag that `baselineFor` skips).
-- [x] **`SuiteReport.model` records the CLI override, not the resolved model**
-      (`eval/suite.ts:41`). With no `--model` it is `undefined`, so history cannot
-      say which model produced a baseline, and a cheap local run compared against
-      a CI baseline from another model looks like a regression with no way to see
-      why. Record `RunnerConfig`'s resolved `provider/model` instead. Related:
-      **none of the 20 shipped cases pins `model`**, though spec §11 requires it.
 - [ ] **`evalsDir()` is CWD-relative** (`eval/dataset.ts:19`,
       `path.resolve("evals")`), so `freecode eval` fails with "no such suite"
       anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
       cases also reference FreeCode's own source paths, so the suite is
       repo-specific and nothing in `--help` says so.
-- [x] **`--gate` does not imply `--trials 3`.** Default is 1 = `pass@1`, the
-      statistic spec §9.1 argues is too noisy to block on. Either default
-      `--trials` to 3 when `--gate` is set, or warn.
-- [x] **No `pnpm eval` script.** `bench:recall` has one; this does not, so the
-      only documented invocation from a source checkout is a raw `tsx` command.
 
 ### Docs findings (eval Phase 2 — sandbox + outcome scorer, 2026-08-27)
 
@@ -1255,10 +876,6 @@ harness can block a release". Remaining:
       `vars.FREECODE_EVAL_MODEL` set on the repo, and is `workflow_dispatch`
       only by choice — every case is a real paid agent turn, so billing should
       scale with releases, not pushes. Uncomment `schedule:` to go nightly.
-- [x] **`gateBlocked` makes the baseline sticky when a suite is legitimately
-      re-scoped.** Fixed 2026-08-27 with `--accept-baseline`, which records the
-      run as the baseline anyway and marks it `baselineAccepted: true` for the
-      audit trail. Verified across the full re-scope scenario.
 
 ### Housekeeping
 
@@ -1281,39 +898,6 @@ harness can block a release". Remaining:
 From reviewing `codex`, `jcode`, `mem0`, and `agentmemory` against
 `docs/superpowers/specs/2026-08-23-memory-consolidation.md` (amended same day,
 D12–D14). These are actionable independently of that spec's phases.
-
-### Real fixes
-
-- [x] **The keyword scorer has no IDF and no length normalization** —
-      `mem-query.ts:19` awards +5 per description token pair and +1 per content
-      token pair for substring overlap in either direction. A long memory
-      therefore outranks a precise short one on stopword-ish overlap, and a term
-      present in every memory scores the same as a rare one. Replace with BM25
-      (`k1 1.2`, `b 0.75`); it is ~40 lines over a few hundred short documents
-      and needs no dependency. Measured context: agentmemory's `benchmark/`
-      puts BM25-only at 95.0% P@5 / 95.5% MRR vs dual-stream 90.0% / 95.4%, so
-      lexical retrieval done properly is a peer of the vector path, not a
-      degraded stand-in. Spec D1.
-- [x] **`retrieve()` discards the cascade score** — it walks scored output
-      (`graph/index.ts:288`) and returns bare `MemoryEntry[]`, which
-      `prepareMemories` stashes. Any score-ordered rendering (the byte-cap
-      degradation in spec D2) and any per-memory usage attribution (D12) needs a
-      `{ entry, score }` shape plumbed through `retrieve` → `prepareMemories` →
-      the session stash → `renderRetrievedMemories`.
-- [x] **Injected memories are never attributed** — the loop knows exactly which
-      memories it surfaced (`loop.ts:1297` emits `memory_injected`) and discards
-      it. No memory carries a use count or a last-used date, so consolidation
-      candidate selection, retention, and any claim that memory helps are all
-      unfalsifiable. codex closes this with citations →
-      `usage_count`/`last_usage` (`read/src/citations.rs`,
-      `state/migrations/0016_memory_usage.sql`). Spec D12.
-- [x] **No recall benchmark** — nothing measures retrieval quality, so every
-      tuning constant is permanent guesswork and no change to `seed()` can be
-      defended. jcode's `src/bin/memory_recall_bench.rs` is a working model:
-      three cached stages (queries → pool → metrics), runs the *production*
-      primitives, reports recall@k / MRR / nDCG with per-config LLM call and
-      token accounting. LongMemEval-S is directly usable because it uses
-      `all-MiniLM-L6-v2`, the embedder FreeCode already runs. Spec D14.
 
 ### Roadmap (needs its own spec, not a fix)
 

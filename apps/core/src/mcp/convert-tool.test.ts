@@ -30,6 +30,56 @@ test("convertMcpTool declares the mcp permission operation", () => {
   assert.deepEqual(tool.permissions.operations, ["mcp"]);
 });
 
+test("a mutating MCP tool is not marked concurrency-safe", () => {
+  const tool = convertMcpTool(
+    { name: "create_issue", inputSchema: { type: "object" } },
+    "github",
+  );
+  assert.equal(tool.behavior.isConcurrencySafe, false);
+  assert.equal(tool.behavior.isDestructive, true);
+});
+
+test("a read-only MCP tool is marked concurrency-safe", () => {
+  const tool = convertMcpTool(
+    {
+      name: "list_issues",
+      inputSchema: { type: "object" },
+      annotations: { readOnlyHint: true },
+    },
+    "github",
+  );
+  assert.equal(tool.behavior.isConcurrencySafe, true);
+  assert.equal(tool.behavior.isDestructive, false);
+});
+
+test("convertMcpTool preserves required, nested properties, and array items", () => {
+  const tool = convertMcpTool(
+    {
+      name: "create_issue",
+      inputSchema: {
+        type: "object",
+        required: ["title"],
+        properties: {
+          title: { type: "string" },
+          labels: { type: "array", items: { type: "string" } },
+          owner: {
+            type: "object",
+            required: ["id"],
+            properties: { id: { type: "string" } },
+          },
+        },
+      },
+    },
+    "github",
+  );
+  const params = tool.schemas.parameters;
+  assert.deepEqual(params.required, ["title"]);
+  const items = params.properties?.labels.items;
+  assert.equal(Array.isArray(items) ? undefined : items?.type, "string");
+  assert.deepEqual(params.properties?.owner.required, ["id"]);
+  assert.equal(params.properties?.owner.properties?.id.type, "string");
+});
+
 test("execute forwards the registered per-server timeout to callTool", async () => {
   const calls: Array<{ params: unknown; options: unknown }> = [];
   const fakeClient = {

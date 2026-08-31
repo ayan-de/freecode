@@ -7,13 +7,119 @@ description: "Connect external tools over the Model Context Protocol."
 
 FreeCode is an MCP *client*: it connects to MCP servers, converts their tools into
 native FreeCode tools, and registers them at runtime so they go through the same
-permission checks and orchestrator as the built-ins.
+permission checks and orchestrator as the built-ins. Exposing FreeCode's own tools
+*as* an MCP server is not supported — the client side is done, the server side
+isn't built.
 
-## On this page (coming soon)
+## Quick start
 
-- `freecode mcp add` / `list` / `remove`
-- `freecode mcp start` / `stop` / `status`
-- Transports and server configuration
-- How MCP tools are named and permission-scoped
-- Reacting to `mcp.tools.changed`
-- Not supported: exposing FreeCode's own tools as an MCP server
+```bash
+freecode mcp add myserver local "npx -y @modelcontextprotocol/server-filesystem /path"
+freecode mcp start myserver
+# ✓ Server "myserver" started with N tools
+```
+
+`add` only writes config — nothing connects yet. `start` is what actually spawns
+the process, lists its tools, and registers them. Both are CLI-only checks; a
+server configured this way connects for real once you run `freecode serve` (the
+TUI/VS Code/Web backend) — the CLI's `start`/`stop` are for testing a server in
+isolation.
+
+## Configuration
+
+Servers live under the `mcp` key in `~/.freecode/config.json`, alongside provider
+keys and the active model — not in a repo-level `.mcp.json` (that file, if you
+have one, belongs to a different tool and FreeCode never reads it):
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "myserver",
+        "type": "local",
+        "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path"],
+        "enabled": true,
+        "timeout": 5000
+      }
+    ],
+    "pollInterval": 5000
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type: "local"` | spawned over stdio — `command` is the argv array |
+| `type: "remote"` | reached over Streamable HTTP — needs `url`, optional `headers` |
+| `enabled` | `initMcpServers()` skips a disabled server on startup; `false` is how you keep a server configured but idle |
+| `timeout` | per-call timeout in ms, passed to every `callTool` |
+
+`freecode mcp add <name> <type> <command-or-url>` writes this for you; edit the
+file directly for `headers`, `env`, or a `timeout` other than the CLI default.
+
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `freecode mcp add <name> <type> <command>` | write a server to config (does not connect) |
+| `freecode mcp list` | show configured servers — config-only, not live status |
+| `freecode mcp remove <name>` | delete a server from config |
+| `freecode mcp start <name>` | connect, list tools, register them |
+| `freecode mcp stop <name>` | disconnect and unregister its tools |
+| `freecode mcp status <name>` | print the server's config (not a live health check) |
+
+## How a server's tools become FreeCode tools
+
+`connectMcpServer()` (`mcp/init.ts`) does four things per server, in order:
+connect the transport, call `listTools()`, run each tool through
+`convertMcpTool()`, and register the result with the same tool registry the
+built-ins live in. From there a `create_issue` from an MCP server and `write`
+are indistinguishable to the orchestrator.
+
+- **Tool id**: `mcp__<server>__<tool>` — the double underscore is what
+  permission rules match on (`mcp__github` covers every tool on that server,
+  `mcp__github__create_issue` covers just one).
+- **Destructive by default**: an MCP tool is treated as mutating unless the
+  server's own `readOnlyHint` annotation says otherwise. Guessing "probably
+  harmless" is how a `create_issue` call gets silently retried on a transient
+  failure — so the default is the safe one, and only an explicit `true`
+  changes it.
+- **Concurrency**: for the same reason, only a `readOnlyHint: true` tool is
+  eligible to run in the same parallel batch as another tool call. Everything
+  else runs alone.
+- **Schema**: `required`, nested object `properties`, and array `items` are
+  carried through from the server's JSON Schema into the tool's declared
+  parameters — a missing required argument is rejected by the orchestrator
+  before the call ever reaches the server. Schemas using `$ref`/`allOf`/`oneOf`
+  composition are not resolved yet and fall back to an empty `{ type: "object" }`.
+
+## Transports
+
+| Transport | Built with | Notes |
+| --- | --- | --- |
+| `local` (stdio) | `StdioClientTransport` | most MCP servers you'll reach for — spawned as a child process, talks over stdin/stdout |
+| `remote` (HTTP) | `StreamableHTTPClientTransport` | needs a `url`; `headers` for auth (API keys, tokens) go straight into the transport's `requestInit` |
+
+Both go through the same `Client.connect()` → `listTools()` → registration path;
+nothing downstream cares which transport a tool came from.
+
+## Reacting to tool changes
+
+Connecting or disconnecting a server fires `BusEvents.mcpToolsChanged(name)`,
+which invalidates the cached provider-facing tool list (`tools/defs-cache.ts`) so
+the next request advertises the new set. This is also why starting or stopping a
+server mid-session busts the prompt cache — the tools array sits inside the
+cached system prefix, and a changed tool set necessarily changes that prefix.
+
+## Known gaps
+
+- **MCP servers are user-scope only.** Config lives at `~/.freecode/config.json`,
+  so a repository can't ship the MCP servers its contributors need the way it can
+  ship rules (`.freecode/settings.json`) or hooks.
+- **`$ref`/`allOf`/`oneOf` schemas still collapse to `{ type: "object" }`.**
+  Resolving them needs a real JSON Schema resolver, not just more cases in
+  `convertJsonSchema`.
+- **No live health check.** `mcp status` only prints config; there's no way to
+  ask "is this server actually connected right now" outside a running
+  `freecode serve` process.
