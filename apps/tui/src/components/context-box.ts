@@ -49,7 +49,7 @@ export class ContextBox implements Component {
           ? chalk.yellowBright
           : chalk.redBright;
     const bar =
-      color("█".repeat(filled)) + chalk.dim("░".repeat(BAR_WIDTH - filled));
+      color("▰".repeat(filled)) + chalk.dim("▱".repeat(BAR_WIDTH - filled));
     return `[${bar}]`;
   }
 
