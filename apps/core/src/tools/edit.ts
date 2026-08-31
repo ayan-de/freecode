@@ -499,7 +499,7 @@ function contextAwareReplacer(
 // applyEdit
 // =============================================================================
 
-function applyEdit(
+export function applyEdit(
   content: string,
   oldString: string,
   newString: string,
@@ -525,6 +525,15 @@ function applyEdit(
 
   for (const replacer of replacers) {
     const candidates = replacer(content, oldString);
+    if (candidates.length === 0) continue;
+
+    if (!replaceAll && candidates.length > 1) {
+      throw new Error(
+        `oldString is ambiguous: found ${candidates.length} matches. Provide ` +
+          `more surrounding context to select a unique match, or pass replaceAll.`,
+      );
+    }
+
     for (const { match, startIndex, endIndex } of candidates) {
       if (replaceAll) {
         let result = content;
@@ -540,8 +549,6 @@ function applyEdit(
         }
         return result;
       }
-      const lastIndex = content.lastIndexOf(match);
-      if (startIndex !== lastIndex) continue;
       return (
         content.substring(0, startIndex) +
         newString +

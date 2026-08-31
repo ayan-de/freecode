@@ -33,7 +33,9 @@ export function convertMcpTool(mcpTool: McpToolDef, serverName: string): Tool {
       parameters: convertJsonSchema(mcpTool.inputSchema),
     },
     behavior: {
-      isConcurrencySafe: true,
+      // A mutating MCP tool must not run in the same parallel batch as
+      // another mutation — only a read-only one is safe to overlap.
+      isConcurrencySafe: isReadOnly,
       // Both retry paths (tools/orchestrator.ts, agent/recovery/manager.ts)
       // read this as "safe to silently re-run". It was hardcoded false, so a
       // transient failure could re-issue a mutation — running create_issue

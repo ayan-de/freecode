@@ -809,30 +809,18 @@ page's **Known gaps**.
 
 ### Real fixes
 
-- [ ] **An ambiguous `edit` silently rewrites the LAST occurrence.** For a
-      non-`replaceAll` edit, `applyEdit` iterates every candidate and skips until
-      `startIndex === content.lastIndexOf(match)` (`edit.ts:543`), so an
-      `oldString` occurring three times is applied to the third with no error and
-      no warning. The model has usually just read the top of a file and means the
-      first. Claude Code and opencode both hard-fail ("found N matches, provide
-      more context"); do the same when `simpleReplacer` yields more than one
-      candidate and `replaceAll` is false.
-- [ ] **`bash` and `agent` declare `isDestructive: false`** (`bash.ts:293`,
-      `agent.ts:233`). Only `edit` and `write` declare `true`, and four consumers
-      read the flag: the verify gate (`filesMutatedThisRun`) — so a run that edits
-      via `sed -i`, `git apply` or a codemod never triggers typecheck; the
-      verifier gate (`mutatedFiles` stays empty); loop-health stagnation — so
-      bash-only work always looks like no progress; and the orchestrator's retry
-      rule (`orchestrator.ts:202`), whose own comment says "re-running a
-      write/edit/bash is not safe" while the data makes bash retryable. It also
-      contradicts `permission/mode-policy.ts`, which correctly treats both as
-      mutating. Fix the flags, or split "mutates the filesystem" from "unsafe to
-      re-run" into two fields.
-- [ ] **Mutating MCP tools are marked concurrency-safe.** `convertMcpTool` sets
-      `isConcurrencySafe: true` unconditionally (`convert-tool.ts:36`) while
-      deriving `isDestructive` from `readOnlyHint` two lines below, so a batch of
-      MCP mutations runs in parallel via `planToolBatches`. Should be
-      `isConcurrencySafe: isReadOnly`.
+- [x] **An ambiguous `edit` silently rewrites the LAST occurrence.** ✅ DONE.
+      `applyEdit` now throws `"oldString is ambiguous: found N matches..."` the
+      moment a replacer yields more than one candidate and `replaceAll` is false,
+      instead of silently walking to the last one. `tools/edit.test.ts` added
+      (didn't exist before).
+- [x] **`bash` and `agent` declare `isDestructive: false`** — ✅ DONE. Both now
+      declare `isDestructive: true`, matching `edit`/`write`: triggers the verify
+      gate, counts toward stagnation, and the orchestrator's retry rule now agrees
+      with its own comment instead of contradicting it.
+- [x] **Mutating MCP tools are marked concurrency-safe.** — ✅ DONE.
+      `convertMcpTool` now sets `isConcurrencySafe: isReadOnly` instead of `true`
+      unconditionally.
 - [ ] **MCP schema conversion loses `required`, `items` and nested
       `properties`.** `convertJsonSchema` returns `{ type, properties }` with no
       `required`, and `convertProperty` keeps only `description`/`type`/`enum`

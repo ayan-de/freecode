@@ -237,7 +237,10 @@ Use it when the work would otherwise burn a lot of context you have no further u
   },
   behavior: {
     isConcurrencySafe: false,
-    isDestructive: false,
+    // A subagent runs arbitrary tools of its own and can mutate the
+    // filesystem, so this must read the same as write/edit: triggers the
+    // verify gate, counts toward stagnation, and is not safely retryable.
+    isDestructive: true,
     interruptBehavior: "await",
     userFacingName: "Agent",
   },

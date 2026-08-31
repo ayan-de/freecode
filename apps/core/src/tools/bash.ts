@@ -290,7 +290,10 @@ export const BashTool: Tool<BashParams> = buildTool({
   },
   behavior: {
     isConcurrencySafe: false,
-    isDestructive: false,
+    // A shell command can mutate the filesystem (sed -i, git apply, a
+    // codemod), so this must read the same as write/edit: triggers the
+    // verify gate, counts toward stagnation, and is not safely retryable.
+    isDestructive: true,
     interruptBehavior: "await",
     userFacingName: "Bash",
   },

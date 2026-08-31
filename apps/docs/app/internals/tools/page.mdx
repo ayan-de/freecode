@@ -323,29 +323,29 @@ string is the tool result the model reads as text.
 
 ## Known gaps
 
-1. **An ambiguous `edit` silently changes the last occurrence.** For a
-   non-`replaceAll` edit, `applyEdit` skips candidates until
-   `startIndex === content.lastIndexOf(match)` (`edit.ts:543`) — so an
-   `oldString` appearing three times is applied to the *third*, with no error.
-   The model has usually just read the top of the file and means the first.
-   Claude Code and opencode both hard-fail with "found N matches, add more
-   context"; this should too.
-2. **`bash` and `agent` declare `isDestructive: false`.** Only `edit` and
-   `write` declare `true`, and four things read that flag:
-   the verify gate (a run that edits via `sed -i` or `git apply` never
-   triggers typecheck), the verifier gate (`mutatedFiles` stays empty), the
-   stagnation counter (bash-only work always looks like no progress), and the
-   orchestrator's retry rule — whose own comment says "re-running a
-   write/edit/bash is not safe" while the data says bash may be re-run. It also
-   disagrees with `permission/mode-policy.ts`, which correctly treats both as
-   mutating.
-3. **Mutating MCP tools are marked concurrency-safe.**
-   `convertMcpTool` sets `isConcurrencySafe: true` unconditionally
-   (`convert-tool.ts:36`) while deriving `isDestructive` from `readOnlyHint`. So
-   a batch of MCP mutations runs in parallel — exactly what the batcher exists
-   to prevent, and in the same object that carefully avoids re-running
-   `create_issue`.
-4. **MCP schema conversion drops `required`, `items`, and nested
+Fixed since this page was first written:
+
+- **An ambiguous `edit` no longer silently changes the last occurrence.**
+  `applyEdit` used to skip candidates until `startIndex === content.lastIndexOf(match)`,
+  so an `oldString` appearing three times was applied to the *third* with no
+  error — the model has usually just read the top of the file and means the
+  first. It now hard-fails with "found N matches, provide more context" the
+  moment a replacer produces more than one candidate and `replaceAll` isn't
+  set, matching Claude Code and opencode.
+- **`bash` and `agent` now declare `isDestructive: true`**, same as `edit`/`write`.
+  A run that edits via `sed -i` or `git apply` now triggers the verify gate
+  and counts toward stagnation like any other file change, and the
+  orchestrator's retry rule now agrees with its own comment ("re-running a
+  write/edit/bash is not safe") instead of contradicting it.
+- **Mutating MCP tools are no longer marked concurrency-safe.**
+  `convertMcpTool` now sets `isConcurrencySafe: isReadOnly` instead of `true`
+  unconditionally, so a batch of MCP mutations no longer runs in parallel —
+  the same object already avoids re-running `create_issue` on retry; now it
+  avoids running it *twice at once*, too.
+
+Still open:
+
+1. **MCP schema conversion drops `required`, `items`, and nested
    `properties`.** `convertJsonSchema` returns `{ type, properties }` with no
    `required` array, and `convertProperty` keeps only
    `description`/`type`/`enum` (`convert-tool.ts:79`). Required fields are
