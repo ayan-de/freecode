@@ -70,6 +70,18 @@ const webCommand: Command = {
   },
 };
 
+const mcpCommand: Command = {
+  name: "mcp",
+  description: "Manage MCP servers",
+  execute: async (_args, ctx) => {
+    if (ctx.showMcpPicker) {
+      await ctx.showMcpPicker();
+    } else {
+      ctx.showMessage("MCP picker unavailable in this context.");
+    }
+  },
+};
+
 const effortCommand: Command = {
   name: "effort",
   description: "Set reasoning effort (low/medium/high/xhigh/max)",
@@ -244,6 +256,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(exitCommand);
   registerCommand(modelCommand);
   registerCommand(webCommand);
+  registerCommand(mcpCommand);
   registerCommand(effortCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);

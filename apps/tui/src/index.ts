@@ -123,6 +123,7 @@ import {
   createProviderSelector,
   createModelSelector,
 } from "./components/model-picker.js";
+import { createMcpSelector } from "./components/mcp-picker.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
@@ -237,6 +238,7 @@ let modelSelector: SearchableSelectList | null = null;
 let providerSelector: SearchableSelectList | null = null;
 let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
+let mcpSelector: SearchableSelectList | null = null;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
@@ -479,6 +481,13 @@ function hideModelSelector(): void {
   tui.requestRender();
 }
 
+function hideMcpSelector(): void {
+  removeSelector(mcpSelector);
+  mcpSelector = null;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
 function hideResumeSelector(): void {
   if (resumeSelector) {
     const idx = tui.children.indexOf(resumeSelector);
@@ -514,6 +523,7 @@ function removeApiKeyEditor(): void {
  */
 async function showProviderSelector(kind: "api" | "web" = "api"): Promise<void> {
   hideModelSelector();
+  hideMcpSelector();
   removeApiKeyEditor();
 
   try {
@@ -550,6 +560,60 @@ async function showProviderSelector(kind: "api" | "web" = "api"): Promise<void> 
     tui.requestRender();
   } catch (err) {
     showMessage(`**Error:** Failed to load providers: ${err}`);
+  }
+}
+
+/** Interactive MCP server list with live connection status (the /mcp command). */
+async function showMcpPicker(): Promise<void> {
+  hideMcpSelector();
+  hideModelSelector();
+  hideResumeSelector();
+
+  try {
+    const servers = await mcpStatus();
+
+    if (servers.length === 0) {
+      showMessage(
+        "**No MCP servers configured.**\n\n" +
+          'Add one: `freecode mcp add <name> local "<command>"`',
+      );
+      return;
+    }
+
+    mcpSelector = createMcpSelector(
+      servers,
+      {
+        onSelect: (name: string) => {
+          const server = servers.find((s) => s.name === name);
+          hideMcpSelector();
+          if (!server) return;
+          const lines = [`**${server.name}** (${server.type})`, ""];
+          lines.push(
+            server.status === "connected"
+              ? `Connected · ${server.toolCount} tools`
+              : "Not connected — connects when `freecode serve` starts, or via `freecode mcp start`",
+          );
+          if (server.tools.length > 0) {
+            lines.push(
+              "",
+              ...server.tools.map(
+                (t) => `- ${t.replace(`mcp__${server.name}__`, "")}`,
+              ),
+            );
+          }
+          showMessage(lines.join("\n"));
+        },
+        onCancel: () => hideMcpSelector(),
+      },
+      defaultSelectListTheme,
+    );
+
+    const editorIdx = tui.children.indexOf(editor);
+    tui.children.splice(editorIdx + 1, 0, mcpSelector);
+    tui.setFocus(mcpSelector);
+    tui.requestRender();
+  } catch (err) {
+    showMessage(`**Error:** Failed to load MCP servers: ${err}`);
   }
 }
 
@@ -743,6 +807,7 @@ async function showCredentialInput(
 async function showResumePicker(): Promise<void> {
   hideResumeSelector();
   hideModelSelector();
+  hideMcpSelector();
 
   try {
     // Fetch both lists in parallel; the Claude Code list is best-effort.
@@ -1420,10 +1485,6 @@ editor.onSubmit = async (value: string) => {
         const mod = await import("./commands/freecode/index.js");
         mod.registerFreecodeCommand();
       }
-      if (commandName === "mcp" && !commandRegistry.get("mcp")) {
-        const mod = await import("./commands/freecode/mcp.js");
-        mod.registerMcpCommand();
-      }
       const command = commandRegistry.get(commandName);
       if (command) {
         editor.setText("");
@@ -1431,6 +1492,7 @@ editor.onSubmit = async (value: string) => {
           showMessage,
           showModelSelector: () => showProviderSelector("api"),
           showWebSelector: () => showProviderSelector("web"),
+          showMcpPicker: () => showMcpPicker(),
           showEffortPicker,
           showResumePicker: showResumePicker,
           // Undefined until a run completes, so /cost omits the Session row
@@ -2060,6 +2122,10 @@ tui.addInputListener((data) => {
       hideModelSelector();
       tui.setFocus(editor);
       tui.requestRender();
+      return { consume: true };
+    }
+    if (mcpSelector) {
+      hideMcpSelector();
       return { consume: true };
     }
     interruptController.handle();

@@ -41,6 +41,8 @@ export interface CommandContext extends MessageCreators {
   showWebSelector?(): void;
   showEffortPicker?(): void;
   showResumePicker?(): void;
+  /** Interactive MCP server list with live connection status (the /mcp command). */
+  showMcpPicker?(): Promise<void>;
   /** Trigger manual compaction of the current session (the /compact command). */
   compactSession?(): Promise<void>;
   /**
