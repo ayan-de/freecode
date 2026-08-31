@@ -51,11 +51,10 @@ Two fields on `ExecuteOptions` are less obvious than they look:
 
 ## The six providers
 
-```
-registry.ts ──initProviders()──▶ import each adapter
-                                     │ side effect
-                                     ▼
-                              registerProvider(id, { info, create })
+```mermaid
+graph LR
+    A["registry.ts"] -->|"initProviders()"| B["import each adapter"]
+    B -->|"side effect"| C["registerProvider(id, { info, create })"]
 ```
 
 Registration is a module side effect: importing `providers/index.ts` calls
@@ -86,13 +85,14 @@ nothing to mark.
 
 ## Building a request
 
-```
-Message[]  ──convertToCoreMessages──▶  ModelMessage[]
-ToolDef[]  ──buildToolsParam───────▶  { name: { description, inputSchema } }
-SystemBlock[] ──buildAnthropicSystemParam / join──▶ system
-                                 │
-                                 ▼
-                    generateText() / streamText()
+```mermaid
+graph TD
+    A["Message[]"] -->|"convertToCoreMessages"| A2["ModelMessage[]"]
+    B["ToolDef[]"] -->|"buildToolsParam"| B2["{ name: { description, inputSchema } }"]
+    C["SystemBlock[]"] -->|"buildAnthropicSystemParam / join"| C2["system"]
+    A2 --> D["generateText() / streamText()"]
+    B2 --> D
+    C2 --> D
 ```
 
 **Messages.** `convertToCoreMessages` (`utils.ts:271`) does one structurally
