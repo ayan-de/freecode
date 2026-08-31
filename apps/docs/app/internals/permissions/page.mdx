@@ -1,20 +1,147 @@
 ---
 title: "Permission engine"
-description: "The exact order a tool call is evaluated in."
+description: "Modes, rules, and the order they're evaluated in."
 ---
 
 # Permission engine
 
-Six steps decide every tool call: danger bypass, mode enforcement, `PreToolUse`,
-the rules engine, `PermissionRequest`, then the interactive prompt. Mode
-enforcement runs before rules, which is why a read-only mode cannot be unlocked by
-an allow rule; and a rules `deny` is absolute, which is why no hook can undo one.
+Every mutating tool call — write, edit, bash, an MCP tool with no
+read-only claim — passes through one decision function before it runs:
+`evaluatePermission()` in `apps/core/src/permission/evaluate.ts`. It answers
+exactly one question: **allow, ask, or deny?** Everything else in this
+subsystem (modes, rules, profiles) exists to feed that one function.
 
-## On this page (coming soon)
+## Modes set the ceiling, rules fill in the rest
 
-- The six evaluation steps in order
-- Rule matching: `PATH_TOOLS`, `URL_TOOLS`, prefix patterns
-- Settings merge across project, user, and session scopes
-- Capability profiles: minimal, readonly, standard, elevated, admin
-- How profiles constrain sub-agents
-- Prompt suggestion and rule display names
+An **agent mode** (`plan`, `build`, `review`, `explore`, `danger`) is a
+blanket policy the whole session runs under. Three of them —
+`plan`, `review`, `explore` — are read-only by design: no rule, however
+permissive, can make them allow a mutating tool. This is enforced *before*
+rules are even consulted:
+
+```ts
+// evaluate.ts
+if (mode === "danger") return { decision: "allow", source: "danger" };
+
+const enforced = modeEnforcement(mode, toolName);
+if (enforced !== undefined) {
+  return { decision: "deny", source: "mode-enforced", matchedRule: enforced };
+}
+```
+
+`danger` is the opposite extreme: it bypasses rules, hooks, and prompts
+entirely. Between the two extremes sits `build`, the everyday mode, where
+rules do the real work.
+
+## Precedence: deny > ask > allow > mode default
+
+Once mode enforcement clears a call, `evaluatePermission()` checks rule tiers
+in strict order — `deny`, then `ask`, then `allow` — and only falls back to
+the mode's own default if nothing matched:
+
+```
+danger bypass
+  → mode enforcement (plan/review/explore hard-deny mutations)
+    → deny rules   (absolute — nothing below can override a match here)
+      → ask rules  (prompts the user, unless the mode disallows asking)
+        → allow rules
+          → mode default (per docs/superpowers/specs/2026-07-18-permission-rules.md §4)
+```
+
+Deny always wins. A session-level allow grant (e.g. "allow bash for the rest
+of this session," recorded by `permission/prompt.ts`) lives in the allow
+tier and is checked in the same pass — it can never beat a standing deny
+rule.
+
+## Rules: `Tool(pattern)` strings
+
+A rule is a string like `Bash(npm run test:*)` or `Write(src/**)`, parsed by
+`permission/rules.ts` into `{ tool, pattern }`:
+
+```ts
+const RULE_RE = /^([A-Za-z0-9_-]+)(?:\((.*)\))?$/;
+```
+
+Matching depends on which family the tool belongs to:
+
+- **`PATH_TOOLS`** (`read`, `ls`, `write`, `edit`, `glob`, `grep`) — the
+  pattern matches against the tool's path argument, resolved relative to the
+  project root.
+- **`URL_TOOLS`** (`webfetch`, `websearch`) — the pattern matches against the
+  URL argument.
+- **`bash`** — the pattern matches the command string, but only as a
+  **prefix**. A rule never matches across a shell separator
+  (`SHELL_SEPARATORS = /(\|\||&&|;|\||\n|`|\$\()/`), so `Bash(npm test)`
+  cannot be satisfied by `npm test && rm -rf /` — the separator breaks the
+  prefix match and the call falls through to whatever handles the
+  unmatched case (usually `ask`, in build mode).
+
+Adding a new tool to `PATH_TOOLS` or `URL_TOOLS` is one of the six mandatory
+steps for wiring up any new tool — see the tool-registration checklist in
+the root `CLAUDE.md` and the [tool system](/internals/tools) page. Skip it and
+path/url-scoped rules silently fail to match the new tool.
+
+## Read-only vs. mutating
+
+`mode-policy.ts` classifies every tool as `readonly` or `mutating` via
+`toolKind()`. The classification is a fixed allowlist
+(`READONLY_TOOLS`: `read`, `ls`, `glob`, `grep`, `skill`, `question`,
+`todowrite`, `lsp`, `webfetch`, `websearch`, …) — **anything not on the list
+is mutating**, including a tool the engine has never heard of. This
+fail-closed default matters most for MCP: a third-party MCP server is
+arbitrary code, so its tools are only trusted as read-only when the server
+explicitly annotates them (`readOnlyHint: true`), tracked in a live
+`READONLY_MCP_TOOLS` set that's populated on connect and cleared on
+disconnect. An unannotated MCP tool costs the user one permission prompt on
+first use in `build` mode — the escape hatch is an allow rule scoped to the
+whole server (`mcp__linear`) rather than each tool individually.
+
+## Mode defaults
+
+When no rule matches, `modeDefault()` decides based on mode + tool kind
+(spec §4's table, condensed):
+
+| Mode | readonly tool | mutating tool |
+| --- | --- | --- |
+| `plan` / `explore` | allow | deny |
+| `review` | allow | deny (except bash, which rules may explicitly allow) |
+| `build` | allow | ask |
+| `danger` | allow | allow (handled earlier, at the bypass step) |
+
+`build` is the only mode where an unmatched mutating call reaches the user as
+a prompt instead of being silently allowed or denied — this is the default
+experience most sessions run under.
+
+## Permission profiles
+
+A separate, coarser layer — `permission/profiles.ts` — governs what a
+**subagent** is capable of at all, independent of the mode/rule engine above.
+Five profiles (`minimal`, `readonly`, `standard`, `elevated`, `admin`) are
+flat capability bundles:
+
+```ts
+export const PROFILES = {
+  minimal:  { fileRead: true,  fileWrite: false, network: false, shell: false, subprocess: false, mcpServers: [] },
+  readonly: { fileRead: true,  fileWrite: false, network: true,  shell: false, subprocess: false, mcpServers: [] },
+  standard: { fileRead: true,  fileWrite: true,  network: false, shell: true,  subprocess: false, mcpServers: [] },
+  // ...
+};
+```
+
+Where modes gate *individual calls* dynamically, a profile is assigned once
+when a subagent is spawned and caps what it can ever attempt — see
+[Sub-agent runtime](/internals/subagents) for how the two layers interact
+(a subagent's mode is still evaluated normally underneath its profile).
+
+## Where a denial goes
+
+A denied or asked call never silently vanishes. `permission/prompt.ts` turns
+an `ask` decision into a `PermissionRequest` hook event, which the frontend
+renders as an interactive prompt; the user's answer (allow once / allow for
+session / deny) feeds back through the bus. A hard deny (mode-enforced or
+rule-based) is recorded as a `function.denied` event in the rollout log —
+never folded into `toolSpans`, since that array means "tools that ran" and
+several consumers (the eval harness's `forbidTools`, loop-health's tool-repeat
+counter) depend on that distinction. See
+[Agent loop](/internals/agent-loop) for how a denial reaches the model as
+its next tool result.
