@@ -4,7 +4,6 @@ import {
   TUI,
   Key,
   matchesKey,
-  CombinedAutocompleteProvider,
   SelectList,
   type SelectItem,
   type SelectListTheme,
@@ -34,10 +33,14 @@ import {
 } from "./utils/format-tokens.js";
 import { idleNudgeMessage, getCacheTtlMs } from "./utils/idle-nudge.js";
 import { formatDuration } from "./utils/format-duration.js";
-import { resolveFdPath } from "./utils/fd-path.js";
+import { createAutocompleteProvider } from "./utils/at-mention-provider.js";
 import { SelectionStore, normalize } from "./state/selection-store.js";
 import { plainText } from "./utils/ansi-select.js";
-import { copyToClipboard, readImageFromClipboard } from "./utils/clipboard.js";
+import {
+  copyToClipboard,
+  noClipboardImageMessage,
+  readImageFromClipboard,
+} from "./utils/clipboard.js";
 import {
   startCli,
   stopCli,
@@ -338,13 +341,12 @@ process.stdout.on("resize", () => {
 editor = new PromptEditor(tui, defaultEditorTheme);
 editor.setText("");
 
-// `@` file mentions need an fd binary; without one pi-tui returns no
-// suggestions for `@` and slash-command completion still works as before.
-const fdPath = resolveFdPath();
-const autocompleteProvider = new CombinedAutocompleteProvider(
+// `@` file mentions run on fd when it is installed and on a JS tree walk when
+// it is not, so completion works the same on a machine without fd (Windows,
+// usually). Slash-command completion is unaffected either way.
+const autocompleteProvider = createAutocompleteProvider(
   commandRegistry.getSlashCommands(),
   process.cwd(),
-  fdPath,
 );
 editor.setAutocompleteProvider(autocompleteProvider);
 
@@ -1671,10 +1673,9 @@ void (async () => {
     }
     // Rebuild autocomplete so the freshly registered commands appear.
     editor.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(
+      createAutocompleteProvider(
         commandRegistry.getSlashCommands(),
         process.cwd(),
-        fdPath,
       ),
     );
     tui.requestRender();
@@ -2148,9 +2149,7 @@ tui.addInputListener((data) => {
       try {
         const image = await readImageFromClipboard();
         if (!image) {
-          createSystemMessage(
-            "No image on the clipboard. (Needs `wl-paste`, `xclip`, or `pngpaste` installed.)",
-          );
+          createSystemMessage(noClipboardImageMessage());
         } else if (editor.hasImage(image.data)) {
           // Clipboard unchanged since the last paste — re-attaching the same
           // bytes is never what the user wants.

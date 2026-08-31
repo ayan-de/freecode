@@ -57,6 +57,23 @@ for `description`/`argHint`, body as the prompt template, `$ARGUMENTS` substitut
 - Parse front-matter → `PromptCommand`; merge into the registry alongside built-ins
 - No frontend changes needed — they already fetch the merged list over IPC
 
+### `@` mention fallback ignores .gitignore
+
+**Status:** Known limitation of the fd-less path (added 2026-09-01)
+
+`apps/tui/src/utils/file-search.ts` stands in for fd when fd isn't installed (the normal
+case on Windows — see `at-mention-provider.ts`). fd respects `.gitignore`; the walker only
+skips a hardcoded `SKIP_DIRS` list, so ignored-but-not-listed paths (build output under an
+unusual name, `.claude/worktrees/`, generated fixtures) still show up in `@` suggestions.
+Fix by parsing the nearest `.gitignore` files, or by shipping fd the way
+`hooks/builtin/rtk-installer.ts` ships rtk. Neither is worth doing until someone complains.
+
+Related, same Windows-parity batch: `readImageOnWindows()` in `apps/tui/src/utils/clipboard.ts`
+goes through `Clipboard.GetImage()`, which reads the DIB clipboard format and therefore
+drops alpha — a screenshot is fine, a copied transparent PNG comes back matted. Apps like
+Chrome and the Snipping Tool also publish a `PNG` clipboard format; preferring
+`GetDataObject().GetData('PNG')` when present would preserve the original bytes.
+
 ### Effect/Layer DI (Complex - Skipped for now)
 
 **Status:** Skipped - requires significant architectural change using Effect framework
