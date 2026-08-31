@@ -5,7 +5,7 @@
 // PROJECT DIR: Project path is formatted using path-formatter (e.g., /home/ayande/Project → home__ayande__Project)
 // =============================================================================
 
-import { mkdir, readFile, writeFile, readdir } from "fs/promises";
+import { mkdir, readFile, writeFile, readdir, rm } from "fs/promises";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -101,7 +101,11 @@ export interface SessionStore {
     status: SessionMeta["status"],
     projectPath?: string,
   ): Promise<void>;
-  deleteSession(sessionId: string, projectPath?: string): Promise<void>;
+  deleteSession(
+    sessionId: string,
+    projectPath?: string,
+    purge?: boolean,
+  ): Promise<void>;
 
   appendMessage(
     sessionId: string,
@@ -334,7 +338,18 @@ class SessionStoreImpl implements SessionStore {
     await this.updateMeta(sessionId, { status }, projectPath);
   }
 
-  async deleteSession(sessionId: string, projectPath?: string): Promise<void> {
+  async deleteSession(
+    sessionId: string,
+    projectPath?: string,
+    purge?: boolean,
+  ): Promise<void> {
+    if (purge) {
+      await rm(this.sessionDir(sessionId, projectPath), {
+        recursive: true,
+        force: true,
+      });
+      return;
+    }
     await this.updateStatus(sessionId, "deleted", projectPath);
   }
 

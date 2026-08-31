@@ -13,10 +13,6 @@ import {
   type SessionMeta,
   type SerializedMessage,
 } from "./store.js";
-import {
-  createThreadStoreService,
-  type ThreadStoreService,
-} from "../store/thread-store.js";
 import { CONFIG_FILE } from "../providers/config.js";
 
 const SESSION_DIR = ".freecode";
@@ -48,12 +44,10 @@ export interface SessionContext {
 
 export class SessionManager {
   private sessionStore: SessionStore;
-  private threadStore: ThreadStoreService | undefined;
   private currentSessionId: string | null = null;
 
-  constructor(sessionStore: SessionStore, threadStore?: ThreadStoreService) {
+  constructor(sessionStore: SessionStore) {
     this.sessionStore = sessionStore;
-    this.threadStore = threadStore;
   }
 
   // Start a new session
@@ -70,11 +64,6 @@ export class SessionManager {
       projectPath,
       provider,
     });
-
-    // Also create thread in ThreadStore for structured queries (if provided)
-    if (this.threadStore) {
-      await this.threadStore.create(sessionTitle, projectPath, provider);
-    }
 
     this.currentSessionId = sessionId;
     return sessionId;
@@ -178,9 +167,11 @@ export class SessionManager {
     await this.sessionStore.updateStatus(sessionId, "archived");
   }
 
-  // Delete a session
-  async delete(sessionId: string): Promise<void> {
-    await this.sessionStore.deleteSession(sessionId);
+  // Delete a session. `purge` also removes the transcript files from disk
+  // (default: mark deleted, keep files — recoverable, but a transcript can
+  // hold file contents and command output someone wants gone for good).
+  async delete(sessionId: string, purge?: boolean): Promise<void> {
+    await this.sessionStore.deleteSession(sessionId, undefined, purge);
   }
 
   // Get current session
@@ -274,15 +265,11 @@ export async function getSessionManager(): Promise<SessionManager> {
   if (!globalSessionManager) {
     const baseDir = path.join(os.homedir(), SESSION_DIR);
     const sessionStore = await createSessionStore(baseDir);
-    const threadStore = await createThreadStoreService();
-    globalSessionManager = new SessionManager(sessionStore, threadStore);
+    globalSessionManager = new SessionManager(sessionStore);
   }
   return globalSessionManager;
 }
 
-export function createSessionManager(
-  sessionStore: SessionStore,
-  threadStore?: ThreadStoreService,
-): SessionManager {
-  return new SessionManager(sessionStore, threadStore);
+export function createSessionManager(sessionStore: SessionStore): SessionManager {
+  return new SessionManager(sessionStore);
 }

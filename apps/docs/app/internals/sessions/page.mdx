@@ -17,13 +17,12 @@ nothing — which is exactly why it needs three different shapes on disk.
 
 ## Three logs, three readers
 
-The same turn gets written down three times. That sounds wasteful until you ask
-who reads each copy:
+The same turn gets written down twice — a third shape (the thread store, below)
+exists but nothing writes to it anymore:
 
 | Log | Reader | Shape | Mutable? |
 | --- | --- | --- | --- |
 | `messages.jsonl` | **the model** — replayed into the next prompt | conversation messages with parts | yes, rewritten by compaction |
-| Thread store (`freecode.db`) | **the UI** — "list my sessions", search | relational: threads → turns → tool calls | yes, normal CRUD |
 | `events.jsonl` | **you, debugging** — replay, traces, analytics | append-only event log | **never** |
 
 The distinction that matters most is the last column. The message log must be
@@ -274,12 +273,13 @@ interface — slower and unindexed, but sessions still work. Selection happens o
 lazily, at first use (`thread-store.ts:28`), and the dynamic `import()` means the
 SQLite module is never even loaded when it isn't needed.
 
-> **Currently thin.** The full API — turns, tool calls, `searchThreads`,
-> `getTurnItemsView`, goal tracking — is implemented on both backends, but the
-> live path only ever calls `threadStore.create()` when a session starts
-> (`session/manager.ts:76`). Nothing writes turns or tool calls through it today;
-> session listing reads `meta.json` files instead. Treat the schema as built and
-> waiting, not as a source of truth.
+> **Unwired.** The full API — turns, tool calls, `searchThreads`,
+> `getTurnItemsView`, goal tracking — is implemented on both backends, but nothing
+> in the live path calls it. `SessionManager` used to call `threadStore.create()`
+> when a session started; that write had no reader anywhere (session listing has
+> always read `meta.json` files instead), so it was removed rather than left as a
+> write with no purpose. Treat the schema as built and waiting, not as a source of
+> truth — wiring it up means picking a real reader first.
 
 ## Remote sync
 
@@ -295,24 +295,36 @@ transcript contains file contents and command output from your machine.
 
 ## Known gaps
 
-1. **Seven of the nineteen event types have no emitter.** `turn.aborted`,
-   `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
-   `context.overflow`, and `parse.error` are defined, typed, and recordable — but
-   nothing in the live path calls their `record*` method. A replay therefore shows
-   turns, tool calls, denials, model calls, compactions, and blocked hooks, and is
-   silent about sub-agents, skills, aborts, and overflows. The recorder methods exist;
-   they just need call sites at the moments the loop already knows about.
-2. **The thread store is written but not used** (above). Two systems answer "what
-   sessions exist?"; only one of them is consulted.
-3. **Delete leaves everything on disk.** A status flag is not erasure, which
-   matters if a transcript captured something sensitive.
-4. **`session/normalize/` is dead code.** Those provider-response normalizers
-   (ChatGPT/Claude/Gemini raw shapes) date from the browser-automation era and
-   have no callers — normalization now lives in `providers/streaming.ts`.
-5. **Session end is not a signal.** There is no "session finished" event, which is
-   why persistent memory has no end-of-session flush
-   ([Memory](/internals/memory#known-gaps)) and why `status` only ever changes
-   through an explicit archive, delete, or interrupt.
+Fixed since this page was first written:
+
+- **All nineteen event types now have an emitter.** `turn.aborted`,
+  `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
+  `context.overflow`, and `parse.error` previously had no live call site. They now
+  fire from `interrupt()`, `tools/agent.ts` (against the parent session),
+  `tools/skill.ts`'s explicit invocation, alongside `PreToolUse`'s existing
+  `recordHookBlocked` call, `compactAndRetry`, and `parseArgs()`'s catch branch,
+  respectively.
+- **The thread store no longer has a dangling writer.** `threadStore.create()` was
+  the only call site and had no reader; it's been removed rather than left
+  half-wired. Session listing has always read `meta.json`, so there is one answer
+  to "what sessions exist?" now, not two silently-diverging ones.
+- **Session end is a signal.** `session/end-session.ts` consolidates six
+  per-session disposers behind one idempotent `endSession()`, called on
+  `session.switch`, `session.archive`, `session.delete`, and process exit —
+  including the end-of-session memory flush this used to block
+  ([Memory](/internals/memory#known-gaps)).
+- **`session/normalize/` is deleted.** Those provider-response normalizers dated
+  from the browser-automation era and had no callers; normalization lives in
+  `providers/streaming.ts`.
+
+Still open:
+
+1. **Delete defaults to a status flag, not erasure.** Files stay on disk unless the
+   caller opts in — `session.delete` now accepts `{ sessionId, purge: true }` over
+   IPC, which removes the session directory outright. The default is unchanged on
+   purpose: a status flag is recoverable, which matters more often than it doesn't.
+   No CLI flag yet for it (the CLI's `session delete` already always purges, via a
+   separate path in `cli/utils/sessions.ts`).
 
 ## Where to look
 

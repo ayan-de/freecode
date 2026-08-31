@@ -293,27 +293,29 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 
 ### A. Real fixes
 
-- [ ] **Dead code: `apps/core/src/session/normalize/`** — the ChatGPT/Claude/Gemini
-      response normalizers (236 lines) have zero callers; normalization lives in
-      `providers/streaming.ts`. Delete.
-- [ ] **Stale `CLAUDE.md` row** — the subsystem table lists `session/service.ts`,
-      which does not exist.
-- [ ] **Thread store is written but never read** — `threadStore.create()`
-      (`session/manager.ts:76`) is its only live call site. No turns, no tool calls;
-      session listing reads `meta.json` instead. Two answers to "what sessions
-      exist?" — either wire turns through `store/`, or delete it and keep the JSONL.
+- [x] **Dead code: `apps/core/src/session/normalize/`** — ✅ DONE. Deleted; had zero
+      importers, normalization lives in `providers/streaming.ts`.
+- [x] **Stale `CLAUDE.md` row** — ✅ DONE. Removed `session/service.ts` (never
+      existed) and `session/normalize/` (deleted above) from the Sessions row;
+      added `session/end-session.ts`.
+- [x] **Thread store is written but never read** — ✅ DONE. Removed the dead write
+      (`threadStore.create()` was its only live call site, and nothing ever read a
+      thread back). `SessionManager` no longer takes or constructs a `ThreadStoreService`;
+      session listing still reads `meta.json` as it always did — one answer to "what
+      sessions exist?" now, not two.
 - [ ] **Memory project key collides** — `mem-store.ts:31` keys on
       `path.basename()`, so `~/work/api` and `~/side/api` share one memory store.
       Sessions already solved this with `store/path-formatter.ts` (full reversible
       path). Reuse it; needs a rename migration for existing `~/.freecode/projects/`.
-- [ ] **No session-end signal** — `disposeSessionMemory` has one call site
-      (`server.ts:967`, inside `session.delete`), so it never fires on switch, archive,
-      stop, or exit. Six per-session caches hang off that one handler
-      (`disposeSessionMemory`, `resetExtractPolicy`, `disposeOutputStore`,
-      `disposeReadState`, `disposeCacheAwareness`, `disposeFrozenSessionContext`),
-      so all six leak for any session that ends any other way. Blocks the memory
-      end-of-session flush, the cheapest fix for "short session states a preference
-      and loses it". **Do this first.**
+- [x] **No session-end signal** — ✅ DONE. `session/end-session.ts` consolidates all
+      six disposers (`disposeSessionMemory`, `resetExtractPolicy`, `disposeOutputStore`,
+      `disposeReadState`, `disposeCacheAwareness`, `disposeFrozenSessionContext`) behind
+      one idempotent `endSession()`, wired at every real end point: `session.switch`,
+      `session.archive`, `session.delete`, and process exit (`server.ts:1090,1104,
+      1115,1265`). `session.stop` deliberately does not call it — it only interrupts an
+      in-flight turn, the session itself keeps running. Also includes the end-of-session
+      extraction flush (D4), bounded to 2s on process exit so a leaving process doesn't
+      hang.
 - [ ] **`Contradicts` edges are never produced** — the kind, its zero weight, and
       the cascade skip are implemented and tested (`graph-types.ts:17`,
       `cascade.ts:59`), but nothing detects that two memories disagree. Contradiction
@@ -350,16 +352,22 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Dangling wikilinks are invisible** — skipped correctly (`builder.ts:78`),
       but a typo'd `[[link]]` never surfaces anywhere. The explorer should list
       unresolved links.
-- [ ] **Session delete is a status flag** — files stay on disk
-      (`session/store.ts:337`). Recoverable by design, but a transcript holds file
-      contents and command output; add `--purge` rather than changing the default.
-- [ ] **7 of 19 rollout event types have no emitter** — `turn.aborted`,
-      `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
-      `context.overflow`, `parse.error` are defined and recordable, but no live
-      call site invokes their `record*` method. Replay is silent about sub-agents,
-      skills, aborts and overflows. The loop already knows each of these moments —
-      `context.overflow` at `loop.ts:1003`, subagent start/stop in `tools/agent.ts`,
-      `hook.triggered` alongside the existing `recordHookBlocked` (`loop.ts:2069`).
+- [x] **Session delete is a status flag** — ✅ DONE. Default behavior unchanged
+      (recoverable status flag); `SessionStore.deleteSession()` and
+      `SessionManager.delete()` now take an optional `purge` flag, and
+      `session.delete` accepts `{ sessionId, purge: true }` over IPC to `rm -rf` the
+      session directory. No CLI flag added yet (the CLI's `session delete` already
+      purges unconditionally via a separate direct-filesystem path in
+      `cli/utils/sessions.ts` — untouched).
+- [x] **7 of 19 rollout event types have no emitter** — ✅ DONE. All seven now have a
+      live call site: `context.overflow` in `compactAndRetry` (`loop.ts`, using the
+      compaction outcome's `tokensBefore`), `turn.aborted` in `interrupt()`,
+      `hook.triggered` alongside `PreToolUse`'s existing `recordHookBlocked` call,
+      `subagent.start`/`subagent.stop` in `tools/agent.ts` (recorded against the
+      *parent* session, both success and catch paths), `skill.invoked` in
+      `tools/skill.ts`'s `execute` (explicit-invocation only, `implicit: false`),
+      and `parse.error` in `parseArgs()`'s catch branch (previously silently
+      swallowed).
 - [ ] **Compaction summaries never see tool activity** — `MemoryService` records
       only user prompts and assistant text; a tool-calling turn is stored as the
       stub `[Executed N tools]` (`loop.ts:1567`). The transcript handed to the

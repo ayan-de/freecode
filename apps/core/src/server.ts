@@ -1105,9 +1105,12 @@ const methodHandlers: Record<
   },
 
   "session.delete": async (params: Record<string, unknown>): Promise<void> => {
-    const { sessionId } = params as { sessionId: string };
+    const { sessionId, purge } = params as {
+      sessionId: string;
+      purge?: boolean;
+    };
     const manager = await getSessionManager();
-    await manager.delete(sessionId);
+    await manager.delete(sessionId, purge);
     // No flush: the user discarded this session, so mining it for memories is
     // the one case where a write is clearly unwanted. The disposers still run,
     // including the follow-up queue, which would otherwise leak pending

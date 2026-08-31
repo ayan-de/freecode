@@ -15,6 +15,7 @@ import {
   rankSkills,
   scoreSkill,
 } from "../skills/index.js";
+import { createRecorder } from "../rollout/recorder.js";
 
 interface SkillParams {
   name: string;
@@ -150,6 +151,10 @@ async function executeSkill(
     const files = listSkillFiles(skillDir);
 
     const skillContent = renderSkillForPrompt(skill);
+
+    if (ctx.sessionId) {
+      createRecorder(ctx.sessionId).recordSkillInvoked(skill.name, false);
+    }
 
     const output = [
       `<skill_content name="${skill.name}">`,

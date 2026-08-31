@@ -13,6 +13,7 @@ import type { HookContext } from "../agent/types.js";
 import type { HookRuntime } from "../hooks/runtime.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
 import { coerceBoolean } from "./coerce-args.js";
+import { createRecorder } from "../rollout/recorder.js";
 
 interface AgentParams {
   task: string;
@@ -86,6 +87,9 @@ async function executeSubagent(
 > {
   let subagentId = `subagent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const parentSessionId = ctx.sessionId || "unknown";
+  const parentRecorder = ctx.sessionId
+    ? createRecorder(ctx.sessionId)
+    : undefined;
   let sessionStore: SessionStore | undefined;
 
   if (coerceBoolean(params.forkContext) && ctx.sessionId) {
@@ -113,6 +117,7 @@ async function executeSubagent(
       parentSessionId,
       params.task,
     );
+    parentRecorder?.recordSubagentStart(subagentId, params.task);
 
     const subAgentLoop = new AgentLoop(subagentId, {
       maxIterations: 50,
@@ -134,6 +139,7 @@ async function executeSubagent(
       result.success,
       result.message,
     );
+    parentRecorder?.recordSubagentStop(subagentId, result.message ?? "");
 
     await hooks.runSubagentStop(params.task, hookCtx);
 
@@ -170,6 +176,7 @@ async function executeSubagent(
       false,
       errorMsg,
     );
+    parentRecorder?.recordSubagentStop(subagentId, errorMsg);
 
     await hooks.runSubagentStop(
       JSON.stringify({ success: false, error: errorMsg }),

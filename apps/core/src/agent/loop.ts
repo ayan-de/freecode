@@ -1085,6 +1085,7 @@ export class AgentLoop {
     });
 
     const outcome = await this.runCompaction(provider, model, "auto");
+    this.recorder.recordContextOverflow(outcome.tokensBefore ?? 0);
     // Nothing was freed (already minimal, or a PreCompact hook blocked it), so
     // the same request would be rebuilt at the same size.
     if (!outcome.compacted) throw error;
@@ -2264,6 +2265,11 @@ export class AgentLoop {
 
     // PreToolUse Hook — can block or modify tool call
     const preResult = await this.hooks.runPreToolUse(toolCall, hookContext);
+    this.recorder.recordHookTriggered(
+      hookContext.toolName ?? toolCall.tool,
+      "PreToolUse",
+      !preResult.allowed,
+    );
     if (!preResult.allowed) {
       logger.warn(
         `[AgentLoop] Tool blocked by hook: ${toolCall.tool} — ${preResult.blockReason ?? "no reason"}`,
@@ -2743,7 +2749,12 @@ export class AgentLoop {
       return typeof parsed === "object" && parsed !== null
         ? parsed
         : { args: argsStr };
-    } catch {
+    } catch (error) {
+      this.recorder.recordParseError(
+        `turn-${this.state.turnCount}`,
+        "[TOOL_CALLS]",
+        error instanceof Error ? error.message : String(error),
+      );
       return { args: argsStr };
     }
   }
@@ -2918,6 +2929,12 @@ export class AgentLoop {
 
   interrupt(): void {
     this.state = { ...this.state, status: "stopped" };
+    if (!this.abort.signal.aborted) {
+      this.recorder.recordTurnAborted(
+        `turn-${this.state.turnCount}`,
+        "interrupt",
+      );
+    }
     // Cancel in-flight provider requests and tool executions immediately
     this.abort.abort();
   }
