@@ -20,13 +20,15 @@ clients implement it, and one of them is a browser that never sees a pipe at all
 
 Newline-delimited JSON. One JSON value per line, in both directions.
 
-```
-frontend ──▶ {"jsonrpc":"2.0","id":7,"method":"session.send","params":{…}}
-                                                                    core
-core ──────▶ {"type":"tool_start","toolCallId":"t1","toolName":"read",…}
-core ──────▶ {"type":"text_delta","delta":"Looking at "}
-core ──────▶ {"type":"done","content":"…"}
-core ──────▶ {"jsonrpc":"2.0","id":7,"result":{…}}
+```mermaid
+sequenceDiagram
+    participant F as frontend
+    participant C as core
+    F->>C: {"jsonrpc":"2.0","id":7,"method":"session.send","params":{…}}
+    C-->>F: {"type":"tool_start","toolCallId":"t1","toolName":"read",…}
+    C-->>F: {"type":"text_delta","delta":"Looking at "}
+    C-->>F: {"type":"done","content":"…"}
+    C->>F: {"jsonrpc":"2.0","id":7,"result":{…}}
 ```
 
 **Two kinds of line share the pipe**, and telling them apart is the first thing
@@ -106,12 +108,14 @@ actually declared there.
 
 Most methods return in milliseconds. This one runs a whole agent turn.
 
-```
-session.send ──▶ busy? ──yes──▶ enqueue, resolve immediately { queued: true, id }
-                   │                    └─▶ message_queued event
-                   no
-                   ▼
-              run the loop ──▶ hundreds of stream events ──▶ resolve with the result
+```mermaid
+flowchart TD
+    A["session.send"] --> B{"busy?"}
+    B -- yes --> C["enqueue, resolve immediately<br/>{ queued: true, id }"]
+    C --> D["message_queued event"]
+    B -- no --> E["run the loop"]
+    E --> F["hundreds of stream events"]
+    F --> G["resolve with the result"]
 ```
 
 Three behaviours worth knowing:
@@ -171,15 +175,14 @@ the turn's `done`, when the stream would otherwise be closed.
 
 Two events invert the direction — core asks, the frontend answers:
 
-```
-core ──▶ { type: "question_asked",   requestId, questions }
-                                          ▼
-frontend ──▶ question.answer { requestId, answers }   (or question.reject)
-
-core ──▶ { type: "permission_asked", requestId, toolName, args, description,
-                                     suggestedRule, reason }
-                                          ▼
-frontend ──▶ permission.answer { requestId, decision, editedRule? }
+```mermaid
+sequenceDiagram
+    participant C as core
+    participant F as frontend
+    C->>F: { type: "question_asked", requestId, questions }
+    F->>C: question.answer { requestId, answers } (or question.reject)
+    C->>F: { type: "permission_asked", requestId, toolName, args,<br/>description, suggestedRule, reason }
+    F->>C: permission.answer { requestId, decision, editedRule? }
 ```
 
 The permission payload carries everything the UI needs to render a decision
