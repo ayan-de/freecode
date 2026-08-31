@@ -7,6 +7,10 @@ import { ArchitectureBlueprint } from "../_components/architecture-diagram/Archi
 
 # Internals
 
+This will be a guide to how FreeCode is made — each component explained in a
+beginner-friendly way, complete enough to know how real-world production AI
+agent harnesses work.
+
 This section is the architecture, not the usage. It follows one request all the
 way down: a prompt enters the loop, becomes a streamed provider call, comes back
 as tool calls, gets gated by permissions and hooks, executes, and folds back into
@@ -14,8 +18,70 @@ the next turn — while the bus narrates the whole thing to your screen.
 
 <ArchitectureBlueprint />
 
-## On this page (coming soon)
+## The thin-client boundary
 
-- The thin-client boundary and what it buys
-- Where each subsystem lives in `apps/core/src/`
-- The invariants the codebase holds to
+TUI, VS Code, Web, and the desktop app are pure presentation layers — they
+render and speak IPC, nothing else. Every frontend talks to `apps/core` over
+the same JSON-RPC protocol (`session.send`, `tools.call`, …), so a bug fix or
+a new capability written once in core reaches all four frontends without
+touching any of them. It also means core has no UI to leak into: it can be
+driven headlessly (CI, `freecode eval`, a script) with zero frontend code
+loaded at all. See [IPC protocol](/internals/ipc) for the wire format.
+
+## Where each subsystem lives
+
+Everything under this section maps to a directory in `apps/core/src/`:
+
+| Section | Directory |
+| --- | --- |
+| [IPC protocol](/internals/ipc) | `server.ts`, `packages/shared/src/ipc/` |
+| [Agent loop](/internals/agent-loop) | `agent/` |
+| [Provider layer](/internals/providers) | `providers/` |
+| [Tool system](/internals/tools) | `tools/` |
+| [Context engine](/internals/context) | `context/` |
+| [Event bus](/internals/bus) | `bus/` |
+| [Lifecycle hooks](/internals/hooks) | `hooks/` |
+| [Permission engine](/internals/permissions) | `permission/` |
+| [Sub-agent runtime](/internals/subagents) | `agent/subagent.ts` |
+| [Memory](/internals/memory) | `memory/` |
+| [Knowledge graph](/internals/knowledge-graph) | `memory/graph/` |
+| [Sessions, store & rollout](/internals/sessions) | `session/`, `store/`, `rollout/` |
+| [Compaction](/internals/compaction) | `compaction/` |
+| [Effect runtime & DI](/internals/runtime) | `effect/` |
+| [Eval harness](/internals/eval) | `eval/` |
+| [MCP client](/internals/mcp) | `mcp/` |
+| [Skills system](/internals/skills) | `skills/` |
+| [CLI entrypoint & subcommands](/internals/cli) | `cli/`, `cli.ts` |
+| [Slash commands](/internals/commands) | `commands/` |
+| [Usage accounting](/internals/usage) | `usage/` |
+| [Repo map](/internals/repo-map) | `repo-map/` |
+| [Claude Code session import](/internals/claude-sessions) | `claude-sessions/` |
+| [Graph explorer addon](/internals/graph-explorer) | `graph-explorer/` |
+| Shared utilities (no page yet) | `utils/` |
+| [Autonomous runs](/internals/autonomous) — Phase 0 only, nothing executes yet | `autonomous/` |
+
+Each page follows the request through its subsystem with references to the
+actual source files, not just a description of the concept — the goal is
+that you can read a page, then go straight to the file it names.
+
+## The invariants the codebase holds to
+
+A handful of rules recur across every subsystem in this section, and are
+worth knowing before diving into any one page:
+
+- **Frontends have zero business logic.** No provider calls, no file
+  reading, no tool execution outside `apps/core`.
+- **One egress, one bridge.** The [event bus](/internals/bus) has exactly one
+  `subscribeAll` writer per process — adding a second silently double-prints
+  every event.
+- **Fail closed.** An unclassified tool is mutating
+  ([permissions](/internals/permissions)), an unconfigured eval judge closes
+  the gate rather than passing quietly ([eval](/internals/eval)), a denied
+  tool call still leaves a trace ([agent loop](/internals/agent-loop)).
+- **DI over singletons.** Services are resolved through
+  [Effect layers](/internals/runtime), not imported as module-level
+  singletons, so tests can swap a whole dependency graph at once.
+- **A denial is not silence.** A refused tool call is its own event type
+  (`function.denied`), never absent — see [Agent loop](/internals/agent-loop)
+  §"Denials" for why folding it into normal tool spans breaks several
+  consumers downstream.
