@@ -54,6 +54,33 @@ if (
 // Checked once per launch, only in the distributed binary — dev (tsx) has no
 // release to compare against. Best-effort: any failure (offline, GitHub down,
 // rate limit) just skips the check and opens the TUI on the current version.
+
+// Cross-platform installer invocation. The bash installer at /install calls
+// `err` and aborts on Windows (it expects `install.ps1` instead), so spawning
+// `bash` on Windows always exits non-zero — the symptom was the `update
+// failed` line and the TUI continuing on the old version. `powershell -NoProfile
+// -ExecutionPolicy Bypass -Command "irm ... | iex"` runs install.ps1 via the
+// standard `irm | iex` one-liner already documented on freecode.website.
+function installerCommand(): string {
+  return process.platform === "win32"
+    ? `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://freecode.website/install.ps1 | iex"`
+    : "curl -fsSL https://freecode.website/install | bash";
+}
+
+function runInstaller() {
+  if (process.platform === "win32") {
+    return spawnSync("powershell", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "irm https://freecode.website/install.ps1 | iex",
+    ], { stdio: "inherit" });
+  }
+  return spawnSync("bash", ["-c", "curl -fsSL https://freecode.website/install | bash"], {
+    stdio: "inherit",
+  });
+}
 async function checkForUpdate(): Promise<void> {
   if (process.env.FREECODE_BUNDLED !== "1" || process.env.__FREECODE_UPDATE_CHECKED) {
     return;
@@ -76,9 +103,7 @@ async function checkForUpdate(): Promise<void> {
   if (!latest || latest === current) return;
 
   process.stderr.write(`[freecode] updating ${current} → ${latest}\n`);
-  const r = spawnSync("bash", ["-c", "curl -fsSL https://freecode.website/install | bash"], {
-    stdio: "inherit",
-  });
+  const r = runInstaller();
   if (r.status !== 0) {
     process.stderr.write(`[freecode] update failed, continuing on ${current}\n`);
     return;
@@ -169,10 +194,8 @@ const updateCommand: CommandModule = {
   command: "update",
   describe: "update freecode to the latest release",
   handler: async () => {
-    const { spawnSync } = await import("child_process");
-    const cmd = "curl -fsSL https://freecode.website/install | bash";
-    process.stderr.write(`[freecode] updating: ${cmd}\n`);
-    const r = spawnSync("bash", ["-c", cmd], { stdio: "inherit" });
+    process.stderr.write(`[freecode] updating: ${installerCommand()}\n`);
+    const r = runInstaller();
     process.exit(r.status ?? 0);
   },
 };
