@@ -315,19 +315,6 @@ that page's **Known gaps**.
       default log level and never shown to the model, so nothing acts on a stuck
       pattern until it doubles into a `stop`. Phase 1 of
       `specs/2026-08-26-trajectory-redirection.md`.
-- [ ] **`validateParams` in the orchestrator is dead** (`tools/orchestrator.ts:64`)
-      — defined, never called. Required-argument checking therefore happens only in
-      a tool's own `validateInput`.
-- [ ] **`RecoveryManager.shouldRetryTool` has no production caller.** The
-      orchestrator re-implements the rule inline (`tools/orchestrator.ts:202`); the
-      interface method is exercised only by `recovery/manager.test.ts`.
-- [ ] **`generateSessionTitle` is dead code** (`agent/title-generator.ts:43`).
-      `server.ts:232` uses the `SESSION_TITLE:` regex plus
-      `generateTitleFromPrompt`, so the LLM-backed titler is never reached.
-- [ ] **`turn.started` is recorded after the model responds** (`loop.ts:1411`), so
-      it cannot bracket the call it names; `model.request` is the real turn start.
-- [ ] **`[TOOL_CALLS]` parsing exists twice** with independent implementations —
-      `loop.ts:1959` and `session/normalize/index.ts:77`.
 - [ ] **The spend circuit breaker is off by default** (`loop.ts:812`,
       `compaction/tokens.ts:105`). `FREECODE_MAX_TURN_TOKENS` is unset unless the
       user sets it, so nothing caps actual spend. `freecode run` now has

@@ -1369,6 +1369,9 @@ export class AgentLoop {
     madeFileChange?: boolean;
     usage?: ExecuteUsage;
   }> {
+    // Recorded here, before any provider call, so the event actually brackets
+    // the turn it names (it used to fire after the response came back).
+    this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`);
     try {
       // Build system prompt blocks using compiler
       const systemBlocks = await this.compiler.compileSystemBlocks(
@@ -1571,9 +1574,6 @@ export class AgentLoop {
           content: providerResult.content,
         });
       }
-
-      // Record turn.started event
-      this.recorder.recordTurnStarted(`turn-${this.state.turnCount}`);
 
       // Get tool calls from provider (native tool calling) or from text parsing
       let toolCalls: ToolCall[] =

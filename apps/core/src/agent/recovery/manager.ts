@@ -363,12 +363,6 @@ export interface RecoveryManager {
     attempt: (provider: string) => Promise<T>,
     ctx: RecoveryContext,
   ): Promise<T>;
-  // Tool retry rule: non-mutating tools retry transient failures, mutating
-  // tools never do (re-running a write/edit/bash is not safe).
-  shouldRetryTool(
-    behavior: { isDestructive: boolean } | undefined,
-    error: unknown,
-  ): boolean;
 }
 
 export function createRecoveryManager(
@@ -470,11 +464,6 @@ export function createRecoveryManager(
         )}`,
       );
       throw lastError;
-    },
-
-    shouldRetryTool(behavior, error): boolean {
-      if (!behavior || behavior.isDestructive) return false;
-      return isTransientError(error);
     },
   };
 }

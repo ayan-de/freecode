@@ -511,23 +511,12 @@ a restart — unlike the compaction variables, which are read per call.
    and nothing happens until the pattern doubles into a `stop`. The trigger
    itself is recorded either way (`redirect.skipped`, reason `disabled`, once
    per run), which is how the flip decision gets its evidence.
-6. **`validateParams` in the orchestrator is dead** (`tools/orchestrator.ts:64`)
-   — defined, never called. Required-argument checking happens only in a tool's
-   own `validateInput`, so a tool without one receives `undefined` inside
-   `execute()`.
-7. **`RecoveryManager.shouldRetryTool` has no production caller.** The
-   orchestrator re-implements the same rule inline
-   (`tools/orchestrator.ts:202`); the interface method is exercised only by its
-   test.
-8. **`generateSessionTitle` is dead.** `server.ts` uses the `SESSION_TITLE:`
-   regex with `generateTitleFromPrompt` as the fallback; the LLM-backed titler
-   in `agent/title-generator.ts:43` is never reached.
-9. **`turn.started` is recorded after the model responds** (`loop.ts:1411`), so
-   it cannot bracket the call it names. `model.request` is what actually marks
-   the start of a turn in the log.
-10. **`[TOOL_CALLS]` parsing exists twice** — `loop.ts:1959` and
-    `session/normalize/index.ts:77` — with independent implementations of the
-    same format.
+6. **The spend circuit breaker is off by default** (`loop.ts:812`,
+   `compaction/tokens.ts:105`). `FREECODE_MAX_TURN_TOKENS` is unset unless the
+   user sets it, so nothing caps actual spend. `freecode run` has `--max-turns`
+   for a turn cap, but nothing caps tokens by default, and loop-health only
+   *warns* on the stuck patterns most likely to burn quota (stagnation never
+   stops at all).
 
 ## Where to look
 
