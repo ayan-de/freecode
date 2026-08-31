@@ -43,17 +43,14 @@ rarely and deliberately.
 
 ## When it fires
 
-```
-every turn ─▶ maybeCompact() ─▶ shouldCompact(model, contextLimit, measuredTokens)
-                                        │
-                        ┌───────────────┴───────────────┐
-                        ▼                               ▼
-              measured tokens                    estimated tokens
-        (provider's own input count,          (chars ÷ 4 over the
-         strongly preferred)                   recorded messages)
-                        └───────────────┬───────────────┘
-                                        ▼
-                     compact when count ≥ min(window, 120K) − 13K buffer
+```mermaid
+flowchart TD
+    A["every turn"] --> B["maybeCompact()"]
+    B --> C["shouldCompact(model, contextLimit, measuredTokens)"]
+    C --> D["measured tokens<br/>(provider's own input count,<br/>strongly preferred)"]
+    C --> E["estimated tokens<br/>(chars ÷ 4 over the<br/>recorded messages)"]
+    D --> F["compact when count ≥ min(window, 120K) − 13K buffer"]
+    E --> F
 ```
 
 ### Measured beats estimated
@@ -156,10 +153,14 @@ fragments.
 
 `applyCompaction()` (`session/compact-apply.ts`) is what makes compaction stick:
 
-```
-memory.compact()          → summary (lives in the system prompt)
-store.replaceMessages()   → the JSONL log is trimmed to the preserved turns
-loop.loadHistory()        → in-memory history reloaded from the trimmed log
+```mermaid
+sequenceDiagram
+    participant M as memory.compact()
+    participant S as store.replaceMessages()
+    participant L as loop.loadHistory()
+    M->>M: produce summary (lives in the system prompt)
+    M->>S: trim the JSONL log to the preserved turns
+    S->>L: reload in-memory history from the trimmed log
 ```
 
 Without the middle step the next turn's `loadHistory()` would reload the full log
