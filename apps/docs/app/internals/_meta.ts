@@ -16,5 +16,14 @@ export default {
   compaction: "Compaction",
   ipc: "IPC protocol",
   runtime: "Effect runtime & DI",
-  eval: "Eval harness"
+  eval: "Eval harness",
+  mcp: "MCP client",
+  skills: "Skills system",
+  cli: "CLI entrypoint & subcommands",
+  commands: "Slash commands",
+  usage: "Usage accounting",
+  "repo-map": "Repo map",
+  "claude-sessions": "Claude Code session import",
+  "graph-explorer": "Graph explorer addon",
+  autonomous: "Autonomous runs"
 } satisfies MetaRecord;
