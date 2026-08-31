@@ -184,21 +184,36 @@ with no matching response *is* the evidence. See [tracing](/guides/tracing).
 
 ```bash
 freecode eval [suite] [--trials <n>] [--model <p/m>] [--gate] [--json] [--quarantine-report]
+freecode eval ab <suite> --baseline <spec> --candidate <spec> [--trials <n>] [--cases a,b]
+freecode eval add <session-id> [--turn <n>] [--suite <name>] [--write]
 ```
 
 | Flag | Alias | Type | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `suite` | — | positional | `trajectory` | suite name, resolved as `evals/<suite>.jsonl` |
-| `--trials` | — | number | `1` | runs per case; `3` enables majority-of-3 gating |
+| `--trials` | — | number | `1`, or `3` under `--gate` | runs per case; 3 enables majority-of-3. An explicit `--trials 1` under `--gate` is honoured with a warning |
 | `--model` | `-m` | string | config's current model | `provider/model` override for cases that don't pin one |
 | `--gate` | — | boolean | `false` | exit `1` on regression against the recorded baseline |
 | `--json` | — | boolean | `false` | emit `{ report, verdict }` instead of the per-case lines |
 | `--quarantine-report` | — | boolean | `false` | print quarantine promotion/demotion proposals and exit without running anything |
+| `--save` | — | string | — | write this run's report to a file, for a later `--compare` |
+| `--compare` | — | string | — | diff against a saved report; **exits 1 if the criterion is not met** |
+| `--stuck` | — | boolean | `false` | with `--compare`, also require repetition to fall |
+| `--otlp` | — | string | — | ship the scores to a collector, linked to the traces they graded; empty falls back to `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| `--accept-baseline` | — | boolean | `false` | record a *failing* run as the new baseline and exit 0 — for when the suite was re-scoped, not when the agent got worse |
+
+`eval ab` runs two variants over the same cases, **interleaved**, and is
+deliberately never a gate: no baseline, no history, always exits 0. `eval add`
+harvests a draft case out of a recorded session (stdout for the case, stderr for
+the notes); it refuses the `coding` suite, which needs a `files` fixture no
+recorded session has.
 
 Each case **drives a real agent turn against a real provider**, so this costs
 money and takes minutes. Results are written to `~/.freecode/eval_report.json`
 (last run) and appended to `~/.freecode/eval_runs.jsonl` (history);
-`FREECODE_EVAL_HOME` relocates both.
+`FREECODE_EVAL_HOME` relocates both. The judged suite additionally needs
+`FREECODE_JUDGE_PROVIDER` — it refuses to run when the judge resolves to the
+model under test, and closes the gate when no judge is configured at all.
 
 The suite path is resolved relative to the **current working directory**, so this
 only works from the repo root unless `FREECODE_EVALS_DIR` is set

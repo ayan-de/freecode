@@ -104,7 +104,11 @@ default, because a typo here looks exactly like compaction being broken.
 | --- | --- | --- |
 | `FREECODE_EVALS_DIR` | `./evals` | where `freecode eval` looks for `<suite>.jsonl` and `quarantine.txt`. The default is resolved against the **current working directory**, so set this to run the suite from anywhere but the repo root |
 | `FREECODE_EVAL_TRIAL_TIMEOUT_MS` | `300000` | wall-clock cap per trial. The backstop for a trial that blocks on something without a timeout of its own; a trial that trips it is a failed trial, not a crashed suite |
+| `FREECODE_EVAL_VERIFY_TIMEOUT_MS` | `60000` | cap on a coding case's `verify` command, spawned in the sandbox after the turn |
+| `FREECODE_EVAL_KEEP_SANDBOX` | unset | `1` keeps the case's tmpdir instead of removing it, and prints the path — how you reproduce a red coding case by hand |
 | `FREECODE_EVAL_HOME` | `~/.freecode` | where `eval_report.json` (last run) and `eval_runs.jsonl` (history) are written. Changing it between runs resets the gate's baseline |
+| `FREECODE_JUDGE_PROVIDER` | unset | provider that grades the `judged` suite. **Required** for it and for `pnpm eval:gate`; with none set the cases still run but the gate closes |
+| `FREECODE_JUDGE_MODEL` | provider default | judge model. Must **not** resolve to the model under test — a collision throws before any case runs |
 
 See [eval harness](/internals/eval).
 

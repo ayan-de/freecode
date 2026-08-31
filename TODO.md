@@ -798,6 +798,16 @@ harness can block a release". Remaining:
       only by choice — every case is a real paid agent turn, so billing should
       scale with releases, not pushes. Uncomment `schedule:` to go nightly.
 
+### Docs findings (rewriting `/internals/eval` — 2026-08-31)
+
+- [ ] **`stuck-loop` has 8 cases and none of them can block a release.** All of
+      them live in `redirect.jsonl` / `redirect-build.jsonl`, which are A/B
+      material and deliberately not part of `eval:gate`. So the registry counts
+      the category as covered while the gate has never asserted anything about
+      repetition. Either promote one to `trajectory.jsonl` or record why the gate
+      does not cover it — `CATEGORIES_WITHOUT_CASES` cannot see the difference,
+      because it folds every suite together.
+
 ### Housekeeping
 
 - [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —
