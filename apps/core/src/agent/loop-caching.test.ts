@@ -13,6 +13,7 @@ import {
   canDedup,
   disposeReadState,
 } from "../tools/read-state.js";
+import { disposePruneState } from "./prune-state.js";
 import type { Message, ToolCall } from "./types.js";
 
 test("PromptCompiler.compileSystemBlocks returns only the static block", async () => {
@@ -210,6 +211,10 @@ function assistantWithResult(id: string, resultLength: number): Message {
 // must not change when the conversation grows. A cached prefix that mutates is
 // re-billed as a write; that is the entire cost RC4 describes.
 test("pruneHistoryToolResults keeps the sent prefix byte-identical as history grows", () => {
+  // pruneState now lives in a module-level store keyed by sessionId (fix for
+  // fixed docs-audit gap, TODO.md), so these tests — which intentionally reuse "test-session"
+  // across cases — must clear it themselves between tests.
+  disposePruneState("test-session");
   const loop = createAgentLoop("test-session");
 
   // Well over the 200K-char budget, so replacement definitely engages.
@@ -241,6 +246,10 @@ test("pruneHistoryToolResults keeps the sent prefix byte-identical as history gr
 });
 
 test("a result sent at full size is frozen, even once it is old", () => {
+  // pruneState now lives in a module-level store keyed by sessionId (fix for
+  // fixed docs-audit gap, TODO.md), so these tests — which intentionally reuse "test-session"
+  // across cases — must clear it themselves between tests.
+  disposePruneState("test-session");
   const loop = createAgentLoop("test-session");
 
   // Under budget: nothing is replaced, so this goes out whole and freezes.
@@ -264,6 +273,10 @@ test("a result sent at full size is frozen, even once it is old", () => {
 });
 
 test("a replaced result is re-applied with the identical string", () => {
+  // pruneState now lives in a module-level store keyed by sessionId (fix for
+  // fixed docs-audit gap, TODO.md), so these tests — which intentionally reuse "test-session"
+  // across cases — must clear it themselves between tests.
+  disposePruneState("test-session");
   const loop = createAgentLoop("test-session");
 
   const messages: Message[] = [
@@ -289,6 +302,10 @@ test("a replaced result is re-applied with the identical string", () => {
 });
 
 test("the newest assistant turn is never replaced before the model reads it", () => {
+  // pruneState now lives in a module-level store keyed by sessionId (fix for
+  // fixed docs-audit gap, TODO.md), so these tests — which intentionally reuse "test-session"
+  // across cases — must clear it themselves between tests.
+  disposePruneState("test-session");
   const loop = createAgentLoop("test-session");
 
   const messages: Message[] = [
@@ -307,6 +324,10 @@ test("the newest assistant turn is never replaced before the model reads it", ()
 });
 
 test("history under budget is passed through untouched, by reference", () => {
+  // pruneState now lives in a module-level store keyed by sessionId (fix for
+  // fixed docs-audit gap, TODO.md), so these tests — which intentionally reuse "test-session"
+  // across cases — must clear it themselves between tests.
+  disposePruneState("test-session");
   const loop = createAgentLoop("test-session");
 
   const messages: Message[] = [

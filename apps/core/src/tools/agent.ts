@@ -14,6 +14,7 @@ import type { HookRuntime } from "../hooks/runtime.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
 import { coerceBoolean } from "./coerce-args.js";
 import { createRecorder } from "../rollout/recorder.js";
+import { listProviders } from "../providers/registry.js";
 
 interface AgentParams {
   task: string;
@@ -92,10 +93,32 @@ async function executeSubagent(
     : undefined;
   let sessionStore: SessionStore | undefined;
 
+  const baseDir = path.join(os.homedir(), ".freecode");
+  sessionStore = await createSessionStore(baseDir);
   if (coerceBoolean(params.forkContext) && ctx.sessionId) {
-    const baseDir = path.join(os.homedir(), ".freecode");
-    sessionStore = await createSessionStore(baseDir);
     subagentId = await sessionStore.fork(ctx.sessionId);
+  }
+
+  // `agentType` is documented as an optional provider override, not a real
+  // "agent type" — but the registry only knows anthropic/openai/gemini/
+  // minimax/deepseek/zai, so an unset or bogus value used to default to the
+  // unregistered "chatgpt" and throw on the subagent's first turn (known gap
+  // #6). Fall back to the parent session's own provider/model instead.
+  const registeredIds = new Set(listProviders().map((p) => p.id));
+  let provider = params.agentType && registeredIds.has(params.agentType)
+    ? params.agentType
+    : undefined;
+  let model: string | undefined;
+  if (!provider && ctx.sessionId) {
+    const parentMeta = await sessionStore.getMeta(ctx.sessionId, ctx.projectPath ?? ctx.cwd);
+    provider = parentMeta?.provider;
+    model = parentMeta?.model;
+  }
+  if (!provider) {
+    return {
+      success: false,
+      error: `agent: no valid provider (agentType "${params.agentType ?? ""}" is not registered, and the parent session has none)`,
+    };
   }
 
   const hookCtx: HookContext = {
@@ -123,13 +146,17 @@ async function executeSubagent(
       maxIterations: 50,
       hooks,
       sessionStore,
+      // Delegated machine work, nothing durable to learn from it — same
+      // reasoning as agent/subagent.ts.
+      memoryExtraction: false,
     });
 
     const result = await subAgentLoop.run({
       prompt: params.prompt,
       sessionId: subagentId,
-      provider: params.agentType || "chatgpt",
-      projectPath: ctx.cwd,
+      provider,
+      model,
+      projectPath: ctx.projectPath ?? ctx.cwd,
     });
 
     BusEvents.subagentCompleted(

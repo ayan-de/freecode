@@ -190,13 +190,16 @@ The cost is real and worth stating: **a long session's file tree is permanently
 the one from its first turn.** A new top-level directory created in turn 3 is
 invisible to the model for the rest of the session unless it looks.
 
-## Three caches, and how they interact
+## Two caches, and how they interact
 
 | Cache | Key | Lifetime | Invalidated by |
 | --- | --- | --- | --- |
 | `tree-cache` | `projectPath` | 5 min TTL | the watcher, `invalidateProjectContext` |
 | session freeze | `sessionId` | the session | `disposeFrozenSessionContext` |
-| compiler's `fileTreeCache` | `projectPath:gitHead:ignorePatterns` | 5 min TTL | `PromptCompiler.clearCaches()` |
+
+A third cache used to sit here — the compiler's `fileTreeCache`, keyed on
+`projectPath:gitHead:ignorePatterns` — see [Known gaps](#known-gaps) for why
+it was deleted rather than fixed.
 
 **The watcher** (`context/tree-watcher.ts`) lazily imports chokidar and watches
 exactly what `getProjectContext` caches: the project root at `depth: 0`, plus
@@ -240,13 +243,14 @@ there is what the tools are for.
    is `Project` / `Path` / `File tree` and nothing else (`compiler.ts:115`).
    `CLAUDE.md` and this codebase's own comments describe git HEAD as part of what
    the model is given; it isn't.
-2. **The compiler's `fileTreeCache` is keyed on something the value doesn't
-   depend on.** The key is `projectPath:gitHead:ignorePatterns`, but the cached
-   string is built from `tree`, which changes independently of HEAD (any new
-   top-level file). So a second session started within 5 minutes renders the
-   *first* session's tree even though the watcher just refreshed it — the one
-   benefit the watcher provides is cancelled by the layer above it. The cache
-   also saves only a four-line string concatenation.
+2. ~~The compiler's `fileTreeCache` is keyed on something the value doesn't
+   depend on.~~ **Fixed** by deleting the cache: `compileProjectSummary` was
+   only ever formatting a four-line string, so caching it bought nothing and
+   cost a correctness bug — the key (`projectPath:gitHead:ignorePatterns`)
+   ignored the `tree` argument itself, so a second session started within 5
+   minutes rendered the *first* session's tree even after the watcher had
+   refreshed it. `PromptCompiler.clearCaches()` and its one caller
+   (`defs-cache.ts`) were removed with it.
 3. **`collector.ts`, `context/types.ts`, and `strategies/` are unreachable.**
    `collectContext()` looks up a strategy from a registry that
    `createDefaultStrategies()` would populate — and that function is never

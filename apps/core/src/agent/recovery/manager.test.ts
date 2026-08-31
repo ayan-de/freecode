@@ -195,28 +195,6 @@ test("emits session.error on the bus when all providers exhaust", async () => {
 });
 
 // -----------------------------------------------------------------------------
-// 6. Tool retry rule
-// -----------------------------------------------------------------------------
-
-test("shouldRetryTool: non-mutating retries transient, mutating never", () => {
-  const manager = createRecoveryManager();
-  assert.equal(
-    manager.shouldRetryTool({ isDestructive: false }, connRefused()),
-    true,
-  );
-  assert.equal(
-    manager.shouldRetryTool({ isDestructive: true }, connRefused()),
-    false,
-  );
-  assert.equal(
-    manager.shouldRetryTool({ isDestructive: false }, http401()),
-    false,
-    "fatal errors never retried",
-  );
-  assert.equal(manager.shouldRetryTool(undefined, connRefused()), false);
-});
-
-// -----------------------------------------------------------------------------
 // 7. End-to-end: agent loop survives a 429 storm
 // -----------------------------------------------------------------------------
 

@@ -43,43 +43,44 @@ place, and a bug in another (see [Known gaps](#known-gaps)).
 
 ## The shape of one run
 
-```
-run(UserInput)
-   │
-   ├─ reset per-run state · start the tree watcher · load permission rules
-   ├─ collect project context (frozen for the session)
-   ├─ SessionStart hook · session.created on the bus
-   ├─ load history from the session store
-   └─ append the user message (+ images, if the model can see them)
-        │
-        ▼
-   ┌──────────────────── while status === "running" ─────────────────────┐
-   │  iteration cap?  ──▶ wrap-up reminder one turn early, then stop     │
-   │  loop health?    ──▶ warn, or stop                                  │
-   │  todo nudge?     ──▶ queue a <system-reminder>                      │
-   │  TurnStart hook                                                     │
-   │                                                                     │
-   │  executeTurn:                                                       │
-   │     build system blocks + session blocks                            │
-   │     UserPromptSubmit hook (may rewrite the system prompt)           │
-   │     send  ──▶ recovery (retry → fallback chain)                     │
-   │           ──▶ on overflow: compact, send once more                  │
-   │     read text / thinking / tool calls                               │
-   │     execute tools in batches (hooks + permissions per call)          │
-   │     fold results into history + the session store                   │
-   │     maybeCompact()                                                  │
-   │                                                                     │
-   │  TurnEnd hook · accumulate usage · spend circuit breaker            │
-   │                                                                     │
-   │  tools called?  ── yes ──▶ next turn                                │
-   │        │                                                            │
-   │        no                                                           │
-   │        ▼                                                            │
-   │  todo gate ──▶ verify gate ──▶ verifier gate                        │
-   │        │ (any gate may force another turn)                          │
-   │        ▼                                                            │
-   │  kick memory extraction (not awaited) · return                      │
-   └─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Start(["run(UserInput)"]) --> Setup["1&gt; reset per-run state, start tree watcher, load permission rules
+    2&gt; collect project context (frozen for the session)
+    3&gt; SessionStart hook, session.created on the bus
+    4&gt; load history from the session store
+    5&gt; append the user message (+ images, if the model can see them)"]
+
+    Setup --> Cap{"iteration cap?"}
+    Cap -- yes --> WrapUp["wrap-up reminder one turn early, then stop"]
+    Cap -- no --> Health{"loop health?"}
+    Health -- warn/stop --> WrapUp
+    Health -- ok --> Nudge["1&gt; todo nudge? queue a system-reminder
+    2&gt; TurnStart hook"]
+
+    Nudge --> Turn["executeTurn:
+    1&gt; build system blocks + session blocks
+    2&gt; UserPromptSubmit hook (may rewrite system prompt)
+    3&gt; send, recovery on failure (retry, fallback chain)
+    4&gt; on overflow: compact, send once more
+    5&gt; read text / thinking / tool calls
+    6&gt; execute tools in batches (hooks + permissions per call)
+    7&gt; fold results into history + the session store
+    8&gt; maybeCompact()"]
+
+    Turn --> TurnEnd["TurnEnd hook, accumulate usage, spend circuit breaker"]
+    TurnEnd --> ToolsCalled{"tools called?"}
+    ToolsCalled -- yes --> Cap
+    ToolsCalled -- no --> Gates["1&gt; todo gate
+    2&gt; verify gate
+    3&gt; verifier gate
+    (any gate may force another turn)"]
+    Gates -- forces another turn --> Cap
+    Gates -- clear --> Done["kick memory extraction (not awaited), return"]
+    WrapUp --> Done
+
+    classDef steps text-align:left
+    class Setup,Nudge,Turn,Gates steps
 ```
 
 ## Before the first request
@@ -180,12 +181,12 @@ already above", pointing at a marker.
 
 ### 3. The provider call
 
-```
-sendToProvider
-   └─ recovery.callProvider(primary, attempt, {sessionId, signal})
-        └─ for each provider in [primary, ...fallbacks]:
-             for attempt in 1..maxAttempts:
-                callProviderOnce → stream() or execute()
+```mermaid
+flowchart TD
+    Send["sendToProvider"] --> Recovery["recovery.callProvider(primary, attempt, {sessionId, signal})"]
+    Recovery --> ForProvider["for each provider in [primary, ...fallbacks]"]
+    ForProvider --> ForAttempt["for attempt in 1..maxAttempts"]
+    ForAttempt --> Call["callProviderOnce → stream() or execute()"]
 ```
 
 `callProviderOnce` writes `model.request` to the rollout log **before** the call
@@ -246,22 +247,19 @@ finished first.
 
 Every single call goes through the same gauntlet (`loop.ts:2045`):
 
-```
-PreToolUse hook            → may block, or rewrite the arguments
-   │
-danger mode? ─── yes ──────→ skip everything below
-   │ no
-evaluatePermission(mode, rules, args)
-   │   deny  ──────────────→ absolute; a hook cannot turn it into allow
-   │   allow / ask
-PermissionRequest hook     → may override ask→allow, or anything→deny
-   │
-ask? → Notification hook, then prompt the user
-   │
-orchestrator.execute       → schema coercion, validation, tool run
-   │   (non-mutating tools retry one transient failure; mutating ones never do)
-   │
-PostToolUse hook           → may replace or append to the output
+```mermaid
+flowchart TD
+    Pre["PreToolUse hook (may block, or rewrite the arguments)"] --> Danger{"danger mode?"}
+    Danger -- yes --> Orchestrator
+    Danger -- no --> Eval["evaluatePermission(mode, rules, args)"]
+    Eval -- deny --> Deny["absolute; a hook cannot turn it into allow"]
+    Eval -- allow/ask --> Perm["PermissionRequest hook (may override ask&gt;allow, or anything&gt;deny)"]
+    Perm --> AskCheck{"ask?"}
+    AskCheck -- yes --> Notif["Notification hook, then prompt the user"]
+    AskCheck -- no --> Orchestrator
+    Notif --> Orchestrator["orchestrator.execute: schema coercion, validation, tool run
+    (non-mutating tools retry one transient failure; mutating ones never do)"]
+    Orchestrator --> Post["PostToolUse hook (may replace or append to the output)"]
 ```
 
 Results carry two payloads: `displayOutput` (full, for the UI) and `modelOutput`
@@ -483,87 +481,30 @@ a restart — unlike the compaction variables, which are read per call.
 
 ## Known gaps
 
-1. **Pruning decisions do not survive the user turn.** `PruneState` is a private
-   field (`loop.ts:315`) and a fresh `AgentLoop` is built for every user message
-   (`server.ts:199`), so on the next message every result is `fresh` again. A
-   result that was sent as a marker gets re-sent at full size, mutating the
-   prefix — the exact invalidation the class exists to prevent, just at message
-   granularity instead of turn granularity. The ids are derived deterministically
-   from persisted message ids, so keying the state by `sessionId` (as
-   `read-state` and `cache-awareness` already do) would close it.
-2. **The `Stop` hook never fires on a normal finish.** It runs only from
-   `stop()` (`loop.ts:2529`) — iteration cap, loop-health stop, spend budget. The
-   `"Done"` path returns straight from `complete()`, and `fail()` doesn't call it
-   either. So the obvious use — "notify me when the agent finishes" — fires only
-   when the agent finishes *badly*.
-3. **`SessionStart` fires once per user message, not once per session.** It sits
-   inside `run()` (`loop.ts:593`), which is called for every prompt.
-4. **The tree watcher cannot affect the current session's prompt.** `run()` calls
-   `ensureWatching` (`loop.ts:564`) "so the project-context cache doesn't go
-   stale", but the prompt reads `getFrozenSessionContext`, which snapshots once
-   per session and never re-reads. The freeze is deliberate and correct for cache
-   stability, so what the watcher actually buys is a fresh snapshot for the
-   **next** session — and even that is defeated for up to five minutes by the
-   compiler's own `fileTreeCache`, which is keyed on git HEAD while its value
-   depends on the tree. Meanwhile a long session's file tree is permanently the
-   one from its first turn. See
-   [the context engine](/internals/context#three-caches-and-how-they-interact).
-5. **`ToolContext.projectPath` is never set.** `executeTool` builds
-   `{ cwd: process.cwd(), sessionId, abort }` (`loop.ts:2199`), so relative paths
-   resolve against the core process's working directory rather than
-   `state.projectPath`, and the two tools that read `ctx.projectPath ?? ctx.cwd`
-   (`lsp`, `memory`) target the wrong project whenever core was launched from
-   somewhere else.
-6. **The `agent` tool's subagent asks for a provider that isn't registered.**
-   `provider: params.agentType || "chatgpt"` (`tools/agent.ts:126`), but the
-   registry only registers anthropic, openai, gemini, minimax, deepseek and zai
-   (`providers/registry.ts:35`), so `getProvider` throws on the first turn unless
-   the model happens to pass a real provider id in a field described as an *agent
-   type*. It also doesn't inherit the parent's model, and doesn't set
-   `memoryExtraction: false` the way `agent/subagent.ts` does.
-7. **Heuristic D — repeated reasoning similarity — was never implemented.**
-   `recentReasoning` (`loop.ts:276`) is declared and never written,
-   `repeatedReasoningScore` is permanently 0, and
-   `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
-   (`agent/types.ts:206`) have no reader. The spec lists it as one of four
-   heuristics.
-8. **A loop-health `warn` reaches nobody unless redirection is switched on.**
+1. **A loop-health `warn` reaches nobody unless redirection is switched on.**
    [Trajectory redirection](#trajectory-redirection) is what acts on a warning,
    and it is off by default until the measurement in §9 of its spec says
    otherwise. With it off, a `warn` is still just `logger.debug` (`loop.ts:737`)
    and nothing happens until the pattern doubles into a `stop`. The trigger
    itself is recorded either way (`redirect.skipped`, reason `disabled`, once
    per run), which is how the flip decision gets its evidence.
-9. **The provider tool list is mode-independent.** `getToolDefs()` takes no
-   mode, so a plan-mode session advertises `write`, `edit` and `bash` and then
-   hard-denies them at execution (`permission/mode-policy.ts:77`). Correct, but
-   it costs a wasted round trip to learn.
-10. **`validateParams` in the orchestrator is dead** (`tools/orchestrator.ts:64`)
-    — defined, never called. Required-argument checking happens only in a tool's
-    own `validateInput`, so a tool without one receives `undefined` inside
-    `execute()`.
-11. **`RecoveryManager.shouldRetryTool` has no production caller.** The
-    orchestrator re-implements the same rule inline
-    (`tools/orchestrator.ts:202`); the interface method is exercised only by its
-    test.
-12. **`generateSessionTitle` is dead.** `server.ts` uses the `SESSION_TITLE:`
-    regex with `generateTitleFromPrompt` as the fallback; the LLM-backed titler
-    in `agent/title-generator.ts:43` is never reached.
-13. **`turn.started` is recorded after the model responds** (`loop.ts:1411`), so
-    it cannot bracket the call it names. `model.request` is what actually marks
-    the start of a turn in the log.
-14. **`[TOOL_CALLS]` parsing exists twice** — `loop.ts:1959` and
-    `session/normalize/index.ts:77` — with independent implementations of the
-    same format.
-15. **`estimatePromptChars` ignores tool-call arguments** (`loop.ts:218`). It
-    sums text, code, image data and tool *results*, so a large `write` payload
-    never shows up in the trace's `promptChars` — the one number meant to make
-    runaway context growth visible.
-16. **Headless runs have no turn cap and no flag to add one.**
-    `cli/commands/run.ts:145` leaves `maxIterations` unset and its comment points
-    at a `--max-turns` option that doesn't exist, while `loop.ts:324` claims
-    headless invocations pass one. An unattended `freecode run` is bounded only
-    by loop-health and the gates.
+2. **The spend circuit breaker is off by default** (`loop.ts:812`,
+   `compaction/tokens.ts:105`). `FREECODE_MAX_TURN_TOKENS` is unset unless the
+   user sets it, so nothing caps actual spend. `freecode run` has `--max-turns`
+   for a turn cap, but nothing caps tokens by default, and loop-health only
+   *warns* on the stuck patterns most likely to burn quota (stagnation never
+   stops at all).
+
+Previously listed here and since closed: the `Stop` hook now fires on every
+`run()` exit (`complete()`/`fail()`), not only on an abnormal `stop()`;
+`SessionStart`/`session.created` now fire once per session (gated on empty
+history) instead of once per message; the compiler's second, independently-keyed
+file-tree cache — the thing that made the tree watcher's fix defeat itself for
+up to five minutes — was deleted rather than fixed, since it was formatting a
+string and buying nothing by being cached; and heuristic D (repeated reasoning
+similarity) is implemented via word-set Jaccard similarity between consecutive
+turns' reasoning text, feeding `warn`/`stop` the same way A–C do (it is not,
+however, wired into trajectory redirection's trigger list — see gap 1).
 
 ## Where to look
 
