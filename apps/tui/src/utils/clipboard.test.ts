@@ -4,8 +4,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  buildClipboardImageScript,
   copyToClipboard,
   detectImageMediaType,
+  encodePowerShellCommand,
+  noClipboardImageMessage,
   readImageFromClipboard,
   OSC52_CAP_BASE64_BYTES,
 } from "./clipboard.js";
@@ -89,6 +92,35 @@ test("detectImageMediaType rejects non-images rather than guessing png", () => {
     detectImageMediaType(Buffer.from([0x89, 0x50, 0x4e])),
     undefined,
   );
+});
+
+test("the Windows script saves the clipboard image and fails when there is none", () => {
+  const script = buildClipboardImageScript("C:\\Temp\\shot.png");
+  assert.match(script, /Clipboard\]::GetImage\(\)/);
+  // Without the guard, a null image would throw and look like a broken paste.
+  assert.match(script, /if \(\$null -eq \$img\) \{ exit 1 \}/);
+  assert.match(
+    script,
+    /\$img\.Save\('C:\\Temp\\shot\.png', \[System\.Drawing\.Imaging\.ImageFormat\]::Png\)/,
+  );
+});
+
+test("the Windows script escapes an apostrophe in the temp path", () => {
+  // C:\Users\O'Brien\AppData\Local\Temp is a real path shape; an unescaped
+  // quote would end the string and turn the rest of the line into code.
+  const script = buildClipboardImageScript("C:\\Users\\O'Brien\\shot.png");
+  assert.match(script, /\$img\.Save\('C:\\Users\\O''Brien\\shot\.png',/);
+});
+
+test("encodePowerShellCommand emits base64 of UTF-16LE, as -EncodedCommand wants", () => {
+  const encoded = encodePowerShellCommand("exit 1");
+  assert.equal(Buffer.from(encoded, "base64").toString("utf16le"), "exit 1");
+});
+
+test("the empty-clipboard message only names install targets off Windows", () => {
+  assert.equal(noClipboardImageMessage("win32"), "No image on the clipboard.");
+  assert.match(noClipboardImageMessage("linux"), /wl-paste/);
+  assert.match(noClipboardImageMessage("darwin"), /pngpaste/);
 });
 
 test("readImageFromClipboard returns image bytes unmangled, not utf8-decoded", async () => {
