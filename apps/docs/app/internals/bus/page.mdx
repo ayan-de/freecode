@@ -5,16 +5,130 @@ description: "Pub/sub inside core, one egress to the frontend."
 
 # Event bus
 
-Nothing inside core talks to a frontend directly. Modules publish events to a bus;
-a bridge maps them to `StreamEvent`s and drops internal-only ones; a single
-`subscribeAll` egress writes them to stdout (terminal) and SSE (web). Two-way
-events — questions and permission asks — park a promise keyed by request id until
-the answer comes back.
+Nothing inside core talks to a frontend directly. Modules publish events to a
+bus; a bridge maps them to `StreamEvent`s and drops internal-only ones; a
+single `subscribeAll` egress writes them to stdout (terminal) and SSE (web).
+Two-way events — questions and permission asks — park a promise keyed by
+request id until the answer comes back.
 
-## On this page (coming soon)
+## The bus itself
 
-- Publish, wildcard subscribe, and the bridge
-- Event families: stream, session, tool, subagent, question, permission, mcp
-- Why there is exactly one egress (no double-emit)
-- Ask/answer round trips and the headless default
-- Event ordering guarantees
+`apps/core/src/bus/index.ts` is a thin wrapper around Node's `EventEmitter`,
+exposed as a process-wide singleton:
+
+```ts
+class FreeCodeBus extends EventEmitter {
+  publish(event: BusEvent): void {
+    this.emit(event.type, event);
+    this.emit("*", event); // wildcard for all-events subscriber
+  }
+  subscribe<T>(eventType: T, handler): () => void { ... }
+  subscribeAll(handler: (event: BusEvent) => void): () => void { ... }
+}
+
+export const bus = FreeCodeBus.getInstance();
+```
+
+Publishing an event fires it twice: once under its own type, for a consumer
+that only cares about `session.diff`, say, and once under the wildcard `"*"`
+for the one consumer that forwards *everything* to the frontend. Any module
+in core can `bus.publish(...)`; no module needs to know who, if anyone, is
+listening.
+
+## Event families
+
+`BusEvent` is a big discriminated union, grouped by concern:
+
+| Family | Examples | Purpose |
+| --- | --- | --- |
+| `stream` | `StreamRelayEvent` | wraps a `StreamEvent` (text delta, tool_start, …) with a `sessionId`, so multiplexed sessions can be told apart |
+| `session.*` | `session.created`, `session.updated`, `session.error`, `session.diff` | session lifecycle and file-diff summaries |
+| `tool.*` / `tools.changed` | — | tool lifecycle, mostly superseded by stream events (see below) |
+| `mcp.*` | `mcp.server.started/stopped/error`, `mcp.tools.changed` | MCP connection state |
+| `memory.saved` | — | a memory write completed |
+| `subagent.*` | started/completed | delegated task lifecycle, see [Sub-agent runtime](/internals/subagents) |
+| `question.*` | `asked`/`answered`/`rejected` | the `question` tool's interactive round trip |
+| `permission.*` | `asked`/`answered`/`rejected` | the permission engine's interactive round trip, see [Permission engine](/internals/permissions) |
+
+## Why there is exactly one egress
+
+`bridge.ts`'s `busEventToClientEvent()` is a pure function: bus event in,
+`StreamEvent | undefined` out. A handful of event types are declared
+`INTERNAL_ONLY` and mapped to `undefined` — `tools.changed`, `mcp.tools.changed`,
+and, deliberately, `tool.called` / `tool.completed`:
+
+```ts
+const INTERNAL_ONLY = new Set([
+  "tools.changed",
+  "mcp.tools.changed",
+  // Redundant with the stream tool_start/tool_complete events (the loop's
+  // authoritative tool lifecycle); dropped so tools are never double-emitted.
+  "tool.called",
+  "tool.completed",
+]);
+```
+
+The comment is the point: the agent loop already emits `tool_start` /
+`tool_complete` as part of the `stream` family, which is the authoritative
+record of what a tool did. The bus's own `tool.*` events predate that and
+would double-report the same call if they reached the wire. Filtering them
+here, in one place, is what keeps "one tool call → one frontend event" true
+without every event producer having to remember not to emit twice.
+
+Everything that survives the filter goes out through a **single**
+`subscribeAll` handler in `server.ts` / `web-server.ts`. There is no second
+listener anywhere that also writes to stdout or the SSE stream — if there
+were, every event would print twice. That invariant is worth protecting: a
+new output channel (a log file, a websocket for a second UI) should still
+attach to the *same* `subscribeAll` call, not add a parallel one.
+
+## Ask/answer round trips
+
+`askQuestion()` and the permission equivalent (`bus.ts`'s `permission.asked`
+flow) both follow the same shape: publish an event, then return a `Promise`
+that only resolves when a matching `*.answered` or `*.rejected` event comes
+back in:
+
+```ts
+export async function askQuestion(requestId, questions, sessionId?) {
+  return new Promise((resolve, reject) => {
+    pendingQuestions.set(requestId, { resolve, reject });
+    bus.publish({ type: "question.asked", requestId, sessionId, questions });
+
+    const timer = setTimeout(() => {
+      if (pendingQuestions.has(requestId)) {
+        pendingQuestions.delete(requestId);
+        bus.publish({ type: "question.rejected", requestId });
+        reject(new Error("Question timed out"));
+      }
+    }, PROMPT_TIMEOUT_MS);
+  });
+}
+```
+
+The `requestId` is what ties the eventual answer back to this specific
+promise — a frontend answers by publishing `question.answered` with the same
+id, and whichever `await askQuestion(...)` call is holding that id resolves.
+This is why a headless session (no frontend attached) can't hang forever: if
+zero listeners are registered for `permission.asked`, the permission helper
+rejects immediately instead of waiting on a prompt nobody can ever answer.
+
+`PROMPT_TIMEOUT_MS` (30 minutes) bounds the wait either way. A timeout is
+treated as **deny** for permission prompts and as a rejection for questions —
+never a silent retry. The 30-minute value is deliberately generous: it
+assumes a remote user who may need to unlock a phone or notice a
+notification, not someone sitting at the keyboard. The cost is that an
+unattended local run can now hang up to 30 minutes before unwedging itself —
+accepted because a hung, visible loop beats a silent wrong answer.
+
+## Ordering
+
+Node's `EventEmitter` calls its listeners synchronously, in subscription
+order, for a given `emit()`. Because `publish()` only ever calls `emit`
+twice per event (specific type, then wildcard) and core has exactly one
+wildcard subscriber, events reach the frontend in the same order they were
+published — there is no queue or batching in between to reorder them. This
+matters for the `stream` family especially: `text_delta` events for one
+message must arrive in the order the provider produced them, and they do,
+because nothing reshuffles them on the way out. See
+`apps/core/src/bus/ordering.test.ts` for the test that pins this down.
