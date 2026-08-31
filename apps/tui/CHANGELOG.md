@@ -1,5 +1,41 @@
 # @thisisayande/freecode
 
+## 0.27.1
+
+### Patch Changes
+
+- 5b51de0: ## v0.27.1
+
+  A documentation and hardening release on top of `v0.27.0`. The 26 commits since `0.27.0` are mostly docs cleanup — the Mermaid conversion work moved ASCII box-drawings on `/internals/*` into proper flowcharts, and several internals pages were rewritten (subagents, runtime, permissions, bus, sessions, eval reference). Underneath, the agent-loop audit closed its last three known gaps, MCP got an interactive picker and stricter tool-conversion validation, `applyEdit` handles ambiguous matches, sessions got a cleanup pass, and the TUI gained `@mention` autocomplete plus fd-less file search and PowerShell clipboard image support.
+
+  ### Added
+  - **MCP command and interactive server picker** (`apps/tui/src/commands/built-in.ts`, `apps/tui/src/components/mcp-picker.ts`). A `/mcp` slash command lists configured servers with status, and the picker supports adding/removing entries without dropping to a config file. Tool-conversion (`apps/core/src/mcp/convert-tool.ts`) now validates input schemas before they reach the orchestrator and refuses the malformed ones earlier.
+  - **`@mention` autocomplete and fd-less file search** (`apps/tui/src/utils/at-mention-provider.ts`, `file-search.ts`). The TUI input recognises `@` and offers file-path completions from a worker-pool search that doesn't depend on `fd` being installed — falls back to a hand-rolled directory walker and returns ranked by recency.
+  - **PowerShell clipboard image handling** (`apps/tui/src/utils/clipboard.ts`). On Windows, the existing image-paste path now also reads PowerShell's clipboard (`Add-Type` + `System.Windows.Forms.Clipboard`) so an image copied from Snipping Tool lands in the prompt the same way a macOS/Linux paste does.
+  - **`gemini-web` provider specification** (`docs/superpowers/specs/2026-08-29-gemini-web-provider.md`). The internal spec behind the gemini-web provider landed in `0.27.0`; this release ships the doc.
+
+  ### Changed
+  - **Doc diagrams: ASCII → Mermaid** across `/internals/context`, `/internals/hooks`, `/internals/ipc`, `/internals/compaction`, `/internals/providers`, and `/internals/sessions`. The `/internals/context` "What actually reaches the model" diagram is now a four-band flowchart showing the cache breakpoint explicitly (cached system → dynamic system → frozen `messages[0]` → conversation). A global CSS rule scales Mermaid text 15% across all 8 pages that render diagrams.
+  - **`/internals/eval` rewritten to match the gate that shipped** (`apps/docs/app/internals/eval/page.mdx`). The reference page used to describe the pre-`0.27.0` gate (unconfigured judge passes by design, etc.); it now documents the post-`0.27.0` behaviour and points operators at `EVAL.md` and `TRACE.md` at the repo root.
+  - **Internals pages rewritten** for `/subagents`, `/runtime`, `/permissions`, `/bus`, `/landing`. Each moved from prose-only to a structured page with diagrams and a "where to look" table at the end.
+
+  ### Fixed
+  - **`applyEdit` handles ambiguous matches** (`apps/core/src/tools/edit.ts`). When a unique substring matches in more than one place the tool now reports the ambiguity and the number of matches rather than silently picking the first — the previous behaviour could corrupt files when a substring appeared twice in the same line.
+  - **Agent-loop audit close-outs** (`apps/core/src/agent/loop.ts`, `effect/loop-health.ts`, `tools/defs-cache.ts`, `recovery/manager.ts`, `title-generator.ts`):
+    - `6668c61` closed 6 known gaps affecting cost and correctness (cache-write accounting, prune-state timing, defs cache invalidation, subagent tool gating, end-session flush ordering, breakdown format drift).
+    - `815165f` removed the `title-generator` duplicate and the `recovery/manager` dead paths surfaced by the audit.
+    - `e18de29` closed the remaining gaps around the `Stop` hook, `SessionStart` ordering, the tree-cache invalidation trigger, and loop-health heuristic D.
+  - **Session cleanup** (`apps/core/src/session/manager.ts`, `store.ts`, `normalize/`). Stale sessions are now pruned on access and the dead normaliser module was removed.
+  - **`/internals/sessions` event type counts corrected** to reflect the post-`0.27.0` `function.denied` event.
+
+  ### Docs
+  - **Mermaid text scaling** (`apps/docs/app/globals.css`) — 15% bump scoped to `.nextra-content` so it doesn't affect non-doc pages.
+  - **Sessions "Three logs, three readers" → "Two logs, two readers"** (`apps/docs/app/internals/sessions/page.mdx`). The third log never existed; the section title was carried over from an earlier design and was misleading.
+
+- Updated dependencies [5b51de0]
+  - @thisisayande/freecode-core@0.27.1
+  - @thisisayande/freecode-shared@0.4.1
+
 ## 0.25.9
 
 ### Patch Changes

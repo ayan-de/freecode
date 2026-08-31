@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.27.1
+
+A documentation and hardening release on top of `v0.27.0`. The 26 commits since `0.27.0` are mostly docs cleanup — the Mermaid conversion work moved ASCII box-drawings on `/internals/*` into proper flowcharts, and several internals pages were rewritten (subagents, runtime, permissions, bus, sessions, eval reference). Underneath, the agent-loop audit closed its last three known gaps, MCP got an interactive picker and stricter tool-conversion validation, `applyEdit` handles ambiguous matches, sessions got a cleanup pass, and the TUI gained `@mention` autocomplete plus fd-less file search and PowerShell clipboard image support.
+
+The eval gate (`pnpm eval:gate`, all three suites at `--trials 3` against `minimax/MiniMax-M3` with a `gemini/gemini-3.6-flash` judge) opened on all three: trajectory 18/18, coding 11/11, judged 6/6 at 4.50/5 mean. One efficiency warning carried across trajectory and judged runs (+26% / +28% tokens per trial vs baseline) — flagged for the next release.
+
+### Added
+
+- **MCP command and interactive server picker** (`apps/tui/src/commands/built-in.ts`, `apps/tui/src/components/mcp-picker.ts`, `apps/core/src/mcp/convert-tool.ts`). A `/mcp` slash command lists configured servers with status, and the picker supports adding/removing entries without dropping to a config file. Tool conversion now validates input schemas before they reach the orchestrator and refuses the malformed ones earlier.
+- **`@mention` autocomplete and fd-less file search** (`apps/tui/src/utils/at-mention-provider.ts`, `file-search.ts`). The TUI input recognises `@` and offers file-path completions from a worker-pool search that doesn't depend on `fd` being installed — falls back to a hand-rolled directory walker and returns ranked by recency.
+- **PowerShell clipboard image handling** (`apps/tui/src/utils/clipboard.ts`). On Windows, the existing image-paste path now also reads PowerShell's clipboard (`Add-Type` + `System.Windows.Forms.Clipboard`) so an image copied from Snipping Tool lands in the prompt the same way a macOS/Linux paste does.
+- **`gemini-web` provider specification** (`docs/superpowers/specs/2026-08-29-gemini-web-provider.md`). The internal spec behind the gemini-web provider landed in `0.27.0`; this release ships the doc.
+
+### Changed
+
+- **Doc diagrams: ASCII → Mermaid** across `/internals/context`, `/internals/hooks`, `/internals/ipc`, `/internals/compaction`, `/internals/providers`, and `/internals/sessions`. The `/internals/context` "What actually reaches the model" diagram is now a four-band flowchart showing the cache breakpoint explicitly (cached system → dynamic system → frozen `messages[0]` → conversation). A global CSS rule scales Mermaid text 15% across all 8 pages that render diagrams.
+- **`/internals/eval` rewritten to match the gate that shipped** (`apps/docs/app/internals/eval/page.mdx`). The reference page used to describe the pre-`0.27.0` gate (unconfigured judge passes by design, etc.); it now documents the post-`0.27.0` behaviour and points operators at `EVAL.md` and `TRACE.md` at the repo root.
+- **Internals pages rewritten** for `/subagents`, `/runtime`, `/permissions`, `/bus`, `/landing`. Each moved from prose-only to a structured page with diagrams and a "where to look" table at the end.
+
+### Fixed
+
+- **`applyEdit` handles ambiguous matches** (`apps/core/src/tools/edit.ts`). When a unique substring matches in more than one place the tool now reports the ambiguity and the number of matches rather than silently picking the first — the previous behaviour could corrupt files when a substring appeared twice in the same line.
+- **Agent-loop audit close-outs** (`apps/core/src/agent/loop.ts`, `effect/loop-health.ts`, `tools/defs-cache.ts`, `recovery/manager.ts`, `title-generator.ts`):
+  - `6668c61` closed 6 known gaps affecting cost and correctness (cache-write accounting, prune-state timing, defs cache invalidation, subagent tool gating, end-session flush ordering, breakdown format drift).
+  - `815165f` removed the `title-generator` duplicate and the `recovery/manager` dead paths surfaced by the audit.
+  - `e18de29` closed the remaining gaps around the `Stop` hook, `SessionStart` ordering, the tree-cache invalidation trigger, and loop-health heuristic D.
+- **Session cleanup** (`apps/core/src/session/manager.ts`, `store.ts`, `normalize/`). Stale sessions are now pruned on access and the dead normaliser module was removed.
+- **`/internals/sessions` event type counts corrected** to reflect the post-`0.27.0` `function.denied` event.
+
 ## v0.27.0
 
 **Security: a cryptojacking payload was on `main` for about a day, and is removed** (`9901ee3`). Commit `4da83c3` — a duplicate `chore(release): 0.26.1` sharing a parent with the one that was actually tagged — added a 27 KB obfuscated payload to `apps/web/postcss.config.mjs` and `apps/web-app/postcss.config.js`. `postcss.config.*` is evaluated as a Node module during CSS transformation, so it ran on every build of the website: read `RPC_ENDPOINTS` from the environment, falling back to public Ethereum mainnet RPCs; queried a hardcoded sender address's transaction history; resolved the recipient address to an IP and HTTP GET it; XOR-decoded the response body and `eval`'d / `spawn('node', ['-e', …])`'d the result. Three `.gitignore` entries were leftovers from the attacker's tooling and went with it.
