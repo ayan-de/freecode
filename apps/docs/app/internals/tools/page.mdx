@@ -66,18 +66,13 @@ scalars, and the coercion pass keys off the declared type — a property with no
 
 ## The registry
 
-```
-tools/index.ts   ── tools = { read, write, … }        (16, static)
-                 ── mcpTools = {}                      (dynamic)
-                        ▲
-                        │ registerMcpTool / unregisterMcpTools
-                        │
-getTool(id)  ── built-in first, then MCP
-listTools()  ── both, built-in first
-                        │
-defs-cache.ts  ── getToolDefs(): { name, description, parameters }[]
-                  memoized, sorted by name,
-                  invalidated on tools.changed / mcp.tools.changed
+```mermaid
+graph TD
+    T["tools/index.ts<br/>tools = { read, write, … } (16, static)<br/>mcpTools = {} (dynamic)"]
+    R["registerMcpTool / unregisterMcpTools"] --> T
+    T --> G["getTool(id) — built-in first, then MCP"]
+    T --> L["listTools() — both, built-in first"]
+    T --> D["defs-cache.ts<br/>getToolDefs(): { name, description, parameters }[]<br/>memoized, sorted by name,<br/>invalidated on tools.changed / mcp.tools.changed"]
 ```
 
 The sort is not cosmetic. `buildToolsParam` marks the **last** tool with a
@@ -105,14 +100,14 @@ Frontends need no change — both TUIs have catch-all renderers.
 `orchestrator.execute(call, ctx)` (`orchestrator.ts:137`) is the single path
 every tool call takes, built-in or MCP:
 
-```
-0. profile check      isToolAllowed(tool, profile)   — only if a profile was passed
-1. lookup             getTool(name)                  — unknown ⇒ error result
-2. coerce             coerceArgs(schema, args)       — "30" → 30, "false" → false
-3. validate           tool.validateInput(args)
-4. permission hook    tool.checkPermissions(args, ctx)
-5. execute            tool.execute(args, ctx)        — retried once if non-destructive
-6. shape              store full output, truncate the model's copy
+```mermaid
+graph TD
+    A["0. profile check<br/>isToolAllowed(tool, profile) — only if a profile was passed"] --> B["1. lookup<br/>getTool(name) — unknown ⇒ error result"]
+    B --> C["2. coerce<br/>coerceArgs(schema, args) — &quot;30&quot; → 30, &quot;false&quot; → false"]
+    C --> D["3. validate<br/>tool.validateInput(args)"]
+    D --> E["4. permission hook<br/>tool.checkPermissions(args, ctx)"]
+    E --> F["5. execute<br/>tool.execute(args, ctx) — retried once if non-destructive"]
+    F --> G["6. shape<br/>store full output, truncate the model's copy"]
 ```
 
 Note what is *not* here: the mode/rule permission gauntlet and the
@@ -172,9 +167,11 @@ overflow provider context windows.
 
 ## Batching
 
-```
-planToolBatches([read, read, grep, edit, read])
-  → [ {0..3, parallel} , {3..4, solo} , {4..5, solo} ]
+```mermaid
+graph LR
+    A["planToolBatches([read, read, grep, edit, read])"] --> B["{0..3, parallel}"]
+    A --> C["{3..4, solo}"]
+    A --> D["{4..5, solo}"]
 ```
 
 `planToolBatches` (`batching.ts:22`) walks the calls in order and greedily
@@ -191,11 +188,11 @@ who finished first, so results are deterministic.
 Tool output is bounded in three independent places, and each solves a different
 problem.
 
-```
-full output ──▶ OutputStore.put(toolCallId, output)      16 MB/session, byte-LRU
-            └─▶ adaptiveTruncate(output, toolCallId)     30K chars: 24K head + 6K tail
-                     │
-                     └──▶ marker naming the id, so the model can page the middle
+```mermaid
+graph LR
+    A["full output"] --> B["OutputStore.put(toolCallId, output)<br/>16 MB/session, byte-LRU"]
+    A --> C["adaptiveTruncate(output, toolCallId)<br/>30K chars: 24K head + 6K tail"]
+    C --> D["marker naming the id, so the model can page the middle"]
 ```
 
 **`adaptiveTruncate`** (`output-store/truncate.ts`) keeps a head *and* a tail.
@@ -322,40 +319,6 @@ into an image message part — the base64 never goes in `output`, because that
 string is the tool result the model reads as text.
 
 ## Known gaps
-
-Fixed since this page was first written:
-
-- **An ambiguous `edit` no longer silently changes the last occurrence.**
-  `applyEdit` used to skip candidates until `startIndex === content.lastIndexOf(match)`,
-  so an `oldString` appearing three times was applied to the *third* with no
-  error — the model has usually just read the top of the file and means the
-  first. It now hard-fails with "found N matches, provide more context" the
-  moment a replacer produces more than one candidate and `replaceAll` isn't
-  set, matching Claude Code and opencode.
-- **`bash` and `agent` now declare `isDestructive: true`**, same as `edit`/`write`.
-  A run that edits via `sed -i` or `git apply` now triggers the verify gate
-  and counts toward stagnation like any other file change, and the
-  orchestrator's retry rule now agrees with its own comment ("re-running a
-  write/edit/bash is not safe") instead of contradicting it.
-- **Mutating MCP tools are no longer marked concurrency-safe.**
-  `convertMcpTool` now sets `isConcurrencySafe: isReadOnly` instead of `true`
-  unconditionally, so a batch of MCP mutations no longer runs in parallel —
-  the same object already avoids re-running `create_issue` on retry; now it
-  avoids running it *twice at once*, too.
-- **MCP schema conversion no longer drops `required`, `items`, or nested
-  `properties`.** `convertJsonSchema`/`convertProperty` now carry `required`
-  through, recurse into nested `properties` for object params, and convert
-  `items` for array params — required fields reach the provider and
-  `coerceArgs` can descend into object/array parameters. A schema that isn't a
-  plain object-with-properties (`$ref`, `allOf`, `oneOf`) still collapses to
-  `{ type: "object" }` — that needs a real JSON Schema resolver and is still
-  open, listed below.
-- **`validateParams` is wired in.** It runs as step 1.75 of
-  `orchestrator.execute()`, right after `coerceArgs`, so a missing required
-  argument — MCP or built-in — now fails at the orchestrator boundary instead
-  of surfacing as `undefined` inside the remote/tool call.
-
-Still open:
 
 1. **`$ref`/`allOf`/`oneOf` in an MCP schema still collapses to
    `{ type: "object" }`.** `convertJsonSchema` only handles a plain

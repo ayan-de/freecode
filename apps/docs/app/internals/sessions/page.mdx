@@ -295,30 +295,6 @@ transcript contains file contents and command output from your machine.
 
 ## Known gaps
 
-Fixed since this page was first written:
-
-- **All nineteen event types now have an emitter.** `turn.aborted`,
-  `subagent.start`, `subagent.stop`, `skill.invoked`, `hook.triggered`,
-  `context.overflow`, and `parse.error` previously had no live call site. They now
-  fire from `interrupt()`, `tools/agent.ts` (against the parent session),
-  `tools/skill.ts`'s explicit invocation, alongside `PreToolUse`'s existing
-  `recordHookBlocked` call, `compactAndRetry`, and `parseArgs()`'s catch branch,
-  respectively.
-- **The thread store no longer has a dangling writer.** `threadStore.create()` was
-  the only call site and had no reader; it's been removed rather than left
-  half-wired. Session listing has always read `meta.json`, so there is one answer
-  to "what sessions exist?" now, not two silently-diverging ones.
-- **Session end is a signal.** `session/end-session.ts` consolidates six
-  per-session disposers behind one idempotent `endSession()`, called on
-  `session.switch`, `session.archive`, `session.delete`, and process exit —
-  including the end-of-session memory flush this used to block
-  ([Memory](/internals/memory#known-gaps)).
-- **`session/normalize/` is deleted.** Those provider-response normalizers dated
-  from the browser-automation era and had no callers; normalization lives in
-  `providers/streaming.ts`.
-
-Still open:
-
 1. **Delete defaults to a status flag, not erasure.** Files stay on disk unless the
    caller opts in — `session.delete` now accepts `{ sessionId, purge: true }` over
    IPC, which removes the session directory outright. The default is unchanged on
