@@ -481,42 +481,30 @@ a restart — unlike the compaction variables, which are read per call.
 
 ## Known gaps
 
-1. **The `Stop` hook never fires on a normal finish.** It runs only from
-   `stop()` (`loop.ts:2529`) — iteration cap, loop-health stop, spend budget. The
-   `"Done"` path returns straight from `complete()`, and `fail()` doesn't call it
-   either. So the obvious use — "notify me when the agent finishes" — fires only
-   when the agent finishes *badly*.
-2. **`SessionStart` fires once per user message, not once per session.** It sits
-   inside `run()` (`loop.ts:593`), which is called for every prompt.
-3. **The tree watcher cannot affect the current session's prompt.** `run()` calls
-   `ensureWatching` (`loop.ts:564`) "so the project-context cache doesn't go
-   stale", but the prompt reads `getFrozenSessionContext`, which snapshots once
-   per session and never re-reads. The freeze is deliberate and correct for cache
-   stability, so what the watcher actually buys is a fresh snapshot for the
-   **next** session — and even that is defeated for up to five minutes by the
-   compiler's own `fileTreeCache`, which is keyed on git HEAD while its value
-   depends on the tree. Meanwhile a long session's file tree is permanently the
-   one from its first turn. See
-   [the context engine](/internals/context#three-caches-and-how-they-interact).
-4. **Heuristic D — repeated reasoning similarity — was never implemented.**
-   `recentReasoning` (`loop.ts:276`) is declared and never written,
-   `repeatedReasoningScore` is permanently 0, and
-   `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
-   (`agent/types.ts:206`) have no reader. The spec lists it as one of four
-   heuristics.
-5. **A loop-health `warn` reaches nobody unless redirection is switched on.**
+1. **A loop-health `warn` reaches nobody unless redirection is switched on.**
    [Trajectory redirection](#trajectory-redirection) is what acts on a warning,
    and it is off by default until the measurement in §9 of its spec says
    otherwise. With it off, a `warn` is still just `logger.debug` (`loop.ts:737`)
    and nothing happens until the pattern doubles into a `stop`. The trigger
    itself is recorded either way (`redirect.skipped`, reason `disabled`, once
    per run), which is how the flip decision gets its evidence.
-6. **The spend circuit breaker is off by default** (`loop.ts:812`,
+2. **The spend circuit breaker is off by default** (`loop.ts:812`,
    `compaction/tokens.ts:105`). `FREECODE_MAX_TURN_TOKENS` is unset unless the
    user sets it, so nothing caps actual spend. `freecode run` has `--max-turns`
    for a turn cap, but nothing caps tokens by default, and loop-health only
    *warns* on the stuck patterns most likely to burn quota (stagnation never
    stops at all).
+
+Previously listed here and since closed: the `Stop` hook now fires on every
+`run()` exit (`complete()`/`fail()`), not only on an abnormal `stop()`;
+`SessionStart`/`session.created` now fire once per session (gated on empty
+history) instead of once per message; the compiler's second, independently-keyed
+file-tree cache — the thing that made the tree watcher's fix defeat itself for
+up to five minutes — was deleted rather than fixed, since it was formatting a
+string and buying nothing by being cached; and heuristic D (repeated reasoning
+similarity) is implemented via word-set Jaccard similarity between consecutive
+turns' reasoning text, feeding `warn`/`stop` the same way A–C do (it is not,
+however, wired into trajectory redirection's trigger list — see gap 1).
 
 ## Where to look
 

@@ -60,28 +60,6 @@ function joinSections(parts: string[]): string {
 }
 
 // ===========================================================================
-// File Tree Cache
-// ===========================================================================
-
-interface CachedFileTree {
-  tree: string;
-  gitHead: string;
-  ignorePatterns: string;
-  timestamp: number;
-}
-
-const fileTreeCache = new Map<string, CachedFileTree>();
-const FILE_TREE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-function getFileTreeKey(
-  projectPath: string,
-  gitHead: string,
-  ignorePatterns: string,
-): string {
-  return `${projectPath}:${gitHead}:${ignorePatterns}`;
-}
-
-// ===========================================================================
 // PromptCompiler Class
 // ===========================================================================
 
@@ -114,35 +92,21 @@ export class PromptCompiler {
   }
 
   /**
-   * Compile project summary section with caching
+   * Compile project summary section.
+   *
+   * Not cached: the actual project-context cache lives in
+   * `context/tree-cache.ts` (keyed on projectPath, watcher-invalidated). A
+   * second cache here — keyed on gitHead but not on the `tree` string it
+   * formats — used to serve a stale tree for up to 5 minutes whenever the
+   * tree changed without HEAD moving (an uncommitted edit). This is a plain
+   * string template, cheap enough that caching it bought nothing.
    */
-  compileProjectSummary(
-    tree: string,
-    gitHead: string,
-    ignorePatterns: string,
-  ): string {
-    const cacheKey = getFileTreeKey(this.projectPath, gitHead, ignorePatterns);
-    const cached = fileTreeCache.get(cacheKey);
-
-    if (cached && Date.now() - cached.timestamp < FILE_TREE_TTL_MS) {
-      return cached.tree;
-    }
-
-    // Cache miss - build section and store
-    const section = `Project: ${this.projectName}
+  compileProjectSummary(tree: string): string {
+    return `Project: ${this.projectName}
 Path: ${this.projectPath}
 
 File tree:
 ${tree}`;
-
-    fileTreeCache.set(cacheKey, {
-      tree: section,
-      gitHead,
-      ignorePatterns,
-      timestamp: Date.now(),
-    });
-
-    return section;
   }
 
   /**
@@ -246,19 +210,12 @@ ${tree}`;
     const roundedTime =
       clock ?? new Date().toISOString().slice(0, 13) + ":00:00Z";
     return [
-      this.compileProjectSummary(tree, gitHead, ignorePatterns),
+      this.compileProjectSummary(tree),
       "",
       memoryContext ? `Session context:\n${memoryContext}` : "",
       `Current Time: ${roundedTime}`,
     ]
       .filter((s) => s.length > 0)
       .join("\n\n");
-  }
-
-  /**
-   * Clear caches (useful for refresh)
-   */
-  static clearCaches(): void {
-    fileTreeCache.clear();
   }
 }

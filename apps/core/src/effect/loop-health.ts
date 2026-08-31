@@ -53,7 +53,16 @@ export const createLoopHealthEvaluator = (): LoopHealthEvaluator => ({
       return { action: "warn", reason: "oscillation_detected" };
     }
 
-    // D. Hard cap on iterations
+    // D. Repeated reasoning similarity - near-identical reasoning text for N
+    // consecutive turns, tracked by AgentLoop.advanceReasoningSimilarity().
+    if (health.repeatedReasoningScore >= heuristics.reasoningSimilarityTurns * 2) {
+      return { action: "stop", reason: "repeated_reasoning" };
+    }
+    if (health.repeatedReasoningScore >= heuristics.reasoningSimilarityTurns) {
+      return { action: "warn", reason: "repeated_reasoning" };
+    }
+
+    // E. Hard cap on iterations
     if (state.iterationCount >= heuristics.totalIterationLimit) {
       return { action: "stop", reason: "max_iterations_reached" };
     }

@@ -286,30 +286,6 @@ that page's **Known gaps**.
 
 ### Real fixes
 
-- [ ] **The `Stop` hook never fires on a normal finish.** Only `stop()`
-      (`loop.ts:2455`) runs it: iteration cap, loop-health stop, spend budget. The
-      `"Done"` path returns straight from `complete()` (`loop.ts:938`) and `fail()`
-      doesn't call it either, so "notify me when the agent is done" only fires when
-      it ends badly. `/internals/hooks` currently describes it as "when the loop
-      terminates".
-- [ ] **`SessionStart` fires per user message, not per session** (`loop.ts:593`,
-      inside `run()`). Either rename it or gate it on the session's first run.
-- [ ] **The tree watcher can't reach the current session's prompt.** `run()` calls
-      `ensureWatching` (`loop.ts:564`) to keep project context fresh, but the
-      prompt reads `getFrozenSessionContext` (`context/session-context.ts:39`),
-      which snapshots once per session. The freeze is correct for cache
-      stability, so the watcher's only real payoff is a fresh snapshot for the
-      *next* session — and that payoff is itself cancelled for up to 5 minutes by
-      `PromptCompiler`'s `fileTreeCache` (keyed on git HEAD, value derived from
-      the tree; see the context-engine audit below). Meanwhile a long session's
-      file tree is permanently the one from its first turn. Fix the compiler cache
-      key first, then consider giving the freeze an explicit refresh point (e.g.
-      after compaction, which rebuilds the prefix anyway).
-- [ ] **Loop-health heuristic D was never implemented.** `recentReasoning`
-      (`loop.ts:276`) is declared and never written, `repeatedReasoningScore` is
-      permanently 0, and `reasoningSimilarityThreshold` / `reasoningSimilarityTurns`
-      (`agent/types.ts:206`) have no reader. Implement it or delete the fields —
-      right now the spec advertises four heuristics and three exist.
 - [ ] **A loop-health `warn` still reaches nobody by default.** The signal is now trustworthy,
       but every `warn` goes to `logger.debug` (`loop.ts:737`) — invisible at the
       default log level and never shown to the model, so nothing acts on a stuck
@@ -614,14 +590,6 @@ that page's **Known gaps**.
       nothing else (`compiler.ts:115`). `CLAUDE.md` ("file tree, git head") and
       several in-code comments claim otherwise. Either render it or stop computing
       it.
-- [ ] **`PromptCompiler.fileTreeCache` is keyed on something its value doesn't
-      depend on.** Key is `projectPath:gitHead:ignorePatterns` (`compiler.ts:59`);
-      the cached string is built from `tree`, which changes independently of HEAD
-      (any new top-level file). A second session started within the 5-minute TTL
-      renders the *first* session's tree even though the tree-watcher just
-      refreshed `tree-cache` — cancelling the watcher's only remaining benefit.
-      The cache saves a four-line string concat, so the simplest fix is to delete
-      it; otherwise key it on the tree itself.
 - [ ] **`collector.ts` + `context/types.ts` + `context/strategies/` are
       unreachable.** `collectContext()` resolves a strategy from a registry that
       only `createDefaultStrategies()` fills, and that function has no callers — so

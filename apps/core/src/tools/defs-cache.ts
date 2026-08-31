@@ -9,7 +9,6 @@
 
 import { listTools, getTool } from "./index.js";
 import { bus } from "../bus/index.js";
-import { PromptCompiler } from "../context/compiler.js";
 import { isReadOnlyMode, modeEnforcement } from "../permission/mode-policy.js";
 import type { AgentMode } from "../agent/types.js";
 
@@ -75,7 +74,4 @@ export function getToolDefs(mode?: AgentMode): ProviderToolDef[] {
 export function invalidateToolDefs(): void {
   cachedAll = null;
   cachedReadOnly.clear();
-  // Tools are sent as native schemas now, so only the compiler's file-tree
-  // cache remains; dropping it on a rare tool/skill change is acceptable.
-  PromptCompiler.clearCaches();
 }

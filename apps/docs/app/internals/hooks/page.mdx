@@ -113,7 +113,7 @@ a compile error, not a runtime surprise.
 | Event | Fires at | Blocks? | Modifies? |
 | --- | --- | --- | --- |
 | `SessionStart` | `loop.ts:593`, after context is collected | no | injects context, can seed the first user message |
-| `Stop` | `loop.ts:2458`, when the loop terminates | reported, not enforced | replaces the stop reason |
+| `Stop` | `loop.ts:2867`/`2851`, on every `run()` exit — `complete()` and `fail()` | reported, not enforced | replaces the stop reason |
 
 ### Turn
 

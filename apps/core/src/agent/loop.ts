@@ -250,6 +250,23 @@ function extractToolImage(
 }
 
 /**
+ * Word-set Jaccard similarity between two texts, 0..1. Used by loop-health
+ * heuristic D to spot the model repeating near-identical reasoning across
+ * turns — cheap and dependency-free, not meant to be a precise metric.
+ */
+function jaccardSimilarity(a: string, b: string): number {
+  const wordsOf = (s: string) =>
+    new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+  const setA = wordsOf(a);
+  const setB = wordsOf(b);
+  if (setA.size === 0 && setB.size === 0) return 1;
+  let intersection = 0;
+  for (const word of setA) if (setB.has(word)) intersection++;
+  const union = setA.size + setB.size - intersection;
+  return union === 0 ? 1 : intersection / union;
+}
+
+/**
  * Rough serialized size of a request, for the `model.request` trace event.
  *
  * Character count rather than a token estimate: this exists to make runaway
@@ -645,7 +662,10 @@ export class AgentLoop {
       // Step 1: Collect project context (file tree, etc.)
       const contextResult = await this.collectContext(input.projectPath);
       if (!contextResult.success || !contextResult.value) {
-        return this.fail("Context collection failed", contextResult.error);
+        return await this.fail(
+          "Context collection failed",
+          contextResult.error,
+        );
       }
 
       // Initialize compiler once with the real project name (after context is
@@ -657,17 +677,24 @@ export class AgentLoop {
         this.state.agentMode,
       );
 
-      // Step 2: Run SessionStart hook
-      await this.hooks.runSessionStart({
-        sessionId: this.state.sessionId,
-        turnCount: this.state.turnCount,
-      });
-
-      // Step 3: Emit session.created event
-      BusEvents.sessionCreated(this.state.sessionId, input.projectPath);
-
-      // Load session history from persistent storage
+      // Load session history from persistent storage first, so we can tell
+      // whether this is the session's first user message — SessionStart and
+      // session.created are meant to fire once per session, not once per
+      // message (`run()` is called for every prompt; a fresh AgentLoop is
+      // even constructed per message, so an instance field can't gate this).
       await this.loadHistory();
+      const isNewSession = this.history.length === 0;
+
+      // Step 2: Run SessionStart hook — session's first message only.
+      if (isNewSession) {
+        await this.hooks.runSessionStart({
+          sessionId: this.state.sessionId,
+          turnCount: this.state.turnCount,
+        });
+
+        // Step 3: Emit session.created event
+        BusEvents.sessionCreated(this.state.sessionId, input.projectPath);
+      }
 
       // Construct and push the new user message to history and store.
       // Attached images ride along as image parts, but only where the model can
@@ -753,7 +780,7 @@ export class AgentLoop {
             `\n\n---\n_Stopped: reached the ${this.config.maxIterations}-turn ` +
             `iteration safety limit before finishing. The above reflects the ` +
             `last turn's response — some planned work may be incomplete._`;
-          return this.complete(
+          return await this.complete(
             "Max iterations reached",
             this.lastResponseText ? this.lastResponseText + note : undefined,
             undefined,
@@ -774,7 +801,7 @@ export class AgentLoop {
         );
         if (healthAction.action === "stop") {
           await this.stop(healthAction.reason || "loop_health_stop");
-          return this.complete(
+          return await this.complete(
             `Loop stopped: ${healthAction.reason}`,
             undefined,
             undefined,
@@ -841,14 +868,14 @@ export class AgentLoop {
           // Interrupted mid-turn (Ctrl+C / session.stop): the provider or tool
           // call was aborted — that is a clean stop, not a failure.
           if (this.abort.signal.aborted) {
-            return this.complete(
+            return await this.complete(
               "Interrupted",
               undefined,
               undefined,
               usageSoFar(),
             );
           }
-          return this.fail("Turn execution failed", turnResult.error);
+          return await this.fail("Turn execution failed", turnResult.error);
         }
 
         // Advance reminder counters based on what this turn did.
@@ -857,6 +884,10 @@ export class AgentLoop {
           : this.turnsSinceTodoWrite + 1;
         this.turnsSinceLastNudge += 1;
         this.advanceStagnation(turnResult.madeFileChange === true);
+        this.advanceReasoningSimilarity(
+          turnResult.thinking,
+          this.config.heuristics,
+        );
 
         // Accumulate usage across turns. The provider-shared mapper
         // guarantees `inputTokens` is the INCLUSIVE prompt total (cache
@@ -909,7 +940,7 @@ export class AgentLoop {
             totalInputTokens + totalOutputTokens > maxTurnTokens
           ) {
             await this.stop("spend_budget_exceeded");
-            return this.complete(
+            return await this.complete(
               `Stopped: turn spend budget exceeded (${totalInputTokens + totalOutputTokens} tokens billed, limit ${maxTurnTokens}). Set FREECODE_MAX_TURN_TOKENS to change.`,
               undefined,
               undefined,
@@ -942,7 +973,7 @@ export class AgentLoop {
                 this.abort.signal,
               );
               if (this.abort.signal.aborted)
-                return this.complete(
+                return await this.complete(
                   "Interrupted",
                   undefined,
                   undefined,
@@ -984,7 +1015,7 @@ export class AgentLoop {
               priorReport: this.lastVerifierReport,
             });
             if (this.abort.signal.aborted)
-              return this.complete(
+              return await this.complete(
                 "Interrupted",
                 undefined,
                 undefined,
@@ -1011,7 +1042,7 @@ export class AgentLoop {
           // D5). Same discipline as the graph's fire-and-forget onChange.
           this.kickMemoryExtraction(input.provider);
 
-          return this.complete(
+          return await this.complete(
             "Done",
             turnResult.responseText,
             turnResult.thinking,
@@ -1026,10 +1057,10 @@ export class AgentLoop {
         };
       }
 
-      return this.complete("Loop stopped", undefined, undefined, usageSoFar());
+      return await this.complete("Loop stopped", undefined, undefined, usageSoFar());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return this.fail("Loop error", message);
+      return await this.fail("Loop error", message);
     }
   }
 
@@ -2624,6 +2655,37 @@ export class AgentLoop {
   }
 
   // ===========================================================================
+  // PRIVATE: advanceReasoningSimilarity()
+  // Heuristic D: consecutive turns whose reasoning text is near-identical is
+  // as strong a stuck signal as repeating a tool call, but nothing wrote
+  // `recentReasoning` or `repeatedReasoningScore` before this (known gap).
+  // Word-set Jaccard similarity — cheap, dependency-free, good enough to spot
+  // "the model is repeating itself" without needing an embedding call.
+  // ===========================================================================
+  private advanceReasoningSimilarity(
+    reasoning: string | undefined,
+    heuristics: LoopHeuristics,
+  ): void {
+    if (!reasoning) return;
+    const prev = this.recentReasoning[this.recentReasoning.length - 1];
+    this.recentReasoning.push(reasoning);
+    if (this.recentReasoning.length > heuristics.reasoningSimilarityTurns) {
+      this.recentReasoning.shift();
+    }
+
+    const similar =
+      prev !== undefined &&
+      jaccardSimilarity(prev, reasoning) >=
+        heuristics.reasoningSimilarityThreshold;
+
+    const score = similar ? this.state.loopHealth.repeatedReasoningScore + 1 : 0;
+    this.state = {
+      ...this.state,
+      loopHealth: { ...this.state.loopHealth, repeatedReasoningScore: score },
+    };
+  }
+
+  // ===========================================================================
   // PRIVATE: maybeRedirect()
   // A loop-health warning, turned into advice for the next turn.
   // Spec: 2026-08-26-trajectory-redirection.md. Never throws: every failure
@@ -2778,19 +2840,21 @@ export class AgentLoop {
   // State transition helpers
   // ===========================================================================
   private async stop(reason: string): Promise<void> {
+    // The Stop hook itself now runs uniformly in complete()/fail() below —
+    // every run() exit passes through one of those two, on a good finish or
+    // not, so this only needs to record the state transition (known gap: the
+    // hook used to fire only from here, i.e. never on a normal "Done").
     this.state = { ...this.state, status: "stopped" };
-    // Run Stop hook on termination
-    await this.hooks.runStop(reason, {
-      sessionId: this.state.sessionId,
-      turnCount: this.state.turnCount,
-    });
-    // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId);
   }
 
-  private fail(message: string, error?: string): LoopResult {
+  private async fail(message: string, error?: string): Promise<LoopResult> {
     // Emit session.error event
     BusEvents.sessionError(this.state.sessionId, error || message);
+    await this.hooks.runStop(error || message, {
+      sessionId: this.state.sessionId,
+      turnCount: this.state.turnCount,
+    });
     return {
       success: false,
       message: error || message,
@@ -2800,7 +2864,7 @@ export class AgentLoop {
     };
   }
 
-  private complete(
+  private async complete(
     message: string,
     content?: string,
     thinking?: string,
@@ -2810,9 +2874,13 @@ export class AgentLoop {
       cacheReadInputTokens?: number;
       contextTokens?: number;
     },
-  ): LoopResult {
+  ): Promise<LoopResult> {
     // Emit session.updated event
     BusEvents.sessionUpdated(this.state.sessionId);
+    await this.hooks.runStop(message, {
+      sessionId: this.state.sessionId,
+      turnCount: this.state.turnCount,
+    });
     return {
       success: true,
       message,
