@@ -43,43 +43,44 @@ place, and a bug in another (see [Known gaps](#known-gaps)).
 
 ## The shape of one run
 
-```
-run(UserInput)
-   │
-   ├─ reset per-run state · start the tree watcher · load permission rules
-   ├─ collect project context (frozen for the session)
-   ├─ SessionStart hook · session.created on the bus
-   ├─ load history from the session store
-   └─ append the user message (+ images, if the model can see them)
-        │
-        ▼
-   ┌──────────────────── while status === "running" ─────────────────────┐
-   │  iteration cap?  ──▶ wrap-up reminder one turn early, then stop     │
-   │  loop health?    ──▶ warn, or stop                                  │
-   │  todo nudge?     ──▶ queue a <system-reminder>                      │
-   │  TurnStart hook                                                     │
-   │                                                                     │
-   │  executeTurn:                                                       │
-   │     build system blocks + session blocks                            │
-   │     UserPromptSubmit hook (may rewrite the system prompt)           │
-   │     send  ──▶ recovery (retry → fallback chain)                     │
-   │           ──▶ on overflow: compact, send once more                  │
-   │     read text / thinking / tool calls                               │
-   │     execute tools in batches (hooks + permissions per call)          │
-   │     fold results into history + the session store                   │
-   │     maybeCompact()                                                  │
-   │                                                                     │
-   │  TurnEnd hook · accumulate usage · spend circuit breaker            │
-   │                                                                     │
-   │  tools called?  ── yes ──▶ next turn                                │
-   │        │                                                            │
-   │        no                                                           │
-   │        ▼                                                            │
-   │  todo gate ──▶ verify gate ──▶ verifier gate                        │
-   │        │ (any gate may force another turn)                          │
-   │        ▼                                                            │
-   │  kick memory extraction (not awaited) · return                      │
-   └─────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Start(["run(UserInput)"]) --> Setup["1&gt; reset per-run state, start tree watcher, load permission rules
+    2&gt; collect project context (frozen for the session)
+    3&gt; SessionStart hook, session.created on the bus
+    4&gt; load history from the session store
+    5&gt; append the user message (+ images, if the model can see them)"]
+
+    Setup --> Cap{"iteration cap?"}
+    Cap -- yes --> WrapUp["wrap-up reminder one turn early, then stop"]
+    Cap -- no --> Health{"loop health?"}
+    Health -- warn/stop --> WrapUp
+    Health -- ok --> Nudge["1&gt; todo nudge? queue a system-reminder
+    2&gt; TurnStart hook"]
+
+    Nudge --> Turn["executeTurn:
+    1&gt; build system blocks + session blocks
+    2&gt; UserPromptSubmit hook (may rewrite system prompt)
+    3&gt; send, recovery on failure (retry, fallback chain)
+    4&gt; on overflow: compact, send once more
+    5&gt; read text / thinking / tool calls
+    6&gt; execute tools in batches (hooks + permissions per call)
+    7&gt; fold results into history + the session store
+    8&gt; maybeCompact()"]
+
+    Turn --> TurnEnd["TurnEnd hook, accumulate usage, spend circuit breaker"]
+    TurnEnd --> ToolsCalled{"tools called?"}
+    ToolsCalled -- yes --> Cap
+    ToolsCalled -- no --> Gates["1&gt; todo gate
+    2&gt; verify gate
+    3&gt; verifier gate
+    (any gate may force another turn)"]
+    Gates -- forces another turn --> Cap
+    Gates -- clear --> Done["kick memory extraction (not awaited), return"]
+    WrapUp --> Done
+
+    classDef steps text-align:left
+    class Setup,Nudge,Turn,Gates steps
 ```
 
 ## Before the first request
@@ -180,12 +181,12 @@ already above", pointing at a marker.
 
 ### 3. The provider call
 
-```
-sendToProvider
-   └─ recovery.callProvider(primary, attempt, {sessionId, signal})
-        └─ for each provider in [primary, ...fallbacks]:
-             for attempt in 1..maxAttempts:
-                callProviderOnce → stream() or execute()
+```mermaid
+flowchart TD
+    Send["sendToProvider"] --> Recovery["recovery.callProvider(primary, attempt, {sessionId, signal})"]
+    Recovery --> ForProvider["for each provider in [primary, ...fallbacks]"]
+    ForProvider --> ForAttempt["for attempt in 1..maxAttempts"]
+    ForAttempt --> Call["callProviderOnce → stream() or execute()"]
 ```
 
 `callProviderOnce` writes `model.request` to the rollout log **before** the call
@@ -246,22 +247,19 @@ finished first.
 
 Every single call goes through the same gauntlet (`loop.ts:2045`):
 
-```
-PreToolUse hook            → may block, or rewrite the arguments
-   │
-danger mode? ─── yes ──────→ skip everything below
-   │ no
-evaluatePermission(mode, rules, args)
-   │   deny  ──────────────→ absolute; a hook cannot turn it into allow
-   │   allow / ask
-PermissionRequest hook     → may override ask→allow, or anything→deny
-   │
-ask? → Notification hook, then prompt the user
-   │
-orchestrator.execute       → schema coercion, validation, tool run
-   │   (non-mutating tools retry one transient failure; mutating ones never do)
-   │
-PostToolUse hook           → may replace or append to the output
+```mermaid
+flowchart TD
+    Pre["PreToolUse hook (may block, or rewrite the arguments)"] --> Danger{"danger mode?"}
+    Danger -- yes --> Orchestrator
+    Danger -- no --> Eval["evaluatePermission(mode, rules, args)"]
+    Eval -- deny --> Deny["absolute; a hook cannot turn it into allow"]
+    Eval -- allow/ask --> Perm["PermissionRequest hook (may override ask&gt;allow, or anything&gt;deny)"]
+    Perm --> AskCheck{"ask?"}
+    AskCheck -- yes --> Notif["Notification hook, then prompt the user"]
+    AskCheck -- no --> Orchestrator
+    Notif --> Orchestrator["orchestrator.execute: schema coercion, validation, tool run
+    (non-mutating tools retry one transient failure; mutating ones never do)"]
+    Orchestrator --> Post["PostToolUse hook (may replace or append to the output)"]
 ```
 
 Results carry two payloads: `displayOutput` (full, for the UI) and `modelOutput`
