@@ -25,31 +25,43 @@ So the engine has exactly two rules:
 
 ## What actually reaches the model
 
-```
-┌─ system ────────────────────────────────────────────── cache: true ─┐
-│ 1. session/prompt/system.md      the base prompt                    │
-│ 2. "You are powered by <model>"  identity grounding                 │
-│ 3. MODE_PROMPTS[agentMode]       plan / build / review / explore    │
-│ 4. CLAUDE.md / AGENTS.md         global, then project               │
-│ 5. Available Skills              name + description only, sorted    │
-│ 6. Memory guidance               constant text                      │
-├─ system ───────────────────────────────────────────── cache: false ─┤
-│ 7. Compacted session summary     changes only on compaction         │
-│ 8. Relevant memories             per turn, retrieved                │
-│ 9. Todo list                     per turn, from the todo store      │
-│ 10. <system-reminder> blocks     one turn only, then dropped        │
-└─────────────────────────────────────────────────────────────────────┘
-┌─ messages[0] — a *user* message ────────────────────────────────────┐
-│ Project: <name>                                                     │
-│ Path: <projectPath>                                                 │
-│                                                                     │
-│ File tree:                                                          │
-│   📁 apps                                                           │
-│   📄 package.json          ← top level only, see below              │
-│                                                                     │
-│ Current Time: 2026-08-23T14:00:00Z    ← rounded to the hour         │
-└─────────────────────────────────────────────────────────────────────┘
-┌─ messages[1..] ── the actual conversation ──────────────────────────┐
+```mermaid
+flowchart TB
+    subgraph SYS_CACHED["system prompt — cache: true"]
+        direction TB
+        S1["1. session/prompt/system.md<br/>base prompt"]
+        S2["2. &quot;You are powered by &lt;model&gt;&quot;<br/>identity grounding"]
+        S3["3. MODE_PROMPTS[agentMode]<br/>plan / build / review / explore / danger"]
+        S4["4. CLAUDE.md / AGENTS.md<br/>global, then project"]
+        S5["5. Available Skills<br/>name + description only, sorted"]
+        S6["6. Memory guidance<br/>constant text"]
+    end
+
+    subgraph SYS_DYNAMIC["system prompt — cache: false"]
+        direction TB
+        D7["7. Compacted session summary<br/>changes only on compaction"]
+        D8["8. Relevant memories<br/>per turn, retrieved"]
+        D9["9. Todo list<br/>per turn, from the todo store"]
+        D10["10. &lt;system-reminder&gt; blocks<br/>one turn only, then dropped"]
+    end
+
+    subgraph MSG0["messages[0] — user message (frozen per session)"]
+        direction TB
+        M1["Project: &lt;name&gt;<br/>Path: &lt;projectPath&gt;"]
+        M2["File tree (top level only)<br/>📁 apps<br/>📄 package.json"]
+        M3["Current Time: 2026-08-23T14:00:00Z<br/>rounded to the hour"]
+    end
+
+    MSG1["messages[1..] — the actual conversation"]
+
+    SYS_CACHED --> SYS_DYNAMIC
+    SYS_DYNAMIC --> MSG0
+    MSG0 --> MSG1
+
+    style SYS_CACHED fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style SYS_DYNAMIC fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style MSG0 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style MSG1 fill:#f5f5f5,stroke:#616161,stroke-width:1px,stroke-dasharray: 5 5
 ```
 
 Blocks 1–6 are assembled by `PromptCompiler.compileSystemBlocks`

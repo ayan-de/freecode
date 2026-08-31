@@ -4,3 +4,14 @@ body {
   margin: 0;
   padding: 0;
 }
+
+/* Mermaid diagrams: bump text size 15% for legibility */
+.nextra-content svg.mermaid,
+.nextra-content pre.mermaid {
+  font-size: 115% !important;
+}
+.nextra-content .mermaid .nodeLabel,
+.nextra-content .mermaid .edgeLabel,
+.nextra-content .mermaid .label {
+  font-size: inherit !important;
+}
