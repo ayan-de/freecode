@@ -24,18 +24,12 @@ That is the whole idea. The rest of this page is how it is built.
 The system is deliberately split so that no single file knows everything. Each
 layer answers exactly one question:
 
-```
-   agent loop / compaction / agent tool         "something is happening"
-                    |
-                    v
-   runtime.ts       HookRuntime facade          "who do I call for this event?"
-                    |
-                    v
-   PreToolUse.ts, TurnEnd.ts, ... (14 files)    "what does THIS event mean?"
-                    |
-          +---------+---------+
-          v                   v
-   registry.ts         executors/               "which hooks match?"  "how do I run one?"
+```mermaid
+graph TD
+    A["agent loop / compaction / agent tool<br/>&quot;something is happening&quot;"] --> B
+    B["runtime.ts — HookRuntime facade<br/>&quot;who do I call for this event?&quot;"] --> C
+    C["PreToolUse.ts, TurnEnd.ts, ... (14 files)<br/>&quot;what does THIS event mean?&quot;"] --> D["registry.ts<br/>&quot;which hooks match?&quot;"]
+    C --> E["executors/<br/>&quot;how do I run one?&quot;"]
 ```
 
 | Layer | File | Responsibility |
