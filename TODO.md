@@ -995,3 +995,96 @@ Ranked by value. Full context in §8 of that spec.
 - **Every request is a fresh chat** (empty ids in payload slot 2). Using the
   server-side thread would put conversation state somewhere `session/` cannot
   inspect, resume, fork or export.
+
+## Findings (OpenHands comparison — 2026-09-01)
+
+Found while writing `docs/superpowers/OPENHANDS_COMPARISON.md`, which reads the
+`OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`) for what makes its
+long-running sessions survivable. Ranked as the doc's §"Recommended sequencing".
+
+### Bug
+
+- [ ] **SSE replay silently returns "caught up" after every full disconnect.**
+      `tearDownIfEmpty` (`apps/core/src/web/stream-subscribers.ts:265`) disposes
+      the ring buffer and deletes the session record as soon as the last
+      subscriber leaves — the normal case with one browser client. A reconnect
+      carrying `Last-Event-ID` then hits `if (!rec) return { gap: false, ...
+      events: [] }` (`:175`) and is told nothing was missed, losing every event
+      produced while away. Not even a `stream_gap` marker: that branch in
+      `replayToSubscriber` needs the record that was just deleted. Strictly
+      worse than eviction, which at least reports a gap. Fix is to decouple
+      record lifetime from subscriber count (TTL after the last leaves); the
+      comment on `publishToSession` claiming the buffer survives an empty
+      subscriber set documents the intended behaviour already.
+
+### Long-session fidelity
+
+- [ ] **Compaction summarizes the original task away.** `selectForCompaction`
+      preserves only the tail — last `preserveRecentTurns: 2` user turns capped
+      at `maxPreserveRecentTokens: 8_000` (`compaction/types.ts:62-63`) — and
+      takes `messages.slice(0, firstPreservedIndex)` for the summary
+      (`compaction/selector.ts:54`). No head carve-out, so the founding
+      instruction is compacted first and, on the next compaction, the summary of
+      it is re-summarized. Lossy compounding on the oldest content, which is a
+      plausible mechanism for long-session drift off the brief. OpenHands'
+      `CondensationEvent.summary_offset` implies a head-preserving condenser
+      (inference — their SDK is a separate repo, not readable locally).
+
+- [ ] **`compact.occurred` records magnitude, not content.**
+      `rollout/types.ts:125` carries `beforeTokens`/`afterTokens` only. When a
+      long session forgets something, "which events left the view" is the first
+      question `freecode trace` should answer. OpenHands' `CondensationEvent`
+      carries `forgotten_event_ids`. The ids are known at the call site and
+      contain no message bodies, so this does not threaten the leak-free OTLP
+      constraint.
+
+- [ ] **`rollout/history.ts` has no range query.** `loadSessionEvents` (whole
+      file), `getEventsByType`, `getEventCount` — no cursor, no timestamp
+      window. Prerequisite for backing SSE replay with the durable log rather
+      than the in-memory buffer, which also needs a `RolloutEvent →
+      StreamEvent` projection (necessarily lossy: the log stores no message
+      bodies, by design).
+
+### Unattended mode (blocks `autonomous/` Phase 1)
+
+- [ ] **No configuration in which a stuck loop stops itself.**
+      `effect/loop-health.ts` declares `LoopAction { continue | warn | stop }`
+      and returns `warn` from all four detectors (`:38`, `:44`, `:53`, `:62`);
+      `stop` is never produced. The only hard stop is `maxIterations`, which is
+      `?? Infinity` outside headless (`agent/loop.ts:403`). Correct for attended
+      use — see `specs/2026-08-26-trajectory-redirection.md` §1 for why eager
+      `stop` was the wrong answer — but an unattended run needs a finite ceiling
+      and a `stuck` terminal state distinct from `error`, so a report can say
+      "stopped making progress" rather than "crashed". Do **not** copy Canvas's
+      own `use-agent-state.ts:31`, which maps `STUCK → ERROR` and loses exactly
+      that distinction.
+
+- [ ] **Permission prompts cannot park.** In-band and synchronous, so an
+      unattended run that hits one fails rather than waiting. OpenHands models
+      this as a durable `waiting_for_confirmation` conversation status plus a
+      REST endpoint to answer it later.
+
+### Reconnect hygiene (wanted once replay is rollout-backed)
+
+- [ ] **Replay dedupe must also suppress non-idempotent side effects**, not just
+      duplicate rendering. OpenHands issue #1656 was replayed events re-firing
+      error banners and cache invalidations
+      (`conversation-websocket-context.tsx:553`). FreeCode inherits this hazard
+      the moment replay can return events the client already processed.
+
+- [ ] **SSE client needs capped-exponential backoff and a handshake watchdog.**
+      Theirs is 1s → 2s → 4s capped at 30s with an abort for sockets stuck in
+      `CONNECTING` (`use-websocket.ts:19`, `:61`). The TUI's
+      `[250, 1_000, 3_000]`-then-give-up budget (`apps/tui/src/ipc/client.ts:87`)
+      is right for a local child process but wrong for a network client.
+
+### Deliberate — do NOT "fix"
+
+- **`session.compact`'s synchronous result is better than theirs.**
+  `protocol.ts:244` returns `{compacted, tokensBefore, tokensAfter, reason}`
+  directly. OpenHands' `/condense` acks only that work started, forcing a
+  150-line frontend hook (`use-await-context-compaction.ts`) with a 2.5s settle
+  window and 90s timeout to reconstruct the same numbers. Keep ours.
+- **Do not adopt ACP or the multi-backend registry.** Canvas's product is being
+  a universal frontend for other people's agents; FreeCode's frontends and
+  backend ship together.
