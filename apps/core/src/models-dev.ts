@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import https from "https";
 import { OUTPUT_TOKEN_CAP } from "./providers/utils.js";
+import { canonicalProviderId } from "./providers/canonical-id.js";
 
 const MODELS_DEV_URL = "https://models.dev/api.json";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -150,10 +151,13 @@ async function fetchFromNetwork(): Promise<Provider[]> {
             for (const [rawProviderId, providerData] of Object.entries(raw)) {
               const p = providerData as any;
               if (!p || !p.models) continue;
-              // models.dev calls Google's provider "google"; our registry
-              // registers it as "gemini" (providers/catalogue.ts).
-              const providerId =
-                rawProviderId === "google" ? "gemini" : rawProviderId;
+              // models.dev calls Google's provider "google"; freecode's ids
+              // are its own (pricing keys, config.json, rollout history), so
+              // the rename happens here at the boundary. The table lives in
+              // providers/catalogue.ts — a second copy of it here is how one
+              // rename becomes two vocabularies again, which is the bug this
+              // whole subsystem exists to have ended.
+              const providerId = canonicalProviderId(rawProviderId);
 
               const models: ProviderModel[] = [];
               for (const [modelId, modelData] of Object.entries(

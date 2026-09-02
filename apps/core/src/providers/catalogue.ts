@@ -21,6 +21,7 @@ import { CATALOGUE_SNAPSHOT } from "./catalogue-snapshot.js";
 import type { SnapshotEntry } from "./catalogue-types.js";
 import { readCachedProviders } from "../models-dev.js";
 import { hasSdkFactory } from "./sdk-factories.js";
+import { canonicalProviderId } from "./canonical-id.js";
 import { OUTPUT_TOKEN_CAP } from "./utils.js";
 
 export type EffortFamily = "anthropic" | "openai" | "gemini";
@@ -48,17 +49,6 @@ export interface ProviderCatalogueEntry {
    */
   effortFamily?: EffortFamily;
 }
-
-/**
- * models.dev's provider id → freecode's.
- *
- * Deliberately not the other way around. freecode's ids are load-bearing in
- * `pricing.ts` keys, in `current.provider` in every existing
- * ~/.freecode/config.json, and in recorded rollout history; adopting
- * models.dev's id wholesale would break those silently, since a stale key
- * stops matching rather than erroring.
- */
-const CANONICAL_ID: Record<string, string> = { google: "gemini" };
 
 /**
  * freecode-owned data. Everything absent from this table — name, SDK package,
@@ -141,7 +131,7 @@ export const FEATURED_PROVIDER_IDS = [
 const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 
 function toEntry(snapshot: SnapshotEntry): ProviderCatalogueEntry {
-  const id = CANONICAL_ID[snapshot.id] ?? snapshot.id;
+  const id = canonicalProviderId(snapshot.id);
   const override = OVERRIDES[id] ?? {};
   return {
     id,
@@ -184,15 +174,14 @@ function computeCatalogue(): ProviderCatalogueEntry[] {
   // Keyed by canonical id, not raw: the snapshot carries models.dev's
   // "google" while the disk cache is written post-remap as "gemini", and
   // keying on the raw id would resolve both into two entries for one provider.
-  const canonical = (id: string) => CANONICAL_ID[id] ?? id;
   const byId = new Map<string, SnapshotEntry>();
-  for (const entry of CATALOGUE_SNAPSHOT) byId.set(canonical(entry.id), entry);
+  for (const entry of CATALOGUE_SNAPSHOT) byId.set(canonicalProviderId(entry.id), entry);
 
   for (const cached of readCachedProviders() ?? []) {
     // A cache written before the catalogue carried SDK metadata has no npm;
     // the snapshot's entry is the better answer until it refreshes.
     if (!cached.npm) continue;
-    byId.set(canonical(cached.id), {
+    byId.set(canonicalProviderId(cached.id), {
       id: cached.id,
       name: cached.name,
       npm: cached.npm,

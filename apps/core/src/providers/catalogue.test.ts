@@ -99,3 +99,21 @@ test("resolution is memoized, and the memo can be dropped", async () => {
     "invalidation must not change what resolves",
   );
 });
+
+test("both models.dev boundaries share one remap table", async () => {
+  // The original bug was two independently-maintained id vocabularies that
+  // agreed until they didn't. A copy of the rename in models-dev.ts and
+  // another in catalogue.ts is that same shape at smaller scale.
+  const { readFileSync } = await import("node:fs");
+  const dir = new URL(".", import.meta.url).pathname;
+  for (const file of ["catalogue.ts", "../models-dev.ts"]) {
+    const src = readFileSync(`${dir}/${file}`, "utf-8");
+    assert.ok(
+      !/"google"\s*\?\s*"gemini"|google:\s*"gemini"/.test(src),
+      `${file} re-encodes the google->gemini rename instead of importing it`,
+    );
+  }
+  const { canonicalProviderId } = await import("./canonical-id.js");
+  assert.equal(canonicalProviderId("google"), "gemini");
+  assert.equal(canonicalProviderId("anthropic"), "anthropic");
+});
