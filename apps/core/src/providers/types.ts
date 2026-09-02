@@ -7,7 +7,12 @@ export type { EffortLevel };
 export interface ProviderInfo {
   id: string;
   name: string;
-  defaultModel: string;
+  /**
+   * Model used when the caller names none. Optional: most of the catalogue is
+   * models.dev-derived, and models.dev publishes no "default" — inventing one
+   * would mean guessing a model id that may not exist on that endpoint.
+   */
+  defaultModel?: string;
   supportsStreaming: boolean;
   supportsTools: boolean;
   // Tokens this provider reserves for the reply when the caller doesn't set

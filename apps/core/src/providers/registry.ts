@@ -52,18 +52,19 @@ export function providerRequiresApiKey(id: ProviderId): boolean {
 }
 
 export async function initProviders(): Promise<void> {
-  const { PROVIDER_CATALOGUE } = await import("./catalogue.js");
-  const { createGenericProvider } = await import("./generic-provider.js");
-  for (const entry of PROVIDER_CATALOGUE) {
+  const { resolveCatalogue } = await import("./catalogue.js");
+  const { createGenericProvider, providerInfoFor } = await import(
+    "./generic-provider.js"
+  );
+  // Every provider models.dev names that freecode carries an SDK for — ~198 of
+  // its 212. `providers.list` (server.ts) has always offered the full
+  // models.dev list to the picker, so anything narrower here is what produced
+  // `Provider "x" not registered` at send time on a provider the user was
+  // invited to choose. Registration is metadata only: the SDK is imported and
+  // the API key read on first request, so an unused provider costs nothing.
+  for (const entry of resolveCatalogue()) {
     registerProvider(entry.id, {
-      info: {
-        id: entry.id,
-        name: entry.name,
-        defaultModel: entry.defaultModel,
-        supportsStreaming: true,
-        supportsTools: true,
-        maxOutputTokens: entry.maxOutputTokens,
-      },
+      info: providerInfoFor(entry),
       create: () => createGenericProvider(entry),
     });
   }

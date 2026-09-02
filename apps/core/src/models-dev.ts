@@ -34,6 +34,15 @@ export interface Provider {
   name: string;
   description?: string;
   models: ProviderModel[];
+  /**
+   * SDK package name, custom endpoint, and env var names, as models.dev
+   * publishes them. Carried through so `providers/catalogue.ts` can construct
+   * a provider from this data instead of a hand-maintained table; absent on a
+   * cache written before that existed.
+   */
+  npm?: string;
+  api?: string;
+  env?: string[];
 }
 
 let cache: { data: Provider[]; timestamp: number } | null = null;
@@ -62,6 +71,27 @@ function saveToDisk(providers: Provider[]): void {
     CACHE_FILE,
     JSON.stringify({ data: providers, timestamp: Date.now() }, null, 2),
   );
+}
+
+/**
+ * The disk cache regardless of its TTL, for callers that need an answer
+ * without a network round trip.
+ *
+ * `loadFromDisk` returns null once the cache is 5 minutes old, which is right
+ * for the model picker — a stale model list is a wrong model list. It is wrong
+ * for provider *identity*, which changes on the order of months: a five-minute
+ * expiry there would mean falling back to the shipped snapshot on almost every
+ * run, discarding a cache that is still correct.
+ */
+export function readCachedProviders(): Provider[] | null {
+  if (cache) return cache.data;
+  try {
+    if (!fs.existsSync(CACHE_FILE)) return null;
+    const cached = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+    return Array.isArray(cached?.data) ? (cached.data as Provider[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchFromNetwork(): Promise<Provider[]> {
@@ -112,6 +142,9 @@ async function fetchFromNetwork(): Promise<Provider[]> {
                 name: p.name || providerId,
                 description: p.description || p.name || providerId,
                 models,
+                ...(typeof p.npm === "string" ? { npm: p.npm } : {}),
+                ...(typeof p.api === "string" ? { api: p.api } : {}),
+                ...(Array.isArray(p.env) ? { env: p.env as string[] } : {}),
               });
             }
 

@@ -454,10 +454,19 @@ export function silenceStreamErrors(): void {}
 export function resolveModel(
   requested: string | undefined,
   providerId: string,
-  defaultModel: string,
+  defaultModel: string | undefined,
   warnOnFallback = true,
 ): string {
   if (requested) return requested;
+  // Most models.dev-derived providers have no verified default. Failing here
+  // names the provider and the fix; sending `undefined` as a model id instead
+  // surfaces as an opaque 400 from the endpoint.
+  if (!defaultModel) {
+    throw new Error(
+      `No model configured for "${providerId}" and it has no default. ` +
+        `Set one in ~/.freecode/config.json under current.model.`,
+    );
+  }
   if (warnOnFallback) {
     logger.warn(
       `[${providerId}] no model specified; falling back to "${defaultModel}". ` +

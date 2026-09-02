@@ -10,6 +10,7 @@ const anthropicEntry: ProviderCatalogueEntry = {
   name: "Anthropic",
   npm: "@ai-sdk/anthropic",
   defaultModel: "claude-sonnet-4-5",
+  envKeys: ["ANTHROPIC_API_KEY"],
   maxOutputTokens: 4096,
   effortFamily: "anthropic",
 };
@@ -19,6 +20,7 @@ const openaiEntry: ProviderCatalogueEntry = {
   name: "OpenAI",
   npm: "@ai-sdk/openai",
   defaultModel: "gpt-4o",
+  envKeys: ["OPENAI_API_KEY"],
   maxOutputTokens: 4096,
   effortFamily: "openai",
 };
@@ -28,6 +30,7 @@ const geminiEntry: ProviderCatalogueEntry = {
   name: "Google Gemini",
   npm: "@ai-sdk/google",
   defaultModel: "gemini-3.6-flash",
+  envKeys: ["GEMINI_API_KEY"],
   maxOutputTokens: 4096,
   effortFamily: "gemini",
 };
@@ -38,6 +41,7 @@ const minimaxEntry: ProviderCatalogueEntry = {
   npm: "@ai-sdk/anthropic",
   baseURL: "https://api.minimax.io/anthropic/v1",
   defaultModel: "MiniMax-M2",
+  envKeys: ["MINIMAX_API_KEY"],
   maxOutputTokens: 32_000,
 };
 
@@ -103,4 +107,53 @@ test("maxOutputTokens: caller override wins over catalogue default", () => {
 test("maxOutputTokens: falls back to the catalogue entry's value", () => {
   const opts = buildGenerateOptions(minimaxEntry, modelHandle, { prompt: "hi" });
   assert.equal(opts.maxOutputTokens, 32_000);
+});
+
+const openaiCompatibleEntry: ProviderCatalogueEntry = {
+  id: "groq",
+  name: "Groq",
+  npm: "@ai-sdk/openai-compatible",
+  baseURL: "https://api.groq.com/openai/v1",
+  envKeys: ["GROQ_API_KEY"],
+  maxOutputTokens: 4096,
+};
+
+test("openai-compatible: openai-shaped system, but no promptCacheKey", () => {
+  // promptCacheKey is OpenAI's own parameter. openai-compatible endpoints are
+  // a different 172 vendors, and passing an unknown field risks a 400 — so the
+  // cache key stays keyed to @ai-sdk/openai exactly, not to the request shape.
+  const opts = buildGenerateOptions(openaiCompatibleEntry, modelHandle, {
+    system: [{ text: "one" }, { text: "two" }],
+    sessionId: "sess-123",
+  } as any);
+  assert.equal(opts.system, "one\n\ntwo");
+  assert.equal(opts.providerOptions, undefined);
+});
+
+test("openai-compatible: no effortFamily means effort is never routed", () => {
+  const opts = buildGenerateOptions(openaiCompatibleEntry, modelHandle, {
+    prompt: "hi",
+    effort: "high",
+  });
+  assert.equal(opts.providerOptions, undefined);
+});
+
+test("anthropic-family branch is keyed on the SDK package, not the provider id", () => {
+  // zai and minimax are not "anthropic", but they speak the Messages shape.
+  const zaiEntry: ProviderCatalogueEntry = {
+    id: "zai",
+    name: "Z.AI",
+    npm: "@ai-sdk/anthropic",
+    baseURL: "https://api.z.ai/api/anthropic",
+    envKeys: ["ZHIPU_API_KEY"],
+    defaultModel: "glm-5.2",
+    maxOutputTokens: 4096,
+  };
+  const opts = buildGenerateOptions(zaiEntry, modelHandle, {
+    system: [{ text: "sys" }],
+    messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }] as any,
+  } as any);
+  // buildAnthropicSystemParam produces block form, not a joined string.
+  assert.notEqual(opts.system, "sys");
+  assert.ok(Array.isArray(opts.messages));
 });
