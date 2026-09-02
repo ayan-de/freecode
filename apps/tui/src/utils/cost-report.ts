@@ -65,6 +65,9 @@ export function lastNDays(entries: DailyUsage[], days: number): DailyUsage[] {
   return entries.filter((e) => e.date >= cutoffDay);
 }
 
+const CACHE_NOTE =
+  "Cache reads bill at roughly a tenth of fresh input, so a high rate is a cheap session. Writes bill at ~1.25x — a rate bought by constant rewriting is not a win.";
+
 function row(label: string, totals: UsageTotals): string | undefined {
   const rate = cacheHitRate(totals.inputTokens, totals.cacheReadTokens);
   if (rate === undefined) return undefined;
@@ -115,10 +118,7 @@ export function renderCostReport(
   }
   if (notes.length > 0) lines.push("", `*${notes.join(" · ")}*`);
 
-  lines.push(
-    "",
-    "*Cache reads bill at roughly a tenth of fresh input, so a high rate is a cheap session. Writes bill at ~1.25x — a rate bought by constant rewriting is not a win.*",
-  );
+  lines.push("", `*${CACHE_NOTE}*`);
 
   return lines.join("\n");
 }
@@ -165,9 +165,7 @@ export function renderCostReportLines(
 
   lines.push(
     "",
-    ...wrap(
-      "Cache reads bill at roughly a tenth of fresh input, so a high rate is a cheap session. Writes bill at ~1.25x — a rate bought by constant rewriting is not a win.",
-    ),
+    ...wrap(CACHE_NOTE),
   );
 
   return lines;

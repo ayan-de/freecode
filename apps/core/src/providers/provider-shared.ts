@@ -174,7 +174,12 @@ export interface AiSdkUsage {
  *   - `inputTokens` — the inclusive total from the SDK, if present.
  *   - `cacheReadInputTokens` — `inputTokenDetails.cacheReadTokens`,
  *     falling back to the deprecated `cachedInputTokens`.
- *   - `cacheWriteInputTokens` — `inputTokenDetails.cacheWriteTokens`.
+ *   - `cacheWriteInputTokens` — `inputTokenDetails.cacheWriteTokens`,
+ *     falling back to the Anthropic wire envelope in `providerMetadata`
+ *     (opencode `getUsage`: `cacheCreationInputTokens`, then
+ *     `usage.cache_creation_input_tokens`, then the nested
+ *     `cache_creation.ephemeral_*` split). The SDK coalesces a missing
+ *     wire field to `0`, so a positive metadata value wins over `0`.
  *   - `nonCachedInputTokens` — `inputTokenDetails.noCacheTokens`,
  *     otherwise derived as `input - cacheRead - cacheWrite` (clamped).
  *   - `outputTokens` — from the SDK, if present.
@@ -194,7 +199,13 @@ export function mapUsage(
   const cacheRead =
     usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens;
 
-  const cacheWrite = usage.inputTokenDetails?.cacheWriteTokens;
+  // Same fallback chain as opencode session.getUsage. `||` not `??`:
+  // @ai-sdk/anthropic writes `cacheWriteTokens: 0` when the wire omits
+  // `cache_creation_input_tokens`, which would otherwise hide a real
+  // value still sitting on providerMetadata.
+  const cacheWrite =
+    usage.inputTokenDetails?.cacheWriteTokens ||
+    anthropicCacheWrite(providerMetadata);
 
   // `nonCachedInputTokens` is the only field that's derivable two ways.
   // Prefer the SDK's own `noCacheTokens`; if absent, subtract.
@@ -228,4 +239,37 @@ export function mapUsage(
   if (total !== undefined) result.totalTokens = total;
   if (providerMetadata) result.providerMetadata = providerMetadata;
   return result;
+}
+
+/** Anthropic / MiniMax-compat wire names on `providerMetadata.anthropic`. */
+function anthropicCacheWrite(
+  providerMetadata?: Record<string, unknown>,
+): number | undefined {
+  const a = providerMetadata?.anthropic as
+    | {
+        cacheCreationInputTokens?: number | null;
+        usage?: {
+          cache_creation_input_tokens?: number | null;
+          cache_creation?: {
+            ephemeral_5m_input_tokens?: number;
+            ephemeral_1h_input_tokens?: number;
+          };
+        };
+      }
+    | undefined;
+  if (!a) return undefined;
+  const nested = a.usage?.cache_creation;
+  const nestedSum =
+    nested &&
+    (nested.ephemeral_5m_input_tokens != null ||
+      nested.ephemeral_1h_input_tokens != null)
+      ? (nested.ephemeral_5m_input_tokens ?? 0) +
+        (nested.ephemeral_1h_input_tokens ?? 0)
+      : undefined;
+  return (
+    a.cacheCreationInputTokens ??
+    a.usage?.cache_creation_input_tokens ??
+    nestedSum ??
+    undefined
+  );
 }

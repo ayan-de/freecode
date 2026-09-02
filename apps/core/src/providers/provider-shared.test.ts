@@ -145,6 +145,48 @@ test("mapUsage falls back to the deprecated v5 reasoningTokens", () => {
   assert.equal(out?.reasoningTokens, 30);
 });
 
+test("mapUsage takes anthropic cacheCreationInputTokens when the SDK reports cacheWriteTokens as 0", () => {
+  // @ai-sdk/anthropic does `cache_creation_input_tokens ?? 0`, so a MiniMax
+  // (or Anthropic) stream that only fills providerMetadata looks like a
+  // zero write. opencode's getUsage reads the metadata; so do we.
+  const out = mapUsage(
+    {
+      inputTokens: 1150,
+      inputTokenDetails: { cacheReadTokens: 900, cacheWriteTokens: 0 },
+    },
+    { anthropic: { cacheCreationInputTokens: 250 } },
+  );
+  assert.equal(out?.cacheWriteInputTokens, 250);
+});
+
+test("mapUsage prefers a real inputTokenDetails.cacheWriteTokens over metadata", () => {
+  const out = mapUsage(
+    {
+      inputTokens: 1050,
+      inputTokenDetails: { cacheReadTokens: 900, cacheWriteTokens: 50 },
+    },
+    { anthropic: { cacheCreationInputTokens: 999 } },
+  );
+  assert.equal(out?.cacheWriteInputTokens, 50);
+});
+
+test("mapUsage sums nested cache_creation ephemeral buckets when the top-level field is missing", () => {
+  const out = mapUsage(
+    { inputTokens: 5752, inputTokenDetails: { cacheWriteTokens: 0 } },
+    {
+      anthropic: {
+        usage: {
+          cache_creation: {
+            ephemeral_5m_input_tokens: 4000,
+            ephemeral_1h_input_tokens: 1752,
+          },
+        },
+      },
+    },
+  );
+  assert.equal(out?.cacheWriteInputTokens, 5752);
+});
+
 test("mapUsage preserves providerMetadata", () => {
   const meta = { openai: { prompt_cache_key: "abc" } };
   const out = mapUsage({ inputTokens: 10, outputTokens: 5 }, meta);

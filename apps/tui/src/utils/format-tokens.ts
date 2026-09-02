@@ -21,21 +21,17 @@ export interface UsageTotals {
 /**
  * Share of billed input served from the prompt cache, as a 0-100 integer.
  *
- * Cache reads bill at roughly a tenth of fresh input, so this is the single
- * number that says whether a session is cheap or not: at 90% the conversation
- * is being re-sent almost free, at 10% nearly every turn is paying full price
- * for history it already sent.
+ * `inputTokens` is the inclusive prompt total (non-cached + cache read +
+ * cache write). The rate is therefore `cacheRead / inputTokens`. Adding
+ * reads into the denominator a second time understates a working cache
+ * (5.8M read of 6.7M in looked like 46% instead of 87%).
  *
- * `inputTokens` already contains cache *writes* — the loop folds them in
- * because they are billed as input — so the denominator is reads + input and
- * nothing else. Adding writes again would count them twice and understate the
- * rate. Returns undefined when there is nothing to divide.
+ * Returns undefined when there is nothing to divide.
  */
 export function cacheHitRate(
   inputTokens: number,
   cacheReadTokens: number,
 ): number | undefined {
-  const billedInput = inputTokens + cacheReadTokens;
-  if (billedInput <= 0) return undefined;
-  return Math.round((cacheReadTokens / billedInput) * 100);
+  if (inputTokens <= 0) return undefined;
+  return Math.min(100, Math.round((cacheReadTokens / inputTokens) * 100));
 }
