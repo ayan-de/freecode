@@ -35,8 +35,12 @@ test("providers.list only offers providers the registry can construct", async ()
   // Listing the raw catalogue meant picking one of the other 14 wrote it into
   // config and then threw `Provider "x" not registered` on the first turn —
   // the same class of bug the models.dev-derived catalogue was built to end.
-  const { initProviders, listProviders } = await import("./providers/registry.js");
-  await initProviders();
+  // Deliberately NOT pre-registering: `providers.list` must await
+  // registration itself. An earlier version of this test called
+  // initProviders() first and so could not see the race where the handler
+  // read an empty registry and filtered the whole catalogue away — which
+  // presents as an empty model picker, not an error.
+  const { listProviders } = await import("./providers/registry.js");
 
   const res = (await handleRequest({
     jsonrpc: "2.0",

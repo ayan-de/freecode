@@ -717,6 +717,11 @@ const methodHandlers: Record<
     // `Provider "x" not registered` at send time, on a provider the picker
     // itself invited the user to choose. The registry is the authority on what
     // can actually run, so filter to it rather than listing the catalogue raw.
+    // Awaited, not assumed: registration is async (it imports the catalogue
+    // and the generic driver), and reading the registry before it finishes
+    // filters the entire catalogue away — an empty model picker rather than a
+    // wrong one. `initProviders` is memoized, so this is free once it has run.
+    await initProviders();
     const constructible = new Set(listProviders().map((p) => p.id));
     const api =
       kind === "web"
