@@ -711,7 +711,17 @@ const methodHandlers: Record<
     // sends and what the VS Code and desktop shells still expect.
     const { kind } = (params ?? {}) as { kind?: "api" | "web" };
 
-    const api = kind === "web" ? [] : await getProviders();
+    // models.dev names more providers than freecode can construct — the ones
+    // whose SDK needs a credential loader rather than an API key (Bedrock,
+    // Vertex, Azure, watsonx, …). Offering those here is what produced
+    // `Provider "x" not registered` at send time, on a provider the picker
+    // itself invited the user to choose. The registry is the authority on what
+    // can actually run, so filter to it rather than listing the catalogue raw.
+    const constructible = new Set(listProviders().map((p) => p.id));
+    const api =
+      kind === "web"
+        ? []
+        : (await getProviders()).filter((p) => constructible.has(p.id));
     const web = kind === "api" ? [] : LOCAL_PROVIDERS;
 
     return [
