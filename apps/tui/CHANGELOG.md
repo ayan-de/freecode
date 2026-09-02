@@ -1,5 +1,16 @@
 # @thisisayande/freecode
 
+## 0.28.0
+
+### Minor Changes
+
+- Unify provider registration behind a dynamic provider catalogue (generic-provider.ts + sdk-factories.ts replace per-provider deepseek/gemini/minimax/openai/zai adapters), improve token usage mapping (mapUsage), and enhance the cross-platform installer update command.
+
+### Patch Changes
+
+- Updated dependencies
+  - @thisisayande/freecode-core@0.28.0
+
 ## 0.27.1
 
 ### Patch Changes
