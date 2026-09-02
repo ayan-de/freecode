@@ -1,49 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildGenerateOptions } from "./generic-provider.js";
+import { resolveCatalogue } from "./catalogue.js";
 import type { ProviderCatalogueEntry } from "./catalogue.js";
 
 const modelHandle = { __model: true };
 
-const anthropicEntry: ProviderCatalogueEntry = {
-  id: "anthropic",
-  name: "Anthropic",
-  npm: "@ai-sdk/anthropic",
-  defaultModel: "claude-sonnet-4-5",
-  envKeys: ["ANTHROPIC_API_KEY"],
-  maxOutputTokens: 4096,
-  effortFamily: "anthropic",
-};
+// Entries come from the catalogue rather than being re-declared here. Local
+// literals cannot catch drift: if resolution stopped setting `effortFamily` on
+// gemini, or moved zai off @ai-sdk/anthropic, every assertion below would go
+// on passing against a fixture that no longer describes anything real.
+function entry(id: string): ProviderCatalogueEntry {
+  const found = resolveCatalogue().find((e) => e.id === id);
+  assert.ok(found, `${id} is not in the resolved catalogue`);
+  return found;
+}
 
-const openaiEntry: ProviderCatalogueEntry = {
-  id: "openai",
-  name: "OpenAI",
-  npm: "@ai-sdk/openai",
-  defaultModel: "gpt-4o",
-  envKeys: ["OPENAI_API_KEY"],
-  maxOutputTokens: 4096,
-  effortFamily: "openai",
-};
-
-const geminiEntry: ProviderCatalogueEntry = {
-  id: "gemini",
-  name: "Google Gemini",
-  npm: "@ai-sdk/google",
-  defaultModel: "gemini-3.6-flash",
-  envKeys: ["GEMINI_API_KEY"],
-  maxOutputTokens: 4096,
-  effortFamily: "gemini",
-};
-
-const minimaxEntry: ProviderCatalogueEntry = {
-  id: "minimax",
-  name: "MiniMax",
-  npm: "@ai-sdk/anthropic",
-  baseURL: "https://api.minimax.io/anthropic/v1",
-  defaultModel: "MiniMax-M2",
-  envKeys: ["MINIMAX_API_KEY"],
-  maxOutputTokens: 32_000,
-};
+const anthropicEntry = entry("anthropic");
+const openaiEntry = entry("openai");
+const geminiEntry = entry("gemini");
+const minimaxEntry = entry("minimax");
+const openaiCompatibleEntry = entry("groq");
+const zaiEntry = entry("zai");
 
 test("anthropic-family: system goes through buildAnthropicSystemParam, messages get cache breakpoints", () => {
   const opts = buildGenerateOptions(anthropicEntry, modelHandle, {
@@ -104,19 +82,15 @@ test("maxOutputTokens: caller override wins over catalogue default", () => {
   assert.equal(opts.maxOutputTokens, 9000);
 });
 
-test("maxOutputTokens: falls back to the catalogue entry's value", () => {
+test("maxOutputTokens: falls back to the catalogue entry's own value", () => {
   const opts = buildGenerateOptions(minimaxEntry, modelHandle, { prompt: "hi" });
-  assert.equal(opts.maxOutputTokens, 32_000);
+  // Read off the entry, not a copy of its number — minimax's reservation is
+  // OUTPUT_TOKEN_CAP, and hardcoding 32_000 here would keep passing after the
+  // cap moved.
+  assert.equal(opts.maxOutputTokens, minimaxEntry.maxOutputTokens);
+  assert.ok(minimaxEntry.maxOutputTokens > 4096, "expected minimax's override");
 });
 
-const openaiCompatibleEntry: ProviderCatalogueEntry = {
-  id: "groq",
-  name: "Groq",
-  npm: "@ai-sdk/openai-compatible",
-  baseURL: "https://api.groq.com/openai/v1",
-  envKeys: ["GROQ_API_KEY"],
-  maxOutputTokens: 4096,
-};
 
 test("openai-compatible: openai-shaped system, but no promptCacheKey", () => {
   // promptCacheKey is OpenAI's own parameter. openai-compatible endpoints are
@@ -140,15 +114,6 @@ test("openai-compatible: no effortFamily means effort is never routed", () => {
 
 test("anthropic-family branch is keyed on the SDK package, not the provider id", () => {
   // zai and minimax are not "anthropic", but they speak the Messages shape.
-  const zaiEntry: ProviderCatalogueEntry = {
-    id: "zai",
-    name: "Z.AI",
-    npm: "@ai-sdk/anthropic",
-    baseURL: "https://api.z.ai/api/anthropic",
-    envKeys: ["ZHIPU_API_KEY"],
-    defaultModel: "glm-5.2",
-    maxOutputTokens: 4096,
-  };
   const opts = buildGenerateOptions(zaiEntry, modelHandle, {
     system: [{ text: "sys" }],
     messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }] as any,
