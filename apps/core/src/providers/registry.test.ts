@@ -58,3 +58,15 @@ test("openai-compatible providers from the catalogue are constructible", async (
     else process.env.GROQ_API_KEY = hadKey;
   }
 });
+
+test("initProviders is memoized, so concurrent callers await one registration", async () => {
+  // The race this closes: registration awaits two dynamic imports, so a second
+  // caller could observe a half-populated registry while the first was still
+  // resolving. providers/index.ts starts it eagerly on import and three
+  // entrypoints call it again.
+  const a = initProviders();
+  const b = initProviders();
+  assert.equal(a, b, "expected the same in-flight promise");
+  await Promise.all([a, b]);
+  assert.ok(listProviders().length > 150);
+});
