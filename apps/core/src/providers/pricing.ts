@@ -21,12 +21,32 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import {
+  readCachedProviders,
+  readCachedProvidersWrittenAt,
+} from "../models-dev.js";
 
 /**
- * The vintage of the built-in table. Surfaced wherever a cost is displayed, so
- * a stale number is visibly stale rather than silently wrong.
+ * The vintage of the BUILT-IN table only. Prefer `pricesAsOf()` for anything
+ * user-facing — most prices now come from models.dev, and stamping those with
+ * this constant would report a rate fetched today as four months old.
  */
 export const PRICES_AS_OF = "2026-05";
+
+/**
+ * The vintage of the prices actually in use, for display.
+ *
+ * Surfaced wherever a cost is shown so a stale number is visibly stale rather
+ * than silently wrong — which is the whole discipline of this module, and it
+ * cuts both ways: reporting a fresh price as stale is the same class of lie.
+ * When the models.dev cache is supplying rates, the honest stamp is when that
+ * cache was written, not when the fallback table was last hand-edited.
+ */
+export function pricesAsOf(): string {
+  const written = catalogueWrittenAt();
+  if (written) return `models.dev ${written.toISOString().slice(0, 10)}`;
+  return PRICES_AS_OF;
+}
 
 /** USD per MILLION tokens. Per-token division happens once, in `priceUsd`. */
 export interface ModelPrice {
@@ -44,14 +64,13 @@ export interface ModelPrice {
 const MILLION = 1_000_000;
 
 /**
- * Built-in prices, keyed `provider/model`. Deliberately short: an entry that
- * is present but wrong is worse than one that is absent, because absence is
- * visible at the call site and a wrong number is not.
+ * Built-in prices, keyed `provider/model`. The offline floor only — models.dev
+ * carries a rate card for ~7000 models and is consulted first (see
+ * `catalogueprices`). This table is what remains when its cache is cold.
  *
- * MiniMax is absent on purpose — it had not published a rate card in a form
- * this table could cite, and inventing one to make the column non-empty is
- * exactly the failure this module's header warns about. Set it in
- * `~/.freecode/pricing.json` if you know your own rate.
+ * Deliberately short: an entry that is present but wrong is worse than one
+ * that is absent, because absence is visible at the call site and a wrong
+ * number is not.
  */
 const BUILTIN: Record<string, ModelPrice> = {
   "anthropic/claude-opus-4-1": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
@@ -63,6 +82,45 @@ const BUILTIN: Record<string, ModelPrice> = {
 };
 
 let overrides: Record<string, ModelPrice> | null = null;
+let catalogue: Map<string, ModelPrice> | null = null;
+
+/**
+ * Prices from models.dev's own rate cards, read out of the disk cache that
+ * `models-dev.ts` already maintains.
+ *
+ * This is where a price for anything beyond the three hand-listed providers
+ * comes from: the catalogue now registers ~198 providers, and pricing 3 of
+ * them meant cost reporting, eval spend, and the budget breaker were blind for
+ * the rest. models.dev publishes `cost` for ~7000 of its ~7500 models and
+ * refreshes continuously, which is strictly better than a table with a
+ * `PRICES_AS_OF` stamp four months old.
+ *
+ * Keyed `provider/model` with the id lowercased, since ids from config vary in
+ * casing (`MiniMax-M2`). Absent — a cold cache, or a model models.dev prices
+ * as unknown — falls through to `BUILTIN` and then to `undefined`.
+ */
+/** When the models.dev cache was written, if it is supplying any prices. */
+function catalogueWrittenAt(): Date | undefined {
+  if (cataloguePrices().size === 0) return undefined;
+  return readCachedProvidersWrittenAt() ?? undefined;
+}
+
+function cataloguePrices(): Map<string, ModelPrice> {
+  if (catalogue) return catalogue;
+  catalogue = new Map();
+  for (const provider of readCachedProviders() ?? []) {
+    for (const model of provider.models) {
+      if (!model.cost) continue;
+      catalogue.set(`${provider.id}/${model.id}`.toLowerCase(), {
+        input: model.cost.input,
+        output: model.cost.output,
+        cacheRead: model.cost.cacheRead,
+        cacheWrite: model.cost.cacheWrite,
+      });
+    }
+  }
+  return catalogue;
+}
 
 function pricingFile(): string {
   return (
@@ -93,13 +151,20 @@ export function loadOverrides(): Record<string, ModelPrice> {
   return overrides;
 }
 
-/** Drops the override cache. For tests, and for a config reload. */
+/** Drops the override and catalogue caches. For tests, and for a config reload. */
 export function resetPricingCache(): void {
   overrides = null;
+  catalogue = null;
 }
 
 /**
  * The price for one model, or `undefined` when nothing knows it.
+ *
+ * Precedence: `~/.freecode/pricing.json` (the user's own contracted rate, and
+ * the supported way to be exact) → models.dev's published rate card → the
+ * built-in offline floor. models.dev outranks `BUILTIN` deliberately: it
+ * refreshes continuously while the table carries a fixed `PRICES_AS_OF`, so
+ * preferring the table would mean serving a knowingly older number.
  *
  * Matching is exact on `provider/model`, then on the bare model id — a model
  * reached through a gateway carries the same id under a different provider
@@ -111,11 +176,24 @@ export function priceFor(
   provider: string,
   model: string,
 ): ModelPrice | undefined {
-  const table = { ...BUILTIN, ...loadOverrides() };
   const qualified = `${provider}/${model}`;
-  if (table[qualified]) return table[qualified];
-  for (const [key, price] of Object.entries(table)) {
-    if (key.slice(key.indexOf("/") + 1) === model) return price;
+
+  const userOverrides = loadOverrides();
+  if (userOverrides[qualified]) return userOverrides[qualified];
+
+  const fromCatalogue = cataloguePrices().get(qualified.toLowerCase());
+  if (fromCatalogue) return fromCatalogue;
+
+  if (BUILTIN[qualified]) return BUILTIN[qualified];
+
+  // Bare-model-id fallback, same precedence order.
+  for (const table of [userOverrides, BUILTIN]) {
+    for (const [key, price] of Object.entries(table)) {
+      if (key.slice(key.indexOf("/") + 1) === model) return price;
+    }
+  }
+  for (const [key, price] of cataloguePrices()) {
+    if (key.slice(key.indexOf("/") + 1) === model.toLowerCase()) return price;
   }
   return undefined;
 }

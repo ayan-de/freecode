@@ -9,7 +9,23 @@ const MODELS_DEV_URL = "https://models.dev/api.json";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const CACHE_DIR = path.join(os.homedir(), ".freecode", "cache");
-const CACHE_FILE = path.join(CACHE_DIR, "models-dev.json");
+
+/**
+ * Where the models.dev response is cached.
+ *
+ * `FREECODE_MODELS_CACHE_FILE` redirects it, which is what makes anything
+ * reading this cache testable — `providers/pricing.ts` now derives rates from
+ * it, and a test that asserts a price must not depend on whether the developer
+ * running it happens to have opened the model picker. (opencode carries the
+ * same seam as `OPENCODE_MODELS_PATH`.) Resolved per call, not once at import,
+ * so a test can set it after this module is loaded.
+ */
+function cacheFile(): string {
+  return (
+    process.env.FREECODE_MODELS_CACHE_FILE ??
+    path.join(CACHE_DIR, "models-dev.json")
+  );
+}
 
 /** Token limits for a model, as reported by models.dev. */
 export interface ModelLimit {
@@ -19,12 +35,22 @@ export interface ModelLimit {
   output: number;
 }
 
+/** USD per million tokens, as models.dev publishes them. */
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface ProviderModel {
   id: string;
   name: string;
   description?: string;
   /** Present when models.dev reports limits for this model. */
   limit?: ModelLimit;
+  /** Present when models.dev publishes a rate card for this model. */
+  cost?: ModelCost;
   /** Input modalities, e.g. ["text", "image", "pdf"]. Absent if unreported. */
   inputModalities?: string[];
 }
@@ -55,8 +81,9 @@ function ensureCacheDir(): void {
 
 function loadFromDisk(): Provider[] | null {
   try {
-    if (!fs.existsSync(CACHE_FILE)) return null;
-    const content = fs.readFileSync(CACHE_FILE, "utf-8");
+    const file = cacheFile();
+    if (!fs.existsSync(file)) return null;
+    const content = fs.readFileSync(file, "utf-8");
     const cached = JSON.parse(content);
     if (Date.now() - cached.timestamp > CACHE_TTL_MS) return null;
     return cached.data;
@@ -68,7 +95,7 @@ function loadFromDisk(): Provider[] | null {
 function saveToDisk(providers: Provider[]): void {
   ensureCacheDir();
   fs.writeFileSync(
-    CACHE_FILE,
+    cacheFile(),
     JSON.stringify({ data: providers, timestamp: Date.now() }, null, 2),
   );
 }
@@ -86,9 +113,24 @@ function saveToDisk(providers: Provider[]): void {
 export function readCachedProviders(): Provider[] | null {
   if (cache) return cache.data;
   try {
-    if (!fs.existsSync(CACHE_FILE)) return null;
-    const cached = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+    const file = cacheFile();
+    if (!fs.existsSync(file)) return null;
+    const cached = JSON.parse(fs.readFileSync(file, "utf-8"));
     return Array.isArray(cached?.data) ? (cached.data as Provider[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** When the disk cache was written, or null when there is none. */
+export function readCachedProvidersWrittenAt(): Date | null {
+  try {
+    const file = cacheFile();
+    if (!fs.existsSync(file)) return null;
+    const cached = JSON.parse(fs.readFileSync(file, "utf-8"));
+    return typeof cached?.timestamp === "number"
+      ? new Date(cached.timestamp)
+      : null;
   } catch {
     return null;
   }
@@ -129,6 +171,23 @@ async function fetchFromNetwork(): Promise<Provider[]> {
                       ? {
                           context: modelData.limit.context,
                           output: modelData.limit.output ?? 0,
+                        }
+                      : undefined,
+                  cost:
+                    modelData.cost &&
+                    typeof modelData.cost.input === "number" &&
+                    typeof modelData.cost.output === "number"
+                      ? {
+                          input: modelData.cost.input,
+                          output: modelData.cost.output,
+                          cacheRead:
+                            typeof modelData.cost.cache_read === "number"
+                              ? modelData.cost.cache_read
+                              : undefined,
+                          cacheWrite:
+                            typeof modelData.cost.cache_write === "number"
+                              ? modelData.cost.cache_write
+                              : undefined,
                         }
                       : undefined,
                   inputModalities: Array.isArray(modelData.modalities?.input)

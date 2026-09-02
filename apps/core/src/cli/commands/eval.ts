@@ -420,7 +420,7 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
         );
         const { summarise: summariseMetrics } =
           await import("../../eval/compare.js");
-        const { formatUsd, PRICES_AS_OF } =
+        const { formatUsd, pricesAsOf } =
           await import("../../providers/pricing.js");
         // Disclosure (spec §7): the same-model check compares normalised ids
         // and cannot see through a gateway route, so print who actually graded.
@@ -444,7 +444,7 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           console.log(
             `${dim}${formatUsd({ usd: metrics.costUsd, partial: false })} estimated ` +
               `· ${metrics.tokens.toLocaleString()} tokens ` +
-              `· prices as of ${PRICES_AS_OF}${reset}`,
+              `· prices as of ${pricesAsOf()}${reset}`,
           );
         }
         // Grading spend, on its own line and never added to the figure above.

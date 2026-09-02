@@ -25,7 +25,7 @@ import {
   STATUS_OK,
   type OtlpTarget,
 } from "../rollout/otlp.js";
-import { PRICES_AS_OF } from "../providers/pricing.js";
+import { pricesAsOf } from "../providers/pricing.js";
 import { summarise } from "./compare.js";
 import type { CaseResult, SuiteReport } from "./types.js";
 
@@ -145,7 +145,7 @@ export function reportToOtlp(
         "freecode.turns": metrics.turns,
         "freecode.repeated_calls": metrics.repeatedCalls,
         "gen_ai.usage.cost": metrics.costUsd,
-        "freecode.prices_as_of": PRICES_AS_OF,
+        "freecode.prices_as_of": pricesAsOf(),
       }),
       status:
         metrics.passed === metrics.total
