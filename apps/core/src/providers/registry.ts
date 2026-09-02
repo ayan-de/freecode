@@ -52,19 +52,24 @@ export function providerRequiresApiKey(id: ProviderId): boolean {
 }
 
 export async function initProviders(): Promise<void> {
-  // Providers self-register via side effect when imported
-  // Import each to trigger registerProvider() call
-  // Use Promise.all to wait for all registrations to complete
-  await Promise.all([
-    import("./anthropic.js"),
-    import("./openai.js"),
-    import("./gemini.js"),
-    import("./minimax.js"),
-    import("./deepseek.js"),
-    import("./zai.js"),
-    // Ask/review over a logged-in Gemini web session (see gemini-web/index.ts).
-    // Registration is metadata-only and the sidecar is only contacted on first
-    // use, so a provider nobody selects costs one module import at startup.
-    import("./gemini-web/index.js"),
-  ]);
+  const { PROVIDER_CATALOGUE } = await import("./catalogue.js");
+  const { createGenericProvider } = await import("./generic-provider.js");
+  for (const entry of PROVIDER_CATALOGUE) {
+    registerProvider(entry.id, {
+      info: {
+        id: entry.id,
+        name: entry.name,
+        defaultModel: entry.defaultModel,
+        supportsStreaming: true,
+        supportsTools: true,
+        maxOutputTokens: entry.maxOutputTokens,
+      },
+      create: () => createGenericProvider(entry),
+    });
+  }
+  // Ask/review over a logged-in Gemini web session (see gemini-web/index.ts).
+  // Not in models.dev's catalogue and never will be — registration is
+  // metadata-only and the sidecar is only contacted on first use, so a
+  // provider nobody selects costs one module import at startup.
+  await import("./gemini-web/index.js");
 }

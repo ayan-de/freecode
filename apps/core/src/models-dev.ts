@@ -75,9 +75,13 @@ async function fetchFromNetwork(): Promise<Provider[]> {
             const raw = JSON.parse(data);
             const providers: Provider[] = [];
 
-            for (const [providerId, providerData] of Object.entries(raw)) {
+            for (const [rawProviderId, providerData] of Object.entries(raw)) {
               const p = providerData as any;
               if (!p || !p.models) continue;
+              // models.dev calls Google's provider "google"; our registry
+              // registers it as "gemini" (providers/catalogue.ts).
+              const providerId =
+                rawProviderId === "google" ? "gemini" : rawProviderId;
 
               const models: ProviderModel[] = [];
               for (const [modelId, modelData] of Object.entries(

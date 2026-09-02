@@ -12,26 +12,31 @@ import { readFileSync } from "node:fs";
 // ways this silently stops working — they do not prove a request carries the key.
 
 const dir = new URL(".", import.meta.url).pathname;
-const openaiSrc = readFileSync(`${dir}/openai.ts`, "utf-8");
+const genericProviderSrc = readFileSync(`${dir}/generic-provider.ts`, "utf-8");
 const loopSrc = readFileSync(`${dir}/../agent/loop.ts`, "utf-8");
 
 test("both OpenAI request paths are built by the same function", () => {
   // The regression this guards: execute() and stream() used to assemble
   // identical option objects separately. A cache key added to one and not the
   // other is worse than none — half a session's turns would route on the key
-  // and half on the prefix hash, scattering the cache across machines.
-  assert.match(openaiSrc, /generateText\(generateOptions\)/);
+  // and half on the prefix hash, scattering the cache across machines. Both
+  // now call the single buildGenerateOptions() shared across every provider,
+  // not just openai — the guard tightens rather than weakens.
   assert.match(
-    openaiSrc,
-    /streamText\(\{\s*\.\.\.buildOptions\(opts\)\.generateOptions,/,
+    genericProviderSrc,
+    /generateText\(generateOptions\)/,
+  );
+  assert.match(
+    genericProviderSrc,
+    /streamText\(\{\s*\.\.\.generateOptions,/,
   );
 
   // Set in exactly one place, so the two paths cannot drift apart again.
-  const occurrences = openaiSrc.match(/promptCacheKey/g) ?? [];
+  const occurrences = genericProviderSrc.match(/promptCacheKey/g) ?? [];
   assert.equal(
     occurrences.length,
     1,
-    `promptCacheKey is set ${occurrences.length} times; it belongs only in buildOptions`,
+    `promptCacheKey is set ${occurrences.length} times; it belongs only in buildGenerateOptions`,
   );
 });
 
