@@ -2,6 +2,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { envKeysFor as catalogueEnvKeys } from "./catalogue.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".freecode");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -77,16 +78,27 @@ export function writeConfig(config: Config): void {
 
 export type ProviderId = string; // Can be "anthropic", "openai", "gemini", "minimax", "minimax-coding-plan", etc.
 
-const ENV_KEYS: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  gemini: "GEMINI_API_KEY",
-  minimax: "MINIMAX_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-  zai: "ZAI_API_KEY",
-};
+/**
+ * Env var names for a provider, from the models.dev-derived catalogue, falling
+ * back to the conventional `<PROVIDER>_API_KEY` for ids the catalogue does not
+ * carry (web-session providers, `-coding-plan` variants).
+ */
+function envKeysFor(providerId: string): string[] {
+  const keys = catalogueEnvKeys(providerId);
+  if (keys.length > 0) return keys;
+  return [`${providerId.toUpperCase().replace(/-/g, "_")}_API_KEY`];
+}
 
-export function getApiKey(providerId: string): string {
+/**
+ * The configured key for a provider: config file first, then env vars.
+ *
+ * `envKeys` is passed in by the caller that already has the catalogue entry
+ * (the generic provider); callers without one fall back to looking it up.
+ * Either way the names come from models.dev rather than a hand-kept table —
+ * a second table is how `zai` ended up reading ZAI_API_KEY while models.dev
+ * published ZHIPU_API_KEY, with nothing to notice the disagreement.
+ */
+export function getApiKey(providerId: string, envKeys?: string[]): string {
   const config = readConfig();
 
   // Try exact match first
@@ -98,17 +110,11 @@ export function getApiKey(providerId: string): string {
   const baseConfigKey = config.providers?.[baseProvider]?.apiKey;
   if (baseConfigKey) return baseConfigKey;
 
-  // Priority 2: environment variable
-  const envKey = ENV_KEYS[providerId];
-  if (envKey) {
-    const envValue = process.env[envKey];
-    if (envValue) return envValue;
-  }
-
-  // Try base provider env key
-  const baseEnvKey = ENV_KEYS[baseProvider];
-  if (baseEnvKey) {
-    const envValue = process.env[baseEnvKey];
+  // Priority 2: environment variables, in the catalogue's own precedence order
+  const candidates =
+    envKeys && envKeys.length > 0 ? envKeys : envKeysFor(baseProvider);
+  for (const key of candidates) {
+    const envValue = process.env[key];
     if (envValue) return envValue;
   }
 
@@ -116,7 +122,7 @@ export function getApiKey(providerId: string): string {
   const configPathHint = `~/${path.join(".freecode", "config.json")}`;
   throw new Error(
     `API key for "${providerId}" not found. Set in ${configPathHint} under providers.${providerId}.apiKey ` +
-      `or set ${ENV_KEYS[baseProvider] || baseProvider.toUpperCase() + "_API_KEY"} environment variable.`,
+      `or set the ${candidates.join(" or ")} environment variable.`,
   );
 }
 
@@ -147,9 +153,7 @@ export function hasApiKey(providerId: string): boolean {
   const config = readConfig();
   if (config.providers?.[providerId]?.apiKey) return true;
   const baseProvider = providerId.replace(/-coding-plan$/, "");
-  const envKey = ENV_KEYS[baseProvider];
-  if (envKey && process.env[envKey]) return true;
-  return false;
+  return envKeysFor(baseProvider).some((key) => Boolean(process.env[key]));
 }
 
 export function setApiKey(

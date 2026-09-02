@@ -1,7 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as os from "os";
+import * as path from "path";
 import { traceToOtlp } from "./otlp.js";
+import { resetPricingCache } from "../providers/pricing.js";
 import type { ModelSpan, Trace } from "./trace.js";
+
+// These assert what an UNPRICED model emits, so they must not see models.dev's
+// rate card — it prices ~7000 models, including ones this file treats as
+// unknown. Pin the cache to a path that does not exist so pricing falls back
+// to the built-in table, which is fixed and known.
+process.env.FREECODE_MODELS_CACHE_FILE = path.join(
+  os.tmpdir(),
+  "freecode-otlp-test-no-such-cache.json",
+);
+resetPricingCache();
 
 interface Span {
   name: string;

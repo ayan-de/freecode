@@ -32,7 +32,8 @@ test("both OpenAI request paths are built by the same function", () => {
   );
 
   // Set in exactly one place, so the two paths cannot drift apart again.
-  const occurrences = genericProviderSrc.match(/promptCacheKey/g) ?? [];
+  // Assignments only — prose mentioning the field does not route a request.
+  const occurrences = genericProviderSrc.match(/promptCacheKey:/g) ?? [];
   assert.equal(
     occurrences.length,
     1,

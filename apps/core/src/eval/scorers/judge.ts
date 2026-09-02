@@ -193,7 +193,7 @@ async function oneShot(
   // agent's session — so its spend is invisible unless priced here. An
   // unpriced judge model yields `undefined`, which reports as "unknown"
   // rather than as free.
-  const model = input.judge.model ?? provider.info.defaultModel;
+  const model = input.judge.model ?? provider.info.defaultModel ?? "";
   return {
     text: result.content ?? "",
     costUsd: priceUsd(input.judge.provider, model, {

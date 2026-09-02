@@ -19,7 +19,7 @@
 // =============================================================================
 
 import { createHash } from "crypto";
-import { PRICES_AS_OF, priceUsd, totalUsd } from "../providers/pricing.js";
+import { pricesAsOf, priceUsd, totalUsd } from "../providers/pricing.js";
 import type { ModelSpan, Trace } from "./trace.js";
 
 type AttrValue = string | number | boolean;
@@ -167,7 +167,7 @@ export function traceToOtlp(trace: Trace, serviceName = "freecode"): unknown {
         "gen_ai.usage.cache_read_input_tokens": trace.cacheReadTokens,
         "gen_ai.usage.cost": sessionCost(trace),
         "freecode.cost_partial": totalUsd(trace.modelSpans)?.partial,
-        "freecode.prices_as_of": PRICES_AS_OF,
+        "freecode.prices_as_of": pricesAsOf(),
         "freecode.model_ms": trace.model_ms,
         "freecode.tool_ms": trace.tool_ms,
         "freecode.hung": trace.hung,

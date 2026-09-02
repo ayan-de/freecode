@@ -51,19 +51,46 @@ export function providerRequiresApiKey(id: ProviderId): boolean {
   return registry.get(id)?.info.requiresApiKey !== false;
 }
 
-export async function initProviders(): Promise<void> {
-  const { PROVIDER_CATALOGUE } = await import("./catalogue.js");
-  const { createGenericProvider } = await import("./generic-provider.js");
-  for (const entry of PROVIDER_CATALOGUE) {
+let initialized: Promise<void> | undefined;
+
+/**
+ * Registers every provider, once.
+ *
+ * Memoized rather than idempotent-by-luck: this is called from three
+ * entrypoints (`server.ts`, `cli/commands/run.ts`, `eval/runner.ts`) and again
+ * eagerly by `providers/index.ts` on import, and awaiting the same promise is
+ * what makes "has registration finished?" answerable. Repeating the work was
+ * harmless — `registerProvider` is a Map set — but a second caller could
+ * previously observe a half-populated registry while the first was still
+ * awaiting its dynamic imports.
+ *
+ * Not memoized on failure, so a transient import error does not permanently
+ * leave the process with no providers.
+ */
+export function initProviders(): Promise<void> {
+  if (!initialized) {
+    initialized = registerAll().catch((err) => {
+      initialized = undefined;
+      throw err;
+    });
+  }
+  return initialized;
+}
+
+async function registerAll(): Promise<void> {
+  const { resolveCatalogue } = await import("./catalogue.js");
+  const { createGenericProvider, providerInfoFor } = await import(
+    "./generic-provider.js"
+  );
+  // Every provider models.dev names that freecode carries an SDK for — ~198 of
+  // its 212. `providers.list` (server.ts) has always offered the full
+  // models.dev list to the picker, so anything narrower here is what produced
+  // `Provider "x" not registered` at send time on a provider the user was
+  // invited to choose. Registration is metadata only: the SDK is imported and
+  // the API key read on first request, so an unused provider costs nothing.
+  for (const entry of resolveCatalogue()) {
     registerProvider(entry.id, {
-      info: {
-        id: entry.id,
-        name: entry.name,
-        defaultModel: entry.defaultModel,
-        supportsStreaming: true,
-        supportsTools: true,
-        maxOutputTokens: entry.maxOutputTokens,
-      },
+      info: providerInfoFor(entry),
       create: () => createGenericProvider(entry),
     });
   }

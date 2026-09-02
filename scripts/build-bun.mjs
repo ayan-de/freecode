@@ -63,6 +63,13 @@ const args = [
   "electron",
   "--external",
   "chromium-bidi/*",
+  // Same shape, different package: @anush008/tokenizers (via fastembed) has a
+  // platform-specific optionalDependency per OS, and pnpm installs only the
+  // one matching this machine — the other two are dangling symlinks. bun's
+  // bundler statically resolves all three branches of the package's platform
+  // switch and fails on the missing ones, which is why `pnpm build:bun` has
+  // been failing outright. Externalize every platform but the one being built.
+  ...foreignTokenizerExternals(target),
   "--define",
   `process.env.FREECODE_BUILD_VERSION=${JSON.stringify(pkg.version)}`,
   // Baked so the TUI spawns its backend by re-exec'ing this binary (`__core`)
@@ -75,6 +82,7 @@ args.push("--outfile", outfile, resolve(repoRoot, "apps/tui/src/entry.ts"));
 
 // Preflight before the (slow) compile: refuse to package without the SPA.
 assertWebUiBuilt();
+assertCoreBuilt();
 
 console.log(
   `[bun] compiling self-contained binary${target ? ` (${target})` : ""}...`,
@@ -104,6 +112,79 @@ copyOnnxSharedLibs(outfile, target);
 // fatal on a phone, whose client has no UI of its own and renders this
 // bundle in a WebView. Hence the hard failure rather than a warning.
 copyWebUi(outfile);
+
+/**
+ * `--external` flags for the @anush008/tokenizers bindings that do NOT match
+ * the build target.
+ *
+ * The target's own binding stays bundled — `bun build --compile` embeds .node
+ * addons, which is how onnxruntime_binding.node already travels. Only the
+ * other platforms' packages need excluding, and they are never loaded at
+ * runtime anyway: the package picks one by `process.platform`.
+ */
+function foreignTokenizerExternals(buildTarget) {
+  const platform = buildTarget
+    ? buildTarget.includes("windows")
+      ? "win32"
+      : buildTarget.includes("darwin")
+        ? "darwin"
+        : "linux"
+    : process.platform;
+
+  const byPlatform = {
+    win32: "@anush008/tokenizers-win32-x64-msvc",
+    darwin: "@anush008/tokenizers-darwin-universal",
+    linux: "@anush008/tokenizers-linux-x64-gnu",
+  };
+  const keep = byPlatform[platform] ?? byPlatform.linux;
+  return Object.values(byPlatform)
+    .filter((pkg) => pkg !== keep)
+    .flatMap((pkg) => ["--external", pkg]);
+}
+
+/**
+ * The TUI depends on `@thisisayande/freecode-core` as a workspace package, so
+ * bun bundles apps/core/**dist**, not apps/core/src. A stale dist produces a
+ * binary that compiles, runs, and quietly behaves like whenever core was last
+ * built — no error anywhere. The release workflow builds core first
+ * (.github/workflows/release.yml), so this is aimed at local packaging, where
+ * `node scripts/build-bun.mjs` on its own looks like it should be enough.
+ *
+ * Compares mtimes rather than trying to typecheck: the question is only
+ * "is dist older than src", which is exactly the failure.
+ */
+function assertCoreBuilt() {
+  const dist = resolve(repoRoot, "apps/core/dist/server.js");
+  if (!existsSync(dist)) {
+    throw new Error(
+      "apps/core/dist/server.js missing — run `pnpm --filter " +
+        "@thisisayande/freecode-core build` first. bun bundles core's dist, " +
+        "not its src.",
+    );
+  }
+  const distTime = statSync(dist).mtimeMs;
+  const newest = newestMtime(resolve(repoRoot, "apps/core/src"));
+  if (newest > distTime) {
+    throw new Error(
+      "apps/core/dist is older than apps/core/src — run `pnpm --filter " +
+        "@thisisayande/freecode-core build` first. bun bundles core's dist, " +
+        "so packaging now would silently ship the previous build.",
+    );
+  }
+}
+
+function newestMtime(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, newestMtime(full));
+    } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+      newest = Math.max(newest, statSync(full).mtimeMs);
+    }
+  }
+  return newest;
+}
 
 function webUiSrc() {
   return resolve(repoRoot, "apps/web-app/dist");

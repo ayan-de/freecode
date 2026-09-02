@@ -2,14 +2,59 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import https from "https";
 import { OUTPUT_TOKEN_CAP } from "./providers/utils.js";
+import { canonicalProviderId } from "./providers/canonical-id.js";
 
-const MODELS_DEV_URL = "https://models.dev/api.json";
+/**
+ * Where the catalogue comes from. `FREECODE_MODELS_URL` redirects it — for an
+ * air-gapped install pointing at an internal mirror, and for tests that must
+ * not reach the network. (opencode carries the same seam as
+ * `OPENCODE_MODELS_URL`, and defaults to a mirror it controls rather than
+ * models.dev directly.)
+ */
+function modelsUrl(): string {
+  return process.env.FREECODE_MODELS_URL ?? "https://models.dev/api.json";
+}
+
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * Give up on a single attempt after this long.
+ *
+ * `FREECODE_MODELS_TIMEOUT_MS` overrides it.
+ *
+ * Without it a hung connection hangs forever: `https.get` has no default
+ * timeout, and this feed is now on the path of the model picker, provider
+ * identity, and pricing. A stalled socket would leave all three waiting on a
+ * response that never comes, with no error to fall back from.
+ */
+function fetchTimeoutMs(): number {
+  const raw = Number(process.env.FREECODE_MODELS_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
+}
+
+/** Attempts per fetch. Transient 5xx and dropped sockets are common enough
+ *  that one failure should not push every caller onto the stale-cache path. */
+const FETCH_ATTEMPTS = 3;
+
 const CACHE_DIR = path.join(os.homedir(), ".freecode", "cache");
-const CACHE_FILE = path.join(CACHE_DIR, "models-dev.json");
+
+/**
+ * Where the models.dev response is cached.
+ *
+ * `FREECODE_MODELS_CACHE_FILE` redirects it, which is what makes anything
+ * reading this cache testable — `providers/pricing.ts` now derives rates from
+ * it, and a test that asserts a price must not depend on whether the developer
+ * running it happens to have opened the model picker. (opencode carries the
+ * same seam as `OPENCODE_MODELS_PATH`.) Resolved per call, not once at import,
+ * so a test can set it after this module is loaded.
+ */
+function cacheFile(): string {
+  return (
+    process.env.FREECODE_MODELS_CACHE_FILE ??
+    path.join(CACHE_DIR, "models-dev.json")
+  );
+}
 
 /** Token limits for a model, as reported by models.dev. */
 export interface ModelLimit {
@@ -19,12 +64,22 @@ export interface ModelLimit {
   output: number;
 }
 
+/** USD per million tokens, as models.dev publishes them. */
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 export interface ProviderModel {
   id: string;
   name: string;
   description?: string;
   /** Present when models.dev reports limits for this model. */
   limit?: ModelLimit;
+  /** Present when models.dev publishes a rate card for this model. */
+  cost?: ModelCost;
   /** Input modalities, e.g. ["text", "image", "pdf"]. Absent if unreported. */
   inputModalities?: string[];
 }
@@ -34,6 +89,15 @@ export interface Provider {
   name: string;
   description?: string;
   models: ProviderModel[];
+  /**
+   * SDK package name, custom endpoint, and env var names, as models.dev
+   * publishes them. Carried through so `providers/catalogue.ts` can construct
+   * a provider from this data instead of a hand-maintained table; absent on a
+   * cache written before that existed.
+   */
+  npm?: string;
+  api?: string;
+  env?: string[];
 }
 
 let cache: { data: Provider[]; timestamp: number } | null = null;
@@ -46,8 +110,9 @@ function ensureCacheDir(): void {
 
 function loadFromDisk(): Provider[] | null {
   try {
-    if (!fs.existsSync(CACHE_FILE)) return null;
-    const content = fs.readFileSync(CACHE_FILE, "utf-8");
+    const file = cacheFile();
+    if (!fs.existsSync(file)) return null;
+    const content = fs.readFileSync(file, "utf-8");
     const cached = JSON.parse(content);
     if (Date.now() - cached.timestamp > CACHE_TTL_MS) return null;
     return cached.data;
@@ -59,70 +124,155 @@ function loadFromDisk(): Provider[] | null {
 function saveToDisk(providers: Provider[]): void {
   ensureCacheDir();
   fs.writeFileSync(
-    CACHE_FILE,
+    cacheFile(),
     JSON.stringify({ data: providers, timestamp: Date.now() }, null, 2),
   );
 }
 
-async function fetchFromNetwork(): Promise<Provider[]> {
-  return new Promise((resolve, reject) => {
-    https
-      .get(MODELS_DEV_URL, (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const raw = JSON.parse(data);
-            const providers: Provider[] = [];
+/**
+ * The disk cache regardless of its TTL, for callers that need an answer
+ * without a network round trip.
+ *
+ * `loadFromDisk` returns null once the cache is 5 minutes old, which is right
+ * for the model picker — a stale model list is a wrong model list. It is wrong
+ * for provider *identity*, which changes on the order of months: a five-minute
+ * expiry there would mean falling back to the shipped snapshot on almost every
+ * run, discarding a cache that is still correct.
+ */
+export function readCachedProviders(): Provider[] | null {
+  if (cache) return cache.data;
+  try {
+    const file = cacheFile();
+    if (!fs.existsSync(file)) return null;
+    const cached = JSON.parse(fs.readFileSync(file, "utf-8"));
+    return Array.isArray(cached?.data) ? (cached.data as Provider[]) : null;
+  } catch {
+    return null;
+  }
+}
 
-            for (const [rawProviderId, providerData] of Object.entries(raw)) {
-              const p = providerData as any;
-              if (!p || !p.models) continue;
-              // models.dev calls Google's provider "google"; our registry
-              // registers it as "gemini" (providers/catalogue.ts).
-              const providerId =
-                rawProviderId === "google" ? "gemini" : rawProviderId;
+/** When the disk cache was written, or null when there is none. */
+export function readCachedProvidersWrittenAt(): Date | null {
+  try {
+    const file = cacheFile();
+    if (!fs.existsSync(file)) return null;
+    const cached = JSON.parse(fs.readFileSync(file, "utf-8"));
+    return typeof cached?.timestamp === "number"
+      ? new Date(cached.timestamp)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
-              const models: ProviderModel[] = [];
-              for (const [modelId, modelData] of Object.entries(
-                p.models as Record<string, any>,
-              )) {
-                if (!modelData) continue;
-                models.push({
-                  id: modelId,
-                  name: modelData.name || modelId,
-                  description:
-                    modelData.description || modelData.name || modelId,
-                  limit:
-                    modelData.limit &&
-                    typeof modelData.limit.context === "number"
-                      ? {
-                          context: modelData.limit.context,
-                          output: modelData.limit.output ?? 0,
-                        }
-                      : undefined,
-                  inputModalities: Array.isArray(modelData.modalities?.input)
-                    ? (modelData.modalities.input as string[])
-                    : undefined,
-                });
-              }
-
-              providers.push({
-                id: providerId,
-                name: p.name || providerId,
-                description: p.description || p.name || providerId,
-                models,
-              });
-            }
-
-            resolve(providers);
-          } catch (err) {
-            reject(err);
-          }
-        });
-      })
-      .on("error", reject);
+/**
+ * One attempt: GET the catalogue as text, or throw.
+ *
+ * `fetch` rather than `https.get` — it carries a real timeout via
+ * `AbortSignal.timeout` instead of the socket-timeout dance, and it honours
+ * whatever protocol `FREECODE_MODELS_URL` names. That matters: an internal
+ * mirror for an air-gapped install is as likely to be plain http on a private
+ * network as it is to be https.
+ */
+async function fetchOnce(url: string): Promise<string> {
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(fetchTimeoutMs()),
+    headers: { accept: "application/json" },
   });
+  if (!res.ok) {
+    throw new Error(`models.dev returned ${res.status}`);
+  }
+  return await res.text();
+}
+
+async function fetchFromNetwork(): Promise<Provider[]> {
+  const url = modelsUrl();
+  let lastError: unknown;
+  let body: string | undefined;
+  for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt++) {
+    try {
+      body = await fetchOnce(url);
+      break;
+    } catch (err) {
+      lastError = err;
+      // Exponential backoff, so a provider having a bad second is not treated
+      // the same as one that is down.
+      if (attempt < FETCH_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, 200 * 2 ** attempt));
+      }
+    }
+  }
+  if (body === undefined) throw lastError;
+  return parseCatalogue(body);
+}
+
+/** models.dev's api.json -> the shape the rest of freecode reads. */
+function parseCatalogue(body: string): Provider[] {
+  const raw = JSON.parse(body);
+  const providers: Provider[] = [];
+
+  for (const [rawProviderId, providerData] of Object.entries(raw)) {
+    const p = providerData as any;
+    if (!p || !p.models) continue;
+    // models.dev calls Google's provider "google"; freecode's ids
+    // are its own (pricing keys, config.json, rollout history), so
+    // the rename happens here at the boundary. The table lives in
+    // providers/catalogue.ts — a second copy of it here is how one
+    // rename becomes two vocabularies again, which is the bug this
+    // whole subsystem exists to have ended.
+    const providerId = canonicalProviderId(rawProviderId);
+
+    const models: ProviderModel[] = [];
+    for (const [modelId, modelData] of Object.entries(
+      p.models as Record<string, any>,
+    )) {
+      if (!modelData) continue;
+      models.push({
+        id: modelId,
+        name: modelData.name || modelId,
+        description: modelData.description || modelData.name || modelId,
+        limit:
+          modelData.limit && typeof modelData.limit.context === "number"
+            ? {
+                context: modelData.limit.context,
+                output: modelData.limit.output ?? 0,
+              }
+            : undefined,
+        cost:
+          modelData.cost &&
+          typeof modelData.cost.input === "number" &&
+          typeof modelData.cost.output === "number"
+            ? {
+                input: modelData.cost.input,
+                output: modelData.cost.output,
+                cacheRead:
+                  typeof modelData.cost.cache_read === "number"
+                    ? modelData.cost.cache_read
+                    : undefined,
+                cacheWrite:
+                  typeof modelData.cost.cache_write === "number"
+                    ? modelData.cost.cache_write
+                    : undefined,
+              }
+            : undefined,
+        inputModalities: Array.isArray(modelData.modalities?.input)
+          ? (modelData.modalities.input as string[])
+          : undefined,
+      });
+    }
+
+    providers.push({
+      id: providerId,
+      name: p.name || providerId,
+      description: p.description || p.name || providerId,
+      models,
+      ...(typeof p.npm === "string" ? { npm: p.npm } : {}),
+      ...(typeof p.api === "string" ? { api: p.api } : {}),
+      ...(Array.isArray(p.env) ? { env: p.env as string[] } : {}),
+    });
+  }
+
+  return providers;
 }
 
 export async function getProviders(forceRefresh = false): Promise<Provider[]> {
