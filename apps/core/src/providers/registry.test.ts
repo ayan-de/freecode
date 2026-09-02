@@ -16,7 +16,13 @@ test("initProviders registers all six catalogue providers plus gemini-web", asyn
   ]);
 });
 
-test("getProvider('gemini') resolves without throwing 'not registered'", async () => {
+test("getProvider('gemini') resolves without throwing 'not registered'", async (t) => {
+  const hadKey = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = "test-key";
+  t.after(() => {
+    if (hadKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = hadKey;
+  });
   await initProviders();
   const provider = getProvider("gemini" as any);
   assert.equal(provider.info.id, "gemini");
