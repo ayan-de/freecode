@@ -1,7 +1,9 @@
 # Harness Cost Efficiency
 
 > **Date:** 2026-09-04
-> **Status:** Proposed — D1 built 2026-09-04; D2–D6 unbuilt
+> **Status:** Proposed — D1 built 2026-09-04; D4's regression guard (the
+> parallel-batching trajectory case) built 2026-09-04; D2, D3, D4's
+> compression itself, and D6 unbuilt
 > **Source:** GitHub's Copilot harness work — "How we make AI coding more
 > cost-efficient without sacrificing task quality" (github.blog, 2025).
 > **Builds on:** `2026-08-05-token-efficiency.md` (built — its header still says
@@ -144,6 +146,14 @@ with two hard guards before any variant ships:
    encodes Copilot's serialization regression as a permanent regression test —
    it guards every future prompt edit, not just this one, and it is the eval
    case this suite should have had since 2026-08-05 D2 anyway.
+
+   **Built 2026-09-04**: `expectParallelTools` (`eval/types.ts`, scored in
+   `scorers/trajectory.ts` off `ModelSpan.toolCalls` — what the response
+   *emitted*, not what ran, so a denied batch still counts as batching;
+   `dataset.ts` rejects values < 2 as asserting nothing) + case
+   `parallel-batch-two-reads` in `evals/trajectory.jsonl`. Not yet run against
+   a live model — per Testing D4 it must be seen passing on the current prompt
+   before any compression lands.
 2. The full `eval:gate` ritual on the compressed variant.
 
 Measure the recurring block first (tokens of tools JSON + system prompt as

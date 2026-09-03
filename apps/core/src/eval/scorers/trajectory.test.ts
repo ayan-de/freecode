@@ -53,6 +53,34 @@ function run(toolSpans: ToolSpan[], modelSpans = [modelSpan()]): RunRecord {
 
 const kase = (over: Partial<EvalCase>): EvalCase => ({ id: "c", prompt: "p", ...over });
 
+test("expectParallelTools passes when one turn emitted a batch", () => {
+  const spans = [
+    { ...modelSpan(), toolCalls: ["read", "read", "grep"] },
+    modelSpan(),
+  ];
+  const score = scoreTrajectory(
+    run([tool("read"), tool("read"), tool("grep")], spans),
+    kase({ expectParallelTools: 2 }),
+  );
+  assert.equal(score.passed, true);
+});
+
+test("expectParallelTools fails when every turn emitted one call", () => {
+  // The serialization regression this expectation exists for: same tools, same
+  // count, one per response (spec 2026-09-04-harness-cost-efficiency.md D4).
+  const spans = [
+    { ...modelSpan(), toolCalls: ["read"] },
+    { ...modelSpan(), toolCalls: ["read"] },
+    modelSpan(),
+  ];
+  const score = scoreTrajectory(
+    run([tool("read"), tool("read")], spans),
+    kase({ expectParallelTools: 2 }),
+  );
+  assert.equal(score.passed, false);
+  assert.match(score.reason, /largest batch was 1/);
+});
+
 test("passes when the expected tool fired", () => {
   const score = scoreTrajectory(run([tool("grep")]), kase({ expectTool: "grep" }));
   assert.equal(score.passed, true);

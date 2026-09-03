@@ -106,6 +106,24 @@ test("rejects a non-integer expectMaxTurns", () => {
   );
 });
 
+test("rejects expectParallelTools below 2", () => {
+  // 1 asserts nothing: every response with a tool call is a "batch" of 1.
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectParallelTools":1}`,
+      ),
+    (e: Error) => e instanceof DatasetError && /integer >= 2/.test(e.message),
+  );
+});
+
+test("expectParallelTools alone is an assertion", () => {
+  const cases = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectParallelTools":2}`,
+  );
+  assert.equal(cases[0].expectParallelTools, 2);
+});
+
 test("rejects a mutating agent mode while there is no sandbox", () => {
   // forbidTools scores a mutation; it cannot prevent one. Mode does.
   assert.throws(

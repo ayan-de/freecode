@@ -34,6 +34,22 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
     }
   }
 
+  // Batching is scored off `ModelSpan.toolCalls` (what the response emitted),
+  // not `toolSpans` (what ran) — a batch the permission layer then denied
+  // still batched.
+  if (kase.expectParallelTools !== undefined) {
+    const most = Math.max(
+      0,
+      ...run.trace.modelSpans.map((s) => s.toolCalls.length),
+    );
+    if (most < kase.expectParallelTools) {
+      return fail(
+        `expected a turn with >= ${kase.expectParallelTools} parallel tool ` +
+          `calls, largest batch was ${most}`,
+      );
+    }
+  }
+
   // `expectTool: null` asserts that nothing fired — the "just answer, don't
   // go rummaging" case, which is a real regression when it breaks.
   if (kase.expectTool === null) {

@@ -125,6 +125,16 @@ export interface EvalCase {
    */
   expectBashMatches?: string;
   expectMaxTurns?: number;
+  /**
+   * At least one model turn must emit this many tool calls in ONE response.
+   * Guards the parallel-batching behaviour the system prompt asks for
+   * (`2026-08-05-token-efficiency.md` D2): a prompt edit can silently
+   * serialize the loop back to one-call-per-turn, and nothing deterministic
+   * catches it because whether the model batches is the model's choice (spec
+   * `2026-09-04-harness-cost-efficiency.md` D4). Reads `ModelSpan.toolCalls`
+   * — a property of the response as emitted, not of which calls ran.
+   */
+  expectParallelTools?: number;
   forbidTools?: string[];
 
   // --- outcome expectations (spec §4, §6.1) -------------------------------

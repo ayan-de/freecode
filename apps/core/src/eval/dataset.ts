@@ -111,6 +111,7 @@ function validate(raw: unknown, where: string): EvalCase {
     expectFirstToolIn !== undefined ||
     expectBashMatches !== undefined ||
     o.expectMaxTurns !== undefined ||
+    o.expectParallelTools !== undefined ||
     o.verify !== undefined ||
     o.rubric !== undefined ||
     (Array.isArray(o.forbidTools) && o.forbidTools.length > 0);
@@ -121,6 +122,15 @@ function validate(raw: unknown, where: string): EvalCase {
     const n = o.expectMaxTurns;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
       throw new DatasetError(`${where}: 'expectMaxTurns' must be an integer >= 1`);
+    }
+  }
+  // < 2 asserts nothing: every response with a tool call is a "batch" of 1.
+  if (o.expectParallelTools !== undefined) {
+    const n = o.expectParallelTools;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 2) {
+      throw new DatasetError(
+        `${where}: 'expectParallelTools' must be an integer >= 2`,
+      );
     }
   }
   const files = validateFiles(o.files, where);
@@ -164,6 +174,7 @@ function validate(raw: unknown, where: string): EvalCase {
     expectInArgs: o.expectInArgs as EvalCase["expectInArgs"],
     expectBashMatches,
     expectMaxTurns: o.expectMaxTurns as number | undefined,
+    expectParallelTools: o.expectParallelTools as number | undefined,
     forbidTools: Array.isArray(o.forbidTools)
       ? (o.forbidTools as string[])
       : undefined,

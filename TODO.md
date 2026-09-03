@@ -1093,16 +1093,6 @@ long-running sessions survivable. Ranked as the doc's §"Recommended sequencing"
 
 Found while writing `specs/2026-09-04-harness-cost-efficiency.md`.
 
-### Real fixes
-
-- [ ] **`2026-08-05-token-efficiency.md` header still says Proposed** — it is fully
-      built (PruneState, compact target, IMAGE_TOKEN_COST, MAX_TURN_TOKENS, the
-      time-based microcompact deleted). Flip Status to Built.
-- [ ] **No trajectory case asserts parallel tool batching** — the parallelism
-      instruction from 2026-08-05 D2 is load-bearing and unguarded; any prompt edit
-      can silently serialize the loop. Spec D4 adds the case; it should land before
-      any prompt compression does.
-
 ### Deliberate — do NOT "fix"
 
 - **Eval efficiency stays warn-only** (`scorers/efficiency.ts`). Cost moves when
