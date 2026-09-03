@@ -1,0 +1,15 @@
+{
+  "id": "claude-code",
+  "versionCmd": ["claude", "--version"],
+  "run": [
+    "claude",
+    "-p",
+    "{prompt}",
+    "--dangerously-skip-permissions",
+    "--model",
+    "{model}"
+  ],
+  "model": "sonnet",
+  "autonomy": "--dangerously-skip-permissions: all permission checks bypassed",
+  "notes": "PHASE 0 ONLY — `sonnet` is an alias that tracks the latest Sonnet, so it is not pinned and will silently change under you. Phase 2 must replace it with a dated id. Verified against claude 2.1.251; `--permission-mode bypassPermissions` is the equivalent longer form."
+}

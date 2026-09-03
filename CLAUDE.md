@@ -20,6 +20,7 @@ This codebase follows `docs/superpowers/specs/2026-05-25-architecture-v4.md` (su
 | **Trace (commands)** | **`TRACE.md`** — `freecode trace` flags, how to read the waterfall |
 | Eval harness        | `specs/2026-08-23-eval-harness.md` (Phases 0–5, built) + `specs/2026-08-29-eval-case-registry.md` |
 | **Eval (commands)** | **`EVAL.md`** — which command, which flag, when to run it |
+| Agent comparison    | `specs/2026-09-03-agent-comparison-benchmark.md` — freecode vs Claude Code/Codex/OpenCode. **Design only, nothing built.** Deliberately outside `eval/`: only `scorers/outcome.ts` is agent-agnostic |
 | Hooks               | `apps/core/src/hooks/hooks-system.md`                   |
 
 ## Implemented Subsystems

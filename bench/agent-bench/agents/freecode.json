@@ -1,0 +1,18 @@
+{
+  "id": "freecode",
+  "versionCmd": ["freecode", "--version"],
+  "run": [
+    "freecode",
+    "run",
+    "{prompt}",
+    "--model",
+    "{model}",
+    "--agent",
+    "danger",
+    "--max-turns",
+    "40"
+  ],
+  "model": "minimax/MiniMax-M3",
+  "autonomy": "--agent danger: no permission prompts",
+  "notes": "PHASE 0 ONLY — the model is whatever ~/.freecode/config.json is authed for, NOT a model claude-code can also run. No number from this adapter is comparable until spec §12.1 is answered. `--agent build` would deny every write headlessly (permission/prompt.ts), which is why danger is the parity setting, not a shortcut. Sessions and memory still land in ~/.freecode and carry between trials; the container (Phase 1) is what fixes that."
+}
