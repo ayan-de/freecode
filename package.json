@@ -20,7 +20,8 @@
     "bench:memory-multi": "python3 scripts/bench_memory.py --sessions 10 --json-out apps/web/app/data/results-10.json",
     "release": "pnpm build && pnpm publish -r --access public",
     "gen:catalogue": "node scripts/gen-provider-catalogue.mjs",
-    "gen:catalogue:check": "node scripts/gen-provider-catalogue.mjs --check"
+    "gen:catalogue:check": "node scripts/gen-provider-catalogue.mjs --check",
+    "bench:agents": "tsx bench/agent-bench/runner/run.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

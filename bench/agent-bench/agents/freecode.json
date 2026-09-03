@@ -1,0 +1,18 @@
+{
+  "id": "freecode",
+  "versionCmd": ["freecode", "--version"],
+  "run": [
+    "freecode",
+    "run",
+    "{prompt}",
+    "--model",
+    "{model}",
+    "--agent",
+    "danger",
+    "--max-turns",
+    "40"
+  ],
+  "model": "minimax/MiniMax-M3",
+  "autonomy": "--agent danger: no permission prompts",
+  "notes": "MiniMax-M3 is the pinned shared model (spec §12.1, answered 2026-09-03): every agent reaches it on the same key, freecode natively and the others through MiniMax's Anthropic-compatible endpoint. `--agent danger` is the parity setting, not a shortcut — `build` denies every write headlessly (permission/prompt.ts). Sessions and memory still land in ~/.freecode and carry between trials; the container (Phase 1) is what fixes that."
+}

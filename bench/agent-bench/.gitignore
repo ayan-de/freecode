@@ -1,0 +1,7 @@
+# Fetched SWE-bench rows and the ~250MB django mirror. Regenerated on demand.
+.cache/
+
+# Trial artifacts: patches, full transcripts, container logs. Deliberately not
+# committed — a transcript is exactly the kind of thing that gets reviewed
+# before it becomes public (spec §8).
+results/

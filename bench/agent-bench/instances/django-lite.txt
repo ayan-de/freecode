@@ -1,0 +1,21 @@
+# SWE-bench Lite — django/django working set.
+#
+# The first ten instance ids in lexical order. Chosen mechanically, and said out
+# loud here so nobody has to take it on faith that they were not cherry-picked.
+# The full repo subset is 114 instances; regenerate the cache with
+#   tsx bench/agent-bench/runner/fetch.ts
+#
+# Phase 0 runs one (pass --instances). Phase 2 runs five. Phase 3 runs all ten,
+# which is the prior art's sample size — and still a demo, not a leaderboard
+# (spec §10.1).
+
+django__django-10914
+django__django-10924
+django__django-11001
+django__django-11019
+django__django-11039
+django__django-11049
+django__django-11099
+django__django-11133
+django__django-11179
+django__django-11283

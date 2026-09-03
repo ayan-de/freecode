@@ -1,0 +1,131 @@
+{
+  "slug": "freecode-vs-claude-code",
+  "generatedAt": "2026-09-03T19:18:04.474Z",
+  "runId": "2026-09-03T18-56-04-591Z",
+  "runs": [
+    {
+      "runId": "2026-09-03T18-56-04-591Z",
+      "generatedAt": "2026-09-03T19:18:04.474Z",
+      "agents": [
+        "freecode",
+        "claude-code"
+      ]
+    },
+    {
+      "runId": "2026-09-03T17-16-00-532Z",
+      "generatedAt": "2026-09-03T19:18:03.032Z",
+      "agents": [
+        "freecode",
+        "claude-code"
+      ]
+    },
+    {
+      "runId": "2026-09-03T16-51-56-681Z",
+      "generatedAt": "2026-09-03T19:18:02.016Z",
+      "agents": [
+        "freecode",
+        "claude-code"
+      ]
+    }
+  ],
+  "phase": 0,
+  "isolation": "none",
+  "graded": false,
+  "taskSet": {
+    "name": "SWE-bench Lite",
+    "repo": "django/django",
+    "instances": [
+      "django__django-10914",
+      "django__django-11001",
+      "django__django-11039"
+    ]
+  },
+  "agents": [
+    {
+      "id": "freecode",
+      "version": "0.28.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts"
+    },
+    {
+      "id": "claude-code",
+      "version": "2.1.251 (Claude Code)",
+      "model": "MiniMax-M3",
+      "autonomy": "--dangerously-skip-permissions: all permission checks bypassed"
+    }
+  ],
+  "results": [
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-10914",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 29849,
+      "patchBytes": 625,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T16-51-56-681Z"
+    },
+    {
+      "agent": "claude-code",
+      "instanceId": "django__django-10914",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 9729,
+      "patchBytes": 625,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T16-51-56-681Z"
+    },
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-11001",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 88054,
+      "patchBytes": 543,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T17-16-00-532Z"
+    },
+    {
+      "agent": "claude-code",
+      "instanceId": "django__django-11001",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 28892,
+      "patchBytes": 1386,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T17-16-00-532Z"
+    },
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-11039",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 51984,
+      "patchBytes": 684,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T18-56-04-591Z"
+    },
+    {
+      "agent": "claude-code",
+      "instanceId": "django__django-11039",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 27050,
+      "patchBytes": 658,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T18-56-04-591Z"
+    }
+  ]
+}

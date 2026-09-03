@@ -1,0 +1,6 @@
+{
+  "name": "agent-bench",
+  "private": true,
+  "type": "module",
+  "//": "ESM only, and outside the pnpm workspace globs (apps/*, packages/*) on purpose. The root package is CJS, which would strip import.meta.dirname and top-level await out from under this harness. Nothing here is published or imported by apps/core — the duplication with apps/core/src/eval is deliberate (spec §4)."
+}

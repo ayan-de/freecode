@@ -1,0 +1,19 @@
+{
+  "id": "opencode",
+  "versionCmd": ["opencode", "--version"],
+  "run": [
+    "opencode",
+    "run",
+    "--pure",
+    "--auto",
+    "--model",
+    "{model}",
+    "{prompt}"
+  ],
+  "model": "minimax/MiniMax-M3",
+  "autonomy": "--auto: approves every permission not explicitly denied",
+  "env": {
+    "XDG_CONFIG_HOME": "{benchDir}/empty-config"
+  },
+  "notes": "Same MiniMax-M3 on the same key — opencode resolves minimax/MiniMax-M3 from models.dev and reads MINIMAX_API_KEY from the environment, so no endpoint override is needed. XDG_CONFIG_HOME is a FAIRNESS correction, not tuning: without it opencode loads ~/.config/opencode/opencode.json and every MCP server in it, which on this machine gave it nine tools freecode does not have (contextcarry x7, figma x2). Measured, not assumed — asking it to list its tools returned 19 with the operator's config and 10 without. Neither --pure nor OPENCODE_CONFIG suppresses MCP; only XDG_CONFIG_HOME does. --pure additionally drops external plugins. Verified against opencode 1.18.25."
+}

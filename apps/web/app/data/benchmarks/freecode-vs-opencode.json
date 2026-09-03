@@ -1,0 +1,106 @@
+{
+  "slug": "freecode-vs-opencode",
+  "generatedAt": "2026-09-03T19:44:56.247Z",
+  "runId": "2026-09-03T19-43-58-511Z",
+  "runs": [
+    {
+      "runId": "2026-09-03T19-43-58-511Z",
+      "generatedAt": "2026-09-03T19:44:56.247Z",
+      "agents": [
+        "freecode",
+        "opencode"
+      ]
+    },
+    {
+      "runId": "2026-09-03T18-13-43-378Z",
+      "generatedAt": "2026-09-03T19:18:04.064Z",
+      "agents": [
+        "freecode",
+        "opencode"
+      ]
+    },
+    {
+      "runId": "2026-09-03T17-57-44-575Z",
+      "generatedAt": "2026-09-03T19:18:03.571Z",
+      "agents": [
+        "freecode",
+        "opencode"
+      ]
+    }
+  ],
+  "phase": 0,
+  "isolation": "none",
+  "graded": false,
+  "taskSet": {
+    "name": "SWE-bench Lite",
+    "repo": "django/django",
+    "instances": [
+      "django__django-10914",
+      "django__django-11039"
+    ]
+  },
+  "agents": [
+    {
+      "id": "freecode",
+      "version": "0.28.0",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--agent danger: no permission prompts"
+    },
+    {
+      "id": "opencode",
+      "version": "1.18.25",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--auto: approves every permission not explicitly denied"
+    }
+  ],
+  "results": [
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-11039",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 29343,
+      "patchBytes": 684,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T18-13-43-378Z"
+    },
+    {
+      "agent": "opencode",
+      "instanceId": "django__django-11039",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 46768,
+      "patchBytes": 658,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T18-13-43-378Z"
+    },
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-10914",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 33848,
+      "patchBytes": 1099,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T19-43-58-511Z"
+    },
+    {
+      "agent": "opencode",
+      "instanceId": "django__django-10914",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 22245,
+      "patchBytes": 625,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T19-43-58-511Z"
+    }
+  ]
+}
