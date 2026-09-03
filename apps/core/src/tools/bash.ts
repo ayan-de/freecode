@@ -16,7 +16,6 @@ interface BashParams {
 }
 
 const DEFAULT_TIMEOUT = 60_000;
-const MAX_OUTPUT_BYTES = 500_000;
 
 // =============================================================================
 // Bash Schema
@@ -50,47 +49,6 @@ function validateBashInput(
     return { valid: false, error: "timeout must be a number" };
   }
   return { valid: true };
-}
-
-// =============================================================================
-// truncateOutput
-// =============================================================================
-
-function truncateOutput(
-  output: string,
-  maxBytes: number = MAX_OUTPUT_BYTES,
-): { text: string; truncated: boolean } {
-  const bytes = Buffer.byteLength(output, "utf-8");
-  if (bytes <= maxBytes) {
-    return { text: output, truncated: false };
-  }
-
-  const lines = output.split("\n");
-  const truncated: string[] = [];
-  let byteCount = 0;
-
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const lineBytes = Buffer.byteLength(lines[i], "utf-8") + 1;
-    if (byteCount + lineBytes > maxBytes) {
-      if (truncated.length === 0) {
-        const buf = Buffer.from(lines[i], "utf-8");
-        const available = maxBytes - byteCount - 5;
-        if (available > 0) {
-          truncated.unshift(
-            "..." + buf.subarray(buf.length - available).toString("utf-8"),
-          );
-        }
-      }
-      break;
-    }
-    truncated.unshift(lines[i]);
-    byteCount += lineBytes;
-  }
-
-  return {
-    text: truncated.join("\n") + "\n[output truncated]",
-    truncated: true,
-  };
 }
 
 // =============================================================================
@@ -232,14 +190,15 @@ export async function _executeBash(
         output = "(no output)";
       }
 
-      const truncated = truncateOutput(output);
-
+      // Returned untruncated: the orchestrator stores the full text in the
+      // OutputStore before any lossy cap, so the `output` tool can page the
+      // whole thing. Capping here would leave the store holding an
+      // already-cut copy (spec 2026-09-04-harness-cost-efficiency.md D1).
       const result = {
         title: params.command.split("\n")[0].slice(0, 50),
-        output: truncated.text,
+        output,
         metadata: {
           exitCode: code,
-          truncated: truncated.truncated,
           command: params.command,
           cwd,
         },

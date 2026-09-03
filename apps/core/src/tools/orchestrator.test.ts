@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createToolOrchestrator } from "./orchestrator.js";
 import { registerMcpTool, unregisterMcpTools } from "./index.js";
+import { getOutputStore, disposeOutputStore } from "./output-store/index.js";
+import type { ToolContext } from "./types.js";
 import type { Tool } from "./tool.types.js";
 
 // A tool that returns the structured `{ title, output, metadata }` shape that
@@ -66,6 +68,44 @@ test("orchestrator rejects a call missing a required schema param before execute
     assert.match(res.error ?? "", /Missing required param: title/);
   } finally {
     unregisterMcpTools("test-requires-title");
+  }
+});
+
+// D1 of spec 2026-09-04-harness-cost-efficiency.md: the OutputStore must
+// receive the FULL output — every lossy cap (model head+tail, UI tail-keep)
+// applies after the put, so the `output` tool can page the whole thing.
+// Regression: bash used to tail-cut at 500KB before the store ever saw it.
+const BIG = "x".repeat(600_000) + "\nLAST_LINE_MARKER";
+const bigOutputTool = {
+  id: "test-big-output",
+  description: "test",
+  schemas: { parameters: { type: "object", properties: {} } },
+  behavior: {},
+  execute: async () => ({
+    success: true,
+    result: { title: "big", output: BIG },
+  }),
+} as unknown as Tool;
+
+test("full output reaches the store; model and display copies are capped", async () => {
+  registerMcpTool(bigOutputTool);
+  const sessionId = "test-d1-store-before-cap";
+  const ctx: ToolContext = { cwd: process.cwd(), sessionId };
+  try {
+    const orch = createToolOrchestrator();
+    const res = await orch.execute(
+      { id: "call-big", tool: "test-big-output", args: {} } as any,
+      ctx,
+    );
+    assert.equal(getOutputStore(sessionId).get("call-big"), BIG);
+    assert.equal(res.truncated, true);
+    assert.ok((res.modelOutput ?? "").length < BIG.length);
+    assert.ok((res.displayOutput ?? "").length < BIG.length);
+    // Tail-keep on the display copy: the end survives, the head is pageable.
+    assert.ok(res.displayOutput?.endsWith("LAST_LINE_MARKER"));
+  } finally {
+    disposeOutputStore(sessionId);
+    unregisterMcpTools("test-big-output");
   }
 });
 

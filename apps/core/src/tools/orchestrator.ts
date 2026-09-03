@@ -21,6 +21,11 @@ import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
 import { coerceArgs } from "./coerce-args.js";
 import { logger } from "../utils/logger.js";
 
+// Cap on the UI-bound copy of a tool result (displayOutput/stdout). Formerly
+// bash's own 500KB pre-store cap; it lives here so it applies after the
+// OutputStore put and to every tool, not just bash.
+const MAX_DISPLAY_CHARS = 500_000;
+
 // =============================================================================
 // Orchestrator Interface
 // =============================================================================
@@ -273,14 +278,24 @@ export function createToolOrchestrator(
         // "re-run the tool" (spec D4) — never fatal, so this put is best-effort.
         if (ctx.sessionId) getOutputStore(ctx.sessionId).put(toolId, output);
         const { modelOutput, truncated } = adaptiveTruncate(output, toolId);
+        // The UI copy is capped only AFTER the put — the store must hold the
+        // full text or the `output` tool can never page past the cap
+        // (spec 2026-09-04-harness-cost-efficiency.md D1). Tail-keep: the end
+        // of tool output (errors, summaries) is worth more on screen than the
+        // head, which stays retrievable from the store.
+        const display =
+          output.length > MAX_DISPLAY_CHARS
+            ? `[showing last ${MAX_DISPLAY_CHARS} chars; full output available via the output tool]\n` +
+              output.slice(-MAX_DISPLAY_CHARS)
+            : output;
         return {
           id: `result-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           toolCallId: toolId,
           tool,
           title: structured?.title ?? toolDef.description,
-          displayOutput: output,
+          displayOutput: display,
           modelOutput,
-          stdout: output, // Legacy
+          stdout: display, // Legacy
           structuredData: structured?.metadata,
           truncated,
         };
