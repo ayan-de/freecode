@@ -78,17 +78,27 @@ results/<run>/report.json
 `results/` and `.cache/` are git-ignored. Transcripts get reviewed before they
 become public.
 
-Every run also writes **`apps/web/app/data/agent-bench.json`** and that is what
-the `/benchmark` page reads — so a finished run is already on the page, no extra
-step. It carries the numbers and the disclosures (version, model, autonomy,
+Every run also writes **`apps/web/app/data/benchmarks/<matchup>.json`** — one
+file per agent set, e.g. `freecode-vs-opencode.json` — and that is what the
+`/benchmark` page reads, one tab per file. A finished run is already on the
+page, with no extra step. It carries the numbers and the disclosures (version, model, autonomy,
 isolation, graded) and none of the transcripts, because `results/` does not
 exist on a deploy. Re-point the page at an older run without paying to re-run
 it:
 
 ```bash
-tsx bench/agent-bench/runner/publish.ts results/<run>
+tsx bench/agent-bench/runner/publish.ts results/<run> [--fresh]
 cd apps/web && pnpm dev        # http://localhost:3000/benchmark
 ```
+
+**A matchup is the unit of comparison, which is why it is the unit of storage.**
+Runs of the same agent set merge into one file, keyed by (agent, instance,
+trial) with the newest run winning; a run with a different agent set writes a
+different file rather than quietly widening an existing matchup with rows nobody
+measured side by side. Adding a pairing therefore adds a tab — `page.tsx` reads
+the directory at build time, so there is no import list to update. `--fresh`
+discards a matchup's history, which is the honest move whenever the meaning of
+its numbers changes: a new model, the grader landing, the container landing.
 
 The page refuses to flatter the data: while `graded` is false it labels the
 headline bar "Produced a patch", says in the footnote that everyone scores 100%
@@ -117,13 +127,14 @@ two unshipped ones will look like:**
 | freecode | local | `run "<p>" --model <p/m> --agent danger --max-turns 40` | yes |
 | claude | 2.1.251 | `-p "<p>" --dangerously-skip-permissions --model <m>` | yes |
 | codex | 0.151.0 | `exec --dangerously-bypass-approvals-and-sandbox --ephemeral --ignore-user-config` | Phase 3 |
-| opencode | 1.18.25 | `run --auto --model <p/m> "<p>"` | Phase 3 |
+| opencode | 1.18.25 | `run --pure --auto --model <p/m> "<p>"` + `XDG_CONFIG_HOME` | yes |
 
-Codex and OpenCode are held back only because there is no answer yet to *which
-model both they and freecode can be pinned to* (spec §12.1) — not because the
-invocation is unknown. Codex's `--ephemeral --ignore-user-config` is worth
-noting: it is exactly the "no config, no history carried between trials"
-property §6.3 wants, and the other three need a container to get it.
+Codex is the only one left, and only because nothing has verified which model it
+and freecode can both be pinned to (spec §12.1) — not because the invocation is
+unknown. Its `--ephemeral --ignore-user-config` is worth noting: that is exactly
+the "no config, no history carried between trials" property §6.3 wants, and the
+other three need a container to get it. opencode needed `XDG_CONFIG_HOME` for a
+weaker version of the same thing — see `empty-config/README.md`.
 
 ## 5. Known gaps — what Phase 0 does not do
 

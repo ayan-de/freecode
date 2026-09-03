@@ -1,49 +1,27 @@
 {
-  "generatedAt": "2026-09-03T19:05:48.188Z",
+  "slug": "freecode-vs-claude-code",
+  "generatedAt": "2026-09-03T19:18:04.474Z",
   "runId": "2026-09-03T18-56-04-591Z",
   "runs": [
     {
       "runId": "2026-09-03T18-56-04-591Z",
-      "generatedAt": "2026-09-03T19:05:48.188Z",
+      "generatedAt": "2026-09-03T19:18:04.474Z",
       "agents": [
         "freecode",
         "claude-code"
-      ]
-    },
-    {
-      "runId": "2026-09-03T18-13-43-378Z",
-      "generatedAt": "2026-09-03T19:05:47.861Z",
-      "agents": [
-        "freecode",
-        "opencode"
-      ]
-    },
-    {
-      "runId": "2026-09-03T17-57-44-575Z",
-      "generatedAt": "2026-09-03T19:05:47.533Z",
-      "agents": [
-        "freecode",
-        "opencode"
       ]
     },
     {
       "runId": "2026-09-03T17-16-00-532Z",
-      "generatedAt": "2026-09-03T19:05:47.220Z",
+      "generatedAt": "2026-09-03T19:18:03.032Z",
       "agents": [
         "freecode",
-        "claude-code"
-      ]
-    },
-    {
-      "runId": "2026-09-03T16-54-42-821Z",
-      "generatedAt": "2026-09-03T19:05:46.902Z",
-      "agents": [
         "claude-code"
       ]
     },
     {
       "runId": "2026-09-03T16-51-56-681Z",
-      "generatedAt": "2026-09-03T19:05:46.589Z",
+      "generatedAt": "2026-09-03T19:18:02.016Z",
       "agents": [
         "freecode",
         "claude-code"
@@ -58,7 +36,6 @@
     "repo": "django/django",
     "instances": [
       "django__django-10914",
-      "django__django-10924",
       "django__django-11001",
       "django__django-11039"
     ]
@@ -75,12 +52,6 @@
       "version": "2.1.251 (Claude Code)",
       "model": "MiniMax-M3",
       "autonomy": "--dangerously-skip-permissions: all permission checks bypassed"
-    },
-    {
-      "id": "opencode",
-      "version": "1.18.25",
-      "model": "minimax/MiniMax-M3",
-      "autonomy": "--auto: approves every permission not explicitly denied"
     }
   ],
   "results": [
@@ -107,18 +78,6 @@
       "newFiles": 0,
       "reason": "ok",
       "runId": "2026-09-03T16-51-56-681Z"
-    },
-    {
-      "agent": "claude-code",
-      "instanceId": "django__django-10924",
-      "trial": 1,
-      "producedPatch": true,
-      "resolved": null,
-      "durationMs": 47705,
-      "patchBytes": 1519,
-      "newFiles": 0,
-      "reason": "ok",
-      "runId": "2026-09-03T16-54-42-821Z"
     },
     {
       "agent": "freecode",
@@ -155,18 +114,6 @@
       "newFiles": 0,
       "reason": "ok",
       "runId": "2026-09-03T18-56-04-591Z"
-    },
-    {
-      "agent": "opencode",
-      "instanceId": "django__django-11039",
-      "trial": 1,
-      "producedPatch": true,
-      "resolved": null,
-      "durationMs": 46768,
-      "patchBytes": 658,
-      "newFiles": 0,
-      "reason": "ok",
-      "runId": "2026-09-03T18-13-43-378Z"
     },
     {
       "agent": "claude-code",

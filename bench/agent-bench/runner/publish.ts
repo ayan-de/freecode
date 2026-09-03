@@ -15,7 +15,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { Report } from "./types.js";
 
-const WEB_DATA = path.join(
+const BENCH_DIR = path.join(
   import.meta.dirname,
   "..",
   "..",
@@ -24,8 +24,26 @@ const WEB_DATA = path.join(
   "web",
   "app",
   "data",
-  "agent-bench.json",
+  "benchmarks",
 );
+
+/**
+ * One file per matchup, named for the agents in it.
+ *
+ * A matchup is the unit of valid comparison: freecode vs opencode measured in
+ * one run is evidence, and freecode vs claude-code measured an hour later is
+ * separate evidence. Keeping them in separate files makes "do not stitch
+ * unrelated runs together" structural instead of a caveat somebody has to read.
+ *
+ * freecode leads when present because it is the constant in every matchup;
+ * everything else is alphabetical, so the same agent set always resolves to the
+ * same file no matter what order it was passed on the command line.
+ */
+export function matchupSlug(agentIds: string[]): string {
+  const rest = [...new Set(agentIds)].filter((a) => a !== "freecode").sort();
+  const ordered = agentIds.includes("freecode") ? ["freecode", ...rest] : rest;
+  return ordered.join("-vs-");
+}
 
 export interface PublishedAgent {
   id: string;
@@ -50,6 +68,8 @@ export interface PublishedResult {
 }
 
 export interface PublishedRun {
+  /** Matchup id, and the file's own name. See matchupSlug. */
+  slug: string;
   generatedAt: string;
   /** Most recent run folded in. */
   runId: string;
@@ -77,10 +97,10 @@ export interface PublishedRun {
 const key = (r: { agent: string; instanceId: string; trial: number }) =>
   `${r.agent}|${r.instanceId}|${r.trial}`;
 
-function readExisting(): PublishedRun | undefined {
-  if (!fs.existsSync(WEB_DATA)) return undefined;
+function readExisting(file: string): PublishedRun | undefined {
+  if (!fs.existsSync(file)) return undefined;
   try {
-    const prev = JSON.parse(fs.readFileSync(WEB_DATA, "utf-8")) as PublishedRun;
+    const prev = JSON.parse(fs.readFileSync(file, "utf-8")) as PublishedRun;
     // Pre-merge files have no `runs`; adopt them rather than discarding, so an
     // upgrade does not silently throw away the numbers already on the page.
     if (!Array.isArray(prev.runs)) {
@@ -110,7 +130,13 @@ function readExisting(): PublishedRun | undefined {
  * the container landing.
  */
 export function publish(report: Report, fresh = false): string {
-  const prev = fresh ? undefined : readExisting();
+  const slug = matchupSlug(report.trials.map((t) => t.agent));
+  const file = path.join(BENCH_DIR, `${slug}.json`);
+  fs.mkdirSync(BENCH_DIR, { recursive: true });
+  // Only runs of the SAME agent set can merge. A run that adds an agent writes
+  // a different file rather than quietly widening an existing matchup with rows
+  // nobody measured side by side.
+  const prev = fresh ? undefined : readExisting(file);
 
   const agents = new Map<string, PublishedAgent>(
     (prev?.agents ?? []).map((a) => [a.id, a]),
@@ -156,6 +182,7 @@ export function publish(report: Report, fresh = false): string {
 
   const rows = [...results.values()];
   const out: PublishedRun = {
+    slug,
     generatedAt,
     runId: report.startedAt,
     runs,
@@ -178,8 +205,8 @@ export function publish(report: Report, fresh = false): string {
     results: rows,
   };
 
-  fs.writeFileSync(WEB_DATA, JSON.stringify(out, null, 2) + "\n");
-  return WEB_DATA;
+  fs.writeFileSync(file, JSON.stringify(out, null, 2) + "\n");
+  return file;
 }
 
 // Re-publish a finished run without re-running it — which run the page shows is

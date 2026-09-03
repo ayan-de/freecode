@@ -1,25 +1,33 @@
 "use client";
 
+import { useState } from "react";
 import { AlertTriangle, Check, Minus } from "lucide-react";
-import {
-  agents,
-  caveats,
-  matrix,
-  metric,
-  ragged,
-  run,
-  runs,
-  sharedInstances,
-} from "../data/agent-bench";
+import type { BenchView } from "../data/agent-bench";
 import { BenchBarList, type BenchBar } from "./BenchBarList";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const secs = (ms: number) => `${(ms / 1000).toFixed(0)}s`;
 
-export function AgentBenchmark() {
-  const provisional = !run.graded || run.isolation === "none";
+export function AgentBenchmark({ views }: { views: BenchView[] }) {
+  const [slug, setSlug] = useState(views[0]?.slug ?? "");
+  const view = views.find((v) => v.slug === slug) ?? views[0];
 
-  const outcomeBars: BenchBar[] = agents.map((a) => ({
+  if (!view) {
+    return (
+      <section className="w-full max-w-4xl mx-auto px-6 py-24">
+        <h1 className="text-3xl font-medium text-foreground">Agent benchmark</h1>
+        <p className="text-muted-foreground mt-3">
+          No runs published yet. <code className="font-mono">pnpm bench:agents</code>{" "}
+          writes one file per matchup into{" "}
+          <code className="font-mono">app/data/benchmarks/</code>.
+        </p>
+      </section>
+    );
+  }
+
+  const provisional = !view.graded || view.isolation === "none";
+
+  const outcomeBars: BenchBar[] = view.agents.map((a) => ({
     label: a.id,
     value: a.rate,
     display: pct(a.rate),
@@ -27,11 +35,8 @@ export function AgentBenchmark() {
     highlight: a.isFreeCode,
   }));
 
-  // Inverted: the shortest bar is the best result, so the winner is not the
-  // longest thing on screen. Said out loud in the description rather than left
-  // for the reader to work out.
-  const slowest = Math.max(...agents.map((a) => a.medianMs), 1);
-  const speedBars: BenchBar[] = agents.map((a) => ({
+  const slowest = Math.max(...view.agents.map((a) => a.medianMs), 1);
+  const speedBars: BenchBar[] = view.agents.map((a) => ({
     label: a.id,
     value: a.medianMs,
     display: secs(a.medianMs),
@@ -41,41 +46,74 @@ export function AgentBenchmark() {
 
   return (
     <section className="w-full max-w-4xl mx-auto px-6 py-16 md:py-24">
-      <header className="mb-10">
+      <header className="mb-8">
         <h1 className="text-3xl md:text-4xl font-medium text-foreground tracking-tight">
           Agent benchmark
         </h1>
         <p className="text-lg text-muted-foreground mt-3 max-w-2xl">
-          freecode against other coding agents on {run.taskSet.name} —{" "}
-          {run.taskSet.repo}. Same tasks, same model, same key, and every agent
+          freecode against other coding agents on {view.taskSet.name} —{" "}
+          {view.taskSet.repo}. Same tasks, same model, same key, and every agent
           at full autonomy.
         </p>
-        <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-2 font-mono text-xs text-muted-foreground">
-          <div>
-            <dt className="inline text-muted-foreground/60">runs </dt>
-            <dd className="inline text-foreground/80">
-              {runs.length}, latest {run.runId}
-            </dd>
-          </div>
-          <div>
-            <dt className="inline text-muted-foreground/60">instances </dt>
-            <dd className="inline text-foreground/80">
-              {sharedInstances.length} shared
-              {ragged ? ` of ${run.taskSet.instances.length}` : ""}
-            </dd>
-          </div>
-          <div>
-            <dt className="inline text-muted-foreground/60">graded </dt>
-            <dd className="inline text-foreground/80">
-              {run.graded ? "SWE-bench harness" : "no"}
-            </dd>
-          </div>
-          <div>
-            <dt className="inline text-muted-foreground/60">isolation </dt>
-            <dd className="inline text-foreground/80">{run.isolation}</dd>
-          </div>
-        </dl>
       </header>
+
+      {/* One tab per matchup. Separate tabs rather than one merged table
+          because a matchup is the unit of valid comparison: agents measured
+          side by side in the same runs belong together, and agents that never
+          met do not. */}
+      <div
+        role="tablist"
+        aria-label="Matchups"
+        className="flex flex-wrap gap-2 border-b border-border mb-8"
+      >
+        {views.map((v) => {
+          const active = v.slug === view.slug;
+          return (
+            <button
+              key={v.slug}
+              role="tab"
+              aria-selected={active}
+              onClick={() => setSlug(v.slug)}
+              className={`-mb-px rounded-t px-3 py-2 font-mono text-xs transition-colors border-b-2 ${
+                active
+                  ? "border-primary text-primary font-bold"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/10"
+              }`}
+            >
+              {v.title}
+              <span className="ml-2 text-muted-foreground/50">
+                {v.sharedInstances.length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <dl className="mb-10 flex flex-wrap gap-x-8 gap-y-2 font-mono text-xs text-muted-foreground">
+        <div>
+          <dt className="inline text-muted-foreground/60">runs </dt>
+          <dd className="inline text-foreground/80">
+            {view.runs.length}, latest {view.runId}
+          </dd>
+        </div>
+        <div>
+          <dt className="inline text-muted-foreground/60">instances </dt>
+          <dd className="inline text-foreground/80">
+            {view.sharedInstances.length} shared
+            {view.ragged ? ` of ${view.taskSet.instances.length}` : ""}
+          </dd>
+        </div>
+        <div>
+          <dt className="inline text-muted-foreground/60">graded </dt>
+          <dd className="inline text-foreground/80">
+            {view.graded ? "SWE-bench harness" : "no"}
+          </dd>
+        </div>
+        <div>
+          <dt className="inline text-muted-foreground/60">isolation </dt>
+          <dd className="inline text-foreground/80">{view.isolation}</dd>
+        </div>
+      </dl>
 
       {provisional && (
         <div className="mb-10 rounded-md border border-destructive/40 bg-destructive/5 p-5 md:p-6">
@@ -86,10 +124,10 @@ export function AgentBenchmark() {
             />
             <div>
               <h2 className="text-sm font-semibold text-foreground">
-                Phase {run.phase} — pipeline check, not a result
+                Phase {view.phase} — pipeline check, not a result
               </h2>
               <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
-                {run.graded
+                {view.graded
                   ? "Trials ran without container isolation, so these numbers are not publishable."
                   : "Nothing on this page has been graded. The bars say an agent changed a file; they do not say it fixed the bug. Read the caveats before quoting any of it."}
               </p>
@@ -117,7 +155,7 @@ export function AgentBenchmark() {
                 </tr>
               </thead>
               <tbody>
-                {agents.map((a) => (
+                {view.agents.map((a) => (
                   <tr key={a.id} className="border-b border-border/60">
                     <td
                       className={`py-2.5 pr-4 ${a.isFreeCode ? "text-primary font-bold" : "text-foreground/80"}`}
@@ -139,23 +177,23 @@ export function AgentBenchmark() {
         </div>
 
         <BenchBarList
-          id="outcome"
-          title={metric.label}
-          description={`${metric.help} Computed over the ${sharedInstances.length} instance${sharedInstances.length === 1 ? "" : "s"} every agent ran${ragged ? `, not all ${run.taskSet.instances.length} on the page` : ""}.`}
+          id={`outcome-${view.slug}`}
+          title={view.metric.label}
+          description={`${view.metric.help} Computed over the ${view.sharedInstances.length} instance${view.sharedInstances.length === 1 ? "" : "s"} every agent in this matchup ran${view.ragged ? `, not all ${view.taskSet.instances.length} below` : ""}.`}
           bars={outcomeBars}
           footnote={
-            run.graded
+            view.graded
               ? undefined
               : "Every agent scores 100% here as soon as it edits anything, which is exactly why this bar is not a scoreboard yet."
           }
         />
 
         <BenchBarList
-          id="speed"
+          id={`speed-${view.slug}`}
           title="Median wall time"
-          description="Container start to agent exit. Shorter is better — the longest bar is the slowest agent, not the winner. An agent that runs the tests pays for it here, which is not obviously a vice."
+          description="Spawn to agent exit. Shorter is better — the longest bar is the slowest agent, not the winner. An agent that runs the tests pays for it here, which is not obviously a vice."
           bars={speedBars}
-          footnote={`Slowest median in this run: ${secs(slowest)}.`}
+          footnote={`Slowest median in this matchup: ${secs(slowest)}.`}
         />
 
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
@@ -166,14 +204,14 @@ export function AgentBenchmark() {
             benchmark cannot show you.
           </p>
           <div className="space-y-3">
-            {matrix.map((row) => (
+            {view.matrix.map((row) => (
               <div
                 key={row.instanceId}
                 className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 py-2.5 border-b border-border last:border-0"
               >
                 <span className="font-mono text-xs md:w-56 shrink-0">
                   <span className="text-foreground/70">{row.instanceId}</span>
-                  {!sharedInstances.includes(row.instanceId) && (
+                  {!view.sharedInstances.includes(row.instanceId) && (
                     <span
                       className="ml-2 text-muted-foreground/50"
                       title="Not every agent ran this one, so it is excluded from the rates above."
@@ -219,11 +257,9 @@ export function AgentBenchmark() {
             a footnote is an advertisement.
           </p>
           <div className="space-y-5">
-            {caveats.map((c) => (
+            {view.caveats.map((c) => (
               <div key={c.title}>
-                <h4 className="text-sm font-medium text-foreground">
-                  {c.title}
-                </h4>
+                <h4 className="text-sm font-medium text-foreground">{c.title}</h4>
                 <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
                   {c.body}
                 </p>
@@ -234,7 +270,7 @@ export function AgentBenchmark() {
       </div>
 
       <footer className="mt-12 font-mono text-xs text-muted-foreground/60">
-        Generated {new Date(run.generatedAt).toUTCString()} by{" "}
+        Generated {new Date(view.generatedAt).toUTCString()} by{" "}
         <span className="text-foreground/70">pnpm bench:agents</span>. Method:{" "}
         <span className="text-foreground/70">
           docs/superpowers/specs/2026-09-03-agent-comparison-benchmark.md
