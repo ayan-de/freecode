@@ -15,7 +15,7 @@ run a real agent turn is a `*.test.ts` next to its code, not a case here.
 
 | Suite | Cases | Asks | Scorer |
 | --- | --- | --- | --- |
-| `trajectory` | 21 | did the right tool fire (and fire *first*) | `scorers/trajectory.ts` — pure fold, unsandboxed, read-only |
+| `trajectory` | 22 | did the right tool fire (and fire *first*) | `scorers/trajectory.ts` — pure fold, unsandboxed, read-only |
 | `coding` | 11 | did the end state match | `scorers/outcome.ts` — `verify`'s exit code is the score |
 | `judged` | 6 | was the reply any good | `scorers/judge.ts` — 0–5 against `evals/rubrics/*.md` |
 | `redirect`, `redirect-build` | 8 | A/B material for trajectory redirection — **not** part of the gate | — |

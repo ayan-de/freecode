@@ -183,6 +183,15 @@ sent, off one recorded request in the rollout log) so the saving is a number
 before the work starts. Copilot's ~50% / ~1,300 tokens per turn is the
 precedent, not the promise.
 
+**Measured 2026-09-04**: `system.md` 8,862 chars (~2.2K tokens); tool
+descriptions + parameter schemas 18,852 chars (~4.7K tokens) across 16
+tools, led by `grep` (2,454), `bash` (2,427), `memory` (1,944),
+`todowrite` (1,557), `agent` (1,423). The recurring block is ~27.7K chars
+≈ 6.9K tokens on every request; Copilot's ~50% would be ~3.4K tokens/turn
+here. A first-turn `model.request` recorded 74,824 promptChars total —
+compiled context (file tree, project instructions) dominates beyond the
+block, but that is user content and out of this spec's scope.
+
 ### D5 — Background-completion invariant (T4)
 
 Nothing to build. Recorded as a constraint on `autonomous/` Phase 1+ and any
