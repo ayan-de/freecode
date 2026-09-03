@@ -318,7 +318,16 @@ async function executeRead(
       `<type>file</type>`,
       "<content>\n",
     ].join("\n");
-    output += lines.raw.map((line, i) => `${i + offset}: ${line}`).join("\n");
+    // Per-line number prefixes are an experiment now, not a given: edit is
+    // string-match, and navigation numbers come from grep -n and LSP output,
+    // so the prefix may be paying ~3% of read cost for nothing (spec
+    // 2026-09-04-harness-cost-efficiency.md D3, after Copilot's measurement).
+    // FREECODE_READ_LINE_NUMBERS=0 drops them; read per call for `eval ab`.
+    // The range footer below stays either way — offset paging needs no prefix.
+    const numbered = process.env.FREECODE_READ_LINE_NUMBERS !== "0";
+    output += numbered
+      ? lines.raw.map((line, i) => `${i + offset}: ${line}`).join("\n")
+      : lines.raw.join("\n");
 
     const last = offset + lines.raw.length - 1;
     const next = last + 1;

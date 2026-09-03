@@ -23,6 +23,32 @@ async function read(filePath: string, params: Record<string, unknown> = {}) {
   return (await ReadTool.execute({ filePath, ...params }, ctx as any)) as any;
 }
 
+test("line numbers prefix every line by default", async () => {
+  const res = await read(write("numbered.txt", "alpha\nbeta"));
+
+  assert.equal(res.success, true);
+  assert.match(res.result.output, /1: alpha/);
+  assert.match(res.result.output, /2: beta/);
+});
+
+test("FREECODE_READ_LINE_NUMBERS=0 drops the prefix, keeps the range footer", async () => {
+  // Spec 2026-09-04-harness-cost-efficiency.md D3: the experiment variant.
+  // Offset paging lives in the footer, not the prefix, so it must survive.
+  const prev = process.env.FREECODE_READ_LINE_NUMBERS;
+  process.env.FREECODE_READ_LINE_NUMBERS = "0";
+  try {
+    const res = await read(write("plain.txt", "alpha\nbeta\ngamma"));
+
+    assert.equal(res.success, true);
+    assert.ok(res.result.output.includes("alpha\nbeta\ngamma"));
+    assert.equal(/^\d+: /m.test(res.result.output), false);
+    assert.match(res.result.output, /End of file - total 3 lines/);
+  } finally {
+    if (prev === undefined) delete process.env.FREECODE_READ_LINE_NUMBERS;
+    else process.env.FREECODE_READ_LINE_NUMBERS = prev;
+  }
+});
+
 test("a single overlong line is truncated, not the whole file", async () => {
   const res = await read(write("minified.js", "x".repeat(5_000)));
 

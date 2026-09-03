@@ -1,10 +1,9 @@
 # Harness Cost Efficiency
 
 > **Date:** 2026-09-04
-> **Status:** Proposed — D1 built 2026-09-04; D4's regression guard (the
-> parallel-batching trajectory case) built 2026-09-04; D2 built flag-off
-> 2026-09-04 (default awaits its A/B); D6 half-built (the D2 key is in;
-> D3's comes with D3). D3 and D4's compression itself unbuilt.
+> **Status:** Proposed — D1, D2 (flag-off), D3 (flag-off), D6 and D4's
+> regression guard all built 2026-09-04. Both experiment defaults await
+> their A/B. Only D4's compression itself remains unbuilt.
 > **Source:** GitHub's Copilot harness work — "How we make AI coding more
 > cost-efficient without sacrificing task quality" (github.blog, 2025).
 > **Builds on:** `2026-08-05-token-efficiency.md` (built — its header still says
@@ -151,6 +150,13 @@ Known risks the A/B must answer, not argument: (a) the model cites
 `file:line` in user-facing answers from read output; (b) `edit` disambiguation
 on repeated strings may lean on visible numbering. If pass rate or judged
 scores move, the prefix earns its 3%.
+
+**Built 2026-09-04, flag-default = today's behavior**: the prefix stays
+unless `FREECODE_READ_LINE_NUMBERS=0`, read per call in read's `execute` and
+allowlisted in `VARIABLE_ENV_KEYS`. The deciding runs, both directions of
+risk (a)/(b):
+`freecode eval ab coding --candidate env:FREECODE_READ_LINE_NUMBERS=0` and
+the same on `judged` (citation quality is a judged property).
 
 ### D4 — Guidance compression under a behavioral gate (T3)
 
