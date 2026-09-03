@@ -26,6 +26,13 @@ export const run = {
   taskSet: raw.taskSet,
 };
 
+/** Every run contributing a row, newest first. */
+export const runs = raw.runs as {
+  runId: string;
+  generatedAt: string;
+  agents: string[];
+}[];
+
 /**
  * What the headline bar means, which changes the moment the grader lands.
  * Phase 0 can only say "the agent changed something" — calling that a pass
@@ -60,8 +67,31 @@ export interface AgentSummary {
   medianPatchBytes: number;
 }
 
+/**
+ * Instances every agent actually attempted.
+ *
+ * The page reports rates over this set and nothing else. Agents accumulate
+ * across runs, so the raw matrix goes ragged the moment you run two agents on
+ * one bug and two different agents on another — and a rate averaged over each
+ * agent's own private instance list compares nothing. This is the same
+ * intersection rule the spec applies to cost (§7.2), for the same reason.
+ */
+export const sharedInstances: string[] = (
+  raw.taskSet.instances as string[]
+).filter((id) =>
+  raw.agents.every((a) =>
+    results.some((r) => r.agent === a.id && r.instanceId === id),
+  ),
+);
+
+/** True when some agent skipped an instance another one ran. */
+export const ragged = sharedInstances.length < run.taskSet.instances.length;
+
 export const agents: AgentSummary[] = raw.agents.map((a) => {
-  const mine = results.filter((r) => r.agent === a.id);
+  // Shared instances only — see sharedInstances above.
+  const mine = results.filter(
+    (r) => r.agent === a.id && sharedInstances.includes(r.instanceId),
+  );
   const successes = mine.filter((r) =>
     run.graded ? r.resolved === true : r.producedPatch,
   ).length;
@@ -111,6 +141,22 @@ export const matrix: { instanceId: string; cells: MatrixCell[] }[] =
  * so they cannot drift out of date once a phase lands.
  */
 export const caveats: { title: string; body: string }[] = [
+  ...(runs.length > 1
+    ? [
+        {
+          title: `Stitched together from ${runs.length} separate runs`,
+          body: "Rows were measured at different times against a moving endpoint, so this table answers 'which agents have I tried' — not 'which agent is better'. The same freecode trial on django__django-11039 took 11s, 29s and 52s across three runs; that spread is larger than most gaps between agents here. A real comparison interleaves its variants inside one run.",
+        },
+      ]
+    : []),
+  ...(ragged
+    ? [
+        {
+          title: "Agents did not all attempt the same bugs",
+          body: `Rates above cover only the ${sharedInstances.length} instance${sharedInstances.length === 1 ? "" : "s"} every agent actually ran. Anything else would average each agent over its own private list of bugs, which compares nothing. Run the full matrix to widen it.`,
+        },
+      ]
+    : []),
   ...(run.graded
     ? []
     : [

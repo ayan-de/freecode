@@ -152,9 +152,11 @@ async function main() {
   fs.writeFileSync(reportFile, JSON.stringify(report, null, 2));
   console.log(`\n${reportFile}`);
   // Always publish: the point of the /benchmark page is that a finished run is
-  // already on it. The file is committed and diffable, so an overwrite shows up
-  // in review as exactly what changed.
-  console.log(path.relative(process.cwd(), publish(report)));
+  // already on it. This MERGES into whatever is already there — a run of
+  // freecode+opencode followed by one of freecode+claude-code leaves all three
+  // on the page, where it used to silently drop the agent missing from the
+  // latest run. `--fresh` starts over.
+  console.log(path.relative(process.cwd(), publish(report, process.argv.includes("--fresh"))));
 
   // Phase 0 has no grader, so "did every adapter produce a patch" IS the
   // verdict. Non-zero on a broken adapter, because a silently empty patch is

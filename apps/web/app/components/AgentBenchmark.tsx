@@ -1,7 +1,16 @@
 "use client";
 
 import { AlertTriangle, Check, Minus } from "lucide-react";
-import { agents, caveats, matrix, metric, run } from "../data/agent-bench";
+import {
+  agents,
+  caveats,
+  matrix,
+  metric,
+  ragged,
+  run,
+  runs,
+  sharedInstances,
+} from "../data/agent-bench";
 import { BenchBarList, type BenchBar } from "./BenchBarList";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
@@ -43,13 +52,16 @@ export function AgentBenchmark() {
         </p>
         <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-2 font-mono text-xs text-muted-foreground">
           <div>
-            <dt className="inline text-muted-foreground/60">run </dt>
-            <dd className="inline text-foreground/80">{run.runId}</dd>
+            <dt className="inline text-muted-foreground/60">runs </dt>
+            <dd className="inline text-foreground/80">
+              {runs.length}, latest {run.runId}
+            </dd>
           </div>
           <div>
             <dt className="inline text-muted-foreground/60">instances </dt>
             <dd className="inline text-foreground/80">
-              {run.taskSet.instances.length}
+              {sharedInstances.length} shared
+              {ragged ? ` of ${run.taskSet.instances.length}` : ""}
             </dd>
           </div>
           <div>
@@ -129,7 +141,7 @@ export function AgentBenchmark() {
         <BenchBarList
           id="outcome"
           title={metric.label}
-          description={metric.help}
+          description={`${metric.help} Computed over the ${sharedInstances.length} instance${sharedInstances.length === 1 ? "" : "s"} every agent ran${ragged ? `, not all ${run.taskSet.instances.length} on the page` : ""}.`}
           bars={outcomeBars}
           footnote={
             run.graded
@@ -159,8 +171,16 @@ export function AgentBenchmark() {
                 key={row.instanceId}
                 className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 py-2.5 border-b border-border last:border-0"
               >
-                <span className="font-mono text-xs text-foreground/70 md:w-56 shrink-0">
-                  {row.instanceId}
+                <span className="font-mono text-xs md:w-56 shrink-0">
+                  <span className="text-foreground/70">{row.instanceId}</span>
+                  {!sharedInstances.includes(row.instanceId) && (
+                    <span
+                      className="ml-2 text-muted-foreground/50"
+                      title="Not every agent ran this one, so it is excluded from the rates above."
+                    >
+                      partial
+                    </span>
+                  )}
                 </span>
                 <div className="flex flex-wrap gap-2">
                   {row.cells.map((cell) => (

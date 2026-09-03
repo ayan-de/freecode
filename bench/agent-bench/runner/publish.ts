@@ -1,5 +1,5 @@
 // =============================================================================
-// Publish — reduce a run to the file the /benchmark page reads.
+// Publish — accumulate runs into the file the /benchmark page reads.
 //
 // `results/` is git-ignored (transcripts, container logs), so the page cannot
 // read it: on a deploy the directory does not exist. Same shape as
@@ -27,35 +27,97 @@ const WEB_DATA = path.join(
   "agent-bench.json",
 );
 
+export interface PublishedAgent {
+  id: string;
+  version: string;
+  model: string;
+  autonomy: string;
+}
+
+export interface PublishedResult {
+  agent: string;
+  instanceId: string;
+  trial: number;
+  producedPatch: boolean;
+  /** null until `graded` — "produced a patch" is not "fixed the bug". */
+  resolved: boolean | null;
+  durationMs: number;
+  patchBytes: number;
+  newFiles: number;
+  reason: string;
+  /** Which run this row came from. See the `runs` note below. */
+  runId: string;
+}
+
 export interface PublishedRun {
   generatedAt: string;
+  /** Most recent run folded in. */
   runId: string;
+  /**
+   * Every run contributing a row, newest first.
+   *
+   * The page prints this whenever there is more than one, because rows from
+   * different runs were measured at different times against a moving endpoint.
+   * That is fine for "which agents have I tried" and NOT fine as evidence that
+   * one agent beat another — the same freecode trial on django__django-11039
+   * took 11s, 29s and 52s across three runs. A real comparison interleaves its
+   * variants in one run; this file only stitches them together for display.
+   */
+  runs: { runId: string; generatedAt: string; agents: string[] }[];
   /** Which phase of the spec produced this. The page refuses to dress up 0. */
   phase: number;
   isolation: "none" | "container";
   /** False until the official SWE-bench grader runs (Phase 1). */
   graded: boolean;
   taskSet: { name: string; repo: string; instances: string[] };
-  agents: { id: string; version: string; model: string; autonomy: string }[];
-  results: {
-    agent: string;
-    instanceId: string;
-    trial: number;
-    producedPatch: boolean;
-    /** null until `graded` — "produced a patch" is not "fixed the bug". */
-    resolved: boolean | null;
-    durationMs: number;
-    patchBytes: number;
-    newFiles: number;
-    reason: string;
-  }[];
+  agents: PublishedAgent[];
+  results: PublishedResult[];
 }
 
-export function publish(report: Report): string {
-  const seen = new Map<string, PublishedRun["agents"][number]>();
+const key = (r: { agent: string; instanceId: string; trial: number }) =>
+  `${r.agent}|${r.instanceId}|${r.trial}`;
+
+function readExisting(): PublishedRun | undefined {
+  if (!fs.existsSync(WEB_DATA)) return undefined;
+  try {
+    const prev = JSON.parse(fs.readFileSync(WEB_DATA, "utf-8")) as PublishedRun;
+    // Pre-merge files have no `runs`; adopt them rather than discarding, so an
+    // upgrade does not silently throw away the numbers already on the page.
+    if (!Array.isArray(prev.runs)) {
+      prev.runs = [
+        { runId: prev.runId, generatedAt: prev.generatedAt, agents: prev.agents.map((a) => a.id) },
+      ];
+      prev.results = prev.results.map((r) => ({ ...r, runId: r.runId ?? prev.runId }));
+    }
+    return prev;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Folds `report` into whatever the page is already showing.
+ *
+ * Merging rather than replacing is the whole point: running
+ * `--agents freecode,opencode` and then `--agents freecode,claude-code` used to
+ * leave the page showing two agents, having silently dropped opencode. A row is
+ * identified by (agent, instance, trial) and the newest run wins it, so
+ * re-running the same matrix refreshes in place instead of accumulating
+ * duplicates.
+ *
+ * `fresh` throws the accumulated file away — the honest move whenever anything
+ * that changes the meaning of a number changes: a new model, the grader landing,
+ * the container landing.
+ */
+export function publish(report: Report, fresh = false): string {
+  const prev = fresh ? undefined : readExisting();
+
+  const agents = new Map<string, PublishedAgent>(
+    (prev?.agents ?? []).map((a) => [a.id, a]),
+  );
   for (const t of report.trials) {
-    if (seen.has(t.agent)) continue;
-    seen.set(t.agent, {
+    // This run's metadata wins: it is the version and model actually used now.
+    agents.set(t.agent, {
       id: t.agent,
       version: t.agentVersion,
       model: t.model,
@@ -63,21 +125,11 @@ export function publish(report: Report): string {
     });
   }
 
-  const out: PublishedRun = {
-    generatedAt: new Date().toISOString(),
-    runId: report.startedAt,
-    // Grading is what separates a pipeline check from a result, so the phase is
-    // derived from the run rather than typed in and left to rot.
-    phase: report.graded ? 1 : 0,
-    isolation: report.isolation,
-    graded: report.graded,
-    taskSet: {
-      name: "SWE-bench Lite",
-      repo: "django/django",
-      instances: [...new Set(report.trials.map((t) => t.instanceId))],
-    },
-    agents: [...seen.values()],
-    results: report.trials.map((t) => ({
+  const results = new Map<string, PublishedResult>(
+    (prev?.results ?? []).map((r) => [key(r), r]),
+  );
+  for (const t of report.trials) {
+    results.set(key(t), {
       agent: t.agent,
       instanceId: t.instanceId,
       trial: t.trial,
@@ -87,7 +139,43 @@ export function publish(report: Report): string {
       patchBytes: t.patchBytes,
       newFiles: t.newFiles.length,
       reason: t.reason,
-    })),
+      runId: report.startedAt,
+    });
+  }
+
+  const generatedAt = new Date().toISOString();
+  const thisRun = {
+    runId: report.startedAt,
+    generatedAt,
+    agents: [...new Set(report.trials.map((t) => t.agent))],
+  };
+  const runs = [
+    thisRun,
+    ...(prev?.runs ?? []).filter((r) => r.runId !== thisRun.runId),
+  ];
+
+  const rows = [...results.values()];
+  const out: PublishedRun = {
+    generatedAt,
+    runId: report.startedAt,
+    runs,
+    // Grading is what separates a pipeline check from a result, so the phase is
+    // derived from the run rather than typed in and left to rot. The weakest
+    // contributing run sets it: one graded run does not grade the older rows
+    // sitting next to it.
+    phase: report.graded && prev?.phase !== 0 ? 1 : 0,
+    isolation:
+      report.isolation === "container" && prev?.isolation !== "none"
+        ? "container"
+        : "none",
+    graded: report.graded && (prev?.graded ?? true),
+    taskSet: {
+      name: "SWE-bench Lite",
+      repo: "django/django",
+      instances: [...new Set(rows.map((r) => r.instanceId))].sort(),
+    },
+    agents: [...agents.values()],
+    results: rows,
   };
 
   fs.writeFileSync(WEB_DATA, JSON.stringify(out, null, 2) + "\n");
@@ -96,14 +184,14 @@ export function publish(report: Report): string {
 
 // Re-publish a finished run without re-running it — which run the page shows is
 // an editorial decision, and it should not cost money to change your mind.
-//   tsx bench/agent-bench/runner/publish.ts results/<run>
+//   tsx bench/agent-bench/runner/publish.ts results/<run> [--fresh]
 if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]))) {
   const dir = process.argv[2];
   if (!dir) {
-    console.error("usage: publish.ts <results-dir>");
+    console.error("usage: publish.ts <results-dir> [--fresh]");
     process.exit(1);
   }
   const file = dir.endsWith(".json") ? dir : path.join(dir, "report.json");
   const report = JSON.parse(fs.readFileSync(file, "utf-8")) as Report;
-  console.log(publish(report));
+  console.log(publish(report, process.argv.includes("--fresh")));
 }
