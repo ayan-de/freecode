@@ -30,6 +30,12 @@ anything. No adapter file contains a credential; `${MINIMAX_API_KEY}` is
 expanded at spawn time and an unset variable is a hard error, because an agent
 that quietly fell back to its own key would be billed somewhere else.
 
+`fetch.ts` is needed **once, ever**. datasets-server 500s and 502s while its
+index warms (`"the dataset index is loading"`), and the Hub has outages of its
+own; the fetch backs off five times and then stops, leaving any existing cache
+untouched. A run whose instances are already cached does not touch the network
+at all, so an outage is only ever a problem for instances you do not have yet.
+
 The cache stores four fields per instance. `patch`, `test_patch` and
 `hints_text` — the gold fix and the maintainer discussion that usually contains
 it — are dropped before anything touches disk. Not to protect the agent under
