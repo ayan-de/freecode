@@ -143,6 +143,14 @@ export function deriveView(raw: RawBenchmark): BenchView {
     instanceId,
     cells: results
       .filter((r) => r.instanceId === instanceId)
+      // Stable display order: freecode first (it is the constant in every
+      // matchup), then alphabetical, then trial — merged files interleave runs.
+      .sort(
+        (x, y) =>
+          Number(y.agent === "freecode") - Number(x.agent === "freecode") ||
+          x.agent.localeCompare(y.agent) ||
+          x.trial - y.trial,
+      )
       .map((r) => ({
         agent: r.agent,
         ok: raw.graded ? r.resolved === true : r.producedPatch,
@@ -180,7 +188,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
       ? [
           {
             title: `Stitched together from ${raw.runs.length} runs of this matchup`,
-            body: "Rows were measured at different times against a moving endpoint. The same freecode trial on django__django-11039 took 11s, 29s and 52s across three runs — a spread wider than most gaps between agents here. Trust the shape, not the decimals; a clean comparison is one run with several trials.",
+            body: "Rows were measured at different times against a moving endpoint. The same agent on the same bug has varied several-fold between runs of this benchmark — a spread wider than most gaps between agents here. Trust the shape, not the decimals; a clean comparison is one run with several trials.",
           },
         ]
       : []),

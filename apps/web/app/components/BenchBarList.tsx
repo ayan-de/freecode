@@ -22,12 +22,15 @@ export function BenchBarList({
   description,
   bars,
   footnote,
+  children,
 }: {
   id: string;
   title: string;
   description: string;
   bars: BenchBar[];
   footnote?: string;
+  /** Extra visualization rendered between the bars and the footnote. */
+  children?: React.ReactNode;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const max = Math.max(...bars.map((b) => b.value), 0) || 1;
@@ -95,6 +98,8 @@ export function BenchBarList({
           );
         })}
       </div>
+
+      {children}
 
       {footnote && (
         <div className="mt-6 p-4 rounded bg-muted border border-border">

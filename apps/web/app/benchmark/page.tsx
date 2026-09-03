@@ -28,6 +28,9 @@ function loadViews(): BenchView[] {
     .filter((f) => f.endsWith(".json"))
     .map((f) => JSON.parse(fs.readFileSync(path.join(DIR, f), "utf-8")) as RawBenchmark)
     .map(deriveView)
+    // A solo run is a pipeline check, not a matchup — one agent compared to
+    // nobody has no business on a comparison page.
+    .filter((v) => v.agents.length >= 2)
     // Widest matchup first: the one with the most agents, then the most
     // instances, is the one worth opening on.
     .sort(

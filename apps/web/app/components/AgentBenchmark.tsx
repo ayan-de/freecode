@@ -44,11 +44,78 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     highlight: a.isFreeCode,
   }));
 
+  const sizeBars: BenchBar[] = view.agents.map((a) => ({
+    label: a.id,
+    value: a.medianPatchBytes,
+    display: `${Math.round(a.medianPatchBytes)}B`,
+    note: `median of ${a.trials}`,
+    highlight: a.isFreeCode,
+  }));
+
+  // Headline cards, freecode against the strongest rival on each axis. The
+  // comparison is deliberately unflattering — "slower" goes in the headline in
+  // red, because a benchmark we publish only when we win is an advertisement.
+  const free = view.agents.find((a) => a.isFreeCode);
+  const rivals = view.agents.filter((a) => !a.isFreeCode);
+  const fastestRival = rivals.length
+    ? rivals.reduce((m, a) => (a.medianMs < m.medianMs ? a : m))
+    : undefined;
+  const bestRival = rivals.length
+    ? rivals.reduce((m, a) => (a.rate > m.rate ? a : m))
+    : undefined;
+  const timeVerdict = (() => {
+    if (!free || !fastestRival || !free.medianMs || !fastestRival.medianMs)
+      return "—";
+    const r = free.medianMs / fastestRival.medianMs;
+    if (Math.abs(r - 1) < 0.05) return "even";
+    return r < 1 ? `${(1 / r).toFixed(1)}× faster` : `${r.toFixed(1)}× slower`;
+  })();
+  const headline =
+    free && fastestRival && bestRival
+      ? [
+          {
+            value: `${pct(free.rate)} vs ${pct(bestRival.rate)}`,
+            tone: "text-foreground",
+            label: view.metric.label.toLowerCase(),
+            note: `freecode vs ${bestRival.id}, over ${view.sharedInstances.length} shared instance${view.sharedInstances.length === 1 ? "" : "s"}`,
+          },
+          {
+            value: timeVerdict,
+            tone: timeVerdict.endsWith("faster")
+              ? "text-primary"
+              : timeVerdict.endsWith("slower")
+                ? "text-destructive"
+                : "text-foreground",
+            label: "median wall time",
+            note: `freecode ${secs(free.medianMs)} vs ${fastestRival.id} ${secs(fastestRival.medianMs)}`,
+          },
+          {
+            value: `${Math.round(free.medianPatchBytes)}B vs ${Math.round(fastestRival.medianPatchBytes)}B`,
+            tone: "text-foreground",
+            label: "median patch size",
+            note: `freecode vs ${fastestRival.id} — style, not quality`,
+          },
+        ]
+      : [];
+
+  /** Every trial an agent ran on the shared set, in matrix order. */
+  const stripFor = (agentId: string) =>
+    view.matrix
+      .filter((row) => view.sharedInstances.includes(row.instanceId))
+      .flatMap((row) =>
+        row.cells
+          .filter((c) => c.agent === agentId)
+          .map((c) => ({ ...c, instanceId: row.instanceId })),
+      );
+
   return (
     <section className="w-full max-w-4xl mx-auto px-6 py-16 md:py-24">
       <header className="mb-8">
-        <h1 className="text-3xl md:text-4xl font-medium text-foreground tracking-tight">
+        <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground/60 mb-3">
           Agent benchmark
+        </p>
+        <h1 className="text-3xl md:text-4xl font-medium text-foreground tracking-tight">
+          We gave every agent the same bugs
         </h1>
         <p className="text-lg text-muted-foreground mt-3 max-w-2xl">
           freecode against other coding agents on {view.taskSet.name} —{" "}
@@ -136,6 +203,29 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         </div>
       )}
 
+      {headline.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+          {headline.map((h) => (
+            <div
+              key={h.label}
+              className="rounded-md border border-border bg-card p-5"
+            >
+              <div
+                className={`font-mono text-xl md:text-2xl font-bold tracking-tight ${h.tone}`}
+              >
+                {h.value}
+              </div>
+              <div className="text-sm font-medium text-foreground mt-1.5">
+                {h.label}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                {h.note}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-col gap-12">
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <h3 className="text-lg font-medium text-foreground">Setup</h3>
@@ -186,7 +276,43 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
               ? undefined
               : "Every agent scores 100% here as soon as it edits anything, which is exactly why this bar is not a scoreboard yet."
           }
-        />
+        >
+          {/* One square per trial, onesuperbrain-style: the shape of the result
+              at a glance, before any averaging. */}
+          <div className="mt-6 pt-5 border-t border-border space-y-2.5">
+            {view.agents.map((a) => {
+              const cells = stripFor(a.id);
+              const ok = cells.filter((c) => c.ok).length;
+              return (
+                <div key={a.id} className="flex items-center gap-3">
+                  <span
+                    className={`w-28 shrink-0 font-mono text-xs ${a.isFreeCode ? "text-primary font-bold" : "text-foreground/70"}`}
+                  >
+                    {a.id}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {cells.map((c) => (
+                      <span
+                        key={`${c.instanceId}-${c.trial}`}
+                        title={`${c.instanceId} · t${c.trial} · ${secs(c.durationMs)} · ${c.reason}`}
+                        className={`h-4 w-4 rounded-[3px] border ${
+                          c.ok
+                            ? a.isFreeCode
+                              ? "bg-primary border-primary"
+                              : "bg-foreground/70 border-foreground/70"
+                            : "bg-destructive/10 border-destructive/60"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <span className="font-mono text-[11px] text-muted-foreground/60">
+                    {ok}/{cells.length}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </BenchBarList>
 
         <BenchBarList
           id={`speed-${view.slug}`}
@@ -194,6 +320,13 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
           description="Spawn to agent exit. Shorter is better — the longest bar is the slowest agent, not the winner. An agent that runs the tests pays for it here, which is not obviously a vice."
           bars={speedBars}
           footnote={`Slowest median in this matchup: ${secs(slowest)}.`}
+        />
+
+        <BenchBarList
+          id={`size-${view.slug}`}
+          title="Median patch size"
+          description="Bytes of diff produced. A fact about each harness's style, not a score — a bigger patch is not a better fix, and a smaller one is not automatically surgical."
+          bars={sizeBars}
         />
 
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
@@ -266,6 +399,29 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
+          <h3 className="text-lg font-medium text-foreground">
+            Check it yourself
+          </h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-5 leading-relaxed">
+            The harness, the agent adapters, and the task list are all in the
+            repo. A run lands on this page by finishing — there is no editorial
+            step between the numbers and you.
+          </p>
+          <pre className="rounded bg-muted border border-border p-4 font-mono text-xs text-foreground/80 overflow-x-auto">
+            <code>pnpm bench:agents --agents freecode,claude-code --trials 3</code>
+          </pre>
+          <p className="text-xs text-muted-foreground mt-4 leading-relaxed">
+            Every trial writes its full evidence — prompt, argv, patch,
+            stdout/stderr — to{" "}
+            <code className="font-mono">
+              bench/agent-bench/results/&lt;run&gt;/
+            </code>
+            . The task set is SWE-bench Lite, fetched from HuggingFace with the
+            answer key stripped before anything touches disk.
+          </p>
         </div>
       </div>
 

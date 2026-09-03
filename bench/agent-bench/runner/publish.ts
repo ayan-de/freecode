@@ -160,7 +160,12 @@ export function publish(report: Report, fresh = false): string {
       instanceId: t.instanceId,
       trial: t.trial,
       producedPatch: t.producedPatch,
-      resolved: report.graded ? t.producedPatch : null,
+      // Only the grader's own verdict may ever fill this in (Phase 1).
+      // producedPatch is not a substitute: wiring it here would let a flipped
+      // `graded` flag relabel "changed a file" as "fixed the bug". Until the
+      // grader writes a real verdict per trial, a graded run with null verdicts
+      // fails closed on the page — every bar reads 0%, not 100%.
+      resolved: null,
       durationMs: t.durationMs,
       patchBytes: t.patchBytes,
       newFiles: t.newFiles.length,
