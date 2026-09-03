@@ -44,7 +44,7 @@ Each suite answers one question, and they get more expensive left to right.
 
 | Suite | Asks | How it decides | Cases today |
 | --- | --- | --- | --- |
-| `trajectory` | did the agent reach for the **right tool**? | pure fold over the trace — no files touched | 21 |
+| `trajectory` | did the agent reach for the **right tool**? | pure fold over the trace — no files touched | 22 |
 | `coding` | did the agent produce the **right end state**? | runs a `verify` command in a sandbox; exit code is the score | 11 |
 | `judged` | was the **reply itself** any good? | a second model grades it 0–5 against a rubric | 6 |
 
@@ -74,7 +74,7 @@ PASS read-named-file
 FAIL glob-by-extension  expected glob, called grep,read
 ...
 
-20/21 cases passed (1 trial each)
+21/22 cases passed (1 trial each)
 $0.0061 estimated · 20,540 tokens · prices as of 2026-05
 ```
 
@@ -134,6 +134,7 @@ Optional on any case: `model` (pins `provider/model`), `agentMode`, and
 | `expectInArgs` | argument expectations; needs `expectTool` |
 | `expectBashMatches` | regex over any `bash` command, for when the right move is a shell verb rather than a tool choice |
 | `expectMaxTurns` | model calls allowed before the case fails |
+| `expectParallelTools` | at least one response must emit **this many tool calls at once**. Guards the parallel-batching behaviour: a prompt edit can silently serialize the loop back to one call per turn, and only a model-backed case can see it. Scored off what the response *emitted*, so a batch the permission layer denied still counts. Values below 2 are rejected — every response with a tool call is a "batch" of 1 |
 | `forbidTools` | any of these firing fails the case |
 
 `expectTool: null` is not filler. "Answer from what you know instead of

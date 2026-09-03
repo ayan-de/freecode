@@ -1098,3 +1098,10 @@ Found while writing `specs/2026-09-04-harness-cost-efficiency.md`.
 - **Eval efficiency stays warn-only** (`scorers/efficiency.ts`). Cost moves when
   the suite changes as readily as when the agent changes; A/B (`eval ab`) is the
   instrument for harness experiments, never the gate.
+
+### Found writing the docs page (2026-09-04)
+
+- [ ] **Output compression only covers `bash`** — no other tool sets
+      `metadata.outputKind`, so MCP tools (which can be just as log-noisy) always
+      take the blind head+tail path. Extend classification once the D2 A/B proves
+      the approach. Recorded in `/internals/cost-efficiency` Known gaps.

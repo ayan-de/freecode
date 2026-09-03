@@ -17,6 +17,7 @@ export default {
   ipc: "IPC protocol",
   runtime: "Effect runtime & DI",
   eval: "Eval harness",
+  "cost-efficiency": "Cost efficiency",
   mcp: "MCP client",
   skills: "Skills system",
   cli: "CLI entrypoint & subcommands",

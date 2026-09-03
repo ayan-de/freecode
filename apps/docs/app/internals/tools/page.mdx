@@ -156,10 +156,13 @@ output, and confusing them is how context windows get blown:
 
 | Field | Contents | Goes to |
 | --- | --- | --- |
-| `displayOutput` | the full output | the UI |
+| `displayOutput` | the output, tail-kept at 500K chars | the UI |
 | `modelOutput` | head + tail, capped at 30K chars | the provider, and the session log |
-| `stdout` | the full output (legacy alias) | the UI, via `tool_complete` |
+| `stdout` | same as `displayOutput` (legacy alias) | the UI, via `tool_complete` |
 | `structuredData` | `metadata` | the loop (e.g. `metadata.image`) |
+
+Every one of these is derived **after** the full output is stored — see
+[Output budgets](#output-budgets) for why that ordering is load-bearing.
 
 The loop writes **only `modelOutput`** into history and persists only that
 (`loop.ts:1516`). Re-sending untruncated stdout on every turn is what used to
@@ -216,11 +219,29 @@ only**, so a resumed session's older outputs are gone.
 | `output` lines per call | 200 | `FREECODE_OUTPUT_LINES` |
 | `read` window | 2,000 lines / 50 KB | — |
 | `read` max file | 10 MB | — |
-| `bash` output | 500 KB | — |
+| UI copy (`displayOutput`/`stdout`) | 500K chars, tail-kept | — |
 | `bash` timeout | 60s | `timeout` param |
 
 All five `FREECODE_OUTPUT_*` values are read at module load, so changing them
 needs a restart.
+
+**The ordering is the invariant**: the store put happens before every lossy
+cap. `bash` used to truncate its own output at 500 KB *inside the tool*, which
+meant the store only ever held the already-cut text and the head of a big
+output was unrecoverable — the fix moved every cap behind the put, and the UI
+cap now applies to all tools at the orchestrator instead of inside one tool.
+
+### Content-aware compression (experiment)
+
+With `FREECODE_BASH_COMPRESS=1` (off by default), `bash` classifies its
+command and the model's copy gets shaped by content instead of blind
+head+tail: diffs and `cat` output pass through untouched, search results only
+collapse duplicate lines (a match never drops), and build/test logs keep their
+head, tail, and every failure-looking line while the noise in the middle
+collapses into a marker naming the `output` tool. The classification travels
+as `metadata.outputKind`; the compression runs in the orchestrator, after the
+store put, like every other cap. Why it's off by default and how the default
+gets decided: [Cost efficiency](/internals/cost-efficiency).
 
 Above all of this sits the loop's history-wide budget: 200,000 chars of tool
 results across the *whole conversation*, enforced by prefix-stable pruning
@@ -278,10 +299,13 @@ matched `oldString`, so it isn't blind, just possibly out of date.
 
 ### `bash` — deliberately plain
 
-Spawns through `/bin/bash -c` with a 60s default timeout, a 500 KB output cap,
-and combined stdout/stderr. A timeout resolves as a **failure**, not a slow
-success, with the partial output attached — otherwise the loop concludes the
-command worked.
+Spawns through `/bin/bash -c` with a 60s default timeout and combined
+stdout/stderr. Output leaves the tool **uncut** — capping is the
+orchestrator's job, after the store put (see
+[Output budgets](#output-budgets)); the only shaping `bash` itself does is
+classify the command for the compression experiment (`metadata.outputKind`).
+A timeout resolves as a **failure**, not a slow success, with the partial
+output attached — otherwise the loop concludes the command worked.
 
 There is no allowlist and no command parsing here. Command-level safety lives
 entirely in [the permission layer](/internals/permissions), whose prefix rules
@@ -349,10 +373,11 @@ string is the tool result the model reads as text.
 11. **`executeTool` in `factory.ts:88` is dead.** It is exported and re-exported
     from `tools/index.ts`, but the orchestrator does its own result shaping;
     nothing calls it. It also implements a *different* result contract.
-12. **`tool_complete` streams the full output to the frontend.** The event
-    carries `result.stdout` (untruncated), which is right for rendering but
-    means a 10 MB `bash` result crosses the IPC boundary in one message with no
-    cap of its own.
+12. **`tool_complete` still crosses IPC in one message.** The event carries
+    `result.stdout`, now tail-capped at 500K chars at the orchestrator (it
+    used to be fully uncapped), but half a megabyte in a single JSON-RPC
+    message is still a lot; a streaming or windowed hand-off has no design
+    yet.
 13. **`read`'s image path bypasses the model-visibility check.** The tool
     returns `metadata.image` for any supported extension; whether the model can
     actually see images is decided later, in the loop. A text-only model

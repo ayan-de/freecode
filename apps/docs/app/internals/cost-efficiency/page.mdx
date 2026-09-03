@@ -1,0 +1,166 @@
+---
+title: "Cost efficiency"
+description: "How FreeCode keeps the cost of a task down — what each request carries, the caps and compression that shrink it, and the experiments that decide the defaults."
+---
+
+# Cost efficiency
+
+## The one rule everything follows
+
+**Optimize for the outcome, not the tool call.**
+
+It is tempting to save tokens by cutting things — truncate harder, shorten
+prompts, trim output. But if the agent then can't see what it needs, it
+*recovers*: it re-runs the command, re-reads the file, takes an extra turn. And
+every extra turn re-sends the whole conversation. You saved 2,000 tokens on one
+call and paid 150,000 on the detour.
+
+So every trim in FreeCode follows the same pattern:
+
+1. **Cut conservatively** — only content we can classify as safe to cut.
+2. **Leave a recovery path** — the full text stays retrievable without
+   re-running anything.
+3. **Measure end-to-end** — a change ships as an experiment, and the *whole
+   task's* cost decides, never the single call.
+
+This page was inspired by GitHub's write-up of doing exactly this for Copilot
+(see [References](#references)). They measured each technique in production;
+FreeCode implements the same four ideas, adapted to this codebase.
+
+## What a request actually carries
+
+Every model call re-sends everything: system prompt, tool definitions, project
+context, and the whole conversation so far. Measured on a real first turn:
+
+| Block | Size | Rides on |
+| --- | --- | --- |
+| System prompt | ~2.2K tokens | every request |
+| Tool definitions (16 tools) | ~4.7K tokens | every request |
+| Project context (file tree, instructions) | the bulk of ~19K tokens total | every request |
+| Conversation history | grows every turn | every request |
+
+The history side of this — compaction, prompt-cache stability, deduplicated
+re-reads — is covered in [the agent loop](/internals/agent-loop). This page is
+about the *per-call* side: what each tool result and each recurring block costs.
+
+## The four techniques
+
+### 1. Full output is stored before anything is cut
+
+Every tool result is written to the per-session `OutputStore` **first**, and
+every lossy cap runs after:
+
+```
+full output ──▶ OutputStore.put (everything, pageable later)
+                 └─▶ model copy   (30K chars, head + tail)
+                 └─▶ UI copy      (500K chars, tail)
+```
+
+This ordering is a rule, not an accident. `bash` used to cut its output at
+500 KB *before* the store saw it, so the beginning of a huge output was simply
+gone — the only "recovery" was re-running the command, the exact detour rule 2
+exists to prevent. Now the store always holds the whole thing, and the `output`
+tool can page any of it back by line window or regex.
+
+### 2. Content-aware output compression (experiment, off by default)
+
+The 30K model cap treats all output the same: keep the head, keep the tail,
+drop the middle. But a `git diff`, a `grep` result, and an `npm install` log
+deserve different treatment — and the middle of a build log is exactly where
+the one `ERROR:` line hides.
+
+With `FREECODE_BASH_COMPRESS=1`, `bash` classifies each command and the
+model's copy is shaped accordingly:
+
+| Kind | Example | What happens |
+| --- | --- | --- |
+| source | `cat`, `git diff`, `git show` | never touched — the model asked for bytes |
+| search | `grep`, `rg`, `find` | only consecutive duplicate lines collapse; a match is never dropped |
+| log | `npm test`, `cargo build`, `pytest` | head, tail, and **every failure-looking line** survive; the boring middle collapses |
+| other | anything unclear | never touched |
+
+A pipeline is classified by its **last** command — `npm test | grep FAIL`
+emits search results, not a build log. Every collapsed region leaves a marker
+naming the `output` tool and the call id, so nothing is more than one cheap
+call away.
+
+Why is it off by default? Because of rule 3: GitHub measured **5.5%** saved
+with this technique *on their workload*. FreeCode's number is unknown until
+the A/B below says otherwise.
+
+### 3. Line-number prefixes on `read` (experiment, on by default)
+
+`read` prefixes every line with its number (`42: …`). That costs ~3–7 extra
+characters per line on every file the model ever reads. GitHub measured **3%**
+of total cost saved by removing theirs, because nothing in their editing
+workflow used the numbers.
+
+FreeCode is in the same position on paper — `edit` matches strings, not line
+numbers, and navigation numbers come from `grep -n` and LSP output — so
+`FREECODE_READ_LINE_NUMBERS=0` drops the prefix. The range footer ("Showing
+lines 1–200, use offset=201") stays either way, so paging is unaffected.
+
+The prefix *stays on* until the experiment proves the model doesn't quietly
+rely on it for `file:line` citations or edit disambiguation.
+
+### 4. A guard on parallel tool calls
+
+The cheapest request is the one you never send. When the model needs three
+files, emitting three `read` calls in **one** response costs one round trip
+instead of three — and each avoided round trip is a whole conversation not
+re-sent. The system prompt asks for this behaviour explicitly.
+
+But that instruction is just prose, and any future prompt edit could silently
+delete or weaken it. GitHub hit exactly this: compressing their prompts
+accidentally *serialized* their parallel agents, caught only by behavioural
+testing. FreeCode now has that behavioural test — the eval expectation
+`expectParallelTools` and the trajectory case `parallel-batch-two-reads`,
+which fails the suite if no response ever batches. See
+[the eval harness](/internals/eval).
+
+## How a default gets decided
+
+None of the experiment flags flips its default by argument. The instrument is
+the paired A/B runner, which runs both variants now, interleaved, so nothing
+else can confound the result:
+
+```bash
+# does content-aware compression pay for itself?
+freecode eval ab coding --candidate env:FREECODE_BASH_COMPRESS=1
+
+# do line numbers earn their tokens? (both risk axes)
+freecode eval ab coding --candidate env:FREECODE_READ_LINE_NUMBERS=0
+freecode eval ab judged --candidate env:FREECODE_READ_LINE_NUMBERS=0
+```
+
+A variant wins by making cost drop while pass rate and `repeatedCalls` hold —
+`repeatedCalls` rising is the tell-tale of the recovery detour from rule 1.
+
+## Known gaps
+
+1. **The recurring guidance block is measured but not yet compressed.** ~6.9K
+   tokens of system prompt + tool definitions ride every request; the plan
+   (spec D4) is a ~50% meta-prompted compression validated by the release
+   gate, with `expectParallelTools` standing guard against the serialization
+   regression. Not started.
+2. **Both experiment defaults are still provisional.** The A/B runs that
+   decide `FREECODE_BASH_COMPRESS` and `FREECODE_READ_LINE_NUMBERS` had not
+   been recorded when this page was written.
+3. **Compression only covers `bash`.** Other tools never set an `outputKind`,
+   so their output always takes the plain head+tail path. Fine today — bash is
+   where logs come from — but MCP tools can be just as noisy.
+
+## References
+
+- [How we make AI coding more cost-efficient without sacrificing task quality](https://github.blog/ai-and-ml/github-copilot/how-we-make-ai-coding-more-cost-efficient-without-sacrificing-task-quality/)
+  — GitHub's Copilot team. The inspiration for this work: the
+  outcome-over-tool-call principle, the four techniques, and the measured
+  savings quoted above (5.5% output compression, 3.1% line numbers, 2.9%
+  prompt compression, 2.3% batched completions).
+- `docs/superpowers/specs/2026-09-04-harness-cost-efficiency.md` — the spec
+  behind this page: design, build status, and the exact A/B commands.
+- `docs/superpowers/specs/2026-08-05-token-efficiency.md` — the history-side
+  work this builds on: cache-stable pruning, compaction targets, read dedup,
+  parallel-call prompting.
+- `EVAL.md` (repo root) — the operator's guide to running the suites and A/Bs
+  referenced here.
