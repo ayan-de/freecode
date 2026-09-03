@@ -9,7 +9,13 @@
     "--model",
     "{model}"
   ],
-  "model": "sonnet",
+  "model": "MiniMax-M3",
   "autonomy": "--dangerously-skip-permissions: all permission checks bypassed",
-  "notes": "PHASE 0 ONLY — `sonnet` is an alias that tracks the latest Sonnet, so it is not pinned and will silently change under you. Phase 2 must replace it with a dated id. Verified against claude 2.1.251; `--permission-mode bypassPermissions` is the equivalent longer form."
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.minimax.io/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "${MINIMAX_API_KEY}",
+    "ANTHROPIC_API_KEY": "",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048576"
+  },
+  "notes": "Pinned to the same MiniMax-M3 freecode runs, through MiniMax's Anthropic-compatible endpoint, on the same key — the 'one bill' property of spec §5. CLAUDE_CODE_AUTO_COMPACT_WINDOW is a FAIRNESS correction, not a tuning knob: the /anthropic shim reports a 200K context window for M3 instead of its real 1M (MiniMax-AI/MiniMax-M2.7#46), so Claude Code would auto-compact at ~167K while freecode reads models.dev's true 1048576. The value here IS that number, not a round one. Leaving it unset would hand us a win we did not earn. ANTHROPIC_API_KEY is cleared because an operator's shell export would otherwise silently redirect the run to Anthropic and bill it elsewhere. Verified against claude 2.1.251."
 }

@@ -50,6 +50,40 @@ function render(spec: AgentSpec, prompt: string): string[] {
   );
 }
 
+/**
+ * Resolves an adapter's `env`, so no adapter file ever contains a credential —
+ * these are committed, and the whole point of the run is that a stranger can
+ * read them.
+ *
+ * `${VAR}` is substituted from the environment and is a hard error when unset:
+ * an agent that silently fell back to its own key would be billed elsewhere and
+ * would quietly break the "one bill" property (spec §5).
+ * `""` means *unset this variable*, which is how a pre-existing
+ * `ANTHROPIC_API_KEY` in the operator's shell is kept from overriding the
+ * endpoint we are pointing the agent at.
+ */
+export function resolveEnv(spec: AgentSpec): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const [key, raw] of Object.entries(spec.env ?? {})) {
+    if (raw === "") {
+      delete env[key];
+      continue;
+    }
+    env[key] = raw.replace(/\$\{(\w+)\}/g, (_, name: string) => {
+      const value = process.env[name];
+      if (!value) {
+        throw new Error(
+          `${spec.id}: ${key} needs $${name}, which is unset. ` +
+            `The MiniMax key is in ~/.freecode/config.json under providers.minimax.apiKey — ` +
+            `export it rather than pasting it into agents/${spec.id}.json.`,
+        );
+      }
+      return value;
+    });
+  }
+  return env;
+}
+
 export interface AgentRun {
   exitCode: number | null;
   timedOut: boolean;
@@ -72,6 +106,7 @@ export function runAgent(
   timeoutMs: number,
 ): Promise<AgentRun> {
   const argv = render(spec, prompt);
+  const env = resolveEnv(spec);
   const [cmd, ...args] = argv;
   const out = fs.createWriteStream(path.join(artifactDir, "stdout.log"));
   const err = fs.createWriteStream(path.join(artifactDir, "stderr.log"));
@@ -80,7 +115,7 @@ export function runAgent(
   return new Promise((resolve) => {
     const child = spawn(cmd!, args, {
       cwd,
-      env: { ...process.env, ...spec.env },
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout.pipe(out);

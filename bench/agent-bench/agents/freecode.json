@@ -14,5 +14,5 @@
   ],
   "model": "minimax/MiniMax-M3",
   "autonomy": "--agent danger: no permission prompts",
-  "notes": "PHASE 0 ONLY — the model is whatever ~/.freecode/config.json is authed for, NOT a model claude-code can also run. No number from this adapter is comparable until spec §12.1 is answered. `--agent build` would deny every write headlessly (permission/prompt.ts), which is why danger is the parity setting, not a shortcut. Sessions and memory still land in ~/.freecode and carry between trials; the container (Phase 1) is what fixes that."
+  "notes": "MiniMax-M3 is the pinned shared model (spec §12.1, answered 2026-09-03): every agent reaches it on the same key, freecode natively and the others through MiniMax's Anthropic-compatible endpoint. `--agent danger` is the parity setting, not a shortcut — `build` denies every write headlessly (permission/prompt.ts). Sessions and memory still land in ~/.freecode and carry between trials; the container (Phase 1) is what fixes that."
 }

@@ -20,7 +20,15 @@ the only scorer that never asks what produced the diff (spec §4).
 
 ```bash
 tsx bench/agent-bench/runner/fetch.ts          # 114 django rows -> .cache/instances.jsonl
+export MINIMAX_API_KEY=$(node -p "require(process.env.HOME+'/.freecode/config.json').providers.minimax.apiKey")
 ```
+
+Every agent runs **MiniMax-M3 on that one key** — freecode natively, the others
+through MiniMax's Anthropic-compatible endpoint. That is the "same model, one
+bill" property (spec §5) and it is the only reason a cost column would mean
+anything. No adapter file contains a credential; `${MINIMAX_API_KEY}` is
+expanded at spawn time and an unset variable is a hard error, because an agent
+that quietly fell back to its own key would be billed somewhere else.
 
 The cache stores four fields per instance. `patch`, `test_patch` and
 `hints_text` — the gold fix and the maintainer discussion that usually contains
@@ -104,11 +112,13 @@ property §6.3 wants, and the other three need a container to get it.
    the user is not in the `docker` group. Phase 1.
 3. **No metering.** Cost and token columns need the recording proxy (§6.4);
    four vendors' self-reports are four rounding policies. Phase 1.
-4. **The model is not shared and not pinned.** freecode points at whatever
-   `~/.freecode/config.json` is authed for; `claude-code` uses the `sonnet`
-   alias, which tracks the latest Sonnet and will move under you. **Until §12.1
-   is answered, this harness compares two agents running two different models,
-   which is not a comparison of harnesses.** Phase 2 blocker.
+4. **Model parity depends on one env var staying right.** Both agents are pinned
+   to `MiniMax-M3`, but MiniMax's `/anthropic` shim reports a 200K context
+   window instead of M3's real 1048576, so Claude Code auto-compacts at ~167K
+   unless `CLAUDE_CODE_AUTO_COMPACT_WINDOW` says otherwise. The adapter sets it.
+   **Delete that line and freecode wins on a handicap** — this class of bug is
+   invisible in the results and only findable by reading the adapters, which is
+   why they are committed and short.
 5. **Scratch files land in the patch.** `extractPatch` stages everything, so an
    agent that leaves `notes.md` behind ships it in the diff. They are listed in
    `newFiles` rather than filtered — a fix accompanied by six scratch files is a
