@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-03T17:49:04.316Z",
-  "runId": "2026-09-03T17-16-00-532Z",
+  "generatedAt": "2026-09-03T17:59:18.074Z",
+  "runId": "2026-09-03T17-57-44-575Z",
   "phase": 0,
   "isolation": "none",
   "graded": false,
@@ -8,7 +8,7 @@
     "name": "SWE-bench Lite",
     "repo": "django/django",
     "instances": [
-      "django__django-11001"
+      "django__django-11039"
     ]
   },
   "agents": [
@@ -19,32 +19,32 @@
       "autonomy": "--agent danger: no permission prompts"
     },
     {
-      "id": "claude-code",
-      "version": "2.1.251 (Claude Code)",
-      "model": "MiniMax-M3",
-      "autonomy": "--dangerously-skip-permissions: all permission checks bypassed"
+      "id": "opencode",
+      "version": "1.18.25",
+      "model": "minimax/MiniMax-M3",
+      "autonomy": "--auto: approves every permission not explicitly denied"
     }
   ],
   "results": [
     {
       "agent": "freecode",
-      "instanceId": "django__django-11001",
+      "instanceId": "django__django-11039",
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 88054,
-      "patchBytes": 543,
+      "durationMs": 11114,
+      "patchBytes": 684,
       "newFiles": 0,
       "reason": "ok"
     },
     {
-      "agent": "claude-code",
-      "instanceId": "django__django-11001",
+      "agent": "opencode",
+      "instanceId": "django__django-11039",
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 28892,
-      "patchBytes": 1386,
+      "durationMs": 80348,
+      "patchBytes": 658,
       "newFiles": 0,
       "reason": "ok"
     }

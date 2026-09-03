@@ -61,6 +61,9 @@ function render(spec: AgentSpec, prompt: string): string[] {
  * `""` means *unset this variable*, which is how a pre-existing
  * `ANTHROPIC_API_KEY` in the operator's shell is kept from overriding the
  * endpoint we are pointing the agent at.
+ * `{benchDir}` is this directory, which is how an adapter points an agent at
+ * `empty-config/` — the only way found to stop opencode loading the operator's
+ * personal MCP servers (see agents/opencode.json).
  */
 export function resolveEnv(spec: AgentSpec): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -69,7 +72,9 @@ export function resolveEnv(spec: AgentSpec): NodeJS.ProcessEnv {
       delete env[key];
       continue;
     }
-    env[key] = raw.replace(/\$\{(\w+)\}/g, (_, name: string) => {
+    env[key] = raw
+      .replaceAll("{benchDir}", path.join(AGENT_DIR, ".."))
+      .replace(/\$\{(\w+)\}/g, (_, name: string) => {
       const value = process.env[name];
       if (!value) {
         throw new Error(
