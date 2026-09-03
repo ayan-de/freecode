@@ -12,6 +12,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { agentVersion, loadAgent, runAgent } from "./agents.js";
 import { loadInstances, readIdList } from "./instances.js";
+import { publish } from "./publish.js";
 import { taskPrompt } from "./prompt.js";
 import { createWorkspace, extractPatch, verifyWorkspace } from "./workspace.js";
 import type { Report, TrialRecord } from "./types.js";
@@ -150,6 +151,10 @@ async function main() {
   const reportFile = path.join(outDir, "report.json");
   fs.writeFileSync(reportFile, JSON.stringify(report, null, 2));
   console.log(`\n${reportFile}`);
+  // Always publish: the point of the /benchmark page is that a finished run is
+  // already on it. The file is committed and diffable, so an overwrite shows up
+  // in review as exactly what changed.
+  console.log(path.relative(process.cwd(), publish(report)));
 
   // Phase 0 has no grader, so "did every adapter produce a patch" IS the
   // verdict. Non-zero on a broken adapter, because a silently empty patch is

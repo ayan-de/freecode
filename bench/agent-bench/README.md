@@ -72,6 +72,24 @@ results/<run>/report.json
 `results/` and `.cache/` are git-ignored. Transcripts get reviewed before they
 become public.
 
+Every run also writes **`apps/web/app/data/agent-bench.json`** and that is what
+the `/benchmark` page reads — so a finished run is already on the page, no extra
+step. It carries the numbers and the disclosures (version, model, autonomy,
+isolation, graded) and none of the transcripts, because `results/` does not
+exist on a deploy. Re-point the page at an older run without paying to re-run
+it:
+
+```bash
+tsx bench/agent-bench/runner/publish.ts results/<run>
+cd apps/web && pnpm dev        # http://localhost:3000/benchmark
+```
+
+The page refuses to flatter the data: while `graded` is false it labels the
+headline bar "Produced a patch", says in the footnote that everyone scores 100%
+as soon as they edit anything, and shows a banner saying it is a pipeline check
+rather than a result. Those come from `graded` and `isolation` in the JSON, so
+they disappear on their own when Phase 1 lands — nobody has to remember.
+
 ## 4. Adding an agent
 
 One file in `agents/`. Required: `id`, `versionCmd`, `run` (a `{prompt}` /

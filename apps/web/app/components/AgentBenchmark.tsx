@@ -1,0 +1,225 @@
+"use client";
+
+import { AlertTriangle, Check, Minus } from "lucide-react";
+import { agents, caveats, matrix, metric, run } from "../data/agent-bench";
+import { BenchBarList, type BenchBar } from "./BenchBarList";
+
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+const secs = (ms: number) => `${(ms / 1000).toFixed(0)}s`;
+
+export function AgentBenchmark() {
+  const provisional = !run.graded || run.isolation === "none";
+
+  const outcomeBars: BenchBar[] = agents.map((a) => ({
+    label: a.id,
+    value: a.rate,
+    display: pct(a.rate),
+    note: `${a.successes}/${a.trials} trials`,
+    highlight: a.isFreeCode,
+  }));
+
+  // Inverted: the shortest bar is the best result, so the winner is not the
+  // longest thing on screen. Said out loud in the description rather than left
+  // for the reader to work out.
+  const slowest = Math.max(...agents.map((a) => a.medianMs), 1);
+  const speedBars: BenchBar[] = agents.map((a) => ({
+    label: a.id,
+    value: a.medianMs,
+    display: secs(a.medianMs),
+    note: `median of ${a.trials}`,
+    highlight: a.isFreeCode,
+  }));
+
+  return (
+    <section className="w-full max-w-4xl mx-auto px-6 py-16 md:py-24">
+      <header className="mb-10">
+        <h1 className="text-3xl md:text-4xl font-medium text-foreground tracking-tight">
+          Agent benchmark
+        </h1>
+        <p className="text-lg text-muted-foreground mt-3 max-w-2xl">
+          freecode against other coding agents on {run.taskSet.name} —{" "}
+          {run.taskSet.repo}. Same tasks, same model, same key, and every agent
+          at full autonomy.
+        </p>
+        <dl className="mt-6 flex flex-wrap gap-x-8 gap-y-2 font-mono text-xs text-muted-foreground">
+          <div>
+            <dt className="inline text-muted-foreground/60">run </dt>
+            <dd className="inline text-foreground/80">{run.runId}</dd>
+          </div>
+          <div>
+            <dt className="inline text-muted-foreground/60">instances </dt>
+            <dd className="inline text-foreground/80">
+              {run.taskSet.instances.length}
+            </dd>
+          </div>
+          <div>
+            <dt className="inline text-muted-foreground/60">graded </dt>
+            <dd className="inline text-foreground/80">
+              {run.graded ? "SWE-bench harness" : "no"}
+            </dd>
+          </div>
+          <div>
+            <dt className="inline text-muted-foreground/60">isolation </dt>
+            <dd className="inline text-foreground/80">{run.isolation}</dd>
+          </div>
+        </dl>
+      </header>
+
+      {provisional && (
+        <div className="mb-10 rounded-md border border-destructive/40 bg-destructive/5 p-5 md:p-6">
+          <div className="flex gap-3">
+            <AlertTriangle
+              className="h-5 w-5 shrink-0 text-destructive mt-0.5"
+              aria-hidden
+            />
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Phase {run.phase} — pipeline check, not a result
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+                {run.graded
+                  ? "Trials ran without container isolation, so these numbers are not publishable."
+                  : "Nothing on this page has been graded. The bars say an agent changed a file; they do not say it fixed the bug. Read the caveats before quoting any of it."}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-12">
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
+          <h3 className="text-lg font-medium text-foreground">Setup</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-6">
+            The autonomy flag is part of the experiment, not a footnote: running
+            one agent at full autonomy against another at its default measures
+            permission defaults rather than agents.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="text-muted-foreground/60">
+                <tr className="border-b border-border">
+                  <th className="pb-2 pr-4 font-normal">agent</th>
+                  <th className="pb-2 pr-4 font-normal">version</th>
+                  <th className="pb-2 pr-4 font-normal">model</th>
+                  <th className="pb-2 font-normal">autonomy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map((a) => (
+                  <tr key={a.id} className="border-b border-border/60">
+                    <td
+                      className={`py-2.5 pr-4 ${a.isFreeCode ? "text-primary font-bold" : "text-foreground/80"}`}
+                    >
+                      {a.id}
+                    </td>
+                    <td className="py-2.5 pr-4 text-muted-foreground">
+                      {a.version}
+                    </td>
+                    <td className="py-2.5 pr-4 text-foreground/70">{a.model}</td>
+                    <td className="py-2.5 text-muted-foreground/70">
+                      {a.autonomy}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <BenchBarList
+          id="outcome"
+          title={metric.label}
+          description={metric.help}
+          bars={outcomeBars}
+          footnote={
+            run.graded
+              ? undefined
+              : "Every agent scores 100% here as soon as it edits anything, which is exactly why this bar is not a scoreboard yet."
+          }
+        />
+
+        <BenchBarList
+          id="speed"
+          title="Median wall time"
+          description="Container start to agent exit. Shorter is better — the longest bar is the slowest agent, not the winner. An agent that runs the tests pays for it here, which is not obviously a vice."
+          bars={speedBars}
+          footnote={`Slowest median in this run: ${secs(slowest)}.`}
+        />
+
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
+          <h3 className="text-lg font-medium text-foreground">Per instance</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-6">
+            One row per bug, one cell per trial. Disagreement between trials of
+            the same agent is the interesting signal — it is what a single-run
+            benchmark cannot show you.
+          </p>
+          <div className="space-y-3">
+            {matrix.map((row) => (
+              <div
+                key={row.instanceId}
+                className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 py-2.5 border-b border-border last:border-0"
+              >
+                <span className="font-mono text-xs text-foreground/70 md:w-56 shrink-0">
+                  {row.instanceId}
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {row.cells.map((cell) => (
+                    <span
+                      key={`${cell.agent}-${cell.trial}`}
+                      title={`${cell.reason} · ${cell.patchBytes}B`}
+                      className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] ${
+                        cell.ok
+                          ? "border-border bg-muted text-foreground/80"
+                          : "border-destructive/40 bg-destructive/5 text-destructive"
+                      }`}
+                    >
+                      {cell.ok ? (
+                        <Check className="h-3 w-3" aria-hidden />
+                      ) : (
+                        <Minus className="h-3 w-3" aria-hidden />
+                      )}
+                      {cell.agent}
+                      <span className="text-muted-foreground/60">
+                        t{cell.trial} · {secs(cell.durationMs)}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
+          <h3 className="text-lg font-medium text-foreground">
+            What this does not tell you
+          </h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-6">
+            Published rather than managed. A benchmark whose limitations live in
+            a footnote is an advertisement.
+          </p>
+          <div className="space-y-5">
+            {caveats.map((c) => (
+              <div key={c.title}>
+                <h4 className="text-sm font-medium text-foreground">
+                  {c.title}
+                </h4>
+                <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                  {c.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <footer className="mt-12 font-mono text-xs text-muted-foreground/60">
+        Generated {new Date(run.generatedAt).toUTCString()} by{" "}
+        <span className="text-foreground/70">pnpm bench:agents</span>. Method:{" "}
+        <span className="text-foreground/70">
+          docs/superpowers/specs/2026-09-03-agent-comparison-benchmark.md
+        </span>
+      </footer>
+    </section>
+  );
+}
