@@ -109,6 +109,49 @@ test("full output reaches the store; model and display copies are capped", async
   }
 });
 
+// D2 wiring: a tool that classifies its output (bash sets metadata.outputKind)
+// gets a content-aware model view when the flag is on — full text still in the
+// store, failure lines from the middle surviving into what the model sees.
+const LOG_LINES = [
+  ...Array.from({ length: 2000 }, (_, i) => `compiled module-${i} in 2ms`),
+  "ERROR: mid-log failure the blind head+tail cut would have dropped",
+  ...Array.from({ length: 2000 }, (_, i) => `emitted chunk-${i}`),
+].join("\n");
+const logTool = {
+  id: "test-log-output",
+  description: "test",
+  schemas: { parameters: { type: "object", properties: {} } },
+  behavior: {},
+  execute: async () => ({
+    success: true,
+    result: { title: "build", output: LOG_LINES, metadata: { outputKind: "log" } },
+  }),
+} as unknown as Tool;
+
+test("outputKind=log gets a compressed model view when the flag is on", async () => {
+  registerMcpTool(logTool);
+  const sessionId = "test-d2-compress";
+  const ctx: ToolContext = { cwd: process.cwd(), sessionId };
+  const prev = process.env.FREECODE_BASH_COMPRESS;
+  process.env.FREECODE_BASH_COMPRESS = "1";
+  try {
+    const orch = createToolOrchestrator();
+    const res = await orch.execute(
+      { id: "call-log", tool: "test-log-output", args: {} } as any,
+      ctx,
+    );
+    assert.equal(getOutputStore(sessionId).get("call-log"), LOG_LINES);
+    assert.ok(res.modelOutput!.includes("ERROR: mid-log failure"));
+    assert.ok(res.modelOutput!.length < LOG_LINES.length);
+    assert.equal(res.truncated, true);
+  } finally {
+    if (prev === undefined) delete process.env.FREECODE_BASH_COMPRESS;
+    else process.env.FREECODE_BASH_COMPRESS = prev;
+    disposeOutputStore(sessionId);
+    unregisterMcpTools("test-log-output");
+  }
+});
+
 test("orchestrator lets a call through once the required param is present", async () => {
   registerMcpTool(requiresTitleTool);
   try {

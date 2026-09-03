@@ -33,6 +33,7 @@ export class AbError extends Error {}
  *   FREECODE_DISABLE_MEMORY_EXTRACTION `shouldExtract`, every turn
  *   FREECODE_DISABLE_MEMORY_JUDGE      `loadMemorySettings`, every call
  *   FREECODE_DISABLE_MEMORY_CONSOLIDATION `shouldConsolidate`, every call
+ *   FREECODE_BASH_COMPRESS             `maybeCompressOutput`, every tool call
  *
  * A startup-read var (a provider key, a config path, a fetch timeout baked into
  * the client at `createTimeoutFetch`) would be swapped into `process.env` and
@@ -46,6 +47,7 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_DISABLE_MEMORY_EXTRACTION",
   "FREECODE_DISABLE_MEMORY_JUDGE",
   "FREECODE_DISABLE_MEMORY_CONSOLIDATION",
+  "FREECODE_BASH_COMPRESS",
 ] as const;
 
 /**

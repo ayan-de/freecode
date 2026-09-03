@@ -18,6 +18,7 @@ import { isToolAllowed, type PermissionProfile } from "../permission/index.js";
 import type { Tool } from "./tool.types.js";
 import { isTransientError } from "../agent/recovery/manager.js";
 import { getOutputStore, adaptiveTruncate } from "./output-store/index.js";
+import { maybeCompressOutput } from "./output-compress.js";
 import { coerceArgs } from "./coerce-args.js";
 import { logger } from "../utils/logger.js";
 
@@ -277,7 +278,15 @@ export function createToolOrchestrator(
         // what the model sees to head+tail. A store miss later degrades to
         // "re-run the tool" (spec D4) — never fatal, so this put is best-effort.
         if (ctx.sessionId) getOutputStore(ctx.sessionId).put(toolId, output);
-        const { modelOutput, truncated } = adaptiveTruncate(output, toolId);
+        // Content-aware view for the model (flag-gated, spec 2026-09-04 D2):
+        // runs after the put like every lossy cap, so the elided lines stay
+        // pageable. adaptiveTruncate still enforces the hard char budget.
+        const view = maybeCompressOutput(
+          output,
+          structured?.metadata?.outputKind,
+          toolId,
+        );
+        const { modelOutput, truncated } = adaptiveTruncate(view, toolId);
         // The UI copy is capped only AFTER the put — the store must hold the
         // full text or the `output` tool can never page past the cap
         // (spec 2026-09-04-harness-cost-efficiency.md D1). Tail-keep: the end
@@ -297,7 +306,9 @@ export function createToolOrchestrator(
           modelOutput,
           stdout: display, // Legacy
           structuredData: structured?.metadata,
-          truncated,
+          // Compression is truncation too: the model is not seeing everything,
+          // even when the char budget never tripped.
+          truncated: truncated || view !== output,
         };
       } catch (err) {
         return {

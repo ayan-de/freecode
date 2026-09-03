@@ -8,6 +8,7 @@ import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import { BASH_DESCRIPTION } from "./bash-prompt.js";
+import { classifyCommand } from "./output-compress.js";
 
 interface BashParams {
   command: string;
@@ -201,6 +202,9 @@ export async function _executeBash(
           exitCode: code,
           command: params.command,
           cwd,
+          // Classified here — the tool knows what was run — but acted on at
+          // the orchestrator's cap site (spec 2026-09-04 D2).
+          outputKind: classifyCommand(params.command),
         },
       };
 

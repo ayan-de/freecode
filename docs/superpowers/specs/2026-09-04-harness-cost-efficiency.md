@@ -2,8 +2,9 @@
 
 > **Date:** 2026-09-04
 > **Status:** Proposed — D1 built 2026-09-04; D4's regression guard (the
-> parallel-batching trajectory case) built 2026-09-04; D2, D3, D4's
-> compression itself, and D6 unbuilt
+> parallel-batching trajectory case) built 2026-09-04; D2 built flag-off
+> 2026-09-04 (default awaits its A/B); D6 half-built (the D2 key is in;
+> D3's comes with D3). D3 and D4's compression itself unbuilt.
 > **Source:** GitHub's Copilot harness work — "How we make AI coding more
 > cost-efficient without sacrificing task quality" (github.blog, 2025).
 > **Builds on:** `2026-08-05-token-efficiency.md` (built — its header still says
@@ -122,6 +123,21 @@ the failure mode (agent re-runs the command) is exactly what
 `MetricSummary.repeatedCalls` already counts, so the A/B detects it for free.
 
 Flag: `FREECODE_BASH_COMPRESS=0` disables (read per call).
+
+**Built 2026-09-04, flag-off** — and the flag line above is corrected by the
+build: `FREECODE_BASH_COMPRESS=1` *enables*, default off, because this
+section's own preamble says a default is earned by the A/B, not asserted.
+An earlier draft had it default-on; that contradicted the shipping criterion.
+As built: `classifyCommand` runs in `bash.ts` (the tool knows the command)
+and travels as `metadata.outputKind`; `maybeCompressOutput`
+(`tools/output-compress.ts`) runs at the orchestrator's cap site after the
+store put — D1's rule — where the toolCallId is known, so every elision
+marker names the retrieval handle. A pipeline is classified by its LAST
+segment (`npm test | grep FAIL` emits search results); quotes plus a pipe
+is left unclassified. Search compression is dedupe-only and provably drops
+no distinct line; log compression keeps head, tail and every
+`FAILURE_RE` line. The A/B to earn the default:
+`freecode eval ab coding --candidate env:FREECODE_BASH_COMPRESS=1`.
 
 ### D3 — Line-number prefix experiment (T2)
 
