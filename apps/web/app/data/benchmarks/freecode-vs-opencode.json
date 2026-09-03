@@ -1,8 +1,16 @@
 {
   "slug": "freecode-vs-opencode",
-  "generatedAt": "2026-09-03T19:18:04.064Z",
-  "runId": "2026-09-03T18-13-43-378Z",
+  "generatedAt": "2026-09-03T19:44:56.247Z",
+  "runId": "2026-09-03T19-43-58-511Z",
   "runs": [
+    {
+      "runId": "2026-09-03T19-43-58-511Z",
+      "generatedAt": "2026-09-03T19:44:56.247Z",
+      "agents": [
+        "freecode",
+        "opencode"
+      ]
+    },
     {
       "runId": "2026-09-03T18-13-43-378Z",
       "generatedAt": "2026-09-03T19:18:04.064Z",
@@ -27,6 +35,7 @@
     "name": "SWE-bench Lite",
     "repo": "django/django",
     "instances": [
+      "django__django-10914",
       "django__django-11039"
     ]
   },
@@ -68,6 +77,30 @@
       "newFiles": 0,
       "reason": "ok",
       "runId": "2026-09-03T18-13-43-378Z"
+    },
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-10914",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 33848,
+      "patchBytes": 1099,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T19-43-58-511Z"
+    },
+    {
+      "agent": "opencode",
+      "instanceId": "django__django-10914",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 22245,
+      "patchBytes": 625,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T19-43-58-511Z"
     }
   ]
 }
