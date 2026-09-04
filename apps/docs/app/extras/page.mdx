@@ -34,9 +34,9 @@ task end-to-end, and the default only flips if cost drops while pass rate and
 
 | Technique | GitHub's saving | FreeCode status |
 | --- | --- | --- |
-| [Content-aware shell output compression](/extras/shell-output-compression) | 5.5% | Built, flag-off, A/B pending |
+| [Content-aware shell output compression](/extras/shell-output-compression) | 5.5% | Built — A/B measured **+10.9% cost**, default stays off |
 | [Removing line-number prefixes from file reads](/extras/line-number-prefixes) | 3.1% | Built — coding A/B: **−23.4% cost**, no quality loss |
-| [Compressing recurring tool guidance](/extras/guidance-compression) | 2.9% | Guard built, compression pending |
+| [Compressing recurring tool guidance](/extras/guidance-compression) | 2.9% | Shipped — system.md **−38.5%**, gate green ×3, guard caught a v1 regression |
 | [Batching background completions inline](/extras/background-completions) | 2.3% | Already true by construction, recorded as an invariant |
 
 For the summary view of how these fit FreeCode's request anatomy, see

@@ -80,11 +80,17 @@ freecode eval ab coding --baseline env:FREECODE_BASH_COMPRESS=0 \
 
 | Metric | Before (no compression) | After (compression on) | Δ |
 | --- | --- | --- | --- |
-| Pass rate | _awaiting A/B_ | _awaiting A/B_ | |
-| Tokens | _awaiting A/B_ | _awaiting A/B_ | |
-| Cost | _awaiting A/B_ | _awaiting A/B_ | |
-| Repeated calls | _awaiting A/B_ | _awaiting A/B_ | |
+| Pass rate | 11/11 cases, 3/3 trials | 11/11 cases, 3/3 trials | unchanged |
+| Tokens | 1,234,164 | 1,381,547 | **+11.9%** |
+| Cost | $0.1363 | $0.1512 | **+10.9%** |
+| Turns | 145 | 160 | +15 |
+| Repeated calls | 3 | 4 | +1 |
 
-An earlier run predates cost reporting in the A/B tool, so it recorded pass
-counts only; the re-run above fills this table. The default flips only if
-cost drops with pass rate and `repeatedCalls` held.
+**The verdict is negative — and that's the system working.** Correctness held,
+but the compressed variant cost *more*: the model spent extra turns paging
+back elided output, the exact recovery detour GitHub measured as a net loss
+on their aggressive variants. This is why the change shipped flag-off and why
+rule 3 (measure end-to-end) exists: the offline argument for compression was
+plausible, and the measurement said no. The default stays off; the code
+stays for a future retry with different thresholds or a model that recovers
+more cheaply. A saved experiment is knowing *not* to ship something.

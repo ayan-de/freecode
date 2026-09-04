@@ -19,7 +19,7 @@ things you might genuinely need — an API key and a model — are better kept i
    in a long-running `freecode serve` takes effect on the next turn. A few are
    captured once at process start and need a restart. The "Read" column says which.
 2. **`0` means different things in different rows.** For timeouts it disables the
-   guard; for `FREECODE_READ_DEDUP`, `FREECODE_READ_LINE_NUMBERS` and
+   guard; for `FREECODE_READ_DEDUP` and
    `FREECODE_CACHE_MISS_NOTICES` it turns a feature off; for
    `FREECODE_IDLE_NUDGE_TOKENS` it disables the nudge. Nothing
    here treats an unparseable value as `0` — a typo falls back to the default,
@@ -84,7 +84,7 @@ default, because a typo here looks exactly like compaction being broken.
 | `FREECODE_OUTPUT_STORE_BYTES` | `16777216` | **process start** | per-session output store budget; oldest outputs evict first |
 | `FREECODE_OUTPUT_STORE_SESSIONS` | `50` | **process start** | how many per-session stores stay live |
 | `FREECODE_READ_DEDUP` | on | per call | `0` makes `read` send the full file body every time instead of eliding an unchanged re-read |
-| `FREECODE_READ_LINE_NUMBERS` | on | per call | `0` drops the per-line `N:` prefix from `read` output; the range footer stays. An [experiment](/internals/cost-efficiency): the prefix stays on until an A/B shows the model doesn't rely on it |
+| `FREECODE_READ_LINE_NUMBERS` | off | per call | `1` restores the per-line `N:` prefix on `read` output; the range footer stays either way. Off by default since the [D3 A/Bs](/extras/line-number-prefixes) measured −10.9%/−6.8% tokens with quality unchanged |
 | `FREECODE_BASH_COMPRESS` | off | per call | `1` turns on [content-aware compression](/internals/cost-efficiency) of large `bash` output: build-log noise collapses, search matches and diffs never do. Off until its A/B earns the default |
 | `FREECODE_LSP_SERVERS` | unset | per call | JSON map of extension → server, e.g. `{".rs":{"command":"rust-analyzer","args":[]}}`. Extends the built-in registry |
 | `FREECODE_RTK` | on | per call | `0` disables the built-in hook that rewrites `ls`-style bash commands into compact `rtk` equivalents |

@@ -49,8 +49,10 @@ What stays regardless of the flag: the range footer ("Showing lines 1–200,
 use offset=201"). Paging through big files works off the offset parameter,
 not off per-line prefixes, so removing the prefixes doesn't break re-reads.
 
-The default stayed **on** (today's behavior) until the measurement below —
-per the rule that a default is earned, not asserted.
+The default stayed **on** until both measurements below were in — per the
+rule that a default is earned, not asserted. With both recorded, the default
+flipped on 2026-09-04: prefixes are now off, `FREECODE_READ_LINE_NUMBERS=1`
+restores them.
 
 ## Performance improvements
 
@@ -75,12 +77,19 @@ nothing on correctness — and the no-prefix side was cheaper on every axis. It
 even *repeated fewer calls*, so there's no hidden recovery detour eating the
 saving.
 
-One measurement is still outstanding before the default flips: the **judged**
-suite, because citation quality ("does the model still say `file.ts:42` in
-answers?") is a judged property, not something the coding suite can see.
+The second measurement — the **judged** suite, because citation quality
+("does the model still say `file.ts:42` in answers?") is a judged property
+the coding suite can't see — ran with Gemini 3.5 Flash Lite as the
+independent judge:
 
 | Metric | Before (prefixes on) | After (prefixes off) | Δ |
 | --- | --- | --- | --- |
-| Judge score (0–5) | _awaiting A/B_ | _awaiting A/B_ | |
-| Tokens | _awaiting A/B_ | _awaiting A/B_ | |
-| Cost | _awaiting A/B_ | _awaiting A/B_ | |
+| Judged pass rate | 6/6 cases, 3/3 trials | 6/6 cases, 3/3 trials | unchanged |
+| Tokens | 518,409 | 482,906 | **−6.8%** |
+| Cost | $0.0662 | $0.0536 | **−18.9%** |
+| Turns | 30 | 29 | −1 |
+| Repeated calls | 0 | 0 | unchanged |
+
+Both risk axes are answered: answer quality holds without the prefixes, and
+the savings repeat on a second suite. The experiment's verdict is that the
+line numbers never earned their tokens.

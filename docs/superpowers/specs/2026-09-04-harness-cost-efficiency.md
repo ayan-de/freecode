@@ -1,9 +1,13 @@
 # Harness Cost Efficiency
 
 > **Date:** 2026-09-04
-> **Status:** Proposed — D1, D2 (flag-off), D3 (flag-off), D6 and D4's
-> regression guard all built 2026-09-04. Both experiment defaults await
-> their A/B. Only D4's compression itself remains unbuilt.
+> **Status:** Proposed — D1, D2 (flag-off), D3, D6 and D4's regression
+> guard all built 2026-09-04. Both experiments decided 2026-09-04: D3's
+> default flipped to OFF (won both A/Bs); D2's stays OFF (lost its A/B,
+> +10.9% cost from recovery detours). D4's compression shipped 2026-09-04:
+> system.md −38.5% + fat-five tool descriptions ~halved, full eval:gate
+> GATE OPEN ×3 (judged mean 4.83/5); the guard caught v1 dropping the
+> question-tool rule (extra turn in explore mode) before the gate ran.
 > **Source:** GitHub's Copilot harness work — "How we make AI coding more
 > cost-efficient without sacrificing task quality" (github.blog, 2025).
 > **Builds on:** `2026-08-05-token-efficiency.md` (built — its header still says
@@ -138,6 +142,12 @@ no distinct line; log compression keeps head, tail and every
 `FAILURE_RE` line. The A/B to earn the default:
 `freecode eval ab coding --candidate env:FREECODE_BASH_COMPRESS=1`.
 
+**A/B run 2026-09-04 (11 cases × 3 trials, MiniMax-M3, at 6fa99f2): the
+default is NOT earned.** All cases pass both sides, but compression ON
+measured tokens +11.9%, cost +10.9%, turns 145→160, repeatedCalls 3→4 —
+the recovery detour this section's own preamble predicted. Default stays
+off; the classifier and flag remain for a future retry.
+
 ### D3 — Line-number prefix experiment (T2)
 
 Drop the per-line `N: ` prefix from `read` output behind
@@ -151,12 +161,13 @@ Known risks the A/B must answer, not argument: (a) the model cites
 on repeated strings may lean on visible numbering. If pass rate or judged
 scores move, the prefix earns its 3%.
 
-**Built 2026-09-04, flag-default = today's behavior**: the prefix stays
-unless `FREECODE_READ_LINE_NUMBERS=0`, read per call in read's `execute` and
-allowlisted in `VARIABLE_ENV_KEYS`. The deciding runs, both directions of
-risk (a)/(b):
-`freecode eval ab coding --candidate env:FREECODE_READ_LINE_NUMBERS=0` and
-the same on `judged` (citation quality is a judged property).
+**Built 2026-09-04; default flipped to OFF the same day after both A/Bs.**
+Coding (11 cases × 3 trials, MiniMax-M3 both sides): all pass both sides,
+tokens −10.9%, cost −23.4%, turns 152→139, repeatedCalls 5→2. Judged (6
+cases × 3 trials, Gemini 3.5 Flash Lite judging): all pass both sides,
+tokens −6.8%, cost −18.9%, repeatedCalls 0→0 — risks (a) and (b) both
+answered. The prefix is now off unless `FREECODE_READ_LINE_NUMBERS=1`, read
+per call in read's `execute` and allowlisted in `VARIABLE_ENV_KEYS`.
 
 ### D4 — Guidance compression under a behavioral gate (T3)
 

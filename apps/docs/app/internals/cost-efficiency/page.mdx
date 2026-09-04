@@ -84,24 +84,29 @@ emits search results, not a build log. Every collapsed region leaves a marker
 naming the `output` tool and the call id, so nothing is more than one cheap
 call away.
 
-Why is it off by default? Because of rule 3: GitHub measured **5.5%** saved
-with this technique *on their workload*. FreeCode's number is unknown until
-the A/B below says otherwise.
+Why is it off by default? Because the A/B said no: GitHub measured **5.5%**
+saved on their workload, but FreeCode's run measured **+11.9% tokens /
++10.9% cost** with compression on — the model paged back elided output in
+extra turns, the exact recovery detour rule 1 warns about. Correctness held
+(11/11 both sides), so the code stays for a future retry, but the default
+stays off. Details:
+[Content-aware shell output compression](/extras/shell-output-compression).
 
-### 3. Line-number prefixes on `read` (experiment, on by default)
+### 3. Line-number prefixes on `read` (measured — off by default)
 
-`read` prefixes every line with its number (`42: …`). That costs ~3–7 extra
-characters per line on every file the model ever reads. GitHub measured **3%**
-of total cost saved by removing theirs, because nothing in their editing
-workflow used the numbers.
+`read` used to prefix every line with its number (`42: …`). That costs ~3–7
+extra characters per line on every file the model ever reads. GitHub measured
+**3%** of total cost saved by removing theirs, because nothing in their
+editing workflow used the numbers.
 
-FreeCode is in the same position on paper — `edit` matches strings, not line
-numbers, and navigation numbers come from `grep -n` and LSP output — so
-`FREECODE_READ_LINE_NUMBERS=0` drops the prefix. The range footer ("Showing
-lines 1–200, use offset=201") stays either way, so paging is unaffected.
-
-The prefix *stays on* until the experiment proves the model doesn't quietly
-rely on it for `file:line` citations or edit disambiguation.
+FreeCode was in the same position — `edit` matches strings, not line numbers,
+and navigation numbers come from `grep -n` and LSP output. The A/Bs confirmed
+it: coding suite **−10.9% tokens / −23.4% cost**, judged suite **−6.8% tokens
+/ −18.9% cost**, with every case passing every trial on both sides. So the
+prefix is now **off by default**; `FREECODE_READ_LINE_NUMBERS=1` restores it.
+The range footer ("Showing lines 1–200, use offset=201") stays either way, so
+paging is unaffected. Full write-up:
+[Removing line-number prefixes](/extras/line-number-prefixes).
 
 ### 4. A guard on parallel tool calls
 
@@ -143,9 +148,9 @@ A variant wins by making cost drop while pass rate and `repeatedCalls` hold —
    (spec D4) is a ~50% meta-prompted compression validated by the release
    gate, with `expectParallelTools` standing guard against the serialization
    regression. Not started.
-2. **Both experiment defaults are still provisional.** The A/B runs that
-   decide `FREECODE_BASH_COMPRESS` and `FREECODE_READ_LINE_NUMBERS` had not
-   been recorded when this page was written.
+2. **Both experiment flags are now decided** (2026-09-04):
+   `FREECODE_READ_LINE_NUMBERS` off by default (won its A/Bs),
+   `FREECODE_BASH_COMPRESS` stays off (lost its A/B — +10.9% cost).
 3. **Compression only covers `bash`.** Other tools never set an `outputKind`,
    so their output always takes the plain head+tail path. Fine today — bash is
    where logs come from — but MCP tools can be just as noisy.

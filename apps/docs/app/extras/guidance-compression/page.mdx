@@ -6,8 +6,9 @@ description: "The ~6.9K tokens of system prompt and tool descriptions that ride 
 # Compressing recurring tool guidance
 
 > GitHub measured **2.9%** (~1,300 tokens per turn) from compressing their
-> recurring prompts ~50%. FreeCode has measured its block and built the
-> safety guard; the compression itself hasn't started.
+> recurring prompts ~50%. FreeCode's compression shipped 2026-09-04 with all
+> three gate suites green — after the safety guard caught a real regression
+> in the first draft.
 
 ## The problem, in plain words
 
@@ -61,20 +62,36 @@ This case guards *every* future prompt edit, not just this one — it's the
 test the suite should have had since the parallel-batching instruction was
 added.
 
-## The plan (not started)
+## How the compression went (and what the guard caught)
 
-1. **Prerequisite:** see `parallel-batch-two-reads` pass on the *current*
-   prompt in a live run — a guard that's never been green guards nothing.
-2. Compress `system.md` and the five fattest tool descriptions section by
-   section, targeting ~50%, meta-prompted and reviewed by hand.
-3. Run the full release gate (`pnpm eval:gate` — all three suites) on the
-   compressed variant.
-4. Only a green gate lets any prompt edit merge.
+The compression ran in exactly the order the plan demanded, and the guard
+earned its keep on day one:
+
+1. `system.md` and the five fattest tool descriptions were compressed by hand,
+   section by section — keeping the parallel-batching instruction deliberately
+   strong.
+2. The first compressed variant (**v1**) failed `explore-mode-stays-readonly`
+   twice in a row: the trial data showed a rejected `question` call burning
+   the extra turn. The cut responsible: v1 dropped "requesting input from the
+   user is a blocking action." A control run on the original prompt (via git
+   stash) passed, convicting the compression.
+3. **v2** restored that rule plus an explicit "if an action is blocked, report
+   it plainly instead of asking" — and matched the original prompt's score.
+4. The full release gate then ran on v2: **all three suites GATE OPEN**.
+
+That's the whole cost-efficiency principle in miniature: the offline token
+count said v1 was fine; only behavioral measurement caught what it broke.
 
 ## Performance improvements
 
 | Metric | Before | After | Δ |
 | --- | --- | --- | --- |
-| Recurring block | ~6.9K tokens/request | _awaiting compression_ | |
-| Gate result on compressed variant | — | _awaiting run_ | |
-| `parallel-batch-two-reads` | _awaiting first live run_ | _awaiting run_ | |
+| `system.md` | 8,862 chars (~2.2K tokens) | 5,446 chars | **−38.5%** |
+| Fat-five tool descriptions | ~9.8K chars | roughly halved | ~−50% |
+| Trajectory gate | — | **GATE OPEN** (guard case green at 3 trials) | |
+| Coding gate | — | **GATE OPEN** (11/11) | |
+| Judged gate | — | **GATE OPEN — mean 4.83/5**, no case below 4 | |
+
+The judge's own rationales confirm the style survived compression: "direct,
+no unnecessary padding", "omitting preamble as requested" — the exact
+qualities a clumsy prompt trim would have destroyed.

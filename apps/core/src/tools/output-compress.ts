@@ -7,6 +7,13 @@
 // Off by default: FREECODE_BASH_COMPRESS=1 enables, read per call so `eval ab`
 // can flip it per variant. The default is earned by the A/B, not asserted here.
 //
+// A/B verdict 2026-09-04 (coding suite, 11 cases × 3 trials, MiniMax-M3): the
+// default is NOT earned — compression ON measured +11.9% tokens / +10.9% cost,
+// turns 145→160, repeatedCalls 3→4. The model pages back elided output faster
+// than the compression saves — the exact recovery detour predicted above. Keep
+// off. Retry only with a different model, tuned thresholds, or noisier
+// workloads; the deciding command is in queue.md / EVAL.md.
+//
 // Conservative by design (Copilot's finding: aggressive compression makes the
 // agent re-run commands, which costs more end-to-end than it saves):
 //   source — never touched. The model asked for bytes; it gets bytes.
