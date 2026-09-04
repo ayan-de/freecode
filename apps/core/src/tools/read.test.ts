@@ -23,26 +23,27 @@ async function read(filePath: string, params: Record<string, unknown> = {}) {
   return (await ReadTool.execute({ filePath, ...params }, ctx as any)) as any;
 }
 
-test("line numbers prefix every line by default", async () => {
-  const res = await read(write("numbered.txt", "alpha\nbeta"));
+test("no line-number prefix by default, range footer stays", async () => {
+  // Spec 2026-09-04-harness-cost-efficiency.md D3: default flipped 2026-09-04
+  // after both A/Bs (coding -10.9% tokens, judged -6.8%, quality unchanged).
+  // Offset paging lives in the footer, not the prefix, so it must survive.
+  const res = await read(write("plain.txt", "alpha\nbeta\ngamma"));
 
   assert.equal(res.success, true);
-  assert.match(res.result.output, /1: alpha/);
-  assert.match(res.result.output, /2: beta/);
+  assert.ok(res.result.output.includes("alpha\nbeta\ngamma"));
+  assert.equal(/^\d+: /m.test(res.result.output), false);
+  assert.match(res.result.output, /End of file - total 3 lines/);
 });
 
-test("FREECODE_READ_LINE_NUMBERS=0 drops the prefix, keeps the range footer", async () => {
-  // Spec 2026-09-04-harness-cost-efficiency.md D3: the experiment variant.
-  // Offset paging lives in the footer, not the prefix, so it must survive.
+test("FREECODE_READ_LINE_NUMBERS=1 restores the prefix", async () => {
   const prev = process.env.FREECODE_READ_LINE_NUMBERS;
-  process.env.FREECODE_READ_LINE_NUMBERS = "0";
+  process.env.FREECODE_READ_LINE_NUMBERS = "1";
   try {
-    const res = await read(write("plain.txt", "alpha\nbeta\ngamma"));
+    const res = await read(write("numbered.txt", "alpha\nbeta"));
 
     assert.equal(res.success, true);
-    assert.ok(res.result.output.includes("alpha\nbeta\ngamma"));
-    assert.equal(/^\d+: /m.test(res.result.output), false);
-    assert.match(res.result.output, /End of file - total 3 lines/);
+    assert.match(res.result.output, /1: alpha/);
+    assert.match(res.result.output, /2: beta/);
   } finally {
     if (prev === undefined) delete process.env.FREECODE_READ_LINE_NUMBERS;
     else process.env.FREECODE_READ_LINE_NUMBERS = prev;
@@ -71,8 +72,8 @@ test("the byte cap stops the read and reports the resume offset", async () => {
   )!;
   assert.ok(Number(last) < 600, "stopped before the end of the file");
   assert.equal(Number(next), Number(last) + 1);
-  // Cut on a line boundary: the last emitted line is whole.
-  assert.match(res.result.output, new RegExp(`\\n${last}: y{100}\\n`));
+  // Cut on a line boundary: the last emitted line before the footer is whole.
+  assert.match(res.result.output, /\ny{100}\n\n\(Output capped/);
 });
 
 test("hitting the line limit is not reported as a byte cap", async () => {
@@ -106,10 +107,10 @@ test("offset/limit read exactly the requested window", async () => {
   const res = await read(p, { offset: 340, limit: 3 });
 
   assert.equal(res.success, true);
-  assert.match(res.result.output, /340: line340/);
-  assert.match(res.result.output, /342: line342/);
-  assert.equal(res.result.output.includes("343: line343"), false);
-  assert.equal(res.result.output.includes("339: line339"), false);
+  assert.match(res.result.output, /\bline340\b/);
+  assert.match(res.result.output, /\bline342\b/);
+  assert.equal(res.result.output.includes("line343"), false);
+  assert.equal(res.result.output.includes("line339"), false);
   assert.match(res.result.output, /Showing lines 340-342 of 500/);
 });
 
@@ -121,7 +122,7 @@ test("offset and limit accept numeric strings from stringifying providers", asyn
   const res = await read(p, { offset: "10", limit: "2" });
 
   assert.equal(res.success, true);
-  assert.match(res.result.output, /10: n10\n11: n11/);
+  assert.match(res.result.output, /n10\nn11/);
 });
 
 test("offset below 1 is rejected rather than silently clamped", () => {
@@ -149,7 +150,7 @@ test("offset 0 does not read off the front of the file", async () => {
   const res = await read(p, { offset: 0 });
 
   assert.equal(res.success, true);
-  assert.match(res.result.output, /1: a/);
+  assert.ok(res.result.output.includes("a\nb\nc"));
 });
 
 test("an offset past the end says so instead of claiming end-of-file", async () => {
