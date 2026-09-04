@@ -1,6 +1,15 @@
 # @thisisayande/freecode
 
-## 0.28.0
+## 0.29.0
+
+### Minor Changes
+
+- Harness cost-efficiency release: compressed system prompt and tool descriptions (eval-gated, GATE OPEN ×3), `read` line-number prefixes default OFF, tool output stored in full before any lossy cap, provider catalogue hardening (memoized init, fetch timeout/retries, models.dev pricing), agent comparison benchmark Phase 0, and `eval ab` cost/turn metrics. See freecode-core 0.29.0 for details.
+
+### Patch Changes
+
+- Updated dependencies
+  - @thisisayande/freecode-core@0.29.0
 
 ### Minor Changes
 

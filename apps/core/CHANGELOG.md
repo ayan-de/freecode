@@ -1,6 +1,13 @@
 # @thisisayande/freecode-core
 
-## 0.28.0
+## 0.29.0
+
+### Minor Changes
+
+- **Harness cost efficiency (spec `2026-09-04-harness-cost-efficiency.md`)**: system prompt compressed −38.5% and the five largest tool descriptions roughly halved under a behavioral eval gate (full `eval:gate` GATE OPEN ×3, judged mean 4.83/5); `read` line-number prefixes now default OFF after winning both A/Bs (`FREECODE_READ_LINE_NUMBERS=1` restores them); full tool output reaches the store before any lossy cap. Shell output compression was built but stays flag-off — it lost its A/B (+10.9% cost from recovery detours).
+- **Provider catalogue hardening**: `initProviders` memoized with its rejection no longer dropped, the models.dev fetch got a timeout/retries/override, pricing now sourced from models.dev instead of a 6-entry table, weekly catalogue-drift CI check, and `pnpm build:bun` unbroken along with two traps it was hiding.
+- **Agent comparison benchmark (Phase 0)**: `bench:agents` harness pinning every agent to one model/key, an opencode adapter (and the MCP asymmetry it exposed), and a `/benchmark` web page fed by every run.
+- **Eval harness**: `eval ab` reports tokens, cost, turns, and repeatedCalls per side; new `expectParallelTools` expectation guards parallel batching; nightly trajectory-suite cron enabled in CI.
 
 ### Minor Changes
 
