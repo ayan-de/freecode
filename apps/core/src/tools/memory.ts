@@ -56,7 +56,7 @@ const memorySchema: JsonSchema = {
       type: "string",
       enum: [...MEMORY_TYPES],
       description:
-        "user = who they are and how they like to work; feedback = guidance they gave you; project = non-derivable context like decisions and deadlines; reference = pointers to external systems. 'episode' is written by consolidation, not by you — you can read and delete episodes but not save them.",
+        "user = who they are/how they work; feedback = guidance they gave; project = non-derivable context (decisions, deadlines); reference = external pointers. 'episode' is machine-written — readable/deletable, not saveable.",
     },
     name: {
       type: "string",
@@ -247,12 +247,10 @@ async function executeMemory(
 export const MemoryTool: Tool<MemoryParams> = buildTool({
   id: "memory",
   description:
-    "Store a durable fact about the user or project so it is available in future sessions. " +
-    "Save when you learn something that will still be true next week: a stated preference, a " +
-    "correction to how you work, a decision and its reasoning, or a pointer to an external system. " +
-    "Do not save anything derivable from the code, git history, or project instructions, and do not " +
-    "save task details that stop mattering when this task ends. Use 'list' before saving if you are " +
-    "unsure whether a memory already covers it — saving with an existing name updates it.",
+    "Store a durable fact about the user or project for future sessions — something still true " +
+    "next week: a stated preference, a correction, a decision and its reasoning, an external pointer. " +
+    "Never save what's derivable from code/git/project instructions or task details that expire with " +
+    "the task. 'list' first if unsure — saving with an existing name updates it.",
   schemas: { parameters: memorySchema },
   permissions: { operations: ["file.write"] },
   behavior: {

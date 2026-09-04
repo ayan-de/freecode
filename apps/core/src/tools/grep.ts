@@ -233,13 +233,12 @@ async function executeGrep(
 
 export const GrepTool: Tool<GrepParams> = buildTool({
   id: "grep",
-  description: `Search file contents with a regular expression, backed by ripgrep. This is the tool for "where is X used, defined, or referenced" — never run \`grep\` or \`rg\` through bash.
+  description: `Search file contents with a regex (ripgrep) — the tool for "where is X used/defined". Never run \`grep\`/\`rg\` through bash.
 
-- Pattern syntax is ripgrep's (Rust regex), not PCRE: no backreferences or lookaround, and literal braces need escaping (\`interface\\{\\}\` to find \`interface{}\`). A pattern matches within a single line — there is no multiline mode, so target a distinctive line rather than a construct that spans several.
-- Narrow before you widen. output_mode "files_with_matches" returns paths only and is the cheapest way to see how large the problem is; switch to "content" (the default) once you know which files matter. Add -C/-B/-A only when you actually need the surrounding lines — each one multiplies the output.
-- Scope the search with glob/include ("*.ts", "*.{ts,tsx}") or type ("ts", "py") instead of scanning the repo and reading past the noise.
-- head_limit caps matches PER FILE (default 100). Hidden files, .gitignore'd paths, and binaries are skipped.
-- To locate a symbol by name rather than by text, \`lsp\` workspaceSymbol is more precise. For an open-ended hunt needing several rounds of grep and glob, delegate to \`agent\` so the intermediate output never enters this conversation.`,
+- Rust regex, not PCRE: no backreferences/lookaround; escape literal braces (\`interface\\{\\}\`). Single-line matching only — target a distinctive line.
+- Narrow before widening: output_mode "files_with_matches" (paths only) first, then "content" (default). Add -C/-B/-A only when needed. Scope with glob/include ("*.{ts,tsx}") or type ("ts") instead of scanning the repo.
+- head_limit caps matches PER FILE (default 100). Hidden/.gitignore'd/binary files are skipped.
+- For a symbol by name, \`lsp\` workspaceSymbol is more precise; for an open-ended multi-round hunt, delegate to \`agent\`.`,
   schemas: {
     parameters: grepSchema,
   },

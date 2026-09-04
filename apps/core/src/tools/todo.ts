@@ -184,19 +184,11 @@ export const TodoWriteTool: Tool<TodoWriteParams> = buildTool({
   // explored, which is a plan that organised nothing. The ordering rule below
   // is the part that was missing.
   description: [
-    "Create and maintain a structured task list for the current session. Each call replaces the whole list.",
+    "Create and maintain a structured task list for the session. Each call replaces the whole list.",
     "",
-    "Use it proactively when:",
-    "- the work needs 3+ distinct steps (distinct steps, not 3 tool calls for one step)",
-    "- the user named several deliverables at once, numbered or comma-separated",
-    "- the user explicitly asked for a plan or a todo list",
-    "- new instructions arrive mid-task — capture them before acting on them",
+    "Use it when the work needs 3+ distinct steps, the user named several deliverables, asked for a plan, or new instructions arrive mid-task (capture before acting). Write the list BEFORE exploring — the plan frames the exploration. Do NOT use it for a single straightforward task or an informational question.",
     "",
-    "Write the list BEFORE exploring, not after. When the request already names the work, you do not need to read the codebase to know what the steps are — the plan is the frame that exploration fills in.",
-    "",
-    "Do NOT use it for a single straightforward task, for work under 3 trivial steps, or for a purely informational question. Doing the task is better than tracking it.",
-    "",
-    "States: pending, in_progress (exactly ONE at a time), completed. Mark items completed as you finish them, never batched at the end, and only when the work is genuinely done rather than intended. If you are blocked, leave the item in_progress and add a follow-up item naming the blocker.",
+    "States: pending, in_progress (exactly ONE at a time), completed. Mark items completed as you finish them — never batched at the end, only when genuinely done. If blocked, leave in_progress and add an item naming the blocker.",
   ].join("\n"),
   schemas: { parameters: todoSchema },
   permissions: { operations: [] },
