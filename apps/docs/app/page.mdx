@@ -1,39 +1,59 @@
 ---
 title: FreeCode
 description: A CLI-driven AI coding assistant — documentation
+sidebar: false
+toc: false
+theme:
+  sidebar: false
+  toc: false
+  layout: full
+  breadcrumb: false
+  pagination: false
 ---
 
-# FreeCode
+import Image from "next/image";
+import { Cards } from "nextra/components";
 
-FreeCode is a CLI-driven AI coding assistant. A single agentic tool-use loop runs
-in a long-lived CLI backend, and every frontend — terminal, VS Code, web, desktop,
-mobile — is a thin presentation layer that talks to it over JSON-RPC. Providers
-(Anthropic, OpenAI, Gemini, MiniMax, DeepSeek, Z.ai) are swappable without
-touching the loop.
+<div style={{ display: "flex", justifyContent: "center", marginTop: "3rem", marginBottom: "1.5rem" }}>
+  <Image src="/logo.svg" alt="FreeCode" width={858} height={180} style={{ maxWidth: "90%", height: "auto" }} priority />
+</div>
 
-## Where to start
+<div style={{ textAlign: "center", fontSize: "2.5rem", fontWeight: 700, margin: "0 auto 3rem" }}>
+  The Manual
+</div>
 
-- [Getting started](/getting-started) — install FreeCode, add a provider key, run your first session.
-- [Interfaces](/interfaces) — the terminal UI, VS Code extension, web UI, desktop app, and remote/mobile access.
-- [Guides](/guides) — permissions, tools, skills, hooks, MCP, memory, sessions, and cost.
-- [Internals](/internals) — how the agent loop, provider layer, event bus, and memory graph actually work.
-- [Reference](/reference) — CLI commands, `settings.json`, environment variables, IPC methods.
-- [Contributing](/contributing) — repo layout, dev setup, and how to add a tool or a provider.
-
-## The shape of the system
-
-```
-  TUI · VS Code · Web · Desktop · Mobile        (render + IPC only)
-                   |
-              JSON-RPC (stdin/stdout)
-                   |
-          CLI backend — all intelligence
-   agent loop · tools · context · sessions · memory
-   providers · MCP · hooks · skills · permissions
-                   |
-        Anthropic · OpenAI · Gemini · MiniMax
-              DeepSeek · Z.ai
-```
-
-> These docs are being written section by section. Pages marked with a
-> "coming soon" list are outlines, not finished content.
+<Cards num={2} style={{ maxWidth: "48rem", margin: "0 auto" }}>
+  <Cards.Card title="Start here" href="/getting-started" arrow>
+    <div style={{ padding: "0 1rem 1rem", margin: 0, fontWeight: "normal" }}>
+      Install FreeCode, add a provider key, run your first session — and pick
+      your interface.
+    </div>
+  </Cards.Card>
+  <Cards.Card title="Using FreeCode" href="/guides" arrow>
+    <div style={{ padding: "0 1rem 1rem", margin: 0, fontWeight: "normal" }}>
+      Permissions, tools, skills, hooks, MCP, memory, sessions, and cost.
+    </div>
+  </Cards.Card>
+  <Cards.Card title="Under the hood" href="/internals" arrow>
+    <div style={{ padding: "0 1rem 1rem", margin: 0, fontWeight: "normal" }}>
+      How the agent loop, provider layer, event bus, and memory graph actually
+      work.
+    </div>
+  </Cards.Card>
+  <Cards.Card title="Reference" href="/reference" arrow>
+    <div style={{ padding: "0 1rem 1rem", margin: 0, fontWeight: "normal" }}>
+      CLI commands, settings.json, environment variables, IPC methods.
+    </div>
+  </Cards.Card>
+  <Cards.Card title="Contributing" href="/contributing" arrow>
+    <div style={{ padding: "0 1rem 1rem", margin: 0, fontWeight: "normal" }}>
+      Repo layout, dev setup, and how to add a tool or a provider.
+    </div>
+  </Cards.Card>
+  <Cards.Card title="Blog" href="/extras" arrow>
+    <div style={{ padding: "0 1rem 1rem", margin: 0, fontWeight: "normal" }}>
+      Deep-dives: the cost-efficiency experiments, how they were built, and
+      what they measurably saved.
+    </div>
+  </Cards.Card>
+</Cards>
