@@ -1,0 +1,86 @@
+---
+title: "Removing line-number prefixes from file reads"
+description: "Why the `42: ` prefix on every read line was costing ~11% of tokens for nothing — and the A/B that proved it."
+---
+
+# Removing line-number prefixes from file reads
+
+> GitHub measured **3.1%** of total cost saved by removing theirs.
+> FreeCode's coding-suite A/B measured **−10.9% tokens / −23.4% cost** with
+> zero quality loss.
+
+## The problem, in plain words
+
+FreeCode's `read` tool used to prefix every line of every file with its line
+number:
+
+```
+41: export function truncateOutput(text: string) {
+42:   const limit = 500_000;
+43:   ...
+```
+
+That's 3–7 extra characters *per line*, on *every file the model ever reads*,
+re-sent on every later turn. The question is whether the model actually uses
+those numbers. In FreeCode, on paper, it doesn't need to:
+
+- The `edit` tool matches **strings**, not line numbers — you give it the old
+  text and the new text.
+- When the model needs a line number for navigation, it gets one from
+  `grep -n` or LSP output, not from `read`.
+
+GitHub found the same in Copilot's harness: nothing in the editing workflow
+consumed the prefixes. But "on paper" is an argument, not evidence — maybe the
+model quietly leans on visible numbering to cite `file:line` in answers, or to
+disambiguate repeated strings before an edit. So this shipped as an
+experiment, not a change.
+
+## How I implemented it
+
+One small, deliberately boring change (`apps/core/src/tools/read.ts`): the
+per-line prefix is applied only when `FREECODE_READ_LINE_NUMBERS` is not `0`.
+The env var is read **per call** inside `execute` — not at startup — which
+matters because the A/B runner flips env vars between interleaved trials; a
+startup-read var would make both sides identical and the experiment would
+silently measure nothing. The key is allowlisted in the A/B runner's
+`VARIABLE_ENV_KEYS` (`apps/core/src/eval/ab.ts`) for the same reason.
+
+What stays regardless of the flag: the range footer ("Showing lines 1–200,
+use offset=201"). Paging through big files works off the offset parameter,
+not off per-line prefixes, so removing the prefixes doesn't break re-reads.
+
+The default stayed **on** (today's behavior) until the measurement below —
+per the rule that a default is earned, not asserted.
+
+## Performance improvements
+
+Coding suite, 11 cases × 3 trials per side, MiniMax-M3 on both sides,
+interleaved:
+
+```bash
+freecode eval ab coding --baseline env:FREECODE_READ_LINE_NUMBERS=1 \
+  --candidate env:FREECODE_READ_LINE_NUMBERS=0 --trials 3
+```
+
+| Metric | Before (prefixes on) | After (prefixes off) | Δ |
+| --- | --- | --- | --- |
+| Pass rate | 11/11 cases, 3/3 trials | 11/11 cases, 3/3 trials | unchanged |
+| Tokens | 1,317,158 | 1,174,060 | **−10.9%** |
+| Cost | $0.1566 | $0.1200 | **−23.4%** |
+| Turns | 152 | 139 | −13 |
+| Repeated calls | 5 | 2 | −3 |
+
+Every case passed every trial on both sides — removing the numbers loses
+nothing on correctness — and the no-prefix side was cheaper on every axis. It
+even *repeated fewer calls*, so there's no hidden recovery detour eating the
+saving.
+
+One measurement is still outstanding before the default flips: the **judged**
+suite, because citation quality ("does the model still say `file.ts:42` in
+answers?") is a judged property, not something the coding suite can see.
+
+| Metric | Before (prefixes on) | After (prefixes off) | Δ |
+| --- | --- | --- | --- |
+| Judge score (0–5) | _awaiting A/B_ | _awaiting A/B_ | |
+| Tokens | _awaiting A/B_ | _awaiting A/B_ | |
+| Cost | _awaiting A/B_ | _awaiting A/B_ | |

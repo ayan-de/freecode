@@ -22,5 +22,6 @@ export default {
   },
   internals: "Internals",
   reference: "Reference",
-  contributing: "Contributing"
+  contributing: "Contributing",
+  extras: "Extras"
 } satisfies MetaRecord;

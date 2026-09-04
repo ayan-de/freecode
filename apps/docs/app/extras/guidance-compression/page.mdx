@@ -1,0 +1,80 @@
+---
+title: "Compressing recurring tool guidance"
+description: "The ~6.9K tokens of system prompt and tool descriptions that ride every request, the plan to halve them, and the regression guard built first."
+---
+
+# Compressing recurring tool guidance
+
+> GitHub measured **2.9%** (~1,300 tokens per turn) from compressing their
+> recurring prompts ~50%. FreeCode has measured its block and built the
+> safety guard; the compression itself hasn't started.
+
+## The problem, in plain words
+
+Some text rides on **every single model call** for the life of a session: the
+system prompt (how to behave) and the tool definitions (what `read`, `bash`,
+`grep` etc. do and what parameters they take). Unlike a file read — paid when
+it happens — this block is a fixed tax on every request, forever.
+
+Measured on a real recorded request (the numbers come from the rollout log,
+not guesses):
+
+| Block | Size | Biggest items |
+| --- | --- | --- |
+| System prompt (`system.md`) | ~2.2K tokens | — |
+| Tool descriptions + schemas (16 tools) | ~4.7K tokens | `grep` 2,454 chars, `bash` 2,427, `memory` 1,944, `todowrite` 1,557, `agent` 1,423 |
+| **Recurring block total** | **~6.9K tokens / request** | |
+
+Halving it, GitHub-style, would save ~3.4K tokens on every request — before
+the conversation has even started growing.
+
+## Why this is the dangerous one
+
+Compressing prose sounds safe. It isn't. GitHub's own prompt compression
+**silently serialized their parallel agents** — a shortened instruction lost
+the nuance that told the model to issue tool calls in parallel, everything got
+slower and more expensive, and no offline token count could have caught it.
+Only behavioral testing did.
+
+FreeCode's system prompt carries the same load-bearing instruction (batch
+independent tool calls into one response). So before any compression lands,
+the regression it could cause needed a permanent, automated tripwire.
+
+## How I implemented it (the guard — built first, on purpose)
+
+The tripwire is an eval expectation, `expectParallelTools`
+(`apps/core/src/eval/types.ts`, scored in `eval/scorers/trajectory.ts`), plus
+the trajectory case `parallel-batch-two-reads` in `evals/trajectory.jsonl`: a
+prompt whose correct trajectory is two concurrency-safe reads **in one
+assistant message**. If any future prompt edit — this compression or any
+other — weakens the batching instruction, the trajectory suite goes red.
+
+Two details worth understanding:
+
+- It scores what the response **emitted**, not what ran (`ModelSpan.toolCalls`
+  from the trace). A batch that gets permission-denied still counts as
+  batching — we're testing the model's behavior, not the sandbox's mood.
+- The dataset loader rejects `expectParallelTools` values below 2, because
+  "at least one tool call" would assert nothing.
+
+This case guards *every* future prompt edit, not just this one — it's the
+test the suite should have had since the parallel-batching instruction was
+added.
+
+## The plan (not started)
+
+1. **Prerequisite:** see `parallel-batch-two-reads` pass on the *current*
+   prompt in a live run — a guard that's never been green guards nothing.
+2. Compress `system.md` and the five fattest tool descriptions section by
+   section, targeting ~50%, meta-prompted and reviewed by hand.
+3. Run the full release gate (`pnpm eval:gate` — all three suites) on the
+   compressed variant.
+4. Only a green gate lets any prompt edit merge.
+
+## Performance improvements
+
+| Metric | Before | After | Δ |
+| --- | --- | --- | --- |
+| Recurring block | ~6.9K tokens/request | _awaiting compression_ | |
+| Gate result on compressed variant | — | _awaiting run_ | |
+| `parallel-batch-two-reads` | _awaiting first live run_ | _awaiting run_ | |

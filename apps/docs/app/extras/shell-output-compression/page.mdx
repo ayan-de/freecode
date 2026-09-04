@@ -1,0 +1,90 @@
+---
+title: "Content-aware shell output compression"
+description: "How FreeCode classifies shell output (source, search, log) and compresses each kind differently — without ever losing a byte."
+---
+
+# Content-aware shell output compression
+
+> GitHub measured **5.5%** of total cost saved with this technique on
+> Copilot's workload. FreeCode's own number is decided by the A/B below.
+
+## The problem, in plain words
+
+When the agent runs a shell command, the output goes into the conversation —
+and stays there, re-sent on every later model call. But not all output is
+equal:
+
+- A `git diff` is **exactly what the model asked for**. Cut a line and the
+  model is now editing a file it hasn't fully seen.
+- A `grep` result is a list of matches. Duplicates are noise, but **dropping a
+  match** means the model misses a call site.
+- An `npm install` log is 2,000 lines of progress bars where the only line
+  that matters says `ERROR:` — usually buried in the middle, which is exactly
+  the part a naive "keep head + tail" cut throws away.
+
+The old behavior treated all three identically: keep the first and last chunk,
+drop the middle. Safe for nothing, optimal for nothing.
+
+## How I implemented it
+
+Two pieces, in two places — because each place knows something the other
+doesn't.
+
+**Step 1 — classify in the tool** (`apps/core/src/tools/bash.ts`). The bash
+tool is the only code that knows *what command was run*, so `classifyCommand`
+looks at the command string and tags the result with an `outputKind`:
+
+| Kind | Matched commands | Rule |
+| --- | --- | --- |
+| `source` | `cat`, `git diff`, `git show`, `sed -n` | never compress — the model asked for bytes |
+| `search` | `grep`, `rg`, `find`, `ls -R` | dedupe only; a match line is never dropped |
+| `log` | `npm test`, `cargo build`, `pytest`, installs | keep head, tail, and every failure-looking line |
+| (none) | anything unclear | untouched — conservative beats clever |
+
+A pipeline is classified by its **last** segment: `npm test | grep FAIL`
+produces search output, not a build log. A quoted string containing a pipe is
+left unclassified rather than guessed at.
+
+**Step 2 — compress in the orchestrator**
+(`apps/core/src/tools/output-compress.ts`, called from
+`tools/orchestrator.ts`). Compression runs at the single place all tool
+output already gets capped — and crucially, **after** the full output is
+written to the session's `OutputStore`. That ordering is the safety net:
+every collapsed region leaves a marker naming the `output` tool and the call
+id, so the model can page back anything it misses with one cheap call instead
+of re-running the command.
+
+(Getting that ordering right was its own prerequisite fix: bash used to
+truncate at 500 KB *before* the store saw the output, so the head of a huge
+output was simply unrecoverable. That cut is deleted; the orchestrator owns
+every cap now.)
+
+**Step 3 — flag, off by default.** `FREECODE_BASH_COMPRESS=1` enables it,
+read per call. It stays off because a default is *earned by measurement*, not
+asserted — the whole point of the exercise.
+
+The log compressor is guaranteed to keep every line matching failure patterns
+(`error`, `FAIL`, `warning`, non-zero exit context), and the search compressor
+is provably lossless on distinct lines — both covered by unit and property
+tests next to the code.
+
+## Performance improvements
+
+Measured by the paired A/B runner (both variants interleaved in one run, so
+nothing else can confound the delta):
+
+```bash
+freecode eval ab coding --baseline env:FREECODE_BASH_COMPRESS=0 \
+  --candidate env:FREECODE_BASH_COMPRESS=1 --trials 3
+```
+
+| Metric | Before (no compression) | After (compression on) | Δ |
+| --- | --- | --- | --- |
+| Pass rate | _awaiting A/B_ | _awaiting A/B_ | |
+| Tokens | _awaiting A/B_ | _awaiting A/B_ | |
+| Cost | _awaiting A/B_ | _awaiting A/B_ | |
+| Repeated calls | _awaiting A/B_ | _awaiting A/B_ | |
+
+An earlier run predates cost reporting in the A/B tool, so it recorded pass
+counts only; the re-run above fills this table. The default flips only if
+cost drops with pass rate and `repeatedCalls` held.

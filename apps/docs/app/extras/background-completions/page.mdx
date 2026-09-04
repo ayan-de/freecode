@@ -1,0 +1,63 @@
+---
+title: "Batching background completions inline"
+description: "Why FreeCode never spends a model call just to check on background work — an invariant that's already true, recorded so it stays true."
+---
+
+# Batching background completions inline
+
+> GitHub measured **2.3%** saved by delivering background results inside
+> already-happening requests instead of dedicated polling turns. FreeCode
+> gets this for free today — this page records *why*, and the rule that keeps
+> it that way.
+
+## The problem, in plain words
+
+Imagine the agent kicks off two long-running commands in the background, then
+later asks "is task 1 done?" (one model call), gets the result (another),
+asks "is task 2 done?" (a third), gets that result (a fourth). Four model
+calls to collect two results — and remember, every call re-sends the entire
+conversation. That polling pattern is pure waste: the results should ride
+along inside model calls that were going to happen anyway.
+
+GitHub fixed this in Copilot by attaching finished background completions to
+the next already-scheduled request. Their saving: 2.3% of total cost.
+
+## Why FreeCode doesn't have this problem (yet)
+
+By construction. FreeCode has **no background bash and no async subagents** —
+when the model emits several independent tool calls in one response, the
+batching layer (`apps/core/src/tools/batching.ts` +
+`tools/orchestrator.ts`) runs them concurrently and returns **all** their
+results in the same single follow-up model call. There is no "check status
+later" turn to eliminate, because nothing runs detached from the loop.
+
+So the implementation here isn't code — it's the *absence* of the
+anti-pattern, plus the existing batching layer already proving the right
+shape: many results, one request.
+
+## How I implemented it (as a recorded invariant)
+
+The risk isn't today; it's the roadmap. FreeCode's `autonomous/` subsystem
+(Phase 0: types, budgets, storage) will eventually grow detached execution,
+and async subagents are a natural future feature. The day either lands, the
+polling anti-pattern becomes possible.
+
+So the spec (`2026-09-04-harness-cost-efficiency.md`, D5) records this as a
+hard constraint on all future work:
+
+> **A background completion is delivered as an ordinary tool-result in the
+> next already-happening model call — never via a dedicated retrieval turn.**
+
+Four calls to process two results is the named anti-pattern. Any future
+background-execution design gets reviewed against this line before it builds.
+
+## Performance improvements
+
+| Metric | Value |
+| --- | --- |
+| Dedicated polling turns today | 0 — impossible by construction |
+| Cost of enforcing the invariant | 0 tokens, 0 code — it's a design rule |
+| Measured saving | n/a until background execution exists; GitHub's 2.3% is the reference point |
+
+The cheapest technique of the four: it costs nothing because it was adopted
+*before* the feature that would violate it.

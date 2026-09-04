@@ -1,0 +1,44 @@
+---
+title: "Extras"
+description: "Deep-dives into the four cost-efficiency techniques FreeCode adopted from GitHub's Copilot harness work — how each was implemented and what it measurably saved."
+---
+
+# Extras
+
+This section is a set of deep-dives into four cost-efficiency techniques,
+adopted from GitHub's Copilot team write-up
+["How we make AI coding more cost-efficient without sacrificing task quality"](https://github.blog/ai-and-ml/github-copilot/how-we-make-ai-coding-more-cost-efficient-without-sacrificing-task-quality/).
+The titles below are theirs; the implementations are FreeCode's.
+
+## Why cost efficiency matters in an agent
+
+Every time the agent calls the model, it re-sends **everything**: the system
+prompt, all the tool definitions, and the whole conversation so far — every
+file it read, every command output it saw. So one wasteful tool result isn't
+paid once; it's paid again on *every* later turn of the session.
+
+The trap is that the obvious fix — cut aggressively — backfires. If the agent
+can't see what it needs, it recovers: re-runs the command, re-reads the file,
+takes an extra turn. And an extra turn re-sends the whole conversation. You
+saved 2,000 tokens and paid 150,000 for the detour. GitHub's team hit this
+repeatedly, which is why their governing principle (and ours) is:
+
+> **Optimize for the outcome, not the tool call.**
+
+Nothing here ships on an argument. Each change is an *experiment*: it lives
+behind a flag, an interleaved A/B run (`freecode eval ab`) measures the whole
+task end-to-end, and the default only flips if cost drops while pass rate and
+`repeatedCalls` (the recovery-detour detector) hold.
+
+## The four techniques
+
+| Technique | GitHub's saving | FreeCode status |
+| --- | --- | --- |
+| [Content-aware shell output compression](/extras/shell-output-compression) | 5.5% | Built, flag-off, A/B pending |
+| [Removing line-number prefixes from file reads](/extras/line-number-prefixes) | 3.1% | Built — coding A/B: **−23.4% cost**, no quality loss |
+| [Compressing recurring tool guidance](/extras/guidance-compression) | 2.9% | Guard built, compression pending |
+| [Batching background completions inline](/extras/background-completions) | 2.3% | Already true by construction, recorded as an invariant |
+
+For the summary view of how these fit FreeCode's request anatomy, see
+[Internals → Cost efficiency](/internals/cost-efficiency). The spec behind all
+four is `docs/superpowers/specs/2026-09-04-harness-cost-efficiency.md`.
