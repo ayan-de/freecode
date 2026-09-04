@@ -8,8 +8,8 @@ name: Eval
 # releases. `ci.yml` stays free and fast; this is the one that costs money, so
 # it is opt-in.
 #
-# To run it nightly instead, uncomment the schedule below. Do that once the
-# thresholds have been calibrated against a real run — see the eval spec §11.
+# The nightly cron runs the trajectory suite only — deterministic scorers,
+# the cheapest of the three. Coding/judged stay dispatch-only.
 on:
   workflow_dispatch:
     inputs:
@@ -21,8 +21,8 @@ on:
         description: "Trials per case (--gate implies 3)"
         type: string
         default: "3"
-  # schedule:
-  #   - cron: "0 4 * * *"
+  schedule:
+    - cron: "0 4 * * *"
 
 concurrency:
   # Never two eval runs at once: they append to the same history file, and a
@@ -39,6 +39,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      # On schedule events inputs.* are empty; fall back to the nightly defaults.
+      SUITE: ${{ inputs.suite || 'trajectory' }}
+      TRIALS: ${{ inputs.trials || '3' }}
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
       # The model under test. Pin it here rather than relying on a provider
       # default: a default that changes silently reprices the baseline, and a
@@ -76,14 +79,14 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.freecode/eval_runs.jsonl
-          key: eval-history-${{ inputs.suite }}-${{ github.run_id }}
+          key: eval-history-${{ env.SUITE }}-${{ github.run_id }}
           restore-keys: |
-            eval-history-${{ inputs.suite }}-
+            eval-history-${{ env.SUITE }}-
 
       - name: Run suite
         run: |
-          pnpm eval "${{ inputs.suite }}" \
-            --trials "${{ inputs.trials }}" \
+          pnpm eval "$SUITE" \
+            --trials "$TRIALS" \
             --gate \
             ${FREECODE_EVAL_MODEL:+--model "$FREECODE_EVAL_MODEL"}
 
@@ -96,12 +99,12 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.freecode/eval_runs.jsonl
-          key: eval-history-${{ inputs.suite }}-${{ github.run_id }}
+          key: eval-history-${{ env.SUITE }}-${{ github.run_id }}
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: eval-report-${{ inputs.suite }}
+          name: eval-report-${{ env.SUITE }}
           path: ~/.freecode/eval_report.json
           if-no-files-found: warn

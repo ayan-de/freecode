@@ -307,6 +307,28 @@ If a file exceeds ~150 lines, decompose (extract sub-components, move helpers to
 
 ---
 
+## Eval-Driven Development
+
+Behavior changes are verified by evals, not by eyeballing a transcript. **Read
+`EVAL.md` before running anything — every eval case is a real paid agent turn.**
+
+- **Changed the agent's behavior** (prompt, tool description, system message,
+  loop, redirect, recovery)? Run the A/B comparison EVAL.md prescribes for that
+  change class before calling it done. `eval ab` is a report, not a gate — read
+  the delta, don't just check the exit code.
+- **Found a real failure in a session?** Harvest it: `freecode eval add
+  <session-id> [--turn N] --write`, then fill in `failureCategory` and
+  `whyModelBacked` (the registry audit in `dataset.test.ts` enforces both).
+  Sessions that expose bugs become cases; bugs without cases regress silently.
+- **New deterministic assertion?** That's a `*.test.ts` next to its code, not an
+  eval case. Evals are only for what needs a real model turn.
+- **Release ritual** stays `pnpm eval:gate` (needs `FREECODE_JUDGE_PROVIDER`).
+  Nightly CI runs the trajectory suite gated; a red nightly is a regression to
+  triage, not noise — quarantine (`evals/quarantine.txt`) is for flakes only,
+  with a one-line reason.
+- Never edit a coding fixture's `immutable` checker to make a case pass, and
+  never delete or weaken a failing case without understanding why it fails.
+
 ## Key Invariants
 
 1. **Frontends are dumb** — TUI/VSCode/Web only render UI and send/receive IPC. All logic is in `apps/core`.
