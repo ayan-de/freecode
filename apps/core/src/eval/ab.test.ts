@@ -4,6 +4,7 @@ import {
   AbError,
   classify,
   parseVariant,
+  tallyOf,
   redactValue,
   redactVariant,
   trialOrder,
@@ -129,4 +130,32 @@ test("an incomplete side is inconclusive, however the passes look", () => {
   // ran, so there is no third data point to pair against.
   assert.equal(classify(tally(0, 2), tally(3, 3), 3), "inconclusive");
   assert.equal(classify(tally(3, 3), tally(2, 2), 3), "inconclusive");
+});
+
+// --- tallyOf ---------------------------------------------------------------
+
+test("tallyOf folds efficiency and keeps unpriced distinct from free", () => {
+  const trial = (over: Record<string, unknown>) => ({
+    passed: true,
+    reason: "ok",
+    turns: 2,
+    repeatedCalls: 1,
+    inputTokens: 100,
+    outputTokens: 10,
+    ...over,
+  }) as any;
+  const t = tallyOf([
+    trial({ costUsd: 0.5 }),
+    trial({ costUsd: undefined }),
+    // Died before the agent ran: not evidence, excluded from everything but `passed`.
+    trial({ passed: false, reason: "run failed: boom" }),
+  ]);
+  assert.equal(t.passed, 2);
+  assert.equal(t.ran, 2);
+  assert.equal(t.turns, 4);
+  assert.equal(t.repeatedCalls, 2);
+  assert.equal(t.tokens, 220);
+  assert.equal(t.costUsd, 0.5);
+  // No trial priced at all -> undefined, never 0.
+  assert.equal(tallyOf([trial({ costUsd: undefined })]).costUsd, undefined);
 });

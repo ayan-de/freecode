@@ -12,6 +12,7 @@ import {
   AbError,
   classify,
   redactVariant,
+  tallyOf,
   trialOrder,
   type Delta,
   type SideTally,
@@ -159,14 +160,6 @@ export async function runAb(
       candidate: [...served.candidate].sort(),
     },
     cases: results,
-  };
-}
-
-function tallyOf(trials: TrialResult[]): SideTally {
-  return {
-    passed: trials.filter((t) => t.passed).length,
-    // A trial that died before the agent ran is not evidence about the change.
-    ran: trials.filter((t) => !t.reason.startsWith("run failed:")).length,
   };
 }
 

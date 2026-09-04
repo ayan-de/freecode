@@ -11,6 +11,8 @@
 // exits 0. Results are noisy model-backed signals reported as paired deltas.
 // =============================================================================
 
+import type { TrialResult } from "./types.js";
+
 /** One side of the comparison: what to change before running the trial. */
 export interface Variant {
   /** `provider/model`, or bare model. Absent = whatever the config resolves. */
@@ -138,6 +140,39 @@ export interface SideTally {
   passed: number;
   /** Trials that ran at all — a trial that died on infrastructure does not. */
   ran: number;
+  /** Model calls, summed over trials that ran. */
+  turns: number;
+  /** Redundant tool calls, summed — the tell-tale of a recovery detour. */
+  repeatedCalls: number;
+  /** input + output tokens, summed over trials that ran. */
+  tokens: number;
+  /**
+   * USD summed over PRICED trials only — `undefined` when nothing priced, so
+   * "free" and "we cannot say" stay distinguishable (compare.ts semantics).
+   * The very numbers a harness experiment exists to move; the first A/B run
+   * of `FREECODE_BASH_COMPRESS` reported quality and silently dropped these.
+   */
+  costUsd?: number;
+}
+
+/** Pure fold of one side's trials. `ran` excludes infrastructure deaths. */
+export function tallyOf(
+  trials: Pick<
+    TrialResult,
+    "passed" | "reason" | "turns" | "repeatedCalls" | "inputTokens" | "outputTokens" | "costUsd"
+  >[],
+): SideTally {
+  const tally: SideTally = { passed: 0, ran: 0, turns: 0, repeatedCalls: 0, tokens: 0 };
+  for (const t of trials) {
+    if (t.passed) tally.passed++;
+    if (t.reason.startsWith("run failed:")) continue;
+    tally.ran++;
+    tally.turns += t.turns;
+    tally.repeatedCalls += t.repeatedCalls;
+    tally.tokens += t.inputTokens + t.outputTokens;
+    if (t.costUsd !== undefined) tally.costUsd = (tally.costUsd ?? 0) + t.costUsd;
+  }
+  return tally;
 }
 
 /**
@@ -156,8 +191,8 @@ export interface SideTally {
  *      Calling it a regression is how a green suite gets reverted for nothing.
  */
 export function classify(
-  baseline: SideTally,
-  candidate: SideTally,
+  baseline: Pick<SideTally, "passed" | "ran">,
+  candidate: Pick<SideTally, "passed" | "ran">,
   trials: number,
 ): Delta {
   if (baseline.ran < trials || candidate.ran < trials) return "inconclusive";

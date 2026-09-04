@@ -263,6 +263,32 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
             `${report.served.candidate.join(",") || "?"}${reset}`,
         );
       }
+      // The efficiency totals — for a harness experiment these ARE the
+      // result: quality holding is the precondition, cost moving is the point.
+      const sum = (side: "baseline" | "candidate") => {
+        let tokens = 0, turns = 0, repeated = 0;
+        let cost: number | undefined;
+        for (const c of report.cases) {
+          tokens += c[side].tokens;
+          turns += c[side].turns;
+          repeated += c[side].repeatedCalls;
+          if (c[side].costUsd !== undefined) cost = (cost ?? 0) + c[side].costUsd!;
+        }
+        return { tokens, turns, repeated, cost };
+      };
+      const b = sum("baseline");
+      const cd = sum("candidate");
+      const pct = (from: number, to: number) =>
+        from > 0 ? ` (${(((to - from) / from) * 100).toFixed(1)}%)` : "";
+      const money = (v: number | undefined) =>
+        v === undefined ? "unpriced" : `$${v.toFixed(4)}`;
+      console.log(
+        `tokens ${b.tokens} → ${cd.tokens}${pct(b.tokens, cd.tokens)} · ` +
+          `cost ${money(b.cost)} → ${money(cd.cost)}` +
+          (b.cost !== undefined && cd.cost !== undefined ? pct(b.cost, cd.cost) : "") +
+          ` · turns ${b.turns} → ${cd.turns} · ` +
+          `repeatedCalls ${b.repeated} → ${cd.repeated}`,
+      );
       // Said every time, not only when it is convenient: this is a reported
       // signal, and the reader is the one who decides what it means.
       const notable = report.cases.filter((c) => NOTABLE.includes(c.delta));
