@@ -1,8 +1,16 @@
 {
   "slug": "freecode-vs-opencode",
-  "generatedAt": "2026-09-03T19:44:56.247Z",
-  "runId": "2026-09-03T19-43-58-511Z",
+  "generatedAt": "2026-09-03T20:23:43.062Z",
+  "runId": "2026-09-03T20-16-32-181Z",
   "runs": [
+    {
+      "runId": "2026-09-03T20-16-32-181Z",
+      "generatedAt": "2026-09-03T20:23:43.062Z",
+      "agents": [
+        "freecode",
+        "opencode"
+      ]
+    },
     {
       "runId": "2026-09-03T19-43-58-511Z",
       "generatedAt": "2026-09-03T19:44:56.247Z",
@@ -36,6 +44,7 @@
     "repo": "django/django",
     "instances": [
       "django__django-10914",
+      "django__django-11001",
       "django__django-11039"
     ]
   },
@@ -60,23 +69,23 @@
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 29343,
-      "patchBytes": 684,
+      "durationMs": 23121,
+      "patchBytes": 658,
       "newFiles": 0,
       "reason": "ok",
-      "runId": "2026-09-03T18-13-43-378Z"
+      "runId": "2026-09-03T20-16-32-181Z"
     },
     {
       "agent": "opencode",
       "instanceId": "django__django-11039",
       "trial": 1,
-      "producedPatch": true,
+      "producedPatch": false,
       "resolved": null,
-      "durationMs": 46768,
-      "patchBytes": 658,
+      "durationMs": 44467,
+      "patchBytes": 0,
       "newFiles": 0,
-      "reason": "ok",
-      "runId": "2026-09-03T18-13-43-378Z"
+      "reason": "no changes (exit 0)",
+      "runId": "2026-09-03T20-16-32-181Z"
     },
     {
       "agent": "freecode",
@@ -84,11 +93,11 @@
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 33848,
-      "patchBytes": 1099,
+      "durationMs": 109535,
+      "patchBytes": 3070,
       "newFiles": 0,
       "reason": "ok",
-      "runId": "2026-09-03T19-43-58-511Z"
+      "runId": "2026-09-03T20-16-32-181Z"
     },
     {
       "agent": "opencode",
@@ -96,11 +105,35 @@
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 22245,
+      "durationMs": 92175,
       "patchBytes": 625,
       "newFiles": 0,
       "reason": "ok",
-      "runId": "2026-09-03T19-43-58-511Z"
+      "runId": "2026-09-03T20-16-32-181Z"
+    },
+    {
+      "agent": "freecode",
+      "instanceId": "django__django-11001",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 53789,
+      "patchBytes": 543,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T20-16-32-181Z"
+    },
+    {
+      "agent": "opencode",
+      "instanceId": "django__django-11001",
+      "trial": 1,
+      "producedPatch": true,
+      "resolved": null,
+      "durationMs": 104869,
+      "patchBytes": 559,
+      "newFiles": 0,
+      "reason": "ok",
+      "runId": "2026-09-03T20-16-32-181Z"
     }
   ]
 }
