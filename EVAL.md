@@ -103,7 +103,33 @@ realistic cases there is.
 - Validates the *whole* file before writing, so a duplicate id can't land and
   surface on somebody else's next run.
 
-## 4. Free, no model — runs in normal CI already
+## 4. Calibrate the judge — `freecode eval calibrate`
+
+```bash
+freecode eval calibrate            # judge-vs-human agreement report
+freecode eval calibrate --json
+```
+
+The judged suite gates releases on a judge whose agreement with a human had
+never been measured. Every judged run now appends each graded trial — prompt,
+reply, the tool list the judge saw, its score — to
+`evals/calibration/samples.jsonl` with `"human": null`. Labelling is editing
+that field to `true`/`false`; the report maps the judge's 0–5 onto pass/fail
+at every cut and prints accuracy, fail-precision/recall, and Cohen's kappa per
+cut, with the gate's `JUDGE_CASE_FLOOR` row marked.
+
+- Labels are **binary on purpose** — a human re-deriving the 0–5 scale is
+  calibrating themselves to the judge, the wrong direction.
+- Capture dedupes on case + response text, so re-runs never queue the same
+  reply twice or clobber a label already given. It is best-effort: a capture
+  failure never fails the trial.
+- A `kappa` of `null` means both raters were constant — usually "everything
+  passed for everyone", which says nothing about whether the judge can
+  recognise a failure. Label some failing replies (a weaker model's runs are a
+  cheap source).
+- Under ~20 labels every figure is advisory, and the report says so.
+
+## 5. Free, no model — runs in normal CI already
 
 ```bash
 pnpm test    # apps/core/src/eval/**/*.test.ts
@@ -119,7 +145,7 @@ denied call folds to `function.denied` → `Trace.deniedSpans`, never
 This catches a broken suite without spending a cent. Run it before you ever pay
 for a real suite run.
 
-## 5. Adjacent
+## 6. Adjacent
 
 ```bash
 freecode trace [id] [--follow|--slow N|--tools|--json|--list|--otlp]  # where a turn's time went
@@ -158,6 +184,7 @@ FREECODE_EVAL_MODEL=...          # what CI pins as the model under test
 | Changed the loop, redirect, or recovery | `pnpm eval ab redirect --trials 5` | same |
 | **Before merging a major branch / cutting a release** | `pnpm eval:gate` | full |
 | Monthly hygiene | `pnpm eval trajectory --quarantine-report` | free |
+| After judged runs pile up unlabelled samples | label `evals/calibration/samples.jsonl`, then `freecode eval calibrate` | free |
 | New provider or model bump | `pnpm eval <suite> --model p/m --gate` — baseline is per-model, so the first run is "run zero" | full |
 
 ## What is not automated yet
@@ -198,8 +225,11 @@ Where the big labs go further:
   than improved/regressed/inconclusive buckets. `eval ab` already runs paired
   trials, so this is one step away.
 - **Contamination hygiene** — rotating cases, checking for memorised fixtures.
-- **Human review sampling** — a slice of judged outputs gets a human grade to
-  calibrate judge drift. Nobody should trust a judge that has never been audited.
+- ~~Human review sampling~~ **Built (2026-09-05):** judged runs bank every
+  graded trial into `evals/calibration/samples.jsonl`; `freecode eval
+  calibrate` reports judge-vs-human kappa once the samples are labelled (§4).
+  What remains manual is the labelling itself — the audit only exists if
+  someone does it.
 
 Where we are ahead of most: case harvesting from production sessions
 (`eval add`), the required `whyModelBacked` field (the discipline most suites

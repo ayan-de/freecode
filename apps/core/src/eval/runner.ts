@@ -271,8 +271,33 @@ async function runTrialIn(
     } else if (!config.judge) {
       judged = { score: null, reason: "not judged: no judge configured" };
     } else {
-      const { scoreJudged } = await import("./scorers/judge.js");
+      const { scoreJudged, toolSummary } = await import("./scorers/judge.js");
       judged = await scoreJudged({ run, kase, judge: config.judge });
+      // Every numeric verdict becomes a calibration sample awaiting a human
+      // label (`freecode eval calibrate`). Best-effort on purpose: capture is
+      // bookkeeping, and bookkeeping must never fail the trial it books.
+      if (typeof judged.score === "number") {
+        try {
+          const { recordCalibrationSample } = await import("./calibration.js");
+          recordCalibrationSample({
+            caseId: kase.id,
+            rubric: kase.rubric,
+            ranAt: new Date().toISOString(),
+            sessionId,
+            model: model ? `${provider}/${model}` : provider,
+            judge: config.judge,
+            judgeScore: judged.score,
+            judgeReason: judged.reason,
+            prompt: kase.prompt,
+            response: response.trim(),
+            tools: toolSummary(run),
+            human: null,
+          });
+        } catch {
+          // A read-only checkout or a broken samples file loses one sample,
+          // never a verdict.
+        }
+      }
     }
   }
 

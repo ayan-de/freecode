@@ -142,6 +142,86 @@ const evalAddCommand: CommandModule<object, EvalAddArgs> = {
   },
 };
 
+interface EvalCalibrateArgs {
+  json: boolean;
+}
+
+// `freecode eval calibrate` — judge-vs-human agreement over labelled samples.
+//
+// Judged runs append every numeric verdict to `evals/calibration/samples.jsonl`
+// with `human: null`; a human edits that field to true/false (binary on
+// purpose — re-deriving the judge's 0–5 calibrates the human to the judge, the
+// wrong direction). This reads the labels back and reports agreement at every
+// score cut, so the gate's floor stops being an act of faith.
+const evalCalibrateCommand: CommandModule<object, EvalCalibrateArgs> = {
+  command: "calibrate",
+  describe: "Report judge-vs-human agreement over labelled samples",
+  builder: (yargs) => yargs.option("json", { type: "boolean", default: false }),
+  handler: async (argv) => {
+    const { calibrationPath, calibrationReport, loadCalibrationSamples } =
+      await import("../../eval/calibration.js");
+    const { JUDGE_CASE_FLOOR } = await import("../../eval/gate.js");
+
+    try {
+      const samples = loadCalibrationSamples();
+      const report = calibrationReport(samples);
+
+      if (argv.json) {
+        console.log(JSON.stringify(report, null, 2));
+        return;
+      }
+
+      if (report.total === 0) {
+        console.log(
+          `No samples at ${calibrationPath()}.\n` +
+            `${dim}Judged runs write one per graded trial — run ` +
+            `\`pnpm eval judged\` first.${reset}`,
+        );
+        return;
+      }
+      if (report.unlabeled > 0) {
+        console.log(
+          `${yellow}${report.unlabeled} unlabelled sample(s)${reset} — edit ` +
+            `\`"human": null\` to true/false in ${calibrationPath()}`,
+        );
+      }
+      if (report.labeled === 0) return;
+
+      console.log(
+        `${report.labeled} labelled · human pass rate ` +
+          `${((report.humanPassRate ?? 0) * 100).toFixed(0)}%`,
+      );
+      if (report.labeled < 20) {
+        console.log(
+          `${yellow}Under 20 labels — every figure below is advisory.${reset}`,
+        );
+      }
+      const pct = (v: number | null) =>
+        v === null ? "   —" : `${(v * 100).toFixed(0).padStart(3)}%`;
+      console.log(
+        `\n${dim}pass = score ≥ cut      accuracy  fail-prec  fail-rec  kappa${reset}`,
+      );
+      for (const row of report.rows) {
+        const floor = row.threshold === JUDGE_CASE_FLOOR;
+        console.log(
+          `${floor ? green : ""}  cut ${row.threshold}` +
+            `${" ".repeat(17)}${pct(row.accuracy)}      ${pct(row.failPrecision)}     ${pct(row.failRecall)}   ` +
+            `${row.kappa === null ? "    —" : row.kappa.toFixed(2).padStart(5)}` +
+            `${floor ? ` ← gate floor${reset}` : ""}`,
+        );
+      }
+      console.log(
+        `\n${dim}kappa: <0.2 the judge is noise · 0.2–0.4 fair (human ` +
+          `inter-rater is often here) · >0.6 substantial. A null means both ` +
+          `raters were constant — label some failures.${reset}`,
+      );
+    } catch (err) {
+      console.error(`${red}${(err as Error).message}${reset}`);
+      process.exit(1);
+    }
+  },
+};
+
 interface EvalAbArgs {
   suite: string;
   baseline: string;
@@ -367,7 +447,8 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
           "suite was deliberately re-scoped, not when the agent got worse",
       })
       .command(evalAddCommand)
-      .command(evalAbCommand),
+      .command(evalAbCommand)
+      .command(evalCalibrateCommand),
   handler: async (argv) => {
     const { runSuite } = await import("../../eval/suite.js");
     const { loadQuarantine, proposeQuarantine } =

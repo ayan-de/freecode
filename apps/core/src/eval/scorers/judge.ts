@@ -140,22 +140,30 @@ export function parseVerdict(raw: string): JudgeVerdict {
   return { score, reason: reason || `scored ${score}/${MAX_SCORE}` };
 }
 
+/**
+ * Deduplicated with counts: a judge shown `read, read, read, read` starts
+ * grading the repetition, which is the trajectory scorer's job, not its own.
+ * Exported because a calibration sample persists the same string — the human
+ * grading it later needs the ground truth the judge had, not more.
+ */
+export function toolSummary(run: RunRecord): string {
+  const counts = new Map<string, number>();
+  for (const span of run.trace.toolSpans) {
+    counts.set(span.tool, (counts.get(span.tool) ?? 0) + 1);
+  }
+  return counts.size
+    ? [...counts.entries()]
+        .map(([tool, n]) => (n > 1 ? `${tool} (x${n})` : tool))
+        .join(", ")
+    : "(none)";
+}
+
 export function renderJudgePrompt(
   run: RunRecord,
   kase: EvalCase,
   rubric: string,
 ): string {
-  // Deduplicated with counts: a judge shown `read, read, read, read` starts
-  // grading the repetition, which is the trajectory scorer's job, not its own.
-  const counts = new Map<string, number>();
-  for (const span of run.trace.toolSpans) {
-    counts.set(span.tool, (counts.get(span.tool) ?? 0) + 1);
-  }
-  const tools = counts.size
-    ? [...counts.entries()]
-        .map(([tool, n]) => (n > 1 ? `${tool} (x${n})` : tool))
-        .join(", ")
-    : "(none)";
+  const tools = toolSummary(run);
 
   return [
     "## Rubric",
