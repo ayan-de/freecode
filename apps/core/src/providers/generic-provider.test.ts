@@ -127,3 +127,63 @@ test("anthropic-family branch is keyed on the SDK package, not the provider id",
   assert.notEqual(opts.system, "sys");
   assert.ok(Array.isArray(opts.messages));
 });
+
+// =============================================================================
+// ephemeralTail — mutable per-turn state (memory/todos/reminders) must enter
+// the prompt AFTER the cache anchors, as a final user message. If it ever
+// carries a breakpoint, or the anchors move onto it, every change to it
+// re-writes the cached prefix — the exact D2 bust it exists to prevent.
+// =============================================================================
+
+const tailConversation = [
+  { role: "user", parts: [{ type: "text", content: "question one" }] },
+  { role: "assistant", parts: [{ type: "text", content: "answer one" }] },
+  { role: "user", parts: [{ type: "text", content: "question two" }] },
+] as any;
+
+function cacheMarkerOf(msg: any): unknown {
+  const content = msg.content;
+  if (typeof content === "string") return undefined;
+  const last = content[content.length - 1];
+  return last?.providerOptions?.anthropic?.cacheControl;
+}
+
+test("anthropic-family: ephemeralTail is appended after the cache anchors and carries no breakpoint", () => {
+  const opts = buildGenerateOptions(anthropicEntry, modelHandle, {
+    system: "be helpful",
+    messages: tailConversation,
+    ephemeralTail: "<system-reminder>todo state</system-reminder>",
+  } as any);
+  const msgs = opts.messages;
+  // Appended as the final user message, verbatim.
+  const tail = msgs[msgs.length - 1];
+  assert.equal(tail.role, "user");
+  assert.equal(tail.content, "<system-reminder>todo state</system-reminder>");
+  // The tail changes every request, so it must never be a cache anchor…
+  assert.equal(cacheMarkerOf(tail), undefined);
+  // …and the write anchor must still sit on the last REAL message, so the
+  // next request's read anchor lands on a prefix an entry was written for.
+  assert.ok(cacheMarkerOf(msgs[msgs.length - 2]));
+});
+
+test("anthropic-family: no ephemeralTail leaves messages untouched", () => {
+  const opts = buildGenerateOptions(anthropicEntry, modelHandle, {
+    system: "be helpful",
+    messages: tailConversation,
+  } as any);
+  assert.equal(opts.messages.length, 3);
+});
+
+test("openai-shaped: ephemeralTail is appended as the final user message", () => {
+  const opts = buildGenerateOptions(openaiEntry, modelHandle, {
+    system: "be helpful",
+    messages: tailConversation,
+    ephemeralTail: "reminder text",
+  } as any);
+  const msgs = opts.messages;
+  assert.equal(msgs.length, 4);
+  assert.deepEqual(msgs[msgs.length - 1], {
+    role: "user",
+    content: "reminder text",
+  });
+});

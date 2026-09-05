@@ -33,10 +33,13 @@ test("a growing prefix is silent", () => {
   assert.equal(checkCacheUsage(s, warm(10_500, 400)), undefined);
 });
 
-test("reading nothing after a cached prefix is a miss", () => {
+test("reading nothing after a cached prefix is a miss — reported one sample late", () => {
   const s = session();
   checkCacheUsage(s, warm(0, 10_000));
 
+  // The miss itself is held: it could still be a provider blip.
+  assert.equal(checkCacheUsage(s, warm(0, 10_000)), undefined);
+  // The follow-up read never recovers to the 10k bar — now it alarms.
   const problem = checkCacheUsage(s, warm(0, 10_000));
   assert.equal(problem?.kind, "expected_read_missing");
   assert.equal(problem?.affectedTokens, 10_000);
@@ -48,9 +51,21 @@ test("reading less than was cached means the prefix was re-written", () => {
   checkCacheUsage(s, warm(0, 10_000));
 
   // Only 6k of the known 10k prefix survived — 4k was re-sent at full price.
-  const problem = checkCacheUsage(s, warm(6_000, 4_000));
+  assert.equal(checkCacheUsage(s, warm(6_000, 4_000)), undefined); // held
+  const problem = checkCacheUsage(s, warm(6_000, 4_500)); // still below 10k
   assert.equal(problem?.kind, "unexpected_creation");
   assert.equal(problem?.affectedTokens, 4_000);
+});
+
+test("a miss the next read recovers from is a provider blip, not a rewrite", () => {
+  const s = session();
+  checkCacheUsage(s, warm(0, 22_000));
+  // The MiniMax-M3 signature: read collapses to a sliver…
+  assert.equal(checkCacheUsage(s, warm(128, 5_000)), undefined);
+  // …and the NEXT read resumes at the pre-miss boundary — only possible if
+  // the prefix bytes never changed. No alarm, then or later.
+  assert.equal(checkCacheUsage(s, warm(22_600, 400)), undefined);
+  assert.equal(checkCacheUsage(s, warm(23_000, 300)), undefined);
 });
 
 test("a documented invalidation explains the miss instead of alarming", () => {
@@ -86,9 +101,12 @@ test("an old journal entry does not excuse a later bust", () => {
   checkCacheUsage(s, warm(0, 10_000));
   recordInvalidation(s, "compaction", "long ago");
 
-  // Two minutes later, outside the attribution window.
+  // Two minutes later, outside the attribution window. Undocumented, so it is
+  // held one sample, then reported without a cause.
   const later = Date.now() + 120_000;
+  assert.equal(checkCacheUsage(s, warm(0, 4_000), later), undefined);
   const problem = checkCacheUsage(s, warm(0, 4_000), later);
+  assert.ok(problem);
   assert.equal(problem?.documentedCause, undefined);
 });
 

@@ -41,13 +41,16 @@ test("a run that never stops calling tools gets a graceful wrap-up, not a bare c
   const provider = "maxiter-fake";
   const FINAL_TEXT = "Finished the parser; wiring is still outstanding.";
 
-  const calls: Array<{ system: SystemBlock[] }> = [];
+  const calls: Array<{ system: SystemBlock[]; ephemeralTail?: string }> = [];
   registerProvider(provider as ProviderId, {
     info: info(provider),
     create: (): AIProvider => ({
       info: info(provider),
-      execute: async ({ system }): Promise<ExecuteResult> => {
-        calls.push({ system: Array.isArray(system) ? system : [] });
+      execute: async ({ system, ephemeralTail }): Promise<ExecuteResult> => {
+        calls.push({
+          system: Array.isArray(system) ? system : [],
+          ephemeralTail,
+        });
         // Always emits a (bogus) tool call, so the loop never stops itself —
         // the only thing that can end this run is the iteration cap.
         return {
@@ -86,12 +89,14 @@ test("a run that never stops calling tools gets a graceful wrap-up, not a bare c
     // The model's last real text survives, not a bare status string.
     assert.match(result.content ?? "", new RegExp(FINAL_TEXT.replace(/[.]/g, "\\.")));
     assert.match(result.content ?? "", /iteration safety limit/);
-    // The final turn's prompt carried the wrap-up nudge.
+    // The final turn's prompt carried the wrap-up nudge — in the ephemeral
+    // tail, not the system param: reminders are per-request message content
+    // so their churn cannot invalidate the cached prefix.
+    assert.match(calls[2].ephemeralTail ?? "", /Do not call any more tools/);
     const lastSystem = calls[2].system.map((b) => b.text).join("\n");
-    assert.match(lastSystem, /Do not call any more tools/);
+    assert.doesNotMatch(lastSystem, /Do not call any more tools/);
     // Earlier turns were not nudged yet.
-    const firstSystem = calls[0].system.map((b) => b.text).join("\n");
-    assert.doesNotMatch(firstSystem, /Do not call any more tools/);
+    assert.doesNotMatch(calls[0].ephemeralTail ?? "", /Do not call any more tools/);
   } finally {
     await runtime.dispose();
   }

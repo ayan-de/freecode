@@ -975,3 +975,31 @@ page's Known gaps.
 - [ ] **`anthropic` is the only provider with an OAuth mode.** `freecode auth
       login` rejects any other provider by name. Fine today — no other catalogue
       entry has a subscription surface freecode can reach.
+
+## Findings (ephemeral-tail cache fix — 2026-09-06)
+
+RC8 in the token-efficiency spec: memory/todo/reminder session system blocks
+rewrote the cached prefix every inner-loop turn; moved to
+`ExecuteOptions.ephemeralTail` (final user message, appended after the cache
+anchors). Detector gained a one-sample deferral for provider blips
+(cache-observability spec §D2.1). What remains open:
+
+- [ ] **A full provider-side eviction still alarms as a rewrite.** D2.1 acquits
+      a miss whose next read recovers to the pre-miss boundary; a miss where the
+      read never recovers (upstream evicted everything) is indistinguishable
+      from a real rewrite by usage numbers alone and produces the same warning.
+      `FREECODE_DEBUG_CACHE=1` segment hashes are the manual tiebreak.
+- [ ] **The UserPromptSubmit hook no longer sees memory/todo/reminder text.**
+      The hook rewrites the joined *system* prompt, and those blocks are message
+      content now. No known hook depended on them; if one surfaces, the hook
+      contract needs a decision (expose the tail read-only, or accept the loss).
+- [ ] **`FREECODE_EPHEMERAL_TAIL=0` should eventually be deleted.** It existed
+      so `eval ab` could price the two placements; the ledger entry
+      (`2026-09-05-redirect-1`) is decided "kept", so the old placement is now
+      dead code behind an env flag. Delete the flag, its `VARIABLE_ENV_KEYS`
+      row, and the `!tailEnabled` branches in `loop.ts` together.
+- [ ] **Watch: do tail-placed todo nudges lengthen tedious runs?** In the A/B,
+      `count-something-tedious` ran 22 candidate turns vs 11 baseline (one
+      spiral-by-design case, 3 trials — could be variance). If long-run turn
+      counts creep after this change, the nudge's salience as the final user
+      message is the first suspect.

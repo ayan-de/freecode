@@ -1133,6 +1133,7 @@ export class AgentLoop {
     provider: string,
     model: string | undefined,
     context: { tree: string; gitHead: string; clock: string },
+    ephemeralTail: string,
   ): Promise<Awaited<ReturnType<typeof this.sendToProvider>>> {
     if (!isContextOverflowError(error)) throw error;
 
@@ -1168,6 +1169,7 @@ export class AgentLoop {
       provider,
       model,
       context,
+      ephemeralTail,
     );
   }
 
@@ -1518,10 +1520,24 @@ export class AgentLoop {
       // gate) into this turn's prompt. Transient — never persisted to history.
       const reminderText = this.pendingReminders.join("\n\n");
       this.pendingReminders = [];
-      // Session-only system blocks: todo state and transient reminders. They
-      // change, but they sit at the tail of the system array and the message
-      // anchors that actually drive cache reads are downstream — so even a
-      // full rewrite here does not touch the cached static prefix.
+      // Session-only system block: the compaction summary alone. It changes
+      // only when compaction runs, and compaction already documents its
+      // invalidation — so the system param stays byte-stable between
+      // compactions.
+      //
+      // Memory / todos / reminders used to sit here too, which was the D2
+      // "unexpected_creation" bug: system precedes every message, so any
+      // change to these between inner-loop requests re-sent the ENTIRE
+      // conversation at full price (reads collapsed to the static prefix).
+      // They now ride as `ephemeralTail` below — appended as a final user
+      // message AFTER the cache anchors (generic-provider), where a change
+      // costs only its own tokens. Same architecture as Claude Code's
+      // <system-reminder> injection.
+      // Measurement escape hatch (same pattern as FREECODE_DISABLE_REDIRECT):
+      // `FREECODE_EPHEMERAL_TAIL=0` reverts to the pre-fix system-block
+      // placement so `eval ab` can price the two side by side. Re-read every
+      // turn — the ab runner flips it per side after boot.
+      const tailEnabled = process.env.FREECODE_EPHEMERAL_TAIL !== "0";
       const sessionBlocks = [
         ...(compactionSummary
           ? [
@@ -1531,16 +1547,28 @@ export class AgentLoop {
               },
             ]
           : []),
-        ...(memoryBlock ? [{ text: memoryBlock, cache: false }] : []),
-        ...(todoBlock ? [{ text: todoBlock, cache: false }] : []),
-        ...(reminderText ? [{ text: reminderText, cache: false }] : []),
+        ...(!tailEnabled && memoryBlock
+          ? [{ text: memoryBlock, cache: false }]
+          : []),
+        ...(!tailEnabled && todoBlock
+          ? [{ text: todoBlock, cache: false }]
+          : []),
+        ...(!tailEnabled && reminderText
+          ? [{ text: reminderText, cache: false }]
+          : []),
       ];
+      const ephemeralTail = tailEnabled
+        ? [memoryBlock, todoBlock, reminderText]
+            .filter((s) => s && s.length > 0)
+            .join("\n\n")
+        : "";
       const blocks = [...systemBlocks, ...sessionBlocks];
 
       // UserPromptSubmit Hook — can modify the joined system before send.
-      // Must not collapse static + session into one cache:true blob (that
-      // puts todos/memory/reminders under the breakpoint). See
-      // apply-system-hook.ts.
+      // Must not collapse static + session into one cache:true blob. The
+      // ephemeral tail (todos/memory/reminders) is deliberately NOT part of
+      // what the hook sees: it is per-request message content now, not system
+      // prompt. See apply-system-hook.ts.
       const joinedSystem = blocks.map((b) => b.text).join("\n\n");
       const hookResult = await this.hooks.runUserPromptSubmit(joinedSystem, {
         sessionId: this.state.sessionId,
@@ -1575,6 +1603,7 @@ export class AgentLoop {
           provider,
           model,
           context,
+          ephemeralTail,
         );
         this.overflowCompactions = 0;
       } catch (error) {
@@ -1584,6 +1613,7 @@ export class AgentLoop {
           provider,
           model,
           context,
+          ephemeralTail,
         );
       }
 
@@ -1835,6 +1865,9 @@ export class AgentLoop {
       gitHead: string;
       clock: string;
     },
+    // Mutable per-turn state (memory/todos/reminders), appended after the
+    // cache anchors — see ExecuteOptions.ephemeralTail.
+    ephemeralTail = "",
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1857,6 +1890,7 @@ export class AgentLoop {
           system,
           p === provider ? model : undefined,
           context,
+          ephemeralTail,
         ),
       { sessionId: this.state.sessionId, signal: this.abort.signal },
     );
@@ -1870,6 +1904,8 @@ export class AgentLoop {
     model: string | undefined,
     // Required so the dynamic user-message prepend has the file tree + clock.
     context: { tree: string; gitHead: string; clock: string },
+    // See ExecuteOptions.ephemeralTail — appended past the cache anchors.
+    ephemeralTail = "",
   ): Promise<{
     content: string;
     thinking?: string;
@@ -1958,7 +1994,8 @@ export class AgentLoop {
       model: resolvedModel,
       messageCount: prunedMessages.length,
       toolCount: tools.length,
-      promptChars: estimatePromptChars(prunedMessages, system),
+      promptChars: estimatePromptChars(prunedMessages, system) +
+        ephemeralTail.length,
       streamed: Boolean(aiProvider.stream),
     });
 
@@ -2009,6 +2046,7 @@ export class AgentLoop {
           effort: this.state.effort,
           abortSignal: this.abort.signal,
           sessionId: this.state.sessionId,
+          ephemeralTail: ephemeralTail || undefined,
         })) {
           if (ttft_ms === undefined) {
             ttft_ms = Date.now() - startedAt;
@@ -2120,6 +2158,7 @@ export class AgentLoop {
         effort: this.state.effort,
         abortSignal: this.abort.signal,
         sessionId: this.state.sessionId,
+        ephemeralTail: ephemeralTail || undefined,
       });
 
       this.emitCacheWarm(result.usage);

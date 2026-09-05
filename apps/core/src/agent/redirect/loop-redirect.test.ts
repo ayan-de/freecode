@@ -44,7 +44,11 @@ const info = {
   supportsTools: true,
 };
 
-/** Every system prompt the loop sent, so the test can look for the advice. */
+/**
+ * Every prompt the loop sent (system + ephemeral tail, where redirect advice
+ * now rides as per-request message content), so the test can look for the
+ * advice.
+ */
 const systemsSeen: string[] = [];
 /** Every supervisor prompt, so the test can prove the evidence was passed. */
 const supervisorPrompts: string[] = [];
@@ -75,7 +79,9 @@ registerProvider("redirect-fake" as ProviderId, {
     stream: async function* (
       opts: ExecuteOptions,
     ): AsyncGenerator<ProviderChunk> {
-      systemsSeen.push(systemText(opts.system));
+      systemsSeen.push(
+        [systemText(opts.system), opts.ephemeralTail ?? ""].join("\n"),
+      );
       yield {
         type: "tool_call",
         id: `call-${systemsSeen.length}`,

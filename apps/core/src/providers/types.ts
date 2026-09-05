@@ -99,6 +99,14 @@ export interface ExecuteOptions {
   // Subagents pass their own id deliberately — a different context should not
   // be routed to the parent's cache.
   sessionId?: string;
+  // Request-scoped text appended as a final user message AFTER the cache
+  // anchors are placed (see buildGenerateOptions). For mutable per-turn state
+  // — memory recalls, todo list, drained reminders — that used to live in the
+  // system param, where any change re-sent the entire conversation: system
+  // sits upstream of every message, so one changed byte there busted every
+  // downstream breakpoint. At the tail it costs only its own tokens and the
+  // cached prefix stays byte-stable. Never persisted to history.
+  ephemeralTail?: string;
 }
 
 /**

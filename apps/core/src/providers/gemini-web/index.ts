@@ -254,9 +254,11 @@ function createGeminiWebProvider(_apiKey: string): AIProvider {
   }
 
   function promptFor(opts: ExecuteOptions, tools?: ToolDef[]): string {
-    return opts.messages
-      ? buildPrompt(opts.messages, tools)
-      : (opts.prompt ?? "");
+    if (!opts.messages) return opts.prompt ?? "";
+    const prompt = buildPrompt(opts.messages, tools);
+    // No prompt cache on the web endpoint, so the ephemeral tail (memory /
+    // todos / reminders) simply joins the flat prompt at the end.
+    return opts.ephemeralTail ? `${prompt}\n\n${opts.ephemeralTail}` : prompt;
   }
 
   async function execute(opts: ExecuteOptions): Promise<ExecuteResult> {

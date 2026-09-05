@@ -7,7 +7,11 @@
 //
 // Detection is deliberately conservative: it reports only what cannot happen in
 // a healthy session, because a detector that cries wolf gets switched off long
-// before it catches anything.
+// before it catches anything. An undocumented miss is additionally held for one
+// sample before alarming — implicit provider caches (MiniMax, DeepSeek) miss
+// for non-rewrite reasons (write latency, eviction), and a read that recovers
+// to the pre-miss boundary on the very next call proves the prefix never
+// changed. See PendingMiss.
 // =============================================================================
 
 import { findRecentInvalidation } from "./cache-invalidation.js";
@@ -42,8 +46,27 @@ interface Baseline {
   generation: number;
 }
 
+/**
+ * An undocumented miss held for one sample before alarming. Implicit provider
+ * caches miss for reasons that are not rewrites — a write that had not
+ * committed when the next rapid-fire request arrived, a routing/eviction blip.
+ * Measured on MiniMax-M3: read collapsed to 128, then the NEXT turn read
+ * exactly the pre-miss boundary — only possible if the prefix bytes never
+ * changed. So the verdict waits one sample: a read that recovers to at least
+ * `suspectedPrefix` proves the old entry was still valid and the miss was the
+ * provider's, not ours. A pending miss with no next sample (session end) is
+ * dropped — there is no further spend to warn about.
+ */
+interface PendingMiss {
+  problem: CacheProblem;
+  /** The prefix that was cached before the miss — the recovery bar. */
+  suspectedPrefix: number;
+  generation: number;
+}
+
 const baselines = new Map<string, Baseline>();
 const generations = new Map<string, number>();
+const pendings = new Map<string, PendingMiss>();
 
 export function isCacheMissNoticesEnabled(): boolean {
   return process.env.FREECODE_CACHE_MISS_NOTICES !== "0";
@@ -53,11 +76,15 @@ export function isCacheMissNoticesEnabled(): boolean {
 export function bumpCacheGeneration(sessionId: string): void {
   generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1);
   baselines.delete(sessionId);
+  // A pending miss can no longer be judged: recovery would be measured
+  // against a prefix compaction just replaced.
+  pendings.delete(sessionId);
 }
 
 export function resetCacheTracking(sessionId: string): void {
   baselines.delete(sessionId);
   generations.delete(sessionId);
+  pendings.delete(sessionId);
 }
 
 /**
@@ -77,15 +104,38 @@ export function checkCacheUsage(
   const previous = baselines.get(sessionId);
 
   // A provider that reports neither read nor write is not caching. Recording a
-  // zero baseline would make the next caching turn look like a bust.
+  // zero baseline would make the next caching turn look like a bust. A pending
+  // miss is dropped too — with no cache fields there is no way to observe the
+  // recovery that would acquit it, and an unverifiable alarm is the wolf-cry
+  // this detector exists to avoid.
   const reportsCache = sample.cacheReadTokens > 0 || sample.cacheWriteTokens > 0;
   if (!reportsCache) {
     baselines.delete(sessionId);
+    pendings.delete(sessionId);
     return undefined;
   }
 
   const cachedPrefix = sample.cacheReadTokens + sample.cacheWriteTokens;
   baselines.set(sessionId, { cachedPrefix, generation });
+
+  // Verdict on last sample's held miss, now that the follow-up is in.
+  const pending = pendings.get(sessionId);
+  if (pending) {
+    pendings.delete(sessionId);
+    if (pending.generation === generation) {
+      if (sample.cacheReadTokens >= pending.suspectedPrefix) {
+        // Recovered to (at least) the pre-miss boundary: the prefix bytes
+        // never changed, so the miss was the provider's. Silence.
+        return undefined;
+      }
+      // Still below the bar — the entry really is gone. Alarm now, one
+      // sample late. The current sample is not separately judged this call
+      // (one alarm per call); a persistent rewrite bug keeps producing
+      // pendings, so it still surfaces loudly.
+      return pending.problem;
+    }
+    // Generation moved between miss and verdict: unjudgeable, drop it.
+  }
 
   // Nothing to compare against yet, or history was legitimately rebuilt.
   if (!previous || previous.generation !== generation) return undefined;
@@ -112,8 +162,18 @@ export function checkCacheUsage(
   const documented = findRecentInvalidation(sessionId, now);
   if (documented) {
     problem.documentedCause = `${documented.source}: ${documented.detail}`;
+    return problem;
   }
-  return problem;
+
+  // Undocumented: hold for one sample. If the next read recovers to the
+  // pre-miss boundary this was a provider-side blip, not a rewrite — see
+  // PendingMiss.
+  pendings.set(sessionId, {
+    problem,
+    suspectedPrefix: previous.cachedPrefix,
+    generation,
+  });
+  return undefined;
 }
 
 /** User-facing line for an undocumented miss. */
