@@ -60,7 +60,18 @@ export interface TrialRecord {
   patchBytes: number;
   /** Files the agent created that are not part of a fix — scratch-file noise. */
   newFiles: string[];
+  /** Per-trial artifact dump, relative to bench/agent-bench/. */
   artifactDir: string;
+  /** Round-trips seen by the recording proxy. Absent when `--no-meter`. */
+  turns?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  /** MiniMax-M3 USD off the proxy; null when the model is unpriced. */
+  usd?: number | null;
+  /** False when the proxy saw a request that was not the model endpoint. */
+  auditOk?: boolean;
 }
 
 export interface Report {

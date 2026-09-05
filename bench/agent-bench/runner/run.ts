@@ -2,10 +2,12 @@
 // =============================================================================
 // The trial loop. agents × instances × trials, one workspace each.
 //
-// Phase 0: no container, no grader, no metering. It answers exactly one
-// question — does every adapter produce a non-empty patch — and every record it
-// writes carries `isolation: "none"` so it can never be mistaken for a
-// publishable number.
+// Metering (spec §6.4) is on by default: a pass-through proxy so every agent
+// is billed by one table; `--no-meter` restores the adapter-only loop.
+// `--isolate` (spec §6.3) runs each trial in a container on an --internal
+// docker network whose only exit is that proxy — build the image first with
+// `docker build -t agent-bench bench/agent-bench/isolate`. Grading is a
+// separate, free-to-rerun step: `pnpm bench:grade results/<run>`.
 // =============================================================================
 
 import * as fs from "fs";
@@ -15,6 +17,17 @@ import { loadInstances, readIdList } from "./instances.js";
 import { publish } from "./publish.js";
 import { taskPrompt } from "./prompt.js";
 import { createWorkspace, extractPatch, verifyWorkspace } from "./workspace.js";
+import {
+  IMAGE,
+  NETWORK,
+  dockerAvailable,
+  ensureInternalNetwork,
+  forwardedEnvNames,
+  imageExists,
+} from "../isolate/docker.js";
+import { meterEnv, upstreamFor } from "../proxy/env.js";
+import { persistTrialMeter } from "../proxy/fold.js";
+import { startProxy } from "../proxy/server.js";
 import type { Report, TrialRecord } from "./types.js";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -32,10 +45,31 @@ const instanceIds = arg("instances")
   : readIdList(path.join(ROOT, "instances", "django-lite.txt"));
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 const outDir = arg("out", path.join(ROOT, "results", runId)) as string;
+const meter = !process.argv.includes("--no-meter");
+const isolate = process.argv.includes("--isolate");
 
 async function main() {
+  // Isolation implies metering: without the proxy the container has no route
+  // to the model at all, and an unmeterable run in a locked box is just a
+  // slower way to produce nothing.
+  let gateway: string | undefined;
+  if (isolate) {
+    if (!dockerAvailable()) {
+      throw new Error("--isolate needs docker (daemon up, user in the docker group)");
+    }
+    if (!imageExists(IMAGE)) {
+      throw new Error(
+        `--isolate needs the "${IMAGE}" image. Build it (online) first:\n` +
+          `  docker build -t ${IMAGE} bench/agent-bench/isolate`,
+      );
+    }
+    gateway = ensureInternalNetwork(NETWORK);
+  }
+
   const agents = agentIds.map(loadAgent);
-  const versions = new Map(agents.map((a) => [a.id, agentVersion(a)]));
+  const versions = new Map(
+    agents.map((a) => [a.id, agentVersion(a, isolate ? IMAGE : undefined)]),
+  );
   const instances = await loadInstances(instanceIds);
 
   fs.mkdirSync(outDir, { recursive: true });
@@ -45,7 +79,8 @@ async function main() {
     console.log(`  ${"".padEnd(12)} autonomy: ${a.autonomy}`);
   }
   console.log(
-    `  ${instances.length} instance(s) × ${trials} trial(s) × ${agents.length} agent(s)\n`,
+    `  ${instances.length} instance(s) × ${trials} trial(s) × ${agents.length} agent(s)` +
+      `  meter=${meter || isolate ? "proxy" : "off"}  isolation=${isolate ? "container" : "none"}\n`,
   );
 
   const records: TrialRecord[] = [];
@@ -65,6 +100,7 @@ async function main() {
 
         const ws = createWorkspace(inst);
         let record: TrialRecord;
+        let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
         try {
           if (!verifyWorkspace(ws.dir, inst.baseCommit)) {
             throw new Error(`checkout is not at ${inst.baseCommit}`);
@@ -72,12 +108,41 @@ async function main() {
           const prompt = taskPrompt(inst);
           fs.writeFileSync(path.join(artifactDir, "prompt.txt"), prompt);
 
+          const logPath = path.join(artifactDir, "proxy.jsonl");
+          proxy =
+            meter || isolate
+              ? await startProxy({
+                  upstream: upstreamFor(spec),
+                  logPath,
+                  host: gateway,
+                })
+              : undefined;
+
+          const extraEnv = proxy ? meterEnv(proxy.origin) : undefined;
+          const containerize = isolate
+            ? {
+                image: IMAGE,
+                network: NETWORK,
+                name: `bench-${runId}-${inst.instanceId}-t${trial}-${spec.id}`
+                  .toLowerCase()
+                  .replace(/[^a-z0-9_.-]/g, "-")
+                  .slice(0, 63),
+                wsDir: ws.dir,
+                benchDir: ROOT,
+                envNames: forwardedEnvNames(spec.env, extraEnv),
+                uid: process.getuid?.() ?? 1000,
+                gid: process.getgid?.() ?? 1000,
+              }
+            : undefined;
+
           const run = await runAgent(
             spec,
             prompt,
             ws.dir,
             artifactDir,
             timeoutMs,
+            extraEnv,
+            containerize,
           );
           fs.writeFileSync(
             path.join(artifactDir, "argv.json"),
@@ -86,6 +151,7 @@ async function main() {
 
           const patch = extractPatch(ws.dir);
           fs.writeFileSync(path.join(artifactDir, "patch.diff"), patch.diff);
+          const usage = proxy ? persistTrialMeter(artifactDir, spec.model) : undefined;
 
           record = {
             agent: spec.id,
@@ -94,7 +160,7 @@ async function main() {
             autonomy: spec.autonomy,
             instanceId: inst.instanceId,
             trial,
-            isolation: "none",
+            isolation: isolate ? "container" : "none",
             producedPatch: patch.diff.length > 0,
             reason: run.timedOut
               ? `timed out after ${timeoutMs}ms`
@@ -107,6 +173,13 @@ async function main() {
             patchBytes: Buffer.byteLength(patch.diff),
             newFiles: patch.newFiles,
             artifactDir: path.relative(ROOT, artifactDir),
+            turns: usage?.turns,
+            inputTokens: usage?.inputTokens,
+            outputTokens: usage?.outputTokens,
+            cacheReadTokens: usage?.cacheReadTokens,
+            cacheWriteTokens: usage?.cacheWriteTokens,
+            usd: usage ? (usage.usd ?? null) : undefined,
+            auditOk: usage?.auditOk,
           };
         } catch (err) {
           // One dead trial must not cost the rest of the matrix.
@@ -117,7 +190,7 @@ async function main() {
             autonomy: spec.autonomy,
             instanceId: inst.instanceId,
             trial,
-            isolation: "none",
+            isolation: isolate ? "container" : "none",
             producedPatch: false,
             reason: `harness error: ${(err as Error).message}`.slice(0, 200),
             exitCode: null,
@@ -128,14 +201,19 @@ async function main() {
             artifactDir: path.relative(ROOT, artifactDir),
           };
         } finally {
+          await proxy?.close();
           ws.cleanup();
         }
 
         records.push(record);
+        const tokens =
+          record.inputTokens !== undefined
+            ? ` ${(record.inputTokens + (record.outputTokens ?? 0)).toLocaleString()}tok`
+            : "";
         console.log(
           `${record.producedPatch ? "patch" : "EMPTY"} ` +
             `${String(record.patchBytes).padStart(6)}B ` +
-            `${(record.durationMs / 1000).toFixed(0)}s  ${record.reason}`,
+            `${(record.durationMs / 1000).toFixed(0)}s${tokens}  ${record.reason}`,
         );
       }
     }
@@ -144,7 +222,7 @@ async function main() {
   const report: Report = {
     startedAt: runId,
     finishedAt: new Date().toISOString(),
-    isolation: "none",
+    isolation: isolate ? "container" : "none",
     graded: false,
     trials: records,
   };

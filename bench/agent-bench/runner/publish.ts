@@ -65,6 +65,13 @@ export interface PublishedResult {
   reason: string;
   /** Which run this row came from. See the `runs` note below. */
   runId: string;
+  turns?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  usd?: number | null;
+  auditOk?: boolean;
 }
 
 export interface PublishedRun {
@@ -171,6 +178,13 @@ export function publish(report: Report, fresh = false): string {
       newFiles: t.newFiles.length,
       reason: t.reason,
       runId: report.startedAt,
+      turns: t.turns,
+      inputTokens: t.inputTokens,
+      outputTokens: t.outputTokens,
+      cacheReadTokens: t.cacheReadTokens,
+      cacheWriteTokens: t.cacheWriteTokens,
+      usd: t.usd,
+      auditOk: t.auditOk,
     });
   }
 
