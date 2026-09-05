@@ -292,6 +292,17 @@ export interface SuiteReport {
    */
   judge?: { provider: string; model?: string };
   /**
+   * How the provider under test authenticated (OAuth spec §8). Recorded, and
+   * treated by `baselineFor` like a model switch: the Anthropic subscription
+   * endpoint sends a different beta set and a Claude Code identity block, so
+   * an OAuth run is not the same instrument as an API-key run and its numbers
+   * must not become the baseline for one.
+   *
+   * Absent on runs recorded before this was tracked, and on providers with a
+   * single auth mode — compared permissively for the same reason `model` is.
+   */
+  authMode?: "oauth" | "api-key";
+  /**
    * Every distinct model id the provider echoed back across the run
    * (`model-echo.ts`). Recorded for the same reason `judge` is: `model` above
    * is what we ASKED for, and a stable alias can be served by a rolled snapshot
