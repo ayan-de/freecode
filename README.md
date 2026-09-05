@@ -2,7 +2,7 @@
 
 <img src="logo.svg" alt="FreeCode Logo" width="286" height="60" />
 
-**Open source CLI tool that drives AI coding assistants via browser automation**
+**An open-source CLI coding agent that runs on whichever model you already pay for**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -11,109 +11,175 @@
 
 </div>
 
-**FreeCode** is a thin-client CLI that drives AI coding assistants (ChatGPT, Claude, Gemini) via browser automation to assist with coding tasks. The architecture uses a two-phase approach: the AI first returns which files it needs, then receives those files with the prompt and returns structured file changes.
+**FreeCode** is a terminal coding agent. You give it a task in plain language; it
+reads your repository, runs commands, edits files, and reports back — driving the
+work itself through a single agentic tool-use loop rather than asking you which
+files it needs.
 
-## Features
+It talks to roughly **198 providers** derived from [models.dev](https://models.dev)
+— Anthropic, OpenAI, Gemini, DeepSeek, Groq, Mistral, xAI, MiniMax, Z.ai, and
+every OpenAI-compatible endpoint behind them — through one generic driver. You
+can also sign in with an **Anthropic Pro/Max subscription** instead of an API
+key — opt-in, and [read the stance first](#install).
 
-- **TUI + VS Code Extension** — Choose your interface
-- **JSON-RPC over stdin/stdout** — Lightweight IPC between frontends and CLI
-- **Browser-based AI providers** — Direct integration with ChatGPT, Claude, Gemini
-- **Two-phase context collection** — Efficient file retrieval before prompts
-- **Diff preview before apply** — Review changes before writing
-- **Persistent CLI daemon** — Reuses browser connection across turns
+Everything intelligent lives in one CLI backend. The TUI, the VS Code extension,
+the web UI, and the desktop app are presentation layers that speak JSON-RPC to it.
 
-## Supported Tools
-
-| Tool       | Description                             | Parameters                                          |
-| ---------- | --------------------------------------- | --------------------------------------------------- |
-| `read`     | Read file or directory contents         | `filePath`, `offset?`, `limit?`                     |
-| `write`    | Create or overwrite files               | `filePath`, `content`                               |
-| `edit`     | Edit files in-place with smart matching | `filePath`, `oldString`, `newString`, `replaceAll?` |
-| `glob`     | Find files matching glob patterns       | `pattern`, `path?`                                  |
-| `grep`     | Search file contents via regex          | `pattern`, `path?`, `include?`, `-n?`, `-i?`, `-C?` |
-| `bash`     | Execute shell commands                  | `command`, `timeout?`, `workdir?`                   |
-| `skill`    | Load specialized skills from SKILL.md   | `name`                                              |
-| `question` | Ask user clarifying questions           | `questions` (JSON array)                            |
-
-### Tool Execution Modes
-
-| Mode              | Tools                  | Behavior                |
-| ----------------- | ---------------------- | ----------------------- |
-| **Sequential**    | `edit`, `write`        | One at a time, in order |
-| **Parallel-safe** | `read`, `glob`, `grep` | Batch concurrently      |
-
-## Skills
-
-Skills are specialized instruction sets loaded from `SKILL.md` files. They provide structured workflows for specific tasks.
-
-**Skill locations:**
-
-- `~/.claude/skills/` — Global skills
-- `~/.agents/skills/` — Agent skills
-- `.claude/skills/` — Project skills
-- `.freecode/skills/` — Project skills
-
-**Example skill structure:**
-
-```markdown
-# .freecode/skills/brainstorming/SKILL.md
-
----
-
-name: brainstorming
-description: Explore requirements before building features
-
----
-
-# Brainstorming Skill
-
-1. Clarify the goal - what problem are we solving?
-2. Identify constraints - what must/must not happen?
-3. Explore alternatives - what approaches exist?
-4. Define success - how do we know it's done?
-```
-
-## Quick Start
+## Install
 
 ```bash
-# Install dependencies
-npm install
+curl -fsSL https://freecode.website/install | bash
+```
 
-# Start the TUI
-cd apps/tui && npm run dev
+On Windows, use PowerShell:
+
+```powershell
+irm https://freecode.website/install.ps1 | iex
+```
+
+Then, in any project:
+
+```bash
+freecode
+```
+
+Pick a model with `/model` before your first prompt — a fresh install has no
+provider selected, and FreeCode refuses to guess one rather than sending your
+prompt somewhere you never chose. Full walkthrough:
+[Quickstart](https://freecode.website/getting-started/quickstart).
+
+Using an Anthropic subscription instead of an API key:
+
+```bash
+freecode auth login anthropic
+```
+
+> **Read what that does before you run it.** Subscription inference is only
+> reachable by presenting FreeCode to Anthropic **as Claude Code** — its OAuth
+> client id, its headers, its identity line. Anthropic reserves that inference
+> for its own surfaces and has acted against tools doing this, and the account
+> at risk is yours. It is opt-in, off by default, and one `freecode auth logout`
+> away. Full stance:
+> [Anthropic subscription login](https://freecode.website/getting-started/anthropic-subscription).
+
+## What it does
+
+- **One agentic loop.** The model receives your prompt, project context, and a
+  tool set, then drives the work — no separate "which files do you need" pass.
+  Independent tool calls run in parallel batches.
+- **Real streaming, native tool calling, extended thinking, prompt caching**, and
+  usage accounting across every provider, through the Vercel AI SDK.
+- **Agent modes** — `plan`, `build`, `review`, `explore`, `danger` — enforced by a
+  permission layer with per-rule allow/ask/deny and path-scoped rules in
+  `.freecode/settings.json`.
+- **Persistent memory across sessions**, with a derived knowledge graph (local
+  ONNX embeddings, clustering, cascade retrieval) and an opt-in graph explorer.
+- **Durable sessions** — resume, fork, export/import, and automatic compaction
+  when the context window fills.
+- **Extensibility** — MCP servers, skills (`SKILL.md`), lifecycle hooks, and
+  `CLAUDE.md` / `AGENTS.md` instruction files.
+- **Observability** — every model call is recorded as an event; `freecode trace`
+  renders the waterfall, and runs export as OTLP spans.
+- **An eval harness** — behaviour changes are verified by scored agent runs, not
+  by eyeballing a transcript.
+
+## Tools
+
+| Tool         | Description                                          |
+| ------------ | ---------------------------------------------------- |
+| `read`       | Read file contents                                   |
+| `ls`         | List directory contents                              |
+| `write`      | Create or overwrite files                            |
+| `edit`       | Edit files in place with smart matching              |
+| `glob`       | Find files matching glob patterns                    |
+| `grep`       | Search file contents via regex                       |
+| `bash`       | Execute shell commands                               |
+| `agent`      | Delegate to a subagent with its own capability profile |
+| `skill`      | Load a specialized skill from `SKILL.md`             |
+| `question`   | Ask the user clarifying questions                    |
+| `todowrite`  | Track a multi-step plan                              |
+| `webfetch`   | Fetch a URL                                          |
+| `websearch`  | Search the web                                       |
+| `lsp`        | Query a language server                              |
+| `memory`     | Save or recall persistent memory                     |
+| `output`     | Retrieve stored tool output                          |
+
+MCP tools register dynamically at runtime through the same registry.
+
+## Commands
+
+```
+freecode                 open the TUI in the current project
+freecode run <prompt>    one headless turn, streamed to stdout
+freecode serve           JSON-RPC backend over stdin/stdout
+freecode web             local web UI
+freecode auth            Anthropic subscription login / status / logout
+freecode session         list and delete sessions
+freecode memory          knowledge-graph stats, rebuild, and explorer UI
+freecode mcp             manage MCP servers
+freecode trace           render a session's model-call waterfall
+freecode eval            run the eval suites
+freecode update          re-run the installer
 ```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                          TUI                                 │
-│              (apps/tui) — pure UI shell                    │
-│         Uses pi-tui for terminal rendering                  │
-│         IPC client sends/receives JSON-RPC                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           │ JSON-RPC (stdin/stdout)
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                          CLI Backend                        │
-│              (apps/core) — ALL intelligence                  │
-│   Browser controller, parser, tools, context engine,        │
-│   agent loop, file applier                                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      AI Provider (Browser)                   │
-│                    ChatGPT / Claude / Gemini                 │
-└─────────────────────────────────────────────────────────────┘
+     ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+     │   TUI    │  │  VS Code │  │   Web    │  │ Desktop  │
+     │ apps/tui │  │apps/vscode│ │ apps/web │  │apps/web-app│
+     └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+          └─────────────┴── JSON-RPC ─┴─────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│              CLI Backend (apps/core) — ALL intelligence        │
+│  Agent loop · Tools · Context engine · Sessions · Providers    │
+│  MCP client · Hooks · Skills · Memory · Compaction · Rollout   │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ Vercel AI SDK
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│   ~198 providers from models.dev — Anthropic · OpenAI ·        │
+│   Gemini · DeepSeek · Groq · Mistral · xAI · MiniMax · Z.ai    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key principle:** frontends only render and speak IPC. No provider calls, no
+file reading, no tool execution outside `apps/core`.
+
+> A legacy browser-automation path (Playwright, driving a signed-in ChatGPT or
+> Gemini session) still exists under `apps/core/src/browser/` and `gemini-web`.
+> It is not the default execution path.
+
+## Running from a clone
+
+```bash
+pnpm install
+pnpm --filter @thisisayande/freecode-shared build
+pnpm dev            # or: cd apps/tui && pnpm dev
+```
+
+Checks:
+
+```bash
+pnpm check-types
+pnpm test
 ```
 
 ## Documentation
 
-- [Architecture Overview](docs/superpowers/specs/2026-05-23-architecture.md)
-- [Agent Loop Design](docs/superpowers/specs/2026-05-25-agent-loop.md)
-- [Implementation Plan](docs/superpowers/plans/2026-05-10-freecode-mvp.md)
+Full docs: **[freecode.website](https://freecode.website)**
+
+- [Installation](https://freecode.website/getting-started/installation)
+- [Quickstart](https://freecode.website/getting-started/quickstart)
+- [Configuration](https://freecode.website/getting-started/configuration)
+- [Internals](https://freecode.website/internals/agent-loop) — agent loop,
+  providers, memory, compaction, permissions, eval
+
+In-repo references: [`CLAUDE.md`](CLAUDE.md) (contributor guide),
+[`EVAL.md`](EVAL.md), [`TRACE.md`](TRACE.md), and the design specs under
+[`docs/superpowers/specs/`](docs/superpowers/specs/).
 
 ## License
 
