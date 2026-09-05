@@ -24,6 +24,13 @@ export interface RawResult {
   newFiles: number;
   reason: string;
   runId: string;
+  turns?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  usd?: number | null;
+  auditOk?: boolean;
 }
 
 export interface RawBenchmark {
@@ -50,6 +57,15 @@ export interface AgentSummary {
   rate: number;
   medianMs: number;
   medianPatchBytes: number;
+  /** Trials the recording proxy actually saw. 0 ⇒ this agent is unmetered. */
+  meteredTrials: number;
+  /** Mean input+output tokens per metered trial (shared instances). */
+  meanTokens?: number;
+  /** Mean USD per metered trial; null when the model is unpriced. */
+  meanUsd?: number | null;
+  /** Max USD on a single metered trial — the runaway the mean hides (§7). */
+  worstUsd?: number;
+  meanTurns?: number;
 }
 
 export interface MatrixCell {
@@ -59,6 +75,26 @@ export interface MatrixCell {
   patchBytes: number;
   reason: string;
   trial: number;
+  tokens?: number;
+  usd?: number | null;
+  auditOk?: boolean;
+}
+
+/**
+ * Spec §7.2: cost compared only on instances every agent RESOLVED — averaging
+ * over failures makes the quitter cheapest. Graded matchups only; suppressed
+ * (numbers withheld) when fewer than 3 shared resolved instances exist,
+ * because two shared instances is an anecdote wearing a decimal point.
+ */
+export interface CostComparison {
+  instances: string[];
+  suppressed: boolean;
+  perAgent: {
+    id: string;
+    isFreeCode: boolean;
+    meanUsd: number | null;
+    meanTokens: number | null;
+  }[];
 }
 
 export interface BenchView {
@@ -77,6 +113,8 @@ export interface BenchView {
   sharedInstances: string[];
   ragged: boolean;
   matrix: { instanceId: string; cells: MatrixCell[] }[];
+  /** §7.2 cost table. Undefined until the matchup is graded. */
+  cost?: CostComparison;
   caveats: { title: string; body: string }[];
 }
 
@@ -86,6 +124,12 @@ const median = (xs: number[]) => {
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 };
+
+const mean = (xs: number[]) =>
+  xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : undefined;
+
+const totalTokens = (r: RawResult) =>
+  r.inputTokens !== undefined ? r.inputTokens + (r.outputTokens ?? 0) : undefined;
 
 export function deriveView(raw: RawBenchmark): BenchView {
   const { results } = raw;
@@ -125,6 +169,10 @@ export function deriveView(raw: RawBenchmark): BenchView {
     const successes = mine.filter((r) =>
       raw.graded ? r.resolved === true : r.producedPatch,
     ).length;
+    // Metered means the proxy saw model calls — a trial where the agent
+    // talked around the proxy still writes zeros, and zeros are not a $0 run.
+    const metered = mine.filter((r) => (r.turns ?? 0) > 0);
+    const usds = metered.map((r) => r.usd).filter((u): u is number => typeof u === "number");
     return {
       id: a.id,
       isFreeCode: a.id === "freecode",
@@ -136,6 +184,13 @@ export function deriveView(raw: RawBenchmark): BenchView {
       rate: mine.length ? successes / mine.length : 0,
       medianMs: median(mine.map((r) => r.durationMs)),
       medianPatchBytes: median(mine.map((r) => r.patchBytes)),
+      meteredTrials: metered.length,
+      meanTokens: mean(metered.map((r) => totalTokens(r)!)),
+      // Metered but unpriced (no rate-card row) is null, not absent — the
+      // distinction between "we didn't measure" and "we can't price".
+      meanUsd: metered.length ? (usds.length ? mean(usds)! : null) : undefined,
+      worstUsd: usds.length ? Math.max(...usds) : undefined,
+      meanTurns: mean(metered.map((r) => r.turns ?? 0)),
     };
   });
 
@@ -158,8 +213,45 @@ export function deriveView(raw: RawBenchmark): BenchView {
         patchBytes: r.patchBytes,
         reason: r.reason,
         trial: r.trial,
+        tokens: (r.turns ?? 0) > 0 ? totalTokens(r) : undefined,
+        usd: (r.turns ?? 0) > 0 ? r.usd : undefined,
+        auditOk: r.auditOk,
       })),
   }));
+
+  /**
+   * §7.2, executed: cost is compared only on instances every agent resolved
+   * at least once, and suppressed entirely below 3 such instances. Only a
+   * graded matchup can have this table at all.
+   */
+  let cost: CostComparison | undefined;
+  if (raw.graded) {
+    const solvedByAll = sharedInstances.filter((id) =>
+      raw.agents.every((a) =>
+        results.some((r) => r.agent === a.id && r.instanceId === id && r.resolved === true),
+      ),
+    );
+    cost = {
+      instances: solvedByAll,
+      suppressed: solvedByAll.length < 3,
+      perAgent: raw.agents.map((a) => {
+        const mine = results.filter(
+          (r) =>
+            r.agent === a.id &&
+            solvedByAll.includes(r.instanceId) &&
+            r.resolved === true &&
+            (r.turns ?? 0) > 0,
+        );
+        const usds = mine.map((r) => r.usd).filter((u): u is number => typeof u === "number");
+        return {
+          id: a.id,
+          isFreeCode: a.id === "freecode",
+          meanUsd: usds.length ? mean(usds)! : null,
+          meanTokens: mine.length ? mean(mine.map((r) => totalTokens(r)!))! : null,
+        };
+      }),
+    };
+  }
 
   /**
    * Everything not yet true about this matchup, in the page's own words. Spec
@@ -181,6 +273,16 @@ export function deriveView(raw: RawBenchmark): BenchView {
           {
             title: "No isolation",
             body: "Trials run without a container: the network is open, so an agent could in principle look the fix up, and $HOME is shared, so an agent's own memory carries between trials. Both are corrected by the container step.",
+          },
+        ]
+      : []),
+    ...(agents.some((a) => a.trials > 0 && a.meteredTrials < a.trials)
+      ? [
+          {
+            title: "Not every trial was metered",
+            body: `Token and cost figures cover only trials the recording proxy saw (${agents
+              .map((a) => `${a.id}: ${a.meteredTrials}/${a.trials}`)
+              .join(", ")}). An agent that ignores the proxy env vars is unmetered until the container forces its egress through the proxy — comparing its cost column would compare a measurement to a blank.`,
           },
         ]
       : []),
@@ -233,6 +335,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
     sharedInstances,
     ragged,
     matrix,
+    cost,
     caveats,
   };
 }

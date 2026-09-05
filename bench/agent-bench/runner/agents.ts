@@ -8,6 +8,11 @@
 import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  dockerArgv,
+  removeContainer,
+  type Containerize,
+} from "../isolate/docker.js";
 import type { AgentSpec } from "./types.js";
 
 const AGENT_DIR = path.join(import.meta.dirname, "..", "agents");
@@ -37,9 +42,14 @@ export function loadAgent(id: string): AgentSpec {
  * degrades a competitor while flattering us (spec §10.6) — so the version that
  * produced a number is part of the number.
  */
-export function agentVersion(spec: AgentSpec): string {
-  const [cmd, ...args] = spec.versionCmd;
-  const r = spawnSync(cmd!, args, { encoding: "utf-8", timeout: 30_000 });
+export function agentVersion(spec: AgentSpec, image?: string): string {
+  // Isolated trials run the IMAGE's copy of the agent, so that is the copy
+  // whose version belongs in the record — not whatever the host has.
+  const argv = image
+    ? ["docker", "run", "--rm", image, ...spec.versionCmd]
+    : spec.versionCmd;
+  const [cmd, ...args] = argv;
+  const r = spawnSync(cmd!, args, { encoding: "utf-8", timeout: 120_000 });
   if (r.status !== 0) return "unknown";
   return (r.stdout || r.stderr).trim().split("\n")[0]!.slice(0, 80);
 }
@@ -65,7 +75,7 @@ function render(spec: AgentSpec, prompt: string): string[] {
  * `empty-config/` — the only way found to stop opencode loading the operator's
  * personal MCP servers (see agents/opencode.json).
  */
-export function resolveEnv(spec: AgentSpec): NodeJS.ProcessEnv {
+export function resolveEnv(spec: AgentSpec, benchDir?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const [key, raw] of Object.entries(spec.env ?? {})) {
     if (raw === "") {
@@ -73,7 +83,8 @@ export function resolveEnv(spec: AgentSpec): NodeJS.ProcessEnv {
       continue;
     }
     env[key] = raw
-      .replaceAll("{benchDir}", path.join(AGENT_DIR, ".."))
+      // In a container, {benchDir} is the ro mount, not the host path.
+      .replaceAll("{benchDir}", benchDir ?? path.join(AGENT_DIR, ".."))
       .replace(/\$\{(\w+)\}/g, (_, name: string) => {
       const value = process.env[name];
       if (!value) {
@@ -109,9 +120,18 @@ export function runAgent(
   cwd: string,
   artifactDir: string,
   timeoutMs: number,
+  extraEnv?: NodeJS.ProcessEnv,
+  containerize?: Containerize,
 ): Promise<AgentRun> {
-  const argv = render(spec, prompt);
-  const env = resolveEnv(spec);
+  // In a container, {benchDir} in the adapter env must resolve to the ro
+  // mount. The env still carries real values (docker copies them from the
+  // spawn env for each bare `-e NAME`); only argv stays value-free.
+  const env = {
+    ...resolveEnv(spec, containerize ? "/bench" : undefined),
+    ...extraEnv,
+  };
+  const agentArgv = render(spec, prompt);
+  const argv = containerize ? dockerArgv(containerize, agentArgv) : agentArgv;
   const [cmd, ...args] = argv;
   const out = fs.createWriteStream(path.join(artifactDir, "stdout.log"));
   const err = fs.createWriteStream(path.join(artifactDir, "stderr.log"));
@@ -130,6 +150,8 @@ export function runAgent(
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
+      // Killing the docker CLIENT does not stop the container.
+      if (containerize) removeContainer(containerize.name);
     }, timeoutMs);
 
     const done = (exitCode: number | null) => {

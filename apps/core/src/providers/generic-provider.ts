@@ -28,7 +28,10 @@ import { normalizeAiSdkStream } from "./streaming.js";
 import { mapUsage } from "./provider-shared.js";
 import { applyEffort } from "./effort.js";
 import { loadSdkFactory } from "./sdk-factories.js";
-import type { ProviderCatalogueEntry } from "./catalogue.js";
+import {
+  baseURLFor,
+  type ProviderCatalogueEntry,
+} from "./catalogue.js";
 
 /**
  * Which branch of request-shaping an SDK package needs.
@@ -230,7 +233,7 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
             apiKey: oauth
               ? "oauth-subscription"
               : getApiKey(entry.id, entry.envKeys),
-            baseURL: entry.baseURL,
+            baseURL: baseURLFor(entry),
             fetch: oauth
               ? createAnthropicOAuthFetch(createTimeoutFetch())
               : createTimeoutFetch(),

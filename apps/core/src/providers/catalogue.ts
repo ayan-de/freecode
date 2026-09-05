@@ -211,3 +211,20 @@ export function envKeysFor(id: string): string[] {
   }
   return envKeyIndex.get(id) ?? [];
 }
+
+/**
+ * Catalogue `baseURL`, or `$<ID>_BASE_URL` when set.
+ *
+ * The recording proxy in `bench/agent-bench` points every agent at one meter
+ * (spec §6.4). Claude Code already honours `ANTHROPIC_BASE_URL`; freecode
+ * previously ignored it because the SDK is constructed with the catalogue
+ * URL. `MINIMAX_BASE_URL` (and the same pattern for any other id) is the
+ * equivalent hook — a bench-only override, not a documented user setting.
+ */
+export function baseURLFor(entry: {
+  id: string;
+  baseURL?: string;
+}): string | undefined {
+  const envName = `${entry.id.replace(/-/g, "_").toUpperCase()}_BASE_URL`;
+  return process.env[envName] || entry.baseURL;
+}

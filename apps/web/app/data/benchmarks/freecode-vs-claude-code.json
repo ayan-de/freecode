@@ -1,8 +1,24 @@
 {
   "slug": "freecode-vs-claude-code",
-  "generatedAt": "2026-09-03T19:18:04.474Z",
-  "runId": "2026-09-03T18-56-04-591Z",
+  "generatedAt": "2026-09-05T23:06:41.774Z",
+  "runId": "2026-09-05T23-06-02-611Z",
   "runs": [
+    {
+      "runId": "2026-09-05T23-06-02-611Z",
+      "generatedAt": "2026-09-05T23:06:41.774Z",
+      "agents": [
+        "freecode",
+        "claude-code"
+      ]
+    },
+    {
+      "runId": "2026-09-05T23-02-42-713Z",
+      "generatedAt": "2026-09-05T23:03:35.231Z",
+      "agents": [
+        "freecode",
+        "claude-code"
+      ]
+    },
     {
       "runId": "2026-09-03T18-56-04-591Z",
       "generatedAt": "2026-09-03T19:18:04.474Z",
@@ -43,7 +59,7 @@
   "agents": [
     {
       "id": "freecode",
-      "version": "0.28.0",
+      "version": "0.30.0",
       "model": "minimax/MiniMax-M3",
       "autonomy": "--agent danger: no permission prompts"
     },
@@ -61,11 +77,18 @@
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 29849,
+      "durationMs": 10799,
       "patchBytes": 625,
       "newFiles": 0,
       "reason": "ok",
-      "runId": "2026-09-03T16-51-56-681Z"
+      "runId": "2026-09-05T23-06-02-611Z",
+      "turns": 10,
+      "inputTokens": 140560,
+      "outputTokens": 1304,
+      "cacheReadTokens": 124250,
+      "cacheWriteTokens": 0,
+      "usd": 0.013912800000000001,
+      "auditOk": true
     },
     {
       "agent": "claude-code",
@@ -73,11 +96,18 @@
       "trial": 1,
       "producedPatch": true,
       "resolved": null,
-      "durationMs": 9729,
-      "patchBytes": 625,
+      "durationMs": 27158,
+      "patchBytes": 1099,
       "newFiles": 0,
       "reason": "ok",
-      "runId": "2026-09-03T16-51-56-681Z"
+      "runId": "2026-09-05T23-06-02-611Z",
+      "turns": 14,
+      "inputTokens": 427431,
+      "outputTokens": 2005,
+      "cacheReadTokens": 394362,
+      "cacheWriteTokens": 0,
+      "usd": 0.03598841999999999,
+      "auditOk": false
     },
     {
       "agent": "freecode",

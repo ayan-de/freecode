@@ -1,6 +1,21 @@
 # Benchmarking FreeCode
 
-> Runtime performance harness comparing **freecode** against other AI coding
+> Two different instruments. Pick the question, then the command.
+
+| Question | Command | Operator page |
+| --- | --- | --- |
+| How much RAM, how fast to first frame? | `pnpm bench:memory` | **this file** |
+| Does it fix real bugs vs other agents, and for how much? | `pnpm bench:agents` | **[`AGENT-BENCH.md`](AGENT-BENCH.md)** — same shape as `EVAL.md` |
+| Did my last change make *our* agent worse? | `pnpm eval` | [`EVAL.md`](EVAL.md) |
+
+The rest of this file is the **runtime** harness (PSS, time-to-visible). It
+does not measure whether anyone fixed a bug.
+
+---
+
+# Runtime performance
+
+> Comparing **freecode** against other AI coding
 > agents (Claude Code, Codex CLI, OpenCode, pi, GitHub Copilot, Cursor Agent,
 > Antigravity). Mirrors the methodology used by
 > [jcode's](https://github.com/1jehuang/jcode) `scripts/bench_memory_cli.py`.

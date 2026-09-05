@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   resolveCatalogue,
   envKeysFor,
+  baseURLFor,
   FEATURED_PROVIDER_IDS,
 } from "./catalogue.js";
 import { CATALOGUE_SNAPSHOT } from "./catalogue-snapshot.js";
@@ -84,6 +85,20 @@ test("env keys come from the catalogue, so zai reads models.dev's name", () => {
 
 test("an id the catalogue does not carry yields no keys rather than guessing", () => {
   assert.deepEqual(envKeysFor("not-a-real-provider"), []);
+});
+
+test("MINIMAX_BASE_URL overrides the catalogue endpoint", () => {
+  const minimax = resolveCatalogue().find((e) => e.id === "minimax");
+  assert.ok(minimax);
+  assert.equal(baseURLFor(minimax), minimax.baseURL);
+  const prev = process.env.MINIMAX_BASE_URL;
+  process.env.MINIMAX_BASE_URL = "http://127.0.0.1:9/v1";
+  try {
+    assert.equal(baseURLFor(minimax), "http://127.0.0.1:9/v1");
+  } finally {
+    if (prev === undefined) delete process.env.MINIMAX_BASE_URL;
+    else process.env.MINIMAX_BASE_URL = prev;
+  }
 });
 
 test("resolution is memoized, and the memo can be dropped", async () => {

@@ -178,7 +178,8 @@ Full docs: **[freecode.website](https://freecode.website)**
   providers, memory, compaction, permissions, eval
 
 In-repo references: [`CLAUDE.md`](CLAUDE.md) (contributor guide),
-[`EVAL.md`](EVAL.md), [`TRACE.md`](TRACE.md), and the design specs under
+[`EVAL.md`](EVAL.md), [`TRACE.md`](TRACE.md), [`AGENT-BENCH.md`](AGENT-BENCH.md),
+[`Benchmark.md`](Benchmark.md) (runtime RAM / TTF), and the design specs under
 [`docs/superpowers/specs/`](docs/superpowers/specs/).
 
 ## License

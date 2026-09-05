@@ -1,0 +1,18 @@
+{
+  // tsx executes without typechecking, which is how a field dropped from
+  // TrialRecord while run.ts still assigned it went unnoticed. `pnpm
+  // test:agent-bench` runs `tsc --noEmit` over this config first.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    // agent-bench is outside the pnpm workspace on purpose; borrow the
+    // @types/node that core already pins rather than growing a package.json.
+    "typeRoots": ["../../apps/core/node_modules/@types"]
+  },
+  "include": ["runner/**/*.ts", "proxy/**/*.ts", "isolate/**/*.ts"]
+}
