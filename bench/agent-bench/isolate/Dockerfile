@@ -9,7 +9,7 @@ FROM node:22-bookworm-slim
 ARG CLAUDE_CODE_VERSION=2.1.251
 ARG OPENCODE_VERSION=1.18.25
 # A released freecode binary — the self-contained bun build, never the SEA one.
-ARG FREECODE_VERSION=v0.30.0
+ARG FREECODE_VERSION=v0.30.1
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates curl \

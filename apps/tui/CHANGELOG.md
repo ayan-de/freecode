@@ -1,5 +1,12 @@
 # @thisisayande/freecode
 
+## 0.30.1
+
+### Patch Changes
+
+- Updated the agent-comparison benchmark support and `/benchmark` cost/token reporting. See freecode-core 0.30.1 for details.
+- Updated dependencies
+  - @thisisayande/freecode-core@0.30.1
 ## 0.30.0
 
 ### Minor Changes

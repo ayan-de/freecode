@@ -1,5 +1,12 @@
 # @thisisayande/freecode-core
 
+## 0.30.1
+
+### Patch Changes
+
+- Agent-comparison benchmark: added the recording proxy, Docker isolation, official SWE-bench grading, evidence bundles, cost metering, and token/cost columns to `/benchmark`.
+- Provider base URLs can now be overridden with the corresponding `$<ID>_BASE_URL` environment variable.
+- Fixed `/benchmark` treating an unmetered trial as a zero-cost run.
 ## 0.30.0
 
 ### Minor Changes

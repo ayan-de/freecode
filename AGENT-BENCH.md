@@ -191,7 +191,7 @@ pnpm bench:agents --isolate --trials 3 --agents freecode,claude-code
 
 The image (`isolate/Dockerfile`) bakes pinned versions of every agent —
 freecode from a **released** binary (build arg `FREECODE_VERSION`, default
-v0.30.0), the others from npm — because at trial time there is no network to
+v0.30.1), the others from npm — because at trial time there is no network to
 install anything with. `agentVersion` is read from the image, `$HOME` is a
 tmpfs-style throwaway inside the container (no memory between trials, §6.3),
 the workspace mounts rw at `/workspace`, the bench dir ro at `/bench`

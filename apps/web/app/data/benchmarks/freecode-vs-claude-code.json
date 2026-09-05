@@ -59,7 +59,7 @@
   "agents": [
     {
       "id": "freecode",
-      "version": "0.30.0",
+      "version": "0.30.1",
       "model": "minimax/MiniMax-M3",
       "autonomy": "--agent danger: no permission prompts"
     },

@@ -9,7 +9,7 @@ import type { Report, TrialRecord } from "./types.js";
 function trial(over: Partial<TrialRecord>): TrialRecord {
   return {
     agent: "freecode",
-    agentVersion: "0.30.0",
+    agentVersion: "0.30.1",
     model: "minimax/MiniMax-M3",
     autonomy: "danger",
     instanceId: "django__django-1",
