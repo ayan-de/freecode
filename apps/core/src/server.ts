@@ -367,7 +367,7 @@ function createError(
   return { jsonrpc: "2.0", id, error: { code, message, data } };
 }
 
-const methodHandlers: Record<
+export const methodHandlers: Record<
   string,
   (params: Record<string, unknown>) => Promise<unknown>
 > = {

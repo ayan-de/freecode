@@ -218,15 +218,20 @@ export const METHODS = {
     params: {} as {
       sessionId: string;
       message: string;
+      model?: string;
+      effort?: import("../types.js").EffortLevel;
+      agentMode?: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
     },
-    // The LoopResult shape when the turn ran normally. When the session was
-    // already busy, the call parks the prompt in the follow-up queue and
-    // resolves immediately with { queued: true, id } — the UI uses the
-    // `message_queued` stream event for the same data so web/SSE subscribes
-    // stay in sync.
+    // The completed turn. This said `StreamResponse` for a long time and was
+    // simply wrong — the handler returns the loop's result, and the per-token
+    // output arrives on the stream channel, never as the RPC result. When the
+    // session was already busy the call parks the prompt in the follow-up
+    // queue and resolves immediately with { queued: true, id }; the UI uses
+    // the `message_queued` stream event for the same data so web/SSE
+    // subscribers stay in sync.
     result: {} as
-      | StreamResponse
+      | import("../types.js").TurnResult
       | { queued: true; id: string },
   },
   "session.dequeue": {
@@ -366,6 +371,164 @@ export const METHODS = {
   "graph.explore": {
     params: undefined,
     result: {} as { url: string } | { error: "not-installed" },
+  },
+
+  // ===========================================================================
+  // Models
+  // ===========================================================================
+  "models.list": {
+    params: { providerId: "" },
+    result: [] as import("../types.js").ModelInfo[],
+  },
+  // Context window in tokens for one provider/model pair, or 0 when the
+  // catalogue has no entry — never a guessed default.
+  "models.contextLimit": {
+    params: { provider: "", model: "" },
+    result: 0 as number,
+  },
+
+  // ===========================================================================
+  // Config
+  //
+  // `config.get` returns the REDACTED view. There is deliberately no method
+  // that returns the raw config: the JSON-RPC surface is reachable over the
+  // web server's POST /api, and `host` is a parameter.
+  // ===========================================================================
+  "config.get": {
+    params: undefined,
+    result: {} as import("../types.js").RedactedConfig,
+  },
+  "config.setApiKey": {
+    params: {} as { provider: string; apiKey: string; model?: string },
+    result: undefined as void,
+  },
+  "config.setCurrentModel": {
+    params: { provider: "", model: "" },
+    result: undefined as void,
+  },
+  "config.getCurrentModel": {
+    params: undefined,
+    result: {} as { provider: string; model: string } | undefined,
+  },
+  "config.getLastAgentMode": {
+    params: undefined,
+    result: undefined as string | undefined,
+  },
+  "config.setLastAgentMode": {
+    params: { mode: "" },
+    result: undefined as void,
+  },
+
+  // ===========================================================================
+  // Memory
+  // ===========================================================================
+  "memory.list": {
+    params: {} as {
+      projectPath?: string;
+      type?: import("../types.js").MemoryType;
+    },
+    result: [] as import("../types.js").MemoryEntry[],
+  },
+  "memory.get": {
+    params: {} as {
+      name: string;
+      type: import("../types.js").MemoryType;
+      projectPath?: string;
+    },
+    result: null as import("../types.js").MemoryEntry | null,
+  },
+  "memory.save": {
+    params: {} as {
+      entry: import("../types.js").MemoryEntry;
+      projectPath?: string;
+    },
+    result: undefined as void,
+  },
+  "memory.delete": {
+    params: {} as {
+      name: string;
+      type: import("../types.js").MemoryType;
+      projectPath?: string;
+    },
+    result: false as boolean,
+  },
+  "memory.query": {
+    params: {} as {
+      query: string;
+      projectPath?: string;
+      limit?: number;
+      types?: import("../types.js").MemoryType[];
+    },
+    result: [] as import("../types.js").MemoryEntry[],
+  },
+  "memory.graph.rebuild": {
+    params: {} as { projectPath?: string },
+    result: {} as import("../types.js").MemoryGraphStats,
+  },
+  "memory.graph.stats": {
+    params: {} as { projectPath?: string },
+    result: {} as import("../types.js").MemoryGraphStats,
+  },
+  // The rendered <memories> block, for previewing what a turn would inject.
+  "memory.buildPrompt": {
+    params: {} as {
+      projectPath?: string;
+      types?: import("../types.js").MemoryType[];
+      limit?: number;
+      all?: boolean;
+    },
+    result: "" as string,
+  },
+
+  // ===========================================================================
+  // Session lifecycle
+  // ===========================================================================
+  "session.switch": {
+    params: { sessionId: "" },
+    result: undefined as void,
+  },
+  /** Returns the new session's id. */
+  "session.fork": {
+    params: { sessionId: "" },
+    result: "" as string,
+  },
+  "session.archive": {
+    params: { sessionId: "" },
+    result: undefined as void,
+  },
+  // `purge` also removes the session's on-disk artifacts; without it the
+  // record is marked deleted and the files stay.
+  "session.delete": {
+    params: {} as { sessionId: string; purge?: boolean },
+    result: undefined as void,
+  },
+  // The session whose last turn was killed mid-stream, if any — what the TUI
+  // offers to resume at startup.
+  "session.getInterrupted": {
+    params: undefined,
+    result: null as { sessionId: string; messageId: string } | null,
+  },
+
+  // ===========================================================================
+  // Remote sync
+  // ===========================================================================
+  "session.export": {
+    params: { sessionId: "" },
+    result: {} as import("../types.js").ExportedSession,
+  },
+  "session.import": {
+    params: { url: "" },
+    result: { sessionId: "" },
+  },
+  /** Returns the share URL the session was uploaded to. */
+  "session.upload": {
+    params: {} as { sessionId: string; endpoint: string; apiKey?: string },
+    result: "" as string,
+  },
+  /** Returns the id of the session the download created locally. */
+  "session.download": {
+    params: {} as { url: string; endpoint?: string; apiKey?: string },
+    result: "" as string,
   },
 } as const;
 
