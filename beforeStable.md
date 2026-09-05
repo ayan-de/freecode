@@ -370,7 +370,23 @@ suite is **1255 pass / 0 fail** and `check-types` is clean across all five
 workspaces. What remains before the tag is step 6: `pnpm eval:gate` with
 `FREECODE_JUDGE_PROVIDER` set, then tag.
 
-Note that P1 #2 and #3 both change what the model sees after a compaction, which
-is a behaviour change in the sense `CLAUDE.md`'s eval-driven-development section
-means. The gate run in step 6 is the measurement; if the judged suite moves,
-those two are the first place to look.
+### What the gate will and will not measure
+
+P1 #2 and #3 change what the model sees **after a compaction**, which is a
+behaviour change in the sense `CLAUDE.md`'s eval-driven-development section
+means. The eval harness cannot see it, and it is worth being precise about why
+rather than reading a green gate as evidence:
+
+- Compaction fires at `min(contextLimit, 120k) - 13k` ≈ **107k input tokens**.
+  The longest prompt in any suite is **260 chars (~65 tokens)** and every case
+  runs a single turn. No case has ever compacted, and none can.
+- The transcript from #3 reaches the model only *through* the summary —
+  `loop.ts:1446` reads `getPromptContext().summary` and deliberately not
+  `recentMessages`. With no compaction there is no summary, so on every eval
+  case the prompt is byte-identical before and after this work.
+- #1, #4, #5 and #6 involve no model call at all.
+
+So `eval:gate` in step 6 is a **regression check before tagging**, not a
+measurement of these six changes. A green gate says they broke nothing; it says
+nothing about whether #2 and #3 helped. Long-session drift is the thing they
+target, and the harness has no way to express it — see the `TODO.md` entry.

@@ -239,6 +239,16 @@ earlier audit are not repeated here.
 - [ ] **Non-zero exit is ignored when a hook prints JSON.** `command.ts` checks exit
       `2`, then parses JSON, then checks exit `0` — so `{"block":false}` + `exit 1`
       continues. Honour the exit code or state that JSON overrides it.
+- [ ] **No eval case can reach the compaction path.** Every case runs one turn
+      from a prompt of at most 260 chars; compaction fires at ~107k input tokens
+      (`min(contextLimit, 120k) - 13k`). So the head carve-out and the tool
+      transcript (both landed 2026-09-05) are unmeasurable by the harness, and a
+      green `eval:gate` is silent about them rather than evidence for them. The
+      same holds for anything else that only manifests over a long session —
+      drift off the brief being the motivating case. Needs a case shape that
+      replays a recorded multi-turn session, or a `FREECODE_COMPACT_TARGET_TOKENS`
+      override in the runner so a short case can be made to compact on purpose.
+      The second is much cheaper and probably the right first move.
 - [ ] **`settings.json` has three loaders and three different merge rules.**
       `permissions` concatenates both scopes, `hooks` override by `event + name`,
       `memory` takes the first definition (project → user → default). Nothing states
