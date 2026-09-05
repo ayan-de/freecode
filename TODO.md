@@ -88,10 +88,6 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 
 ### A. Real fixes
 
-- [ ] **Memory project key collides** — `mem-store.ts:31` keys on
-      `path.basename()`, so `~/work/api` and `~/side/api` share one memory store.
-      Sessions already solved this with `store/path-formatter.ts` (full reversible
-      path). Reuse it; needs a rename migration for existing `~/.freecode/projects/`.
 - [ ] **`Contradicts` edges are never produced** — the kind, its zero weight, and
       the cascade skip are implemented and tested (`graph-types.ts:17`,
       `cascade.ts:59`), but nothing detects that two memories disagree. Contradiction
@@ -908,10 +904,6 @@ Two bugs that every unit test passed through, plus one limitation:
 
 ### Still open
 
-- [ ] **Project key collision** — now the highest-value memory fix.
-      `mem-store.ts` keys on `path.basename()`, so `~/work/api` and `~/side/api`
-      share a store. Actively wrong for episodes. `store/path-formatter.ts`
-      already solves it for sessions; reuse it plus a rename migration.
 - [ ] **Wire up LongMemEval-S** (`bench/longmemeval.ts`). The committed corpus
       was written by the same people who wrote the retriever; it catches
       regressions and proves nothing about absolute quality. LongMemEval-S uses

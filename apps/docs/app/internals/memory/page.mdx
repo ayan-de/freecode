@@ -179,9 +179,10 @@ the current task ends.
 └── .graph/            derived, rebuildable (gitignored)
 ```
 
-> **Known limitation.** The project key is `path.basename(projectPath)`, sanitized
-> — not the full path (`mem-store.ts:31`). Two projects both called `api` in
-> different parent directories **share one memory store**.
+> The project key is the full reversible path (`formatSessionDirName`, the same
+> scheme session dirs use), so two projects both called `api` in different parent
+> directories keep separate stores. A store written under the old basename key is
+> renamed to the new key on first access (`migrateLegacyDir`, `mem-store.ts`).
 
 `MEMORY.md` is a regenerated index of names, descriptions, and links, rewritten on
 every save and delete by `updateIndex()` (`mem-store.ts:182`), and truncated at
@@ -532,14 +533,11 @@ of what follows is "we built it and have not yet measured it in the wild".
    backfill at startup.
 5. **Retention is enforced only by consolidation.** If it never fires, episodes
    accumulate — demoted by decay, but never deleted.
-6. **Project key collisions.** `basename` means `~/work/api` and `~/side/api`
-   share memories. This was tolerable for "user prefers tables" and is actively
-   wrong for episodes, which are the most project-specific thing the store holds.
-7. **Citation is self-reported.** Usage counts come from the model saying which
+6. **Citation is self-reported.** Usage counts come from the model saying which
    memories it used. A model may credit one it ignored or use one silently, so
    `useCount` is a biased but directional signal. It ranks and retains; nothing
    deletes on it alone.
-8. **Tuning values are guesses.** Cap 3, interval 8, 200-character minimum,
+7. **Tuning values are guesses.** Cap 3, interval 8, 200-character minimum,
    `minHours 24`, `minSessions 5`, `MAX_EPISODES 50`. The *retrieval-side*
    constants are no longer guesses — `RRF_K`, the episode half-life, and the
    BM25 parameters can be swept by the benchmark — but the consolidation-side
@@ -561,7 +559,6 @@ of what follows is "we built it and have not yet measured it in the wild".
 | Consolidation never runs | `FREECODE_DEBUG=1` → `[MemoryConsolidate] skipped: <reason>`. It needs 5 finished sessions **and** 24h; a failed run also backs off for 10 minutes |
 | Memories are surfaced but `usage` shows `0/n` | the model is not emitting `<memory-used>`. Retention still works, on age alone |
 | A scripted `freecode run` never consolidates | expected — the process exits before fire-and-forget background work lands |
-| Wrong project's memories | the store key is the folder *basename* — two projects with the same folder name collide |
 
 ## Where to look
 

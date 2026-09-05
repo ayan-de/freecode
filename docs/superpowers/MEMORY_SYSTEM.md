@@ -55,7 +55,7 @@ changes, and model changes are all resolved by deleting `.graph/` and rebuilding
 ## 2. On-disk layout
 
 ```
-~/.freecode/projects/<basename-of-project-path>/memory/
+~/.freecode/projects/<full-path-formatted>/memory/
 ├── user/*.md          who they are, how they like to work
 ├── feedback/*.md      guidance they gave you
 ├── project/*.md       decisions, constraints, deadlines
@@ -67,10 +67,11 @@ changes, and model changes are all resolved by deleting `.graph/` and rebuilding
     └── meta.json      modelId, dims, schemaVersion, hash→id map
 ```
 
-**The project key is `path.basename(projectPath)`, sanitized** — not the full
-path (`mem-store.ts:31`). Two projects both named `api` in different parent
-directories **share one memory store**. This is a real limitation, not a
-subtlety; see §10.
+**The project key is the full reversible path** — `formatSessionDirName()`,
+the same transform session directories use, so two projects both named `api`
+in different parent directories keep separate stores. A store written under
+the old basename key is renamed to the new key on first access
+(`migrateLegacyDir`, `mem-store.ts`).
 
 A memory file:
 
@@ -393,7 +394,6 @@ and `tools/memory.ts` are over it too and would decompose cleanly if they grow.
 | Retrieval feels stale | Sidecar out of sync → `freecode memory graph rebuild`, or delete `.graph/` |
 | Memories never saved automatically | Check the gates: `FREECODE_DISABLE_MEMORY_EXTRACTION`, `memory.autoExtract`, and whether the session reached 8 runs or a topic change |
 | Extraction seems to never fire | Debug log line `[MemoryExtract] skipped: <reason>` names the exact gate |
-| Wrong project's memories | §2 — the key is the *basename*; two projects with the same folder name collide |
 | Cache hit rate dropped after a save | Should be impossible; the guidance block is constant. If it happens, something injected store-dependent text into the static prefix |
 
 ---
@@ -403,33 +403,29 @@ and `tools/memory.ts` are over it too and would decompose cleanly if they grow.
 > Everything the 2026-08-23 spec set out to fix is built. What remains is listed
 > honestly below, including two things that spec created.
 
-1. **Project key collisions.** `basename` means `~/work/api` and `~/side/api`
-   share memories (§2). Tolerable for "user prefers tables", actively wrong for
-   episodes, which are the most project-specific thing the store holds.
-   **The most valuable next thing to build.**
-2. **`Contradicts` edges are still never produced.** Consolidation emits
+1. **`Contradicts` edges are still never produced.** Consolidation emits
    `Supersedes` — the writer-knows case. Detecting that two independently-written
    memories disagree needs pairwise reasoning nothing does.
-3. **The rollout archive is never mined.** The end-of-session flush covers live
+2. **The rollout archive is never mined.** The end-of-session flush covers live
    sessions; hundreds of historical session directories have never been read and
    nothing goes back for them. codex's answer is a bounded, leased, parallel
    backfill at startup.
-4. **Consolidation is unmeasured in the field.** Its value claim — better recall
+3. **Consolidation is unmeasured in the field.** Its value claim — better recall
    at constant token cost — is testable with `pnpm bench:recall` and has not been
    tested against a real store.
-5. **The benchmark corpus is self-written.** It catches regressions and proves
+4. **The benchmark corpus is self-written.** It catches regressions and proves
    little about absolute quality. LongMemEval-S is the intended external corpus
    and is not wired up.
-6. **The judge's real-model accuracy is unknown.** Every judge figure in the spec
+5. **The judge's real-model accuracy is unknown.** Every judge figure in the spec
    comes from `--judge=oracle`, a perfect reader, and is therefore a ceiling.
-7. **Citation is self-reported** and therefore biased — a model may credit a
+6. **Citation is self-reported** and therefore biased — a model may credit a
    memory it ignored. It ranks and retains; nothing deletes on it alone.
-8. **Consolidation-side tuning values are guesses.** `minHours 24`,
+7. **Consolidation-side tuning values are guesses.** `minHours 24`,
    `minSessions 5`, `MAX_EPISODES 50`, caps 5/3/1. The retrieval-side ones
    (`RRF_K`, the episode half-life, BM25 `k1`/`b`) are now sweepable.
-9. **`memory` blocked in plan mode** (write-path D7) — a preference stated while
+8. **`memory` blocked in plan mode** (write-path D7) — a preference stated while
    planning isn't captured. Fail-closed was the deliberate choice.
-10. **Usage counters are per-machine.** A user on two machines splits the
+9. **Usage counters are per-machine.** A user on two machines splits the
     evidence. Consistent with the store itself, noted because D12 is the first
     part where *history* matters rather than current state.
 

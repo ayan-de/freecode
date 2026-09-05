@@ -64,9 +64,8 @@ The escaping exists so the transform is **reversible**: `parseSessionDirName()`
 recovers the original path, so a directory listing is enough to answer "which
 project was this?" without opening any file.
 
-> Contrast this with persistent memory, which keys on `path.basename()` and
-> therefore collides between two projects named `api`. Sessions use the full path
-> and do not have that bug.
+> Persistent memory now keys on the same transform (`mem-store.ts` imports
+> `formatSessionDirName`), so the two stores agree on what identifies a project.
 
 ## A session's life
 

@@ -17,25 +17,69 @@ import {
   parseMemoryFrontmatter,
   serializeMemoryEntry,
 } from "./mem-types.js";
+import { formatSessionDirName } from "../store/path-formatter.js";
+import { logger } from "../utils/logger.js";
 
 const MEMORY_INDEX_FILENAME = "MEMORY.md";
 const MEMORY_DIR_NAME = "memory";
 
-function getMemoryBaseDir(projectPath: string): string {
-  const projectName = sanitizeProjectName(projectPath);
-  return path.join(
-    os.homedir(),
-    ".freecode",
-    "projects",
-    projectName,
-    MEMORY_DIR_NAME,
-  );
+function projectsDir(): string {
+  return path.join(os.homedir(), ".freecode", "projects");
 }
 
-function sanitizeProjectName(projectPath: string): string {
-  // Get the directory name and sanitize it for filesystem use
+function getMemoryBaseDir(projectPath: string): string {
+  // Full reversible path (same scheme as session dirs), not basename —
+  // basename made ~/work/api and ~/side/api share one store.
+  const dir = path.join(
+    projectsDir(),
+    formatSessionDirName(projectPath),
+    MEMORY_DIR_NAME,
+  );
+  migrateLegacyDir(projectPath, dir);
+  return dir;
+}
+
+/** The pre-migration key: sanitized basename. Kept only to find old stores. */
+function legacyProjectName(projectPath: string): string {
   const name = path.basename(projectPath);
   return name.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+// One attempt per target dir per process; getMemoryBaseDir runs constantly.
+const migrationChecked = new Set<string>();
+
+/**
+ * Move a store keyed by basename to the full-path key. The graph sidecar,
+ * usage attribution, and the consolidation baseline all live inside the
+ * memory dir, so one rename carries everything. When two projects shared a
+ * basename the pile is claimed by whichever project touches it first — the
+ * old key cannot say who wrote what, which is the bug being fixed.
+ */
+function migrateLegacyDir(projectPath: string, newDir: string): void {
+  if (migrationChecked.has(newDir)) return;
+  migrationChecked.add(newDir);
+  const legacyParent = path.join(projectsDir(), legacyProjectName(projectPath));
+  const legacyDir = path.join(legacyParent, MEMORY_DIR_NAME);
+  if (legacyDir === newDir) return;
+  try {
+    if (fs.existsSync(newDir) || !fs.existsSync(legacyDir)) return;
+    fs.mkdirSync(path.dirname(newDir), { recursive: true });
+    fs.renameSync(legacyDir, newDir);
+    // The legacy shell holds nothing else; leave it if rmdir disagrees.
+    try {
+      fs.rmdirSync(legacyParent);
+    } catch {
+      // Non-empty or already gone.
+    }
+  } catch (err) {
+    // A concurrent process may have won the same rename.
+    if (fs.existsSync(newDir)) return;
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(
+      `Could not migrate memory store ${legacyDir} -> ${newDir} (${msg}); ` +
+        `memories saved before this run may not be visible`,
+    );
+  }
 }
 
 function getTypeDir(basePath: string, type: MemoryType): string {
