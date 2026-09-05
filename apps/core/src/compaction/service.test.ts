@@ -17,6 +17,8 @@ test("MemoryService compacts old messages and exposes prompt context", async () 
 
     service.addMessage("user", "old request in docs/superpowers/plans/x.md");
     service.addMessage("assistant", "old answer");
+    service.addMessage("user", "second request");
+    service.addMessage("assistant", "second answer");
     service.addMessage("user", "middle request");
     service.addMessage("assistant", "middle answer");
     service.addMessage("user", "latest request");
@@ -26,10 +28,19 @@ test("MemoryService compacts old messages and exposes prompt context", async () 
     const context = service.getPromptContext();
 
     assert.equal(result.success, true);
-    assert.ok(context.summary?.includes("old request"));
+    // The founding instruction is preserved verbatim at the head, not folded
+    // into the summary — otherwise the next compaction summarizes the summary
+    // of it, and the brief decays fastest of anything in the window.
+    assert.ok(context.summary?.includes("second request"));
     assert.deepEqual(
       context.recentMessages.map((message) => message.content),
-      ["middle request", "middle answer", "latest request", "latest answer"],
+      [
+        "old request in docs/superpowers/plans/x.md",
+        "middle request",
+        "middle answer",
+        "latest request",
+        "latest answer",
+      ],
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

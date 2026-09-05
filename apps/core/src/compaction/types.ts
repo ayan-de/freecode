@@ -30,7 +30,18 @@ export interface CompactionConfig {
   autoCompactBufferTokens: number;
   preserveRecentTurns: number;
   maxPreserveRecentTokens: number;
+  /**
+   * Total chars of tool transcript kept for one turn (tool-transcript.ts).
+   * Sized for a turn, not a single output: at ~450 chars per tool line this
+   * carries roughly a dozen calls, and drops the oldest first when it can't.
+   */
   maxToolOutputChars: number;
+  /**
+   * Ceiling on the first user message kept verbatim as the founding brief
+   * (see selectForCompaction). A head larger than this is a pasted document,
+   * not an instruction, and is summarized like anything else.
+   */
+  maxPreserveHeadTokens: number;
 }
 
 export interface SelectionResult {
@@ -61,5 +72,6 @@ export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   autoCompactBufferTokens: 13_000,
   preserveRecentTurns: 2,
   maxPreserveRecentTokens: 8_000,
-  maxToolOutputChars: 2_000,
+  maxToolOutputChars: 4_000,
+  maxPreserveHeadTokens: 2_000,
 };

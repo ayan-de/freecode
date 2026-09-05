@@ -12,6 +12,7 @@ import {
 import { estimateTokenCount, shouldCompact } from "./tokens.js";
 import { selectForCompaction } from "./selector.js";
 import { makeSummary, summarizeMessages } from "./summarizer.js";
+import { renderTurnForMemory, type ToolActivity } from "./tool-transcript.js";
 import type { LlmSummarize } from "./llm-summarizer.js";
 import { FileMemoryStorage, type MemoryStorage } from "./storage.js";
 import { logger } from "../utils/logger.js";
@@ -58,26 +59,35 @@ export class MemoryService {
     };
   }
 
-  private normalizeContent(role: MemoryRole, content: string): string {
-    if (role !== "assistant") return content;
-    if (!content.startsWith("Tool ")) return content;
-    if (content.length <= this.config.maxToolOutputChars) return content;
-    return `${content.slice(0, this.config.maxToolOutputChars)}\n[tool output truncated for memory]`;
-  }
-
   addMessage(role: MemoryRole, content: string): MemoryMessage {
-    const normalizedContent = this.normalizeContent(role, content);
     const message: MemoryMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       role,
-      content: normalizedContent,
+      content,
       timestamp: Date.now(),
-      tokenCount: estimateTokenCount(normalizedContent),
+      tokenCount: estimateTokenCount(content),
     };
     this.state.messages.push(message);
     this.state.tokenCount += message.tokenCount;
     this.storage.save(this.state);
     return message;
+  }
+
+  /**
+   * Record a turn that called tools. The transcript — one bounded line per
+   * call, with its arguments and outcome — replaces the "[Executed N tools]"
+   * stub that used to stand in for it. That stub was why a compaction summary
+   * contained none of the edits, commands or errors that were the actual work.
+   */
+  addToolTurn(assistantText: string, activity: ToolActivity[]): MemoryMessage {
+    return this.addMessage(
+      "assistant",
+      renderTurnForMemory(
+        assistantText,
+        activity,
+        this.config.maxToolOutputChars,
+      ),
+    );
   }
 
   // `contextLimit` comes from models.dev (getModelContextLimit) when available;

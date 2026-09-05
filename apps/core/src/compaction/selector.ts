@@ -51,7 +51,21 @@ export function selectForCompaction(
   const firstPreservedIndex = firstPreservedId
     ? messages.findIndex((message) => message.id === firstPreservedId)
     : messages.length;
-  const summarize = messages.slice(0, Math.max(0, firstPreservedIndex));
+  let summarize = messages.slice(0, Math.max(0, firstPreservedIndex));
+
+  // Head carve-out. The founding instruction is the first thing compacted
+  // away otherwise, and on the *next* compaction the summary of it is
+  // summarized again — the brief decays faster than anything else in the
+  // window, which is the plausible mechanism behind long-session drift off
+  // the task. Keeping it verbatim costs a bounded, one-off few hundred
+  // tokens. It is prepended after the tail-trimming loop above deliberately:
+  // trimming must never be able to evict the brief.
+  const headIndex = summarize.findIndex((message) => message.role === "user");
+  const head = headIndex === -1 ? undefined : summarize[headIndex];
+  if (head && head.tokenCount <= config.maxPreserveHeadTokens) {
+    summarize = summarize.filter((message) => message.id !== head.id);
+    preserve = [head, ...preserve];
+  }
 
   return {
     summarize,

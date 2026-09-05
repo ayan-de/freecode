@@ -28,14 +28,50 @@ test("selectForCompaction preserves the recent tail and summarizes older message
 
   const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
 
+  // "1" is the founding user instruction and is carved out of the summary.
   assert.deepEqual(
     result.summarize.map((item) => item.id),
-    ["1", "2"],
+    ["2"],
   );
   assert.deepEqual(
     result.preserve.map((item) => item.id),
-    ["3", "4", "5", "6"],
+    ["1", "3", "4", "5", "6"],
   );
+});
+
+test("selectForCompaction never summarizes the founding instruction away", () => {
+  const messages = [
+    msg("1", "user", "build a parser for TOML"),
+    ...Array.from({ length: 20 }, (_, i) =>
+      msg(String(i + 2), i % 2 === 0 ? "assistant" : "user", `chatter ${i}`),
+    ),
+  ];
+
+  // Compact twice: the second pass is where the old code re-summarized the
+  // summary of the brief.
+  const first = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
+  assert.equal(first.preserve[0].id, "1");
+  assert.ok(!first.summarize.some((m) => m.id === "1"));
+
+  const second = selectForCompaction(first.preserve, DEFAULT_COMPACTION_CONFIG);
+  assert.equal(second.preserve[0].id, "1");
+  assert.ok(!second.summarize.some((m) => m.id === "1"));
+});
+
+test("a head too large to be a brief is summarized like anything else", () => {
+  const messages = [
+    msg("1", "user", "a pasted 50k spec", 50_000),
+    msg("2", "assistant", "ack"),
+    msg("3", "user", "middle"),
+    msg("4", "assistant", "middle answer"),
+    msg("5", "user", "latest"),
+    msg("6", "assistant", "latest answer"),
+  ];
+
+  const result = selectForCompaction(messages, DEFAULT_COMPACTION_CONFIG);
+
+  assert.ok(result.summarize.some((m) => m.id === "1"));
+  assert.equal(result.preserve[0].id, "3");
 });
 
 test("selectForCompaction returns no summarize set when history is too short", () => {

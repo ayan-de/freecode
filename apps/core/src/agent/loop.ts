@@ -1789,10 +1789,17 @@ export class AgentLoop {
         await this.appendUserMessage(caption, toolImages);
       }
 
-      // Add assistant response to MemoryService for token tracking
-      this.memory.addMessage(
-        "assistant",
-        providerResult.content || `[Executed ${toolCalls.length} tools]`,
+      // Record the turn for compaction. The transcript carries what the tools
+      // actually did — the stub this replaced ("[Executed N tools]") meant a
+      // summary could describe a coding session without a single edit in it.
+      this.memory.addToolTurn(
+        providerResult.content,
+        toolCalls.map((tc, i) => ({
+          tool: tc.tool,
+          args: tc.args,
+          output: toolResults[i]?.modelOutput,
+          error: toolResults[i]?.error,
+        })),
       );
 
       await this.maybeCompact(provider, model);
