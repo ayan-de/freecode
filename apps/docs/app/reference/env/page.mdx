@@ -142,6 +142,7 @@ slow collector cannot slow down a turn.
 | --- | --- | --- |
 | `FREECODE_BUNDLED` | the release binary (`build:bun`) | `1` means "self-contained binary": core is bundled rather than spawned from disk, the update check runs, and the native-library re-exec happens |
 | `FREECODE_BUILD_VERSION` | the build | the version reported by `--version` and the TUI. Falls back to `package.json`, then `unknown` |
+| `FREECODE_NO_UPDATE` | you | `1`, `true`, or `yes` disables the on-launch update check — the way to pin a version, including one run from `builds/versions/<old>/`. An explicit `freecode update` still updates |
 | `FREECODE_ROOT` | you | monorepo root used by the TUI and the VS Code extension to locate core when it is not bundled. Set it if you run a frontend from outside the repo |
 | `FREECODE_HOME` | you | **only** the updater's `builds/stable/freecode` lookup honors this. It does not relocate your data — see [known gaps](#known-gaps) |
 | `CLAUDE_CONFIG_DIR` | you | where Claude Code sessions are read from for the import tab. Defaults to `~/.claude`; read-only, FreeCode never writes there |

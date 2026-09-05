@@ -81,8 +81,24 @@ function runInstaller() {
     stdio: "inherit",
   });
 }
+// Same 1/true/yes convention as core's FREECODE_DISABLE_* flags.
+function isEnvTruthy(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 async function checkForUpdate(): Promise<void> {
-  if (process.env.FREECODE_BUNDLED !== "1" || process.env.__FREECODE_UPDATE_CHECKED) {
+  // FREECODE_NO_UPDATE is how a version is pinned: without it, launching an
+  // older binary from builds/versions/<old>/ installs the latest and re-execs
+  // into it, so the versioned layout couldn't actually hold a version. The
+  // explicit `freecode update` command ignores the flag — that's the user
+  // asking.
+  if (
+    process.env.FREECODE_BUNDLED !== "1" ||
+    process.env.__FREECODE_UPDATE_CHECKED ||
+    isEnvTruthy(process.env.FREECODE_NO_UPDATE)
+  ) {
     return;
   }
   process.env.__FREECODE_UPDATE_CHECKED = "1";

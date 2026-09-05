@@ -551,13 +551,6 @@ on the pages but not repeated here.
       `ANTHROPIC_API_KEY=… freecode` does *not* override a key pasted months ago,
       and nothing reports which of the four sources was used. The other two
       configuration surfaces let the environment win.
-- [ ] **The auto-update cannot be disabled and no version can be pinned.**
-      `checkForUpdate` (`apps/tui/src/entry.ts:56`) gates only on
-      `FREECODE_BUNDLED` and a per-process sentinel — no flag, no env var, no
-      config key. Running an older binary from `builds/versions/<old>/` installs
-      the latest and re-execs into it, so the versioned layout that makes
-      rollback look supported cannot actually hold a version. `FREECODE_NO_UPDATE=1`
-      would be a one-line fix.
 - [ ] **`freecode uninstall` ignores the variables the installer honours.** The
       handler hard-codes `~/.freecode` plus four Unix bin paths
       (`cli/commands/uninstall.ts:44`), while `install.sh` supports

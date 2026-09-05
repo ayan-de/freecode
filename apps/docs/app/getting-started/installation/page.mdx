@@ -101,7 +101,8 @@ re-running your own `process.execPath` would launch the *old* version again and
 you would have to quit and retype `freecode` to actually get the update.
 
 This check does not run when you are working from a clone — there is no release
-to compare against.
+to compare against. To turn it off, set `FREECODE_NO_UPDATE=1` (an explicit
+`freecode update` still works — that's you asking).
 
 ## Rolling back
 
@@ -113,9 +114,9 @@ ls ~/.freecode/builds/versions
 ~/.freecode/builds/versions/0.25.15/freecode
 ```
 
-Be aware that this does not *stick*: that binary performs the same update check
-at launch, so it will install the latest release and re-exec you into it. There
-is currently no way to pin a version ([known gaps](#known-gaps)).
+To *stay* on it, set `FREECODE_NO_UPDATE=1` — otherwise that binary performs
+the same update check at launch, installs the latest release, and re-execs you
+into it.
 
 ## Running from a clone instead
 
@@ -155,13 +156,6 @@ the binary itself is broken.
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-- **The auto-update cannot be turned off, and there is no way to pin a
-  version.** `checkForUpdate` (`apps/tui/src/entry.ts:56`) gates only on
-  `FREECODE_BUNDLED` and a per-process sentinel — no flag, no environment
-  variable, no config key. Running an older binary out of
-  `builds/versions/<old>/` re-installs the latest and re-execs into it, so the
-  versioned directories that make rollback *look* supported cannot actually hold
-  you on a version. A `FREECODE_NO_UPDATE=1` check would be a one-line fix.
 - **`freecode uninstall` ignores the variables the installer honours.** The
   handler hard-codes `~/.freecode` and a fixed list of four Unix bin paths
   (`cli/commands/uninstall.ts:44`). An install done with `FREECODE_HOME` or
