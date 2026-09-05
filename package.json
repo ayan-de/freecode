@@ -22,6 +22,7 @@
     "gen:catalogue": "node scripts/gen-provider-catalogue.mjs",
     "gen:catalogue:check": "node scripts/gen-provider-catalogue.mjs --check",
     "bench:agents": "tsx bench/agent-bench/runner/run.ts",
+    "bench:grade": "tsx bench/agent-bench/runner/grade.ts",
     "bench:image": "docker build -t agent-bench bench/agent-bench/isolate",
     "test:agent-bench": "tsc -p bench/agent-bench/tsconfig.json && tsx --test bench/agent-bench/**/*.test.ts"
   },

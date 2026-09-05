@@ -72,6 +72,13 @@ export interface TrialRecord {
   usd?: number | null;
   /** False when the proxy saw a request that was not the model endpoint. */
   auditOk?: boolean;
+  /**
+   * The official SWE-bench grader's verdict for this trial's patch. Written
+   * only by `grade.ts` — never inferred from producedPatch. `null` after a
+   * grading run means the harness errored on this instance; absent means the
+   * run was never graded.
+   */
+  resolved?: boolean | null;
 }
 
 export interface Report {
