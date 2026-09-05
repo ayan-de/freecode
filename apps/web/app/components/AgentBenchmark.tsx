@@ -7,6 +7,9 @@ import { BenchBarList, type BenchBar } from "./BenchBarList";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const secs = (ms: number) => `${(ms / 1000).toFixed(0)}s`;
+const tok = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`;
+const usd = (n: number) => `$${n.toFixed(4)}`;
 
 export function AgentBenchmark({ views }: { views: BenchView[] }) {
   const [slug, setSlug] = useState(views[0]?.slug ?? "");
@@ -49,6 +52,38 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     value: a.medianPatchBytes,
     display: `${Math.round(a.medianPatchBytes)}B`,
     note: `median of ${a.trials}`,
+    highlight: a.isFreeCode,
+  }));
+
+  // Metering (spec §6.4/§7): shown only for agents the proxy actually saw.
+  // An unmetered agent gets a zero-width bar labelled as such, never a zero —
+  // a blank is not the cheapest run in the table.
+  const anyMetered = view.agents.some((a) => a.meteredTrials > 0);
+  const tokenBars: BenchBar[] = view.agents.map((a) => ({
+    label: a.id,
+    value: a.meanTokens ?? 0,
+    display: a.meanTokens !== undefined ? tok(a.meanTokens) : "unmetered",
+    note:
+      a.meteredTrials > 0
+        ? `mean of ${a.meteredTrials} metered trial${a.meteredTrials === 1 ? "" : "s"}${a.meanTurns !== undefined ? ` · ~${Math.round(a.meanTurns)} turns` : ""}`
+        : "proxy saw no traffic",
+    highlight: a.isFreeCode,
+  }));
+  const costBars: BenchBar[] = view.agents.map((a) => ({
+    label: a.id,
+    value: typeof a.meanUsd === "number" ? a.meanUsd : 0,
+    display:
+      typeof a.meanUsd === "number"
+        ? usd(a.meanUsd)
+        : a.meanUsd === null
+          ? "unpriced"
+          : "unmetered",
+    note:
+      a.worstUsd !== undefined
+        ? `worst single trial ${usd(a.worstUsd)}`
+        : a.meteredTrials > 0
+          ? "no rate-card row for this model"
+          : "proxy saw no traffic",
     highlight: a.isFreeCode,
   }));
 
@@ -329,6 +364,36 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
           bars={sizeBars}
         />
 
+        {anyMetered && (
+          <BenchBarList
+            id={`tokens-${view.slug}`}
+            title="Tokens per trial"
+            description="Input + output counted off one recording proxy for every agent — the same meter, the same rules, never each vendor's own accounting. Fewer is cheaper, but an agent that gives up early is also cheap; read this next to the outcome bar, not instead of it."
+            bars={tokenBars}
+          />
+        )}
+
+        {anyMetered && (
+          <BenchBarList
+            id={`cost-${view.slug}`}
+            title="Cost per trial"
+            description="USD from a committed rate card applied to the proxy's counts — identical pricing for every agent. Cache reads are discounted, not added. The worst-single-trial figure is there because a good mean can hide one runaway."
+            bars={costBars}
+            footnote={
+              view.cost
+                ? view.cost.suppressed
+                  ? `Cost on the intersection of solved bugs (spec §7.2) is suppressed: only ${view.cost.instances.length} instance${view.cost.instances.length === 1 ? "" : "s"} were resolved by every agent, and below 3 the mean is an anecdote.`
+                  : `On the ${view.cost.instances.length} bugs every agent solved: ${view.cost.perAgent
+                      .map(
+                        (p) =>
+                          `${p.id} ${typeof p.meanUsd === "number" ? usd(p.meanUsd) : "unpriced"}${p.meanTokens !== null ? ` (${tok(p.meanTokens)} tok)` : ""}`,
+                      )
+                      .join(" · ")}. Averaging over failures would make the quitter cheapest — this mean covers solved bugs only.`
+                : "Per-solved-bug cost (spec §7.2) appears once the matchup is graded — averaging cost over failed attempts would make the agent that gives up fastest look cheapest."
+            }
+          />
+        )}
+
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <h3 className="text-lg font-medium text-foreground">Per instance</h3>
           <p className="text-sm text-muted-foreground mt-1 mb-6">
@@ -357,7 +422,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                   {row.cells.map((cell) => (
                     <span
                       key={`${cell.agent}-${cell.trial}`}
-                      title={`${cell.reason} · ${cell.patchBytes}B`}
+                      title={`${cell.reason} · ${cell.patchBytes}B${cell.tokens !== undefined ? ` · ${tok(cell.tokens)} tok` : ""}${typeof cell.usd === "number" ? ` · ${usd(cell.usd)}` : ""}${cell.auditOk === false ? " · UNMETERED/LEAK" : ""}`}
                       className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] ${
                         cell.ok
                           ? "border-border bg-muted text-foreground/80"
