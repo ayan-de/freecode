@@ -278,9 +278,14 @@ earlier audit are not repeated here.
 - [ ] **`freecode session` exposes 2 of 12 session operations.** `fork`, `switch`,
       `archive`, `export`, `import`, `upload`, `download` are IPC-only, so scripting
       session management means speaking JSON-RPC by hand.
-- [ ] **`freecode uninstall` deletes user data on one `y`.** It removes all of
+- [x] **`freecode uninstall` deletes user data on one `y`.** ~~It removes all of
       `~/.freecode` — sessions, rollout logs, memory, history, usage — and the prompt
-      does not say so. No `--keep-data`, no backup.
+      does not say so. No `--keep-data`, no backup.~~ Fixed 2026-09-05: the default
+      now removes the launcher and `~/.freecode/builds` only, `--purge` is what takes
+      the data directory, and the target list names what is inside it. Added
+      `--dry-run`; a non-TTY stdin errors instead of resolving the prompt as a silent
+      "no". Same semantics as `scripts/uninstall.sh`, which was always the correct
+      copy. Tests in `cli/commands/uninstall.test.ts`.
 - [ ] **No way to print effective configuration.** Diagnosing "why is it compacting
       so early" means reading source. A `freecode config env` dumping
       name / default / effective / source would pay for itself.

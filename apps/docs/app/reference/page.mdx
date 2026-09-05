@@ -56,8 +56,9 @@ up. Everything FreeCode persists is under one root:
 | `addons/graph-ui/` | the optional memory graph explorer (`freecode memory ui-install`) |
 | `builds/` | installed binaries; `builds/stable/freecode` is the symlink the updater rewrites |
 
-`freecode uninstall` deletes this entire directory. That includes your sessions
-and your memory — see [CLI commands](/reference/cli#freecode-uninstall).
+`freecode uninstall` keeps this directory and takes only `builds/`; the entire
+directory — your sessions and your memory included — goes only with
+`--purge`. See [CLI commands](/reference/cli#freecode-uninstall).
 
 ## The pages
 

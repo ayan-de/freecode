@@ -271,21 +271,23 @@ from source.
 ## `freecode uninstall`
 
 ```bash
-freecode uninstall [--force]
+freecode uninstall [--purge] [--dry-run] [--force]
 ```
 
 | Flag | Alias | Default | Meaning |
 | --- | --- | --- | --- |
-| `--force` | `-f` | `false` | skip the confirmation prompt |
+| `--purge` | — | `false` | also delete `~/.freecode` — sessions, memory, history, usage |
+| `--dry-run` | — | `false` | print what would be removed, delete nothing |
+| `--force` | `-f`, `-y`, `--yes` | `false` | skip the confirmation prompt |
 
-Removes `~/.freecode` **entirely**, plus a `freecode` binary found in
-`/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or `~/.cargo/bin`. It prints the
-list first and asks `y/n` unless `--force` is given. Exit code is `1` if any
-removal failed.
+**The program goes, the data stays.** By default it removes a `freecode` binary
+found in `/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or `~/.cargo/bin`, plus
+`~/.freecode/builds` (the installed versions). Your sessions, rollout logs,
+memory, prompt history, and usage stay where they are.
 
-That directory is not just the binary: it contains your sessions, rollout logs,
-memory, prompt history, and usage data. There is no `--keep-data`, and nothing is
-backed up. Copy `~/.freecode/projects/` and `~/.freecode/sessions/` first if you
+`--purge` is what takes `~/.freecode` entirely, and the confirmation names what
+is inside it rather than saying only "proceed". Nothing is backed up either way,
+so copy `~/.freecode/projects/` and `~/.freecode/sessions/` before purging if you
 might want them back.
 
 ## Known gaps
@@ -320,6 +322,7 @@ Found while writing this page; each is also tracked in `TODO.md`.
 - **MCP config is user-scope only.** `getConfigDir()` is hard-wired to
   `~/.freecode`, so a repository cannot ship the MCP servers its contributors need
   the way it can ship permission rules and hooks.
-- **`uninstall` deletes user data with one `y`.** No `--keep-data`, no backup, and
-  the prompt does not spell out that sessions and memory are inside the directory
-  being removed.
+- **`uninstall` ignores the variables the installer honours.** It hard-codes
+  `~/.freecode` and four Unix bin paths, while `install.sh` supports
+  `FREECODE_HOME` and `FREECODE_INSTALL_DIR`, and the Windows launcher path is
+  not in the list at all.

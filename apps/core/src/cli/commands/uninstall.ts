@@ -2,10 +2,68 @@ import type { CommandModule } from "yargs";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { execSync } from "child_process";
+import { CONFIG_DIR } from "../../providers/config.js";
 
 interface UninstallArgs {
   force: boolean;
+  purge: boolean;
+  "dry-run": boolean;
+}
+
+/** One thing to delete, and what a reader would call it. */
+export interface UninstallTarget {
+  path: string;
+  label: string;
+}
+
+/** Binaries the installer may have written, in the order it prefers them. */
+function binaryPaths(homeDir: string): string[] {
+  return [
+    "/usr/local/bin/freecode",
+    "/usr/bin/freecode",
+    path.join(homeDir, ".local/bin/freecode"),
+    path.join(homeDir, ".cargo/bin/freecode"),
+  ];
+}
+
+/**
+ * What `uninstall` would delete — pure, so the safety rule is testable without
+ * deleting anything.
+ *
+ * The rule: **the program goes, the data stays.** `~/.freecode` is not an
+ * install directory that happens to hold a binary; it is sessions, rollout
+ * logs, per-project memory, prompt history and usage, and only `--purge` takes
+ * those. This matches `scripts/uninstall.sh`, which has always drawn the line
+ * here — the CLI was the copy that got it wrong.
+ */
+export function planUninstall(opts: {
+  homeDir: string;
+  configDir: string;
+  purge: boolean;
+  exists?: (p: string) => boolean;
+}): UninstallTarget[] {
+  const exists = opts.exists ?? ((p: string) => fs.existsSync(p));
+  const targets: UninstallTarget[] = [];
+
+  for (const binPath of binaryPaths(opts.homeDir)) {
+    if (exists(binPath)) targets.push({ path: binPath, label: "launcher" });
+  }
+
+  if (opts.purge) {
+    if (exists(opts.configDir)) {
+      targets.push({
+        path: opts.configDir,
+        label: "ALL user data: sessions, rollout logs, memory, history, usage",
+      });
+    }
+    return targets;
+  }
+
+  const builds = path.join(opts.configDir, "builds");
+  if (exists(builds)) {
+    targets.push({ path: builds, label: "installed binaries" });
+  }
+  return targets;
 }
 
 async function askConfirmation(message: string): Promise<boolean> {
@@ -15,25 +73,37 @@ async function askConfirmation(message: string): Promise<boolean> {
   });
 
   return new Promise((resolve) => {
-    rl.question(`${message} (y/n) `, (answer) => {
+    rl.question(`${message} [y/N] `, (answer) => {
       rl.close();
-      resolve(answer.toLowerCase() === "y");
+      resolve(answer.trim().toLowerCase() === "y");
     });
   });
 }
 
 export const uninstallCommand: CommandModule<object, UninstallArgs> = {
   command: "uninstall",
-  describe: "uninstall freecode and remove all related files",
+  describe: "remove the freecode binaries (user data is kept unless --purge)",
   builder: (yargs) =>
-    yargs.option("force", {
-      type: "boolean",
-      default: false,
-      describe: "skip confirmation prompt",
-      alias: "f",
-    }),
+    yargs
+      .option("force", {
+        type: "boolean",
+        default: false,
+        describe: "skip confirmation prompt",
+        alias: ["f", "y", "yes"],
+      })
+      .option("purge", {
+        type: "boolean",
+        default: false,
+        describe: `also delete ${CONFIG_DIR} — sessions, memory, history, usage`,
+      })
+      .option("dry-run", {
+        type: "boolean",
+        default: false,
+        describe: "print what would be removed, delete nothing",
+      }),
   handler: async (argv) => {
-    const { force } = argv;
+    const { force, purge } = argv;
+    const dryRun = argv["dry-run"];
     const homeDir = process.env.HOME || process.env.USERPROFILE || "";
 
     if (!homeDir) {
@@ -41,74 +111,71 @@ export const uninstallCommand: CommandModule<object, UninstallArgs> = {
       process.exit(1);
     }
 
-    const freecodePath = path.join(homeDir, ".freecode");
-    const itemsToRemove = [freecodePath];
+    const targets = planUninstall({ homeDir, configDir: CONFIG_DIR, purge });
 
-    // Check for binary in common locations
-    const binPaths = [
-      "/usr/local/bin/freecode",
-      "/usr/bin/freecode",
-      path.join(homeDir, ".local/bin/freecode"),
-      path.join(homeDir, ".cargo/bin/freecode"),
-    ];
-
-    for (const binPath of binPaths) {
-      try {
-        if (fs.existsSync(binPath)) {
-          itemsToRemove.push(binPath);
-        }
-      } catch {
-        // ignore
-      }
+    if (targets.length === 0) {
+      console.log("Nothing to uninstall: no freecode installation found.");
+      process.exit(0);
     }
 
-    // Show what will be removed
     console.log("\nThe following will be removed:");
-    itemsToRemove.forEach((item) => console.log(`  - ${item}`));
+    targets.forEach((t) => console.log(`  - ${t.path} (${t.label})`));
+    if (!purge) {
+      console.log(
+        `\nUser data in ${CONFIG_DIR} is kept. Use --purge for a full wipe.`,
+      );
+    }
+
+    if (dryRun) {
+      console.log("\nDry run: nothing deleted.");
+      process.exit(0);
+    }
 
     if (!force) {
-      const confirmed = await askConfirmation(
-        "\nProceed with uninstallation?",
-      );
+      // A piped stdin resolves the prompt instantly with an empty answer, which
+      // would read as "no" — but silently, and only after the list scrolled by.
+      // Say so instead.
+      if (!process.stdin.isTTY) {
+        console.error(
+          "\nError: stdin is not a terminal; re-run with --force to skip the prompt.",
+        );
+        process.exit(1);
+      }
+      const confirmed = await askConfirmation("\nProceed?");
       if (!confirmed) {
         console.log("Uninstallation cancelled.");
         process.exit(0);
       }
     }
 
-    // Remove items
-    let removed: string[] = [];
-    let errors: Array<{ item: string; error: string }> = [];
+    const removed: string[] = [];
+    const errors: Array<{ item: string; error: string }> = [];
 
-    for (const item of itemsToRemove) {
+    for (const { path: item } of targets) {
       try {
         if (fs.existsSync(item)) {
-          const stat = fs.statSync(item);
-          if (stat.isDirectory()) {
-            fs.rmSync(item, { recursive: true, force: true });
-          } else {
-            fs.unlinkSync(item);
-          }
+          fs.rmSync(item, { recursive: true, force: true });
           removed.push(item);
         }
-      } catch (error: any) {
-        errors.push({ item, error: error.message });
+      } catch (error) {
+        errors.push({ item, error: (error as Error).message });
       }
     }
 
-    // Report results
     console.log("\n✓ Successfully removed:");
     removed.forEach((item) => console.log(`  - ${item}`));
 
     if (errors.length > 0) {
       console.log("\n⚠ Failed to remove:");
-      errors.forEach(({ item, error }) =>
-        console.log(`  - ${item}: ${error}`),
-      );
+      errors.forEach(({ item, error }) => console.log(`  - ${item}: ${error}`));
       process.exit(1);
     }
 
-    console.log("\n✓ FreeCode has been uninstalled.");
+    console.log(
+      purge
+        ? "\n✓ FreeCode has been uninstalled and all data removed."
+        : `\n✓ FreeCode has been uninstalled. Your data is still in ${CONFIG_DIR}.`,
+    );
     process.exit(0);
   },
 };

@@ -132,19 +132,21 @@ that works in the repo root and is broken everywhere else.
 ## Uninstalling
 
 ```bash
-freecode uninstall          # asks first
-freecode uninstall --force  # does not
+freecode uninstall            # removes the binaries, keeps your data
+freecode uninstall --dry-run  # prints the list, deletes nothing
+freecode uninstall --purge    # also deletes ~/.freecode
+freecode uninstall --force    # skips the y/N prompt
 ```
 
-It prints what it will remove, then deletes `~/.freecode` **entirely** plus a
-`freecode` binary found in `/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or
-`~/.cargo/bin`.
+It prints what it will remove, then takes a `freecode` binary found in
+`/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or `~/.cargo/bin`, plus
+`~/.freecode/builds`.
 
-> **That directory is not just the binary.** Your sessions, rollout logs,
-> per-project memory, prompt history, and usage data all live under
-> `~/.freecode/`. There is no `--keep-data` and nothing is backed up. Copy
-> `~/.freecode/projects/` and `~/.freecode/sessions/` first if you might want
-> them later.
+> **`--purge` is the one that costs you something.** Your sessions, rollout
+> logs, per-project memory, prompt history, and usage data all live under
+> `~/.freecode/`, and that flag is what deletes them. Nothing is backed up, so
+> copy `~/.freecode/projects/` and `~/.freecode/sessions/` first if you might
+> want them later.
 
 There is also `curl -fsSL https://freecode.website/uninstall | bash`, for when
 the binary itself is broken.
