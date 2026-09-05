@@ -37,6 +37,7 @@ export class AbError extends Error {}
  *   FREECODE_DISABLE_MEMORY_CONSOLIDATION `shouldConsolidate`, every call
  *   FREECODE_BASH_COMPRESS             `maybeCompressOutput`, every tool call
  *   FREECODE_READ_LINE_NUMBERS         read's `execute`, every call
+ *   FREECODE_EPHEMERAL_TAIL            `executeTurn`, every iteration
  *
  * A startup-read var (a provider key, a config path, a fetch timeout baked into
  * the client at `createTimeoutFetch`) would be swapped into `process.env` and
@@ -52,6 +53,7 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_DISABLE_MEMORY_CONSOLIDATION",
   "FREECODE_BASH_COMPRESS",
   "FREECODE_READ_LINE_NUMBERS",
+  "FREECODE_EPHEMERAL_TAIL",
 ] as const;
 
 /**

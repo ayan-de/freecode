@@ -161,7 +161,7 @@ export class VirtualMessageList implements Component {
   }
 
   /** Maps each rendered line index to its owning message (null for header rows). */
-  private lastLineMap: { msg: MessageInstance | null }[] = [];
+  private lastLineMap: { msg: MessageInstance | null; local: number }[] = [];
 
   handleClick(_cx: number, cy: number): boolean {
     const content = this.contentRows();
@@ -179,12 +179,30 @@ export class VirtualMessageList implements Component {
     const relativeY = cy - offset;
     const clickedIndex = startIndex + (relativeY - 1);
     const entry = this.lastLineMap[clickedIndex];
-    if (entry?.msg?.component && "toggle" in entry.msg.component && typeof (entry.msg.component as any).toggle === "function") {
-      (entry.msg.component as any).toggle();
-      this.invalidateMessage(entry.msg.id);
-      return true;
+    const component = entry?.msg?.component as
+      | {
+          toggle?: () => void;
+          toggleAt?: (local: number) => void;
+          isToggleLine?: (local: number) => boolean;
+        }
+      | undefined;
+    if (typeof component?.toggle !== "function") return false;
+    // A component may restrict toggling to specific rows of its own render
+    // (tool results expose only their header, so a press inside expanded
+    // output still starts a drag-selection). One that doesn't toggles from
+    // anywhere in the message, as thoughts always have.
+    if (
+      typeof component.isToggleLine === "function" &&
+      !component.isToggleLine(entry!.local)
+    ) {
+      return false;
     }
-    return false;
+    // A group owns rows belonging to its children, so it decides which of
+    // them the press folds; a plain component just toggles itself.
+    if (typeof component.toggleAt === "function") component.toggleAt(entry!.local);
+    else component.toggle();
+    this.invalidateMessage(entry!.msg!.id);
+    return true;
   }
 
   /** Returns the last-rendered ANSI string for a full (unwindowed) line index. */
@@ -282,7 +300,7 @@ export class VirtualMessageList implements Component {
       const headerLines = this.header.render(width);
       lines.push(...headerLines, "");
       for (let i = 0; i < headerLines.length + 1; i++) {
-        this.lastLineMap.push({ msg: null }); // Header rows own no message
+        this.lastLineMap.push({ msg: null, local: i }); // Header rows own no message
       }
     }
 
@@ -300,18 +318,19 @@ export class VirtualMessageList implements Component {
 
     for (let i = 0; i < visibleMessages.length; i++) {
       const msg = visibleMessages[i]!;
-      for (const line of perMessage[i]!) {
-        lines.push(line);
-        this.lastLineMap.push({ msg });
+      const rendered = perMessage[i]!;
+      for (let local = 0; local < rendered.length; local++) {
+        lines.push(rendered[local]!);
+        this.lastLineMap.push({ msg, local });
       }
     }
 
     // Render in-progress message at the very bottom (if exists)
     if (inProgressMessage) {
       const inProgressLines = inProgressMessage.component.render(width);
-      for (const line of inProgressLines) {
-        lines.push(line);
-        this.lastLineMap.push({ msg: inProgressMessage });
+      for (let local = 0; local < inProgressLines.length; local++) {
+        lines.push(inProgressLines[local]!);
+        this.lastLineMap.push({ msg: inProgressMessage, local });
       }
     }
 

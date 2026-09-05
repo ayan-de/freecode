@@ -71,6 +71,20 @@ that rule pinned reads at ~7K (the system prefix) while input grew to
 81K, never scaling with history. The naive `.slice(-2)` version left
 reads at 0 even on identical prefixes.
 
+**The ephemeral tail** (`ExecuteOptions.ephemeralTail`, appended by
+`generic-provider.ts appendEphemeralTail`). Mutable per-turn state —
+memory recalls, the todo list, drained `<system-reminder>`s — is
+appended as a final user message *after* the anchors are placed, so it
+never carries a breakpoint and the write anchor stays on the last real
+message. It used to live in session system blocks, where any change
+between inner-loop requests re-sent the entire conversation at full
+price (system precedes every message in the prefix; reads collapsed to
+the ~12K static block). At the tail it costs only its own tokens.
+Measured on MiniMax-M3 after the move: reads track the previous
+request's full input near token-exact, 83% cached across the trajectory
+suite. `FREECODE_EPHEMERAL_TAIL=0` reverts to the old placement — it
+exists only so `eval ab` can price the two placements side by side.
+
 ### 1.2 Multi-provider `providerOptions` table — `utils.ts:115`
 
 One marker, five providers:

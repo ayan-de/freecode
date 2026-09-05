@@ -159,6 +159,25 @@ surfaces running cost in the REPL (`cost-tracker.ts`, `costHook.ts`). The leak
 described in this spec ran for at least four days before anyone looked at the file;
 a live counter surfaces it inside one turn.
 
+### RC8 — Session system blocks rewrote the prefix every inner-loop turn
+*(found and fixed 2026-09-06 — the first bug the D2 detector caught in the wild)*
+
+Same class as RC3/RC4, discovered by the cache-observability spec's miss
+detector rather than by hand. The memory block, todo block, and drained
+`<system-reminder>`s (todo nudge, verify failures, redirect advice) were
+session **system** blocks rebuilt every inner-loop iteration. System precedes
+every message in the cached prefix, so any change — a todo update, a nudge
+appearing for one request and vanishing the next — re-sent the entire
+conversation at full price, with reads collapsing to the ~12K static block.
+A single todo nudge cost two full-history busts (appear + disappear).
+
+Fixed by moving them to `ExecuteOptions.ephemeralTail`: a final user message
+appended *after* `applyMessageCaching` places its anchors, so the tail changes
+freely at the cost of only its own tokens (Claude Code's `<system-reminder>`
+architecture). Only the compaction summary may remain a mutable system block,
+because compaction documents its own invalidation. Details:
+`docs/caching-architecture.md` §1.1 and the cache-observability spec §D2.1.
+
 ## Goal
 
 Cut input tokens per unit of work by an order of magnitude, without reducing what the

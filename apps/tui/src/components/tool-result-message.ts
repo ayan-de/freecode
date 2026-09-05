@@ -61,6 +61,17 @@ export class ToolResultMessage implements Component {
   private result?: string;
   private success: boolean;
   private duration_ms?: number;
+  /** Collapsed by default; a click on the header row expands the body. */
+  private isCollapsed = true;
+  /**
+   * Whether this message has a body worth hiding. False for diffs (they are
+   * the message's point and render as they always have) and for tools whose
+   * output is already suppressed, so no caret ever promises content that
+   * expanding would not reveal. Set during `render`.
+   */
+  private collapsible = false;
+  /** Header row's index within the last render, for `isToggleLine`. */
+  private headerLineIndex = 0;
 
   constructor(options: ToolResultMessageOptions) {
     this.toolCallId = options.toolCallId;
@@ -75,17 +86,28 @@ export class ToolResultMessage implements Component {
     // Nothing to clean up
   }
 
+  toggle(): void {
+    this.isCollapsed = !this.isCollapsed;
+  }
+
+  /**
+   * Only the header row toggles. Restricting it this way keeps drag-select
+   * working over expanded output — a press anywhere in the body still starts a
+   * selection instead of being swallowed as a collapse — and stops diff blocks,
+   * which never collapse, from claiming clicks at all.
+   */
+  isToggleLine(localIndex: number): boolean {
+    return this.collapsible && localIndex === this.headerLineIndex;
+  }
+
   render(width: number): string[] {
     const colorFn = TOOL_COLORS[this.toolName] || TOOL_COLORS[this.toolName.toLowerCase()] || TOOL_COLORS[this.toolName.charAt(0).toUpperCase() + this.toolName.slice(1).toLowerCase()] || ((t: string) => t);
     const statusIcon = this.success ? chalk.green("●") : chalk.red("✖");
     const argsStr = this.formatArgs();
     const duration = this.duration_ms !== undefined ? `(${formatDuration(this.duration_ms)})` : "";
 
-    const lines: string[] = [];
-    lines.push(""); // Empty line above
-
     const safeWidth = Math.max(20, width - 1);
-    
+
     let headerAction = this.toolName;
     let headerTarget = `(${argsStr})`;
     
@@ -114,18 +136,37 @@ export class ToolResultMessage implements Component {
       }
     }
 
-    let header = `${statusIcon} ${chalk.bold(colorFn(headerAction))}${headerTarget}`;
+    const displayResult = this.unwrapOutput(this.result);
+    // `looksLikeDiff` only tests for leading +/-, so any markdown bullet list
+    // trips it — a README read as "Removed 6 lines". Read-type tools suppress
+    // their body anyway, so they never take the diff branch.
+    const isDiff = !isFileRead && !!displayResult && looksLikeDiff(displayResult);
+    // `isFileRead` output is dropped below, so those never get a caret either.
+    this.collapsible = !isDiff && !isFileRead && (!!displayResult || this.success);
+    const collapsed = this.collapsible && this.isCollapsed;
+
+    const lines: string[] = [];
+    // A collapsed tool is one row in a stacked list, so it drops the blank
+    // lines that frame an expanded block.
+    if (!collapsed) lines.push(""); // Empty line above
+
+    const caret = this.collapsible
+      ? chalk.dim(this.isCollapsed ? "\u25b6 " : "\u25bc ")
+      : "";
+    let header = `${caret}${statusIcon} ${chalk.bold(colorFn(headerAction))}${headerTarget}`;
     if (duration) {
        header += ` ${chalk.dim(duration)}`;
     }
-    
+
     header = truncateToWidth(header, safeWidth);
+    this.headerLineIndex = lines.length;
     lines.push(header);
 
+    if (collapsed) return lines;
+
     const resultWidth = safeWidth - 3; // 3 for "   " or "└─ "
-    const displayResult = this.unwrapOutput(this.result);
-    
-    if (displayResult && looksLikeDiff(displayResult)) {
+
+    if (isDiff && displayResult) {
       const stats = getDiffStats(displayResult);
       let statText = "No changes";
       if (stats.added > 0 && stats.removed > 0) statText = `Added ${stats.added} line${stats.added === 1 ? "" : "s"}, removed ${stats.removed} line${stats.removed === 1 ? "" : "s"}`;
@@ -173,6 +214,14 @@ export class ToolResultMessage implements Component {
       }
     } else if (this.success && !isFileRead) {
       lines.push(` ${chalk.dim("└─")} ${chalk.dim("(no output)")}`);
+    }
+
+    // A read prints no body — its header is the whole message. Framing that
+    // one row with blank lines made a run of reads twice as tall as the
+    // collapsed tools around it, so a bodyless row stays a single row.
+    if (lines.length === this.headerLineIndex + 1) {
+      this.headerLineIndex = 0;
+      return [header];
     }
 
     lines.push(""); // Empty line below

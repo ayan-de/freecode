@@ -159,6 +159,40 @@ rebuild that compaction *must* cause is never reported as a bust.
 
 Off switch: `FREECODE_CACHE_MISS_NOTICES=0`.
 
+#### D2.1 — One-sample deferral for provider blips (added 2026-09-06)
+
+D2's first real catch was the harness itself: memory/todo/reminder blocks lived
+in session *system* blocks rebuilt every inner-loop iteration, so any change
+re-sent the entire conversation (reads collapsed to the static prefix — the
+RC3/RC4 class, undocumented). Fixed by moving them to an ephemeral tail user
+message appended after the cache anchors (`ExecuteOptions.ephemeralTail`; see
+`docs/caching-architecture.md` §1.1).
+
+The fix exposed a false-positive class: implicit provider caches miss for
+non-rewrite reasons. Measured on MiniMax-M3 (eval session `ea079449`, turn 3):
+read collapsed to 128, then the very next turn read *exactly the pre-miss
+boundary* — only possible if the prefix bytes never changed. The cause is
+provider-side (a write not yet committed when a rapid-fire inner-loop request
+arrived, or eviction/routing), which the detector cannot distinguish from a
+rewrite at the moment of the miss.
+
+So an **undocumented** miss is now held for one sample (`PendingMiss` in
+`cache-miss.ts`): if the next read recovers to at least the pre-miss cached
+prefix, the old entry was provably still valid and the miss is dropped in
+silence; otherwise the alarm fires, one sample late. A documented miss is
+still attributed immediately. A pending miss with no follow-up sample
+(session end, generation bump, cache fields absent) is dropped — it cannot be
+verified, and an unverifiable alarm is the wolf-cry this detector exists to
+avoid. A persistent rewrite bug keeps producing pendings, so it still
+surfaces loudly; the trade accepted is that a *one-off* rewrite whose next
+read happens to exceed the old prefix is forgiven once.
+
+Known limit: a full provider-side eviction (read never recovers) is still
+indistinguishable from a real rewrite and will alarm. The message wording
+("this usually means something changed an already-sent message") stays honest
+because after D2.1 the recovered blips — the common benign case — no longer
+reach it.
+
 ## Out of scope
 
 - Changing breakpoint placement. Four are in use, which is Anthropic's maximum; the
@@ -179,4 +213,6 @@ Off switch: `FREECODE_CACHE_MISS_NOTICES=0`.
   - a normal warm turn produces no notice
   - a compaction-caused rebuild produces no notice (documented + generation bump)
   - an undocumented prefix change produces exactly one notice naming the tokens
+    (one sample late, per D2.1)
+  - a miss whose next read recovers to the pre-miss boundary produces no notice
   - a provider reporting no cache fields produces no notice

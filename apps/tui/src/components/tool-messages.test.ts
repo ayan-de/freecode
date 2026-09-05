@@ -39,16 +39,62 @@ test("large multi-line results render one terminal row per line, collapsed", () 
     success: true,
   });
 
+  // Collapsed by default: the header is the whole message.
+  assert.deepEqual(msg.render(80).length, 1);
+  assert.match(plain(msg.render(80)), /\u25b6 . Run\(ls\)/);
+  assert.doesNotMatch(plain(msg.render(80)), /out-0/);
+
+  msg.toggle();
   const lines = msg.render(80);
   // No rendered element may contain an embedded newline — pi-tui counts each
   // array element as exactly one terminal row.
   for (const line of lines) {
     assert.ok(!line.includes("\n"), `embedded newline in: ${line}`);
   }
-  // Collapsed preview: 5 result lines + "… +45 lines" tail.
+  // Expanded preview: 5 result lines + "… +45 lines" tail.
   assert.match(lines.join("|"), /out-4/);
   assert.doesNotMatch(lines.join("|"), /out-5\b/);
   assert.match(lines.join("|"), /\+45 lines/);
+  assert.match(plain(lines), /\u25bc /);
+});
+
+test("only the header row toggles, so expanded output stays selectable", () => {
+  const msg = new ToolResultMessage({
+    toolCallId: "call-2b",
+    toolName: "Bash",
+    args: { command: "ls" },
+    result: "a\nb\nc",
+    success: true,
+  });
+
+  msg.render(80);
+  assert.equal(msg.isToggleLine(0), true); // collapsed: header is row 0
+
+  msg.toggle();
+  msg.render(80);
+  // Expanded: row 0 is the leading blank, row 1 the header, rest is output.
+  assert.equal(msg.isToggleLine(0), false);
+  assert.equal(msg.isToggleLine(1), true);
+  assert.equal(msg.isToggleLine(2), false);
+});
+
+test("a diff result is never collapsible and renders untouched", () => {
+  const msg = new ToolResultMessage({
+    toolCallId: "call-2c",
+    toolName: "Edit",
+    args: { file_path: "x.ts" },
+    result: "  1 keep\n- 2 old\n+ 2 new\n",
+    success: true,
+  });
+
+  const lines = msg.render(80);
+  assert.doesNotMatch(plain(lines), /\u25b6|\u25bc/);
+  assert.match(plain(lines), /Update\(x\.ts\)/);
+  assert.match(plain(lines), /Added 1 line, removed 1 line/);
+  // No row claims the click, so drag-select works across the whole diff.
+  for (let i = 0; i < lines.length; i++) {
+    assert.equal(msg.isToggleLine(i), false);
+  }
 });
 
 test("a multi-line bash command is flattened in the Run header", () => {
@@ -107,4 +153,33 @@ test("a ranged read shows the line window in the header", () => {
   const wholeFile = header({});
   assert.match(wholeFile, /auth\.ts\)/);
   assert.equal(/auth\.ts:/.test(wholeFile), false);
+});
+
+test("a read of a bulleted markdown file is not mistaken for a diff", () => {
+  const msg = new ToolResultMessage({
+    toolCallId: "call-2d",
+    toolName: "Read",
+    args: { file_path: "README.md" },
+    result: "# Title\n\n- one\n- two\n",
+    success: true,
+  });
+
+  const lines = msg.render(80);
+  assert.doesNotMatch(plain(lines), /Removed 2 lines/);
+  assert.doesNotMatch(plain(lines), /one/);
+  assert.match(plain(lines), /Read\(README\.md\)/);
+});
+
+test("a read is a single row — no blank lines framing a bodyless header", () => {
+  const msg = new ToolResultMessage({
+    toolCallId: "call-2e",
+    toolName: "Read",
+    args: { file_path: "a.ts" },
+    result: "whatever the file said",
+    success: true,
+  });
+
+  const lines = msg.render(80);
+  assert.equal(lines.length, 1);
+  assert.match(plain(lines), /Read\(a\.ts\)/);
 });

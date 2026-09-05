@@ -1,5 +1,5 @@
 // apps/core/src/providers/generic-provider.ts
-import { generateText, streamText } from "ai";
+import { generateText, streamText, type ModelMessage } from "ai";
 import {
   AIProvider,
   ExecuteOptions,
@@ -60,6 +60,21 @@ function usesAnthropicOAuth(entry: ProviderCatalogueEntry): boolean {
 }
 
 /**
+ * Appends `opts.ephemeralTail` as a final user message. Request-scoped mutable
+ * state (memory / todos / reminders) enters the prompt here — after
+ * `applyMessageCaching` has placed its anchors — so the cached conversation
+ * prefix stays byte-stable while the tail changes freely (ExecuteOptions
+ * documents the contract).
+ */
+function appendEphemeralTail(
+  coreMessages: ModelMessage[],
+  tail: string | undefined,
+): void {
+  if (!tail) return;
+  coreMessages.push({ role: "user", content: tail });
+}
+
+/**
  * Assembles the AI SDK request options for one call, branching on the SDK
  * package rather than the provider id:
  *
@@ -107,6 +122,12 @@ export function buildGenerateOptions(
     if (opts.messages) {
       const coreMessages = convertToCoreMessages(opts.messages);
       applyMessageCaching(coreMessages);
+      // After the anchors, on purpose: the tail changes every request, so it
+      // must never carry a breakpoint — the write anchor has to land on the
+      // last real message for the next request's read anchor to hit it. The
+      // SDK folds a user message after tool results into the same wire
+      // message, so this rides exactly like a <system-reminder> block.
+      appendEphemeralTail(coreMessages, opts.ephemeralTail);
       generateOptions.messages = coreMessages;
     } else {
       generateOptions.prompt = opts.prompt;
@@ -118,7 +139,11 @@ export function buildGenerateOptions(
         : opts.system?.map((b) => b.text).join("\n\n");
     generateOptions.system = systemPrompt;
     if (opts.messages) {
-      generateOptions.messages = convertToCoreMessages(opts.messages);
+      const coreMessages = convertToCoreMessages(opts.messages);
+      // Implicit prefix caches (OpenAI, DeepSeek, MiniMax) match the longest
+      // common prefix, so a changing tail costs only its own tokens here too.
+      appendEphemeralTail(coreMessages, opts.ephemeralTail);
+      generateOptions.messages = coreMessages;
     } else {
       generateOptions.prompt = opts.prompt;
     }
@@ -289,11 +314,6 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
       entry.id,
       entry.defaultModel,
       !opts.quietModelFallback,
-    );
-    const generateOptions = buildGenerateOptions(
-      entry,
-      await modelHandle(model),
-      opts,
     );
     for (;;) {
       const usedOAuth = usesAnthropicOAuth(entry);
