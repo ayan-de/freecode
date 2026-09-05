@@ -3,6 +3,7 @@
 // =============================================================================
 
 import type { HookContext } from "./types.js";
+import { MAX_HOOK_PAYLOAD_CHARS } from "./types.js";
 import { getHooksForEvent } from "./registry.js";
 import { executeHooks } from "./executors/index.js";
 
@@ -27,9 +28,20 @@ export async function runUserPromptSubmitHooks(
     return {};
   }
 
+  // The prompt itself, not just its length — a hook whose purpose is to
+  // rewrite or veto a prompt has to be able to read it. Capped so the JSON
+  // fits in `$CLAUDE_TOOL_INPUT` within every platform's per-env-var limit;
+  // `promptLength` always carries the real length, so a hook can detect the
+  // truncation.
   const input = {
     toolName: "UserPromptSubmit",
-    toolInput: { promptLength: prompt.length },
+    toolInput: {
+      prompt:
+        prompt.length > MAX_HOOK_PAYLOAD_CHARS
+          ? `${prompt.slice(0, MAX_HOOK_PAYLOAD_CHARS)}\n[prompt truncated]`
+          : prompt,
+      promptLength: prompt.length,
+    },
   };
 
   const result = await executeHooks(hooks, input, context);

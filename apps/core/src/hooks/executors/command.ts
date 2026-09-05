@@ -39,6 +39,10 @@ export async function executeCommandHook(
     env.CLAUDE_SESSION_ID = context.sessionId;
     env.CLAUDE_TOOL_NAME = input.toolName;
     env.CLAUDE_TOOL_INPUT = JSON.stringify(input.toolInput);
+    // PostToolUse only: the tool's output, already capped by the producer.
+    if (typeof input.result === "string") {
+      env.CLAUDE_TOOL_OUTPUT = input.result;
+    }
     if (typeof context.cwd === "string") env.CLAUDE_CWD = context.cwd;
     if (typeof context.agentId === "string")
       env.CLAUDE_AGENT_ID = context.agentId;
@@ -80,6 +84,22 @@ export async function executeCommandHook(
         return; // Already resolved with timeout error
       }
 
+      const trimmed = stdout.trim();
+      let parsed: {
+        block?: boolean;
+        reason?: string;
+        modifiedInput?: Record<string, unknown>;
+        modifiedOutput?: unknown;
+        context?: string;
+      } | undefined;
+      if (trimmed.startsWith("{")) {
+        try {
+          parsed = JSON.parse(trimmed);
+        } catch {
+          // Not JSON, treat as plain text
+        }
+      }
+
       // Exit code 2 = blocking error (special hook protocol)
       if (code === 2) {
         resolve({
@@ -90,42 +110,41 @@ export async function executeCommandHook(
         return;
       }
 
-      // Try to parse JSON output
-      try {
-        const trimmed = stdout.trim();
-        if (trimmed.startsWith("{")) {
-          const parsed = JSON.parse(trimmed);
-          if (parsed.block === true) {
-            resolve({
-              success: false,
-              blocked: true,
-              blockReason: parsed.reason,
-            });
-          } else {
-            resolve({
-              success: true,
-              modifiedInput: parsed.modifiedInput,
-              additionalContext: parsed.context,
-            });
-          }
-          return;
-        }
-      } catch {
-        // Not JSON, treat as plain text
-      }
-
-      if (code === 0) {
-        resolve({
-          success: true,
-          additionalContext: stdout.trim() || undefined,
-        });
-      } else {
+      // Any other non-zero exit blocks too, JSON output or not. Parsing JSON
+      // before checking the code let `{"block":false}` + exit 1 continue,
+      // which made the exit code meaningless in exactly the fail-closed
+      // direction it exists for. The JSON still contributes its reason.
+      if (code !== 0) {
         resolve({
           success: false,
           blocked: true,
-          blockReason: `Exit code ${code}`,
+          blockReason: parsed?.reason || `Exit code ${code}`,
         });
+        return;
       }
+
+      if (parsed) {
+        if (parsed.block === true) {
+          resolve({
+            success: false,
+            blocked: true,
+            blockReason: parsed.reason,
+          });
+        } else {
+          resolve({
+            success: true,
+            modifiedInput: parsed.modifiedInput,
+            modifiedOutput: parsed.modifiedOutput,
+            additionalContext: parsed.context,
+          });
+        }
+        return;
+      }
+
+      resolve({
+        success: true,
+        additionalContext: trimmed || undefined,
+      });
     });
 
     child.on("error", (err) => {

@@ -131,13 +131,17 @@ registerHook("PreToolUse", "block-dangerous", {
 - `CLAUDE_CWD` - Current working directory
 - `CLAUDE_TOOL_NAME` - Name of the tool being executed
 - `CLAUDE_TOOL_INPUT` - JSON string of tool input
+- `CLAUDE_TOOL_OUTPUT` - The tool's output, PostToolUse only (capped at 30K chars)
 - `CLAUDE_AGENT_ID` - Agent ID (if applicable)
 - `CLAUDE_AGENT_TYPE` - Agent type (if applicable)
 
 **Exit Codes:**
 
-- `0` - Continue execution
+- `0` - Continue execution; stdout is additionalContext, or JSON (below)
 - `2` - Block execution (output is the reason)
+- anything else - Block with `Exit code N` (or the JSON `reason` if one was
+  printed). The exit code always wins: `{"block": false}` + `exit 1` blocks.
+  JSON is interpreted in full only on exit `0`.
 
 **JSON Output Protocol:**
 
@@ -146,6 +150,7 @@ registerHook("PreToolUse", "block-dangerous", {
   "block": true,
   "reason": "User rejected this operation",
   "modifiedInput": { "file": "new-path.txt" },
+  "modifiedOutput": "replacement tool output (PostToolUse) or prompt (UserPromptSubmit)",
   "context": "Additional context to inject"
 }
 ```

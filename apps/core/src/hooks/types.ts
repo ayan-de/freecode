@@ -38,7 +38,21 @@ export type HookEventName = (typeof HOOK_EVENT_NAMES)[number];
 export interface ToolCallInput {
   toolName: string;
   toolInput: Record<string, unknown>;
+  /**
+   * The tool's output, present on PostToolUse only. Reaches shell hooks as
+   * `$CLAUDE_TOOL_OUTPUT`. Capped at MAX_HOOK_PAYLOAD_CHARS by the producer.
+   */
+  result?: string;
 }
+
+/**
+ * Cap on any single payload field handed to a hook (the tool result, the
+ * prompt). Shell hooks receive payloads as environment variables, and 30K
+ * chars is safely inside every platform's per-variable limit — it is also
+ * FREECODE_OUTPUT_MAX_CHARS's default, so a hook sees at least as much of a
+ * tool result as the model does.
+ */
+export const MAX_HOOK_PAYLOAD_CHARS = 30_000;
 
 // =============================================================================
 // Hook Result Types

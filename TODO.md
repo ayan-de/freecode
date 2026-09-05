@@ -220,21 +220,6 @@ earlier audit are not repeated here.
       `choices` now rejects an unknown mode at parse time with a usage error; the
       cast at the read site is kept, matching `mcp add`'s house style, and is safe
       because the runtime check exists.
-- [ ] **Shell hooks cannot set `modifiedOutput`.** `executeCommandHook` only ever
-      returns `blocked` / `modifiedInput` / `additionalContext`, so the two events
-      whose purpose is rewriting — `PostToolUse` (tool output) and
-      `UserPromptSubmit` (`modifiedPrompt`, `UserPromptSubmit.ts:45`) — are inert
-      from `settings.json`, which is the only place a user can define a hook.
-      Accept a `modifiedOutput` key in the JSON-stdout form.
-- [ ] **`PostToolUse` hooks never see the tool's output.** `runPostToolUseHooks`
-      takes the `ToolResult` and drops it, passing only the tool input
-      (`PostToolUse.ts:23`). `createPostToolUseInput()` in the same file *does*
-      include `result` and has **zero callers** — written, never wired.
-- [ ] **`UserPromptSubmit` receives only `{ promptLength }`** — a hook expected to
-      rewrite or veto a prompt cannot read it.
-- [ ] **Non-zero exit is ignored when a hook prints JSON.** `command.ts` checks exit
-      `2`, then parses JSON, then checks exit `0` — so `{"block":false}` + `exit 1`
-      continues. Honour the exit code or state that JSON overrides it.
 - [ ] **No eval case can reach the compaction path** — so the head carve-out and
       the tool transcript (both landed 2026-09-05) are unmeasurable end to end,
       and a green `eval:gate` is silent about them rather than evidence for them.

@@ -37,7 +37,7 @@ name that is not in the table below is rejected at load time with a warning.
 | `PermissionRequest` | when a call needs approval | the real tool name | the tool's arguments | **enforced** — a block becomes `deny` |
 | `PostToolUse` | after a tool succeeds | the real tool name | the tool's arguments | ignored |
 | `PostToolUseFailure` | after a tool throws | the real tool name | the tool's arguments | ignored |
-| `UserPromptSubmit` | before the prompt is sent | `"UserPromptSubmit"` | `{ promptLength }` | **enforced** |
+| `UserPromptSubmit` | before the prompt is sent | `"UserPromptSubmit"` | `{ prompt, promptLength }` — `prompt` capped at 30K chars, `promptLength` is the real length | **enforced** |
 | `TurnStart` | before each turn | `"TurnStart"` | `{ turnCount }` | ignored |
 | `TurnEnd` | after each turn | `"TurnEnd"` | `{ turnCount, inputTokens?, outputTokens?, cacheReadInputTokens?, cacheCreationInputTokens? }` | ignored |
 | `SessionStart` | after context collection | `"SessionStart"` | `{ sessionId }` | ignored |
@@ -50,7 +50,7 @@ name that is not in the table below is rejected at load time with a warning.
 
 ### What each event does with a successful return
 
-| Event | `modifiedInput` (shell ✅) | `modifiedOutput` (callback only) | `additionalContext` |
+| Event | `modifiedInput` (shell ✅) | `modifiedOutput` (shell ✅) | `additionalContext` |
 | --- | --- | --- | --- |
 | `PreToolUse` | merged into the tool's arguments | — | appended to context |
 | `PermissionRequest` | carried on the result | — | — |
@@ -60,12 +60,13 @@ name that is not in the table below is rejected at load time with a warning.
 | `SessionStart` | — | — | injected; can seed the first user message |
 | `TurnStart` / `TurnEnd` / `PostCompact` / `SubagentStart` / `SubagentStop` / `Stop` | — | — | injected |
 
-**Read that second column carefully.** `modifiedOutput` is the only field a
-*command* hook cannot produce — the shell protocol has no way to express it (see
-[the shell protocol](#the-shell-protocol)). So "PostToolUse replaces the tool
-output" and "UserPromptSubmit rewrites the prompt" are true for in-process
-callback hooks and **not** for anything you can write in `settings.json` today.
-A shell hook can still block, rewrite arguments, and add context.
+A command hook produces `modifiedOutput` by printing it in the JSON stdout form
+(see [the shell protocol](#the-shell-protocol)), so "PostToolUse replaces the
+tool output" and "UserPromptSubmit rewrites the prompt" hold for `settings.json`
+hooks too. One caution on the rewrite: the `prompt`/`$CLAUDE_TOOL_OUTPUT`
+payloads are capped at 30K chars — check `promptLength` (or the
+`[output truncated]` marker) before echoing a modified copy back, or the
+truncation becomes the rewrite.
 
 ### Sharp edges
 
@@ -79,8 +80,6 @@ A shell hook can still block, rewrite arguments, and add context.
 - **`PreToolUse` runs before the permission check**, so it gets first look at the
   arguments the rules will be matched against — which is exactly why a rewrite is
   possible.
-- **`UserPromptSubmit` only receives `promptLength`.** Your hook is told how long
-  the prompt is, not what it says.
 - **A blocked `PreCompact` is not a crash.** The service records the token count it
   was blocked at and returns `{ success: false, blocked: true }`, so the same block
   is not retried at the same size.
@@ -99,6 +98,7 @@ variables added to the environment:
 | `CLAUDE_SESSION_ID` | always |
 | `CLAUDE_TOOL_NAME` | always |
 | `CLAUDE_TOOL_INPUT` | always — the `toolInput` from the table above, as JSON |
+| `CLAUDE_TOOL_OUTPUT` | `PostToolUse` — the tool's output, capped at 30K chars |
 | `CLAUDE_CWD` | the context carries a `cwd` |
 | `CLAUDE_AGENT_ID`, `CLAUDE_AGENT_TYPE` | inside a sub-agent |
 
@@ -137,11 +137,13 @@ For richer control, print a JSON object. Anything whose trimmed stdout starts wi
 | `block` | `true` blocks; `reason` is shown to the model |
 | `reason` | the block reason |
 | `modifiedInput` | merged into the tool's arguments (`PreToolUse`) |
+| `modifiedOutput` | replaces the tool output (`PostToolUse`) or the system prompt (`UserPromptSubmit`) |
 | `context` | becomes `additionalContext` |
 
-Note the precedence: exit code `2` is checked first, then JSON, then the exit
-code. A hook that prints valid JSON **and** exits `1` is treated as its JSON says
-— the non-zero exit is ignored ([known gaps](#known-gaps)).
+Note the precedence: the exit code always wins. Any non-zero exit blocks —
+including a hook that printed `{"block": false}` and exited `1`; the JSON can
+only contribute its `reason` to the block. JSON is interpreted in full only on
+exit `0`.
 
 ## Matching
 
@@ -189,22 +191,6 @@ Each execution publishes `hook.triggered` on the bus; blocks publish
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-- **Shell hooks cannot set `modifiedOutput`.** The command executor only ever
-  returns `blocked`, `modifiedInput`, and `additionalContext`, so the two events
-  whose whole purpose is rewriting — `PostToolUse` (tool output) and
-  `UserPromptSubmit` (the prompt) — are inert from `settings.json`. Accepting a
-  `modifiedOutput` key in the JSON stdout form is a few lines and would make the
-  documented capability real.
-- **`PostToolUse` hooks never see the tool's output.** `runPostToolUseHooks`
-  receives the `ToolResult` and drops it, passing only the tool's *input*. A
-  `createPostToolUseInput()` helper that includes `result` exists in the same file
-  and has **zero callers** — the fix appears to have been written and never wired.
-- **`UserPromptSubmit` receives only `promptLength`.** A hook expected to rewrite
-  or veto a prompt cannot read it.
-- **Non-zero exit is ignored when stdout is JSON.** `command.ts` parses JSON before
-  falling through to the exit-code check, so `{"block":false}` + `exit 1` continues.
-  Either honour the exit code or document JSON as overriding it — right now it is
-  neither.
 - **`once` is parsed but never enforced.** The field flows from `settings.json` into
   the registered hook and nothing reads it.
 - **`hook.triggered` / `hook.blocked` are published with a cast** and are not part
