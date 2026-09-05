@@ -97,7 +97,9 @@ export const runCommand: CommandModule<object, RunArgs> = {
     // (or the --help path) should pay for.
     const { initProviders } = await import("../../providers/index.js");
     const { initMcpServers } = await import("../../mcp/index.js");
-    const { readConfig } = await import("../../providers/config.js");
+    const { readConfig, fallbackProviderFromCredentials } = await import(
+      "../../providers/config.js"
+    );
     const { getAppRuntime } = await import("../../effect/runtime.js");
     const { createAgentLoopEffect } = await import("../../agent/loop.js");
     const { getSessionManager } = await import("../../session/index.js");
@@ -134,8 +136,20 @@ export const runCommand: CommandModule<object, RunArgs> = {
     }
 
     if (!provider) {
+      // A sole configured credential (e.g. only ANTHROPIC_API_KEY exported)
+      // selects the provider; several throw naming them, none falls through
+      // to the setup error below.
+      try {
+        provider = fallbackProviderFromCredentials();
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+    }
+    if (!provider) {
       console.error(
         "No provider configured. Set current.provider in ~/.freecode/config.json, " +
+          "export a provider API key (e.g. ANTHROPIC_API_KEY), " +
           "or pass --model <provider>/<model>.",
       );
       process.exit(1);

@@ -2,7 +2,10 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { envKeysFor as catalogueEnvKeys } from "./catalogue.js";
+import {
+  envKeysFor as catalogueEnvKeys,
+  resolveCatalogue,
+} from "./catalogue.js";
 import { hasStoredAnthropicOAuth } from "./auth-store.js";
 import { logger } from "../utils/logger.js";
 
@@ -247,6 +250,53 @@ export function hasConfiguredKey(providerId: string): boolean {
   if (config.providers?.[providerId]?.apiKey) return true;
   const baseProvider = providerId.replace(/-coding-plan$/, "");
   return envKeysFor(baseProvider).some((key) => Boolean(process.env[key]));
+}
+
+/**
+ * Provider ids with a credential on file: a stored `providers.*.apiKey`, a
+ * catalogue env var set in the environment, or a stored Anthropic OAuth login.
+ * Sorted for a stable error message.
+ */
+export function credentialedProviderIds(): string[] {
+  const config = readConfig();
+  const ids = new Set<string>();
+  for (const [id, entry] of Object.entries(config.providers ?? {})) {
+    if (entry?.apiKey) ids.add(id);
+  }
+  for (const entry of resolveCatalogue()) {
+    if (entry.envKeys.some((key) => Boolean(process.env[key]))) {
+      ids.add(entry.id);
+    }
+  }
+  if (anthropicAuthMode() === "oauth" && hasStoredAnthropicOAuth()) {
+    ids.add("anthropic");
+  }
+  return [...ids].sort();
+}
+
+/**
+ * The provider to use when neither the call nor `current.provider` picks one.
+ *
+ * `export ANTHROPIC_API_KEY=…` alone must be able to start an interactive
+ * session — env-only configuration worked headlessly (`--model` names the
+ * provider) and not interactively, which is backwards from every CLI that
+ * reads a `*_API_KEY`. A single credential is itself a choice, so it does not
+ * violate the no-hardcoded-fallback rule; several credentials stay an error
+ * naming them, because picking among them would be a guess. No credential at
+ * all returns undefined so each caller keeps its own "nothing configured"
+ * message.
+ */
+export function fallbackProviderFromCredentials(): string | undefined {
+  const candidates = credentialedProviderIds();
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    throw new Error(
+      `No provider selected, and ${candidates.length} have credentials ` +
+        `(${candidates.join(", ")}). Pick one with /model, or set ` +
+        `current.provider in ~/${path.join(".freecode", "config.json")}.`,
+    );
+  }
+  return undefined;
 }
 
 export type AnthropicAuthMode = "oauth" | "api-key";

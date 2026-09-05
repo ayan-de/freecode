@@ -34,6 +34,7 @@ import {
   setApiKey,
   setCurrentModel,
   hasApiKey,
+  fallbackProviderFromCredentials,
   hasWebCredential,
   setWebCredential,
   getCurrentModel,
@@ -42,6 +43,7 @@ import {
   type ProviderId,
   type WebCredentials,
 } from "./providers/config.js";
+import { resolveCatalogue } from "./providers/catalogue.js";
 import { logger } from "./utils/logger.js";
 import { formatFatalError } from "./cli/format-fatal-error.js";
 import { validateParams, INVALID_PARAMS } from "./ipc/validate-params.js";
@@ -294,12 +296,16 @@ function createSession(config: SessionConfig): SessionInfo {
   const current = readConfig().current;
   // No hardcoded provider fallback: an unconfigured provider is a setup error,
   // not something to guess at. Defaulting here sent requests to a provider the
-  // user never chose, using that provider's default model.
-  const provider = config.provider || current?.provider;
+  // user never chose, using that provider's default model. A SOLE configured
+  // credential (e.g. only ANTHROPIC_API_KEY exported) is not a guess — it is
+  // the user's choice, expressed the way every other CLI accepts it.
+  const provider =
+    config.provider || current?.provider || fallbackProviderFromCredentials();
   if (!provider) {
     throw new Error(
       "No provider configured. Pick one with /model, set current.provider in " +
-        "~/.freecode/config.json, or pass `provider` to session.start.",
+        "~/.freecode/config.json, export a provider API key (e.g. " +
+        "ANTHROPIC_API_KEY), or pass `provider` to session.start.",
     );
   }
   const session: SessionInfo = {
@@ -912,7 +918,22 @@ export const methodHandlers: Record<
   },
 
   "config.getCurrentModel": async (): Promise<unknown> => {
-    return getCurrentModel();
+    const current = getCurrentModel();
+    if (current?.provider) return current;
+    // Env-only setup: a sole credential (e.g. just ANTHROPIC_API_KEY exported)
+    // selects the provider, and the TUI must not open the first-run picker
+    // over it. Several credentials return undefined instead of throwing —
+    // interactively, the picker that then opens IS how the user disambiguates.
+    let provider: string | undefined;
+    try {
+      provider = fallbackProviderFromCredentials();
+    } catch {
+      return undefined;
+    }
+    if (!provider) return undefined;
+    const model = resolveCatalogue().find((e) => e.id === provider)
+      ?.defaultModel;
+    return { provider, model };
   },
 
   "config.getLastAgentMode": async (): Promise<unknown> => {
@@ -1055,7 +1076,10 @@ export const methodHandlers: Record<
     // Seeded from config the same way createSession is, so a resumed session
     // isn't left model-less and reliant on the provider's default.
     const resumeCurrent = readConfig().current;
-    const resumeProvider = context.provider || resumeCurrent?.provider;
+    const resumeProvider =
+      context.provider ||
+      resumeCurrent?.provider ||
+      fallbackProviderFromCredentials();
     if (!resumeProvider) {
       throw new Error(
         `Session ${context.id} has no provider and none is configured. ` +

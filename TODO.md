@@ -9,14 +9,12 @@ skills (incl. `~/.claude/plugins` scope), permission rules via `.freecode/settin
 and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
 
 
-- [ ] **2. User-defined slash commands** — `apps/core/src/commands/registry.ts` is a
-      hardcoded map with exactly one entry (`/init`). See the detailed section below;
-      reuse the frontmatter-markdown discovery already in `skills/loader.ts`.
-
 - [ ] **3. User-defined subagents** — `SubagentType` (`apps/core/src/agent/types.ts:38-43`)
       is a closed union of five, with descriptions in `SUBAGENT_DEFINITIONS`. No
       `.freecode/agents/*.md` loader. Bind loaded agents to the existing capability
-      profiles in `permission/profiles.ts`. Shares its markdown loader with item 2.
+      profiles in `permission/profiles.ts`. Reuse the frontmatter-markdown loader
+      already in `commands/loader.ts` (which shipped item 2, user-defined slash
+      commands).
 
 - [ ] **4. Rules hierarchy** — `context/instructions.ts` reads `CLAUDE.md`/`AGENTS.md` from
       exactly two dirs (global `~/.freecode/`, project root), first match wins, 40k char cap.
@@ -39,23 +37,8 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
       file-state diff on top of machinery we already paid for.
 
 
-**Suggested order:** 2 → 3 (share one markdown loader), then 4. Items 5 and 8
-are larger, self-contained projects.
-
-### User-defined prompt commands loader
-
-**Status:** Not started
-
-Built-in prompt commands (e.g. `/init`) are defined in `apps/core/src/commands/registry.ts`
-and exposed to every frontend via IPC (`commands.list` / `commands.resolve`). Extend the
-registry to also load user/project-defined commands from `.freecode/commands/*.md` (front-matter
-for `description`/`argHint`, body as the prompt template, `$ARGUMENTS` substitution).
-
-**Reference:** opencode's `cfg.command` pattern in `packages/opencode/src/command/index.ts`.
-
-- Loader reads `.freecode/commands/*.md` (project) and `~/.freecode/commands/*.md` (global)
-- Parse front-matter → `PromptCommand`; merge into the registry alongside built-ins
-- No frontend changes needed — they already fetch the merged list over IPC
+**Suggested order:** 3, then 4. Items 5 and 8 are larger, self-contained
+projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.)
 
 ### `@` mention fallback ignores .gitignore
 
@@ -196,7 +179,7 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
       (`vector-store.ts:199`). Exact and correct for hundreds; this is the ceiling.
 - [ ] **Tuning values are guesses** — cap 3, interval 8, 200-char minimum, seed
       threshold 0.4, decay 0.7. Chosen to bound cost, not derived from data.
-  and I'll fix it.
+
 ## Docs-audit findings (reference: CLI, settings, env, IPC, hooks — 2026-08-23)
 
 Found while writing `apps/docs/app/reference/{cli,settings,env,ipc-methods,hook-events}`.
@@ -205,21 +188,6 @@ earlier audit are not repeated here.
 
 ### Real fixes
 
-- [x] **`freecode run` runs without hooks.** *Fixed 2026-09-05.* Both entrypoints
-      now call `hooks/bootstrap.ts`'s `initHooks()`; only `serve` passes
-      `watch: true`, since a one-shot run exits before a settings edit could apply.
-      Pinned by `hooks/bootstrap.test.ts`.
-- [x] **Headless `build` mode denies everything and says nothing useful.**
-      *Fixed 2026-09-05.* `freecode run` gained `--yes` (answers the **ask** tier
-      only) and repeatable `--allow <rule>` (in-memory session grants). Deny rules
-      and read-only modes still refuse — those are answered decisions, not open
-      questions. `AgentLoopConfig.autoApproveAsks` / `.sessionGrants` carry it into
-      the loop; pinned by `agent/headless-permission.test.ts`, whose first case
-      still asserts the unattended default is deny.
-- [x] **`freecode run --agent` is an unchecked cast.** *Fixed 2026-09-05.* yargs
-      `choices` now rejects an unknown mode at parse time with a usage error; the
-      cast at the read site is kept, matching `mcp add`'s house style, and is safe
-      because the runtime check exists.
 - [ ] **No eval case can reach the compaction path** — so the head carve-out and
       the tool transcript (both landed 2026-09-05) are unmeasurable end to end,
       and a green `eval:gate` is silent about them rather than evidence for them.
@@ -233,17 +201,6 @@ earlier audit are not repeated here.
       the difference and `/getting-started/configuration` claims a single "project
       wins" rule that only holds for hooks. One loader that parses the file once and
       hands each subsystem its section would make one answer true.
-- [x] **Unknown `settings.json` keys are silently ignored.** Done 2026-09-05:
-      `settings/known-keys.ts` + `settings/validate.ts`, called from the shared
-      hook bootstrap so `serve` and `run` behave alike. Reports any key nothing
-      reads and suggests the near miss ("did you mean `permissions`?"). A name
-      check only — values stay each loader's business, and hook event names stay
-      with `hooks/settings.ts`, which already names the valid list.
-- [x] **No JSON Schema for `settings.json`.** Done 2026-09-05:
-      `schemas/settings.schema.json`, referenced from `/reference/settings` and
-      usable via `$schema`. A test asserts the schema's key set matches
-      `KNOWN_SETTINGS`, so the editor contract and the runtime warning cannot
-      drift.
 - [ ] **`FREECODE_HOME` is read in exactly one place** — the updater's
       `builds/stable/freecode` lookup (`apps/tui/src/entry.ts:101`). Every data path
       (`config.json`, `sessions/`, `projects/`, `rollout/`, `history.jsonl`) builds
@@ -258,27 +215,12 @@ earlier audit are not repeated here.
       the default like every other numeric variable.
 - [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
       `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
-- [x] **`config.get` returns API keys verbatim.** ~~Fine over a local stdio pipe,
-      wrong the moment the backend is reachable another way; no redaction anywhere.~~
-      Fixed 2026-09-05: `redactConfig()` (`providers/config.ts`) builds a safe view
-      field by field — `{ hasApiKey, model?, authMode? }` per provider,
-      `{ hasCredential }` per web session — and `config.get` returns that. An
-      allowlist, not a blocklist, so the next credential field is excluded by
-      default. Tests in `providers/config-redaction.test.ts`.
 - [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
       `~/.freecode` (`cli/utils/config.ts`), so a repository cannot ship the MCP
       servers its contributors need the way it can ship rules and hooks.
 - [ ] **`freecode session` exposes 2 of 12 session operations.** `fork`, `switch`,
       `archive`, `export`, `import`, `upload`, `download` are IPC-only, so scripting
       session management means speaking JSON-RPC by hand.
-- [x] **`freecode uninstall` deletes user data on one `y`.** ~~It removes all of
-      `~/.freecode` — sessions, rollout logs, memory, history, usage — and the prompt
-      does not say so. No `--keep-data`, no backup.~~ Fixed 2026-09-05: the default
-      now removes the launcher and `~/.freecode/builds` only, `--purge` is what takes
-      the data directory, and the target list names what is inside it. Added
-      `--dry-run`; a non-TTY stdin errors instead of resolving the prompt as a silent
-      "no". Same semantics as `scripts/uninstall.sh`, which was always the correct
-      copy. Tests in `cli/commands/uninstall.test.ts`.
 - [ ] **No way to print effective configuration.** Diagnosing "why is it compacting
       so early" means reading source. A `freecode config env` dumping
       name / default / effective / source would pay for itself.
@@ -525,12 +467,6 @@ on the pages but not repeated here.
 
 ### Real fixes
 
-- [ ] **`ANTHROPIC_API_KEY` (etc.) looks sufficient and is not.** `hasApiKey`
-      reads the environment (`providers/config.ts:116`) so the key resolves, but
-      the session still refuses to start without `current.provider`. Env-only
-      configuration works headlessly (`--model anthropic/…` supplies the
-      provider) and never interactively — which is backwards from every other CLI
-      that reads a `*_API_KEY`.
 - [ ] **Nothing reports which source an API key came from.** The environment
       now overrides the stored key (fixed 2026-09-05), but when both are set
       nothing surfaces which one a request used — a wrong-key 401 still means
@@ -546,10 +482,6 @@ on the pages but not repeated here.
       `~/.profile`, fish's `config.fish`, and any existing `~/.zshrc` /
       `~/.zprofile` / `~/.bash_profile`; uninstalling leaves every one of them
       pointing at a directory that no longer exists.
-- [ ] **`TODO.md`'s own entry for user-defined commands is stale.** "User-defined
-      prompt commands loader — **Status:** Not started" is contradicted by
-      `commands/loader.ts:113`, which already loads `.freecode/commands/` from
-      project and user scope with precedence. Same for the extensibility item 2.
 
 ## Docs-audit findings (context engine — 2026-08-23)
 
@@ -657,14 +589,6 @@ spec's §12; these are the parts that are actionable independently of it.
       `2026-08-08-continual-harness-design.md` lets the agent rewrite its own
       harness with no way to measure whether the rewrite helped. Both are blocked
       on the eval spec's Phase 1, and both should say so.
-
-### Docs findings (writing `/internals/eval` — 2026-08-23)
-
-- [ ] **`evalsDir()` is CWD-relative** (`eval/dataset.ts:19`,
-      `path.resolve("evals")`), so `freecode eval` fails with "no such suite"
-      anywhere but the repo root unless `FREECODE_EVALS_DIR` is set. The shipped
-      cases also reference FreeCode's own source paths, so the suite is
-      repo-specific and nothing in `--help` says so.
 
 ### Docs findings (writing `/internals/eval` — 2026-08-23)
 
@@ -783,12 +707,6 @@ harness can block a release". Remaining:
       repetition. Either promote one to `trajectory.jsonl` or record why the gate
       does not cover it — `CATEGORIES_WITHOUT_CASES` cannot see the difference,
       because it folds every suite together.
-
-### Housekeeping
-
-- [ ] **`TODO.md` has the `### Docs findings (writing /internals/eval —
-      2026-08-23)` block twice, verbatim** (the run of five items appears at
-      ~1094 and again at ~1137). Pre-existing; not touched while doing Phase 2.
 
 ### Deliberate — do NOT "fix"
 

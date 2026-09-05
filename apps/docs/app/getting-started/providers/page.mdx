@@ -62,10 +62,12 @@ final fallback.
 If everything misses it throws a message naming both the config path and the
 variable.
 
-> An environment variable alone will not get an interactive session started. It
-> supplies a credential, not a choice of provider, and a session with no
-> `current.provider` refuses to start rather than guessing. Either run `/model`
-> once, or pass the provider explicitly: `freecode run --model anthropic/claude-sonnet-4-5 "…"`.
+> An environment variable alone is enough when it is the *only* credential:
+> with no `current.provider` set, a sole configured credential (say, just
+> `ANTHROPIC_API_KEY` exported) selects that provider, interactively and
+> headlessly alike. Several credentials with no choice stay an error naming
+> them — picking among them would be a guess — so run `/model` once, or pass
+> the provider explicitly: `freecode run --model anthropic/claude-sonnet-4-5 "…"`.
 
 ## Switching models
 
