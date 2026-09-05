@@ -127,19 +127,8 @@ orchestrator coerces on the way in. The full picture is in
 
 ## Known gaps
 
-Found while writing this page; each is also tracked in `TODO.md`. Two are
-carried over from [the provider internals page](/internals/providers#known-gaps)
-because they are what a new user hits first:
+Found while writing this page; each is also tracked in `TODO.md`.
 
-- **The provider picker lists every provider models.dev knows about, not the six
-  that exist.** `providers.list` (`server.ts:618`) returns the whole catalogue —
-  200+ entries — and picking one FreeCode cannot instantiate fails with
-  `Provider "X" not registered`. The registry's own `listProviders()` is imported
-  into `server.ts` and never called.
-- **Gemini's models never load.** FreeCode registers the id `gemini`; models.dev
-  calls it `google`, so every lookup misses: the model picker shows an empty
-  list, the context window reads as `0`, and images are never sent. It needs an
-  id-mapping table in `models-dev.ts`.
 - **`config.json` silently outranks the environment.** For a tool whose other two
   configuration surfaces let the environment override the file, having the
   stored key win is the opposite of what a `FOO_API_KEY=… freecode` invocation

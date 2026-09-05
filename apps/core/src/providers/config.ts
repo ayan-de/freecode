@@ -80,7 +80,19 @@ export function readConfig(): Config {
 
 export function writeConfig(config: Config): void {
   ensureConfigDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), "utf-8");
+  // config.json holds every API key and any web-session cookie; owner-only.
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+  // Lock down again — `mode` applies only at create time, so a pre-existing
+  // file (or a platform that lets the umask widen perms on rewrite) keeps
+  // whatever mode it already had without this.
+  try {
+    fs.chmodSync(CONFIG_FILE, 0o600);
+  } catch {
+    // Best effort.
+  }
 }
 
 export type ProviderId = string; // Can be "anthropic", "openai", "gemini", "minimax", "minimax-coding-plan", etc.

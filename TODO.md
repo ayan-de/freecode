@@ -367,25 +367,6 @@ that page's **Known gaps**.
 
 ### Real fixes
 
-- [ ] **Gemini's provider id doesn't exist on models.dev — highest-impact item
-      here.** FreeCode registers `gemini`; models.dev calls it `google` (verified
-      against the cached catalogue: `google` has 39 models, `gemini` is absent).
-      So every lookup fails for the provider with the largest windows:
-      `getModelContextLimit` → `0`, so `resolveContextLimit` returns `undefined`
-      and compaction budgets against the 100K offline floor instead of 1M;
-      `models.list` → `[]`, so the picker shows no Gemini models;
-      `modelSupportsImages` → `false`, so images are never sent to Gemini and the
-      user is advised to "switch to a vision model (e.g. an Anthropic, OpenAI, or
-      Gemini model)". The other five ids resolve. Fix with an id-mapping table in
-      `models-dev.ts` (`gemini → google`), and check the reverse direction before
-      adding any future provider.
-- [ ] **`providers.list` returns models.dev's whole catalogue, not FreeCode's
-      providers.** `server.ts:618` calls `getProviders()` — 200+ entries such as
-      `hpc-ai`, `qiniu-ai`, `zenifra` — and runs `hasApiKey` against ids the
-      registry cannot instantiate, so choosing one fails with
-      `Provider "X" not registered`. The registry's own `listProviders()` is
-      imported at `server.ts:14` and never used. Either return the registry list
-      (joined with models.dev metadata) or filter the catalogue by registered id.
 - [ ] **`getProvider()` builds a fresh SDK client per call and reads config from
       disk each time.** `registry.ts:24` calls `def.create("")` on every lookup;
       each adapter's factory calls `getApiKey()`, which does a synchronous
@@ -972,11 +953,6 @@ Ranked by value. Full context in §8 of that spec.
 
 ### Real fixes
 
-- [ ] **`writeConfig` sets no file mode** — highest value here. A fresh
-      `config.json` lands `0644` on a default umask while holding every API key,
-      and now a session cookie too. `web/auth.ts` already does this correctly
-      (`0o600` on write, plus a `chmod` for pre-existing files); reuse it.
-      Explicitly deferred at ship in `698e1fa`.
 - [ ] **E1–E5 are not eval cases.** Every measurement behind the provider's
       design (no tools, mention inlining across turns) was run by hand, so
       nothing detects a regression that re-introduces tools here or breaks
