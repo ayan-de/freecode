@@ -533,5 +533,86 @@ export const METHODS = {
 } as const;
 
 export type MethodName = keyof typeof METHODS;
+
+// =============================================================================
+// Runtime parameter contracts
+//
+// Handlers reach their params through `params as { … }` — a cast, which
+// checks nothing. A missing or mistyped field therefore became `undefined`
+// deep inside the handler and surfaced as an internal error (-32603), which
+// says "the server broke" when the truth is "you sent the wrong params".
+//
+// This table is what the server validates against before dispatch, so a bad
+// call gets -32602 and the field name. It is typed `Record<MethodName, …>`,
+// so a new method without an entry is a compile error — there is no path to
+// adding a method that silently skips validation. Methods with nothing
+// mandatory declare `{}`; optional params are deliberately absent, since
+// omitting them is legal and the handler already defaults them.
+// =============================================================================
+
+export type ParamType = "string" | "number" | "boolean" | "object" | "array";
+
+export const REQUIRED_PARAMS: Record<
+  MethodName,
+  Readonly<Record<string, ParamType>>
+> = {
+  "tools.list": {},
+  "tools.call": { name: "string", args: "object" },
+  // projectPath is validated by the handler, which falls back to cwd when it
+  // is missing or does not exist — a fallback, not a contract violation.
+  "session.start": {},
+  "session.send": { sessionId: "string", message: "string" },
+  "session.dequeue": { sessionId: "string", id: "string" },
+  "session.stop": { sessionId: "string" },
+  "session.compact": { sessionId: "string" },
+  "session.list": {},
+  "session.resume": { sessionId: "string" },
+  "session.claudeList": {},
+  "session.claudeTranscript": { sessionId: "string" },
+  "providers.list": {},
+  "config.setWebCredential": { provider: "string", credential: "object" },
+  // projectPath is optional in both handlers (they fall back to the process
+  // cwd), so it is not required here. The rule for this table is what the
+  // handler actually needs — validation must never reject a call the handler
+  // would have served.
+  "commands.list": {},
+  "commands.resolve": { name: "string" },
+  "question.answer": { requestId: "string", answers: "array" },
+  "question.reject": { requestId: "string" },
+  "permission.answer": { requestId: "string", decision: "string" },
+  "permission.reject": { requestId: "string" },
+  "context.stats": { sessionId: "string" },
+  "usage.get": {},
+  "skills.list": {},
+  "mcp.status": {},
+  "history.list": {},
+  "history.append": { text: "string" },
+  "graph.explore": {},
+  "models.list": { providerId: "string" },
+  "models.contextLimit": { provider: "string", model: "string" },
+  "config.get": {},
+  "config.setApiKey": { provider: "string", apiKey: "string" },
+  "config.setCurrentModel": { provider: "string", model: "string" },
+  "config.getCurrentModel": {},
+  "config.getLastAgentMode": {},
+  "config.setLastAgentMode": { mode: "string" },
+  "memory.list": {},
+  "memory.get": { name: "string", type: "string" },
+  "memory.save": { entry: "object" },
+  "memory.delete": { name: "string", type: "string" },
+  "memory.query": { query: "string" },
+  "memory.graph.rebuild": {},
+  "memory.graph.stats": {},
+  "memory.buildPrompt": {},
+  "session.switch": { sessionId: "string" },
+  "session.fork": { sessionId: "string" },
+  "session.archive": { sessionId: "string" },
+  "session.delete": { sessionId: "string" },
+  "session.getInterrupted": {},
+  "session.export": { sessionId: "string" },
+  "session.import": { url: "string" },
+  "session.upload": { sessionId: "string", endpoint: "string" },
+  "session.download": { url: "string" },
+};
 export type MethodParams<M extends MethodName> = (typeof METHODS)[M]["params"];
 export type MethodResult<M extends MethodName> = (typeof METHODS)[M]["result"];

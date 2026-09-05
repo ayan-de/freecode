@@ -44,6 +44,7 @@ import {
 } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import { formatFatalError } from "./cli/format-fatal-error.js";
+import { validateParams, INVALID_PARAMS } from "./ipc/validate-params.js";
 import type { ToolContext } from "./tools/types.js";
 import type {
   JsonRpcRequest,
@@ -1201,7 +1202,12 @@ export async function handleRequest(
         `Method not found: ${request.method}`,
       );
     }
-    const result = await handler(request.params ?? {});
+    const params = request.params ?? {};
+    const invalid = validateParams(request.method, params);
+    if (invalid) {
+      return createError(request.id, INVALID_PARAMS, invalid);
+    }
+    const result = await handler(params);
     return createResponse(request.id, result);
   } catch (error) {
     if (error instanceof JsonRpcError) {
