@@ -1,9 +1,34 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { Button } from "./Button";
 import Orb from "./Orb";
 import { FaGithub } from "react-icons/fa";
 import { Divider } from "./Divider";
 
+function useTheme(): "light" | "dark" {
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      const next = root.classList.contains("dark") ? "dark" : "light";
+      setTheme(next);
+    };
+    apply();
+
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  return theme;
+}
+
 export function Hero() {
+  const theme = useTheme();
+  const orbBackground = theme === "dark" ? "#000000" : "#ffffff";
+
   return (
     <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[80vh] flex flex-col justify-between isolate">
       {/* Background Orb */}
@@ -13,7 +38,7 @@ export function Hero() {
           rotateOnHover
           hue={275}
           forceHoverState={false}
-          backgroundColor="#ffffff"
+          backgroundColor={orbBackground}
         />
       </div>
 
