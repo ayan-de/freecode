@@ -20,9 +20,12 @@
 //      printed a fabrication on screen.
 //   3. What cannot be forced to 0% is the model emitting a *compliant* FINAL
 //      answer it invented. The prompt's grounding rules and @mention inlining
-//      (still active) shrink that residue; they cannot eliminate it. That is
-//      why this stays opt-in (`experimentalTools`) and off by default — D1
-//      still stands as the measured default.
+//      (still active) shrink that residue; they cannot eliminate it.
+//
+// On by default since 2026-09-05 (spec §10.4) on the strength of the
+// bootstrap runs; `experimentalTools: false` / FREECODE_GEMINI_WEB_TOOLS=0
+// restores the no-tools D1 behaviour, and evals/gemini-web-tools.jsonl is
+// the regression watchdog.
 //
 // The block format is deliberately the same one the agent loop already parses
 // as a fallback (`[TOOL_CALLS]\nname:{json}\n[/TOOL_CALLS]`, loop.ts

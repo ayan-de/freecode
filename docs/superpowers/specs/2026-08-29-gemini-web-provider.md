@@ -454,11 +454,12 @@ Carried into `TODO.md` under *Findings (gemini-web provider — 2026-08-29)*.
 
 ## 10. Experimental tool bridge (2026-09-05)
 
-> **Status:** built, opt-in, off by default. `tool-bridge.ts` +
-> `tool-bridge.test.ts`, wired through `index.ts`, `settings.ts`, `client.ts`.
-> Enable with `web["gemini-web"].experimentalTools: true` or
-> `FREECODE_GEMINI_WEB_TOOLS=1`. D1 stands as the default; this section is the
-> experiment against it, run at the user's request.
+> **Status:** built; **on by default since 2026-09-05** (§10.4). `tool-bridge.ts`
+> + `tool-bridge.test.ts`, wired through `index.ts`, `settings.ts`, `client.ts`.
+> Opt out with `web["gemini-web"].experimentalTools: false` or
+> `FREECODE_GEMINI_WEB_TOOLS=0` (env outranks config; `=1` forces on).
+> §10.1–10.3 below are written from the opt-in phase and kept as the record of
+> why the flip was initially withheld.
 
 ### 10.1 Why this can work where E1 failed
 
@@ -531,3 +532,25 @@ size, and all runs are from one day against one front-end build.
    session may tolerate much less.
 4. Reliability under long tool chains (>10 calls) is unmeasured; the result
    budget will start eliding aggressively there.
+
+### 10.4 Default flip (2026-09-05, same day)
+
+Flipped on by **product decision, not by the sample-size bar §10.2 set**: the
+point of the provider is that a fresh install picks Gemini from `/web` and
+gets a working agent, and an opt-in flag nobody finds defeats that. The
+evidence at the flip: 16/16 live trials (smoke + `gemini-web-tools` at
+`--trials 3`), zero corrective retries, and the fabrication cases from E1
+passing through the real loop.
+
+What guards the decision, since the sample is small:
+
+- `evals/gemini-web-tools.jsonl` is the watchdog — re-run it after any
+  front-end build move (§3.2) and periodically; a falling rate is §10.2 data
+  and grounds to flip back.
+- The opt-out (`experimentalTools: false`, `FREECODE_GEMINI_WEB_TOOLS=0`)
+  restores D1's no-tools behaviour exactly; the env var outranks config so a
+  broken bridge can be killed without editing anyone's config.
+- The permission layer gates the bridge's calls like any provider's, so the
+  blast radius of a bad tool call is a mode prompt, not a write. The
+  fabricated-compliant-`FINAL` residue (§10.1.3) remains the real risk and
+  remains unmeasured; it is a *quality* risk, not a safety one.

@@ -6,12 +6,13 @@
 // Speaks Gemini's internal batchexecute RPC directly — see protocol.ts and
 // client.ts. No sidecar, no SDK, no extra dependency: fetch and a sha1.
 //
-// By default this provider sends NO TOOLS, and it is not an oversight.
-// Measured over 9 real turns of the agent loop, the session emitted a tool
-// call ~56% of the time. The other 44% it answered from priors with total
-// fluency — inventing file contents, and once replying to "what is the first
-// line of TRACE.md" with US Census population statistics. A backend that
-// silently fabricates on half its turns is worse than one that errors.
+// Sending the loop's tools RAW to this endpoint does not work, and knowing
+// why is what shaped everything here. Measured over 9 real turns of the agent
+// loop, the session emitted a tool call ~56% of the time. The other 44% it
+// answered from priors with total fluency — inventing file contents, and once
+// replying to "what is the first line of TRACE.md" with US Census population
+// statistics. A backend that silently fabricates on half its turns is worse
+// than one that errors.
 //
 // Three arms were measured on one task ("quote the first line of TRACE.md"):
 //
@@ -20,20 +21,23 @@
 //   no tools, file contents inlined      9.8 KB    4/4 correct, 0 empty
 //
 // Shrinking the prompt 55× and cutting 16 tools to 1 changed nothing. Removing
-// the *need* for a tool call fixed it. So the default design is: the user
-// names files with @mentions, core reads them (inline.ts), and the model only
-// ever does the thing it is reliable at — reading text that is already in
-// front of it.
+// the *need* for a tool call fixed it. Two answers came out of that: @mention
+// inlining (the user names files, core reads them — inline.ts), and the tool
+// bridge below, which restructures the channel so a skipped tool call is
+// detectable instead of silent.
 //
-// OPT-IN EXPERIMENT (`web["gemini-web"].experimentalTools: true`, or
-// FREECODE_GEMINI_WEB_TOOLS=1): tool-bridge.ts speaks a tool-call protocol in
-// plain text — the reply must be either a [TOOL_CALLS] block or begin with
-// FINAL:, anything else is a detectable violation that gets one corrective
-// re-prompt, and streaming is withheld until the reply classifies so a
-// violation can be retried before anything reached the screen. With tools on
-// the wire, the loop's permission modes gate them exactly as for any other
-// provider — D1's "no mode gating needed" corollary applies only to the
-// default path. @mention inlining stays active either way.
+// THE TOOL BRIDGE — ON BY DEFAULT since 2026-09-05 (spec §10.4), opt out with
+// `web["gemini-web"].experimentalTools: false` or FREECODE_GEMINI_WEB_TOOLS=0:
+// tool-bridge.ts speaks a tool-call protocol in plain text — the reply must
+// be either a [TOOL_CALLS] block or begin with FINAL:, anything else is a
+// detectable violation that gets one corrective re-prompt, and streaming is
+// withheld until the reply classifies so a violation can be retried before
+// anything reached the screen. That structure is what the measurements above
+// lacked, and evals/gemini-web-tools.jsonl is the watchdog (16/16 trials at
+// the flip). With tools on the wire, the loop's permission modes gate them
+// exactly as for any other provider — D1's "no mode gating needed" corollary
+// applies only to the opted-out path. @mention inlining stays active either
+// way.
 // =============================================================================
 
 import type { Message, MessagePart } from "../../agent/types.js";
@@ -91,12 +95,12 @@ const TOOL_RESULT_CAP_BYTES = 6_000;
 
 const PROVIDER_INFO = {
   id: "gemini-web" as const,
-  name: "Gemini (web session, ask/review)",
+  name: "Gemini (web session)",
   defaultModel: DEFAULT_MODEL,
   supportsStreaming: true,
-  // False unless the experimental text-protocol bridge is switched on.
-  // Nothing upstream currently gates on this — the loop passes tools and the
-  // default path discards them — but the flag should not lie to pickers.
+  // True by default (the bridge), false when the user opts out. Nothing
+  // upstream currently gates on this — the loop passes tools and the
+  // opted-out path discards them — but the flag should not lie to pickers.
   get supportsTools(): boolean {
     return loadGeminiWebSettings().experimentalTools;
   },
@@ -240,7 +244,7 @@ export function buildPrompt(messages: Message[], tools?: ToolDef[]): string {
 }
 
 function createGeminiWebProvider(_apiKey: string): AIProvider {
-  // With `experimentalTools` off, `opts.system` and `opts.tools` are received
+  // With the bridge opted out, `opts.system` and `opts.tools` are received
   // and discarded — see the header. Bare `opts.prompt` is the internal
   // callers' path (memory extraction, title generation), never the agent
   // loop's; mentions are NOT expanded there, and tools never apply there.

@@ -19,7 +19,7 @@ run a real agent turn is a `*.test.ts` next to its code, not a case here.
 | `coding` | 11 | did the end state match | `scorers/outcome.ts` — `verify`'s exit code is the score |
 | `judged` | 6 | was the reply any good | `scorers/judge.ts` — 0–5 against `evals/rubrics/*.md` |
 | `redirect`, `redirect-build` | 8 | A/B material for trajectory redirection — **not** part of the gate | — |
-| `gemini-web-tools` | 4 | does the web-session tool bridge hold (gemini-web spec §10) — **not** part of the gate; needs `FREECODE_GEMINI_WEB_TOOLS=1`, repo-root cwd, and is slow by design (request pacing) | trajectory expectations |
+| `gemini-web-tools` | 4 | does the web-session tool bridge hold (gemini-web spec §10; on by default since §10.4) — **not** part of the gate; run with `FREECODE_GEMINI_WEB_TOOLS=1` to override a local opt-out, repo-root cwd, slow by design (request pacing) | trajectory expectations |
 
 `evals/quarantine.txt` (3 cases) ships with the gate: quarantined cases run and
 report but never block.

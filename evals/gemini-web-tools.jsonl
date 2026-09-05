@@ -4,8 +4,11 @@
 // and §4 E1/E2 (the fabrication these cases are the regression net for).
 //
 // NOT part of the gate, and not for CI: every case pins the gemini-web
-// provider and REQUIRES the bridge flag, or the provider silently discards
-// tools and every expectTool here reads as a false regression. Run manually:
+// provider, whose bridge is ON by default (spec §10.4). If the machine's
+// config opts out (`experimentalTools: false`), the provider silently
+// discards tools and every expectTool here reads as a false regression —
+// FREECODE_GEMINI_WEB_TOOLS=1 in the command below forces it on regardless.
+// Run manually:
 //
 //   FREECODE_GEMINI_WEB_TOOLS=1 pnpm eval gemini-web-tools --trials 1
 //
