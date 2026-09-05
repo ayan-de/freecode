@@ -1114,3 +1114,20 @@ Found while writing `specs/2026-09-04-harness-cost-efficiency.md`.
       `metadata.outputKind`, so MCP tools (which can be just as log-noisy) always
       take the blind head+tail path. Extend classification once the D2 A/B proves
       the approach. Recorded in `/internals/cost-efficiency` Known gaps.
+
+## Docs findings (Anthropic subscription login — 2026-09-05)
+
+Found while writing `/getting-started/anthropic-subscription`, the page that
+publishes the OAuth ToS stance (`beforeStable.md` P0 #5). Recorded in that
+page's Known gaps.
+
+- [ ] **Tool names are forwarded unmapped on the OAuth path.** jcode renames
+      tools to the ones Claude Code ships; freecode does not. Spec §9 Q1 — a
+      tool-use-*quality* question, not an access or billing one, and it waits on
+      a real turn.
+- [ ] **No multi-account support.** One Anthropic login per machine
+      (`auth.json` is keyed by provider, not by account). Deliberate YAGNI in the
+      spec's §2 non-goals; listed here so the docs claim has a home.
+- [ ] **`anthropic` is the only provider with an OAuth mode.** `freecode auth
+      login` rejects any other provider by name. Fine today — no other catalogue
+      entry has a subscription surface freecode can reach.

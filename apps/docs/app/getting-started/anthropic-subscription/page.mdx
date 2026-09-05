@@ -1,0 +1,129 @@
+---
+title: "Anthropic subscription login"
+description: "Use a Claude Pro/Max subscription instead of an API key — how it works, and the risk you take."
+---
+
+# Anthropic subscription login
+
+FreeCode can authenticate the `anthropic` provider with your Claude Pro/Max
+subscription instead of a metered API key:
+
+```bash
+freecode auth login anthropic
+```
+
+Read the next section before you run it. It is not a formality.
+
+## Before you turn this on
+
+Your Pro/Max allowance is only reachable through Anthropic's OAuth surface, and
+that surface only answers requests that look like Claude Code. So to use it,
+FreeCode sends **Claude Code's OAuth client id, its `User-Agent` and beta
+headers, and its identity line as the first system block.** It presents itself
+to Anthropic as Claude Code, because that is the only thing the endpoint
+accepts.
+
+> **This is a spoof, and we are not going to call it anything else.**
+>
+> - Anthropic reserves subscription inference for its own official surfaces.
+>   Using it from FreeCode is against the spirit, and arguably the letter, of
+>   your agreement with them — however common the practice is across
+>   open-source agents.
+> - Anthropic has acted against tools that do this. The Cloudflare challenge at
+>   the token endpoint, and tokens that refresh cleanly but are refused at
+>   inference time, are both things FreeCode handles because they happen.
+> - **The account at risk is yours.** Not FreeCode's keys, not FreeCode's
+>   infrastructure. Yours.
+
+That is the whole stance. We ship the feature, we do not hide what it does, and
+whether the trade is worth it is your call, on your account. If it isn't, use an
+[API key](/getting-started/providers) — that path is unchanged and is still the
+default.
+
+## What is on by default
+
+Nothing. API key is the default auth mode, and a machine with a key configured
+never silently switches to your subscription. OAuth activates on exactly three
+opt-ins:
+
+| Opt-in | Where |
+| --- | --- |
+| `freecode auth login anthropic` | pins the mode for you as part of logging in |
+| `providers.anthropic.authMode: "oauth"` | `~/.freecode/config.json` |
+| `FREECODE_ANTHROPIC_AUTH=oauth` | environment, wins over config |
+
+There is one more path, and it is narrow: if you have **no** Anthropic API key
+configured but do have a FreeCode login stored, it uses the login rather than
+failing. An official Claude Code login sitting in `~/.claude/.credentials.json`
+does **not** count — importing someone else's session is not an opt-in you made.
+
+## Logging in
+
+```bash
+freecode auth login anthropic              # opens a browser
+freecode auth login anthropic --no-browser # print the URL, paste the code back
+```
+
+It runs PKCE against a `localhost` callback, waiting up to 120 seconds. If the
+callback cannot be reached — a remote box, a locked-down browser — it falls back
+to printing a URL you can open anywhere and pasting the resulting code back.
+Either way it is a single process: the OAuth `state` **is** the PKCE verifier, so
+there is no second command to run and no code to carry between terminals.
+
+Tokens land in `~/.freecode/auth.json` at mode `0600` — a different file from
+`config.json` on purpose, because that one gets hand-edited and sometimes ends up
+in a dotfiles repo. They refresh automatically.
+
+## Checking and reverting
+
+```bash
+freecode auth status
+```
+
+```
+anthropic  auth mode: oauth
+           oauth token: valid until 05/09/2026, 18:41:00
+           scopes: user:inference user:profile
+```
+
+```bash
+freecode auth logout anthropic
+```
+
+Logout deletes the stored tokens **and** un-pins the mode, so `anthropic` goes
+straight back to your API key. Nothing else about your setup is touched.
+
+## When Anthropic says no
+
+If your organization is not allowed to use OAuth, the API returns a 403 that
+reads like a rejected login. FreeCode detects that specific refusal at the fetch
+layer, **latches it for the rest of the process** — retrying is pointless — and
+falls back to your API key if one is configured. The identity block is dropped
+along with it: a request authenticated with a real API key must never carry the
+Claude Code identity string, and that split is enforced in code with a test.
+
+A Cloudflare challenge at the token endpoint gets its own message, because the
+raw response looks like bad credentials and is not.
+
+## Cost accounting
+
+A subscription call is not free, it is prepaid — but it does not price like a
+metered one. FreeCode stamps the auth mode onto the recorded call
+(`model.response` carries `authMode`) rather than reading live config when the
+log is later folded, so a session's cost does not change because you switched
+modes afterwards.
+
+The eval harness goes further: `baselineFor` **refuses to compare across an
+auth-mode switch**, so a subscription run never becomes the bar an API-key run is
+measured against.
+
+## Known gaps
+
+Also tracked in `TODO.md`.
+
+- **Tool names are forwarded unmapped.** Other clients rename tools to the ones
+  Claude Code ships. FreeCode does not, which is a tool-use-*quality* question,
+  not an access or billing one — the endpoint accepts the calls either way.
+- **No multi-account support.** One Anthropic login per machine.
+- **`anthropic` is the only provider with an OAuth mode.** `freecode auth login`
+  rejects any other provider by name.

@@ -5,5 +5,6 @@ export default {
   installation: "Installation",
   quickstart: "Quickstart",
   providers: "Providers & API keys",
+  "anthropic-subscription": "Anthropic subscription",
   configuration: "Configuration"
 } satisfies MetaRecord;

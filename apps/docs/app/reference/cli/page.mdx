@@ -262,6 +262,38 @@ Servers are written to `~/.freecode/config.json` under `mcp.servers`, with
 `enabled: true` and `timeout: 5000` defaults. There is no project-scoped MCP
 config ([known gaps](#known-gaps)).
 
+## `freecode auth`
+
+```bash
+freecode auth login [provider] [--no-browser]
+freecode auth status
+freecode auth logout [provider]
+```
+
+Authenticates the `anthropic` provider with a Claude Pro/Max subscription
+instead of an API key. `provider` defaults to `anthropic` and any other value is
+rejected by name — it is the only provider with an OAuth mode.
+
+| Command | Flag | Notes |
+| --- | --- | --- |
+| `login` | `--no-browser` | skip opening the authorize URL; print it and paste the code back |
+| `status` | — | auth mode, token expiry, scopes; also reports an importable Claude Code login |
+| `logout` | — | deletes the stored tokens **and** un-pins the mode, reverting to your API key |
+
+`login` prints a disclosure before it does anything, and it means it: reaching
+subscription inference requires presenting FreeCode to Anthropic **as Claude
+Code** — its OAuth client id, its headers, its identity line. Anthropic reserves
+that inference for its own surfaces and has acted against tools doing this, and
+the account at risk is yours. The full stance, the three opt-ins, and what
+happens when Anthropic refuses are on
+[Anthropic subscription login](/getting-started/anthropic-subscription).
+
+The flow is PKCE against a `localhost` callback with a 120-second wait, falling
+back to paste. It is a single process — the OAuth `state` **is** the PKCE
+verifier, so there is no second command and no `--code` flag. Tokens go to
+`~/.freecode/auth.json` at mode `0600`, separate from `config.json`, and refresh
+automatically.
+
 ## `freecode update`
 
 Runs `curl -fsSL https://freecode.website/install | bash` and exits with the
@@ -290,25 +322,16 @@ is inside it rather than saying only "proceed". Nothing is backed up either way,
 so copy `~/.freecode/projects/` and `~/.freecode/sessions/` before purging if you
 might want them back.
 
+It prints the list first and asks `y/N` unless `--force` is given; a
+non-terminal stdin is an error telling you to pass `--force`, not a silent "no".
+Exit code is `1` if any removal failed. These are the same semantics as
+`curl -fsSL https://freecode.website/uninstall | bash`, which has always drawn
+the line here.
+
 ## Known gaps
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-- **`freecode run` runs without hooks.** `HookSettingsManager` is constructed only
-  in `startServer()` (`server.ts:1106`), so a headless run never loads
-  `settings.json` hooks and never registers the built-in `rtk` hook. Permission
-  *rules* do apply (the loop builds its own `PermissionSettingsManager`), so the
-  same command behaves differently under `serve` and under `run` — the formatter
-  you rely on after every edit silently does not run in CI.
-- **Headless `build` mode is a trap.** Every unanswerable "ask" resolves to deny
-  (`permission/prompt.ts:44`), and `build` defaults mutating tools to ask, so the
-  common first command produces a turn full of denials with no hint that a rule
-  would fix it. A `--yes`/`--allow <rule>` flag, or a one-line explanation on the
-  first denial, would remove the whole class of confusion.
-- **`--agent` is not validated.** `argv.agent as AgentMode` is an unchecked cast
-  (`run.ts:140`); `--agent buld` falls through `modeDefault`'s `default` branch and
-  silently runs with **build** semantics. yargs `choices` would catch it at parse
-  time, as `mcp add`'s `type` already does.
 - **`session` CLI covers 2 of 12 operations.** `fork`, `switch`, `archive`,
   `export`, `import`, `upload`, `download` all exist over IPC and none has a CLI
   surface, so scripting session management means speaking JSON-RPC by hand.
