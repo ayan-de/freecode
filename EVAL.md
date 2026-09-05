@@ -162,6 +162,7 @@ for a real suite run.
 ```bash
 freecode trace [id] [--follow|--slow N|--tools|--json|--list|--otlp]  # where a turn's time went
 pnpm bench:recall                                                     # memory retrieval benchmark
+pnpm bench:agents                                                     # vs other agents — AGENT-BENCH.md
 ```
 
 ---
