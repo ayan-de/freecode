@@ -389,51 +389,47 @@ an explicit `type`.
    synchronous `readFileSync` + `JSON.parse` of `~/.freecode/config.json`. That
    is a blocking disk read per provider call — at least once per turn, plus once
    per compaction. Memoizing per id would be a few lines.
-3. **`readConfig()` has no error handling** (`config.ts:39`). A malformed
-   `config.json` throws out of `JSON.parse` on every call, including from
-   `createRecoveryManagerFromConfig()` during loop construction. Every other
-   settings loader in the codebase warns and falls back.
-4. **`ProviderDefinition.create(apiKey)` ignores its argument.** All six
+3. **`ProviderDefinition.create(apiKey)` ignores its argument.** All six
    adapters take `_apiKey` and call `getApiKey()` themselves, and `getProvider`
    passes `""`. The parameter is vestigial and misleading.
-5. **`summarizeCache`'s hit ratio is wrong and unused.** It computes
+4. **`summarizeCache`'s hit ratio is wrong and unused.** It computes
    `read / (read + inputTokens)` (`cache-awareness.ts:71`) treating `inputTokens`
    as the fresh portion — but the normalized shape makes it *inclusive* of cache
    reads and writes, so reads are double-counted in the denominator and the ratio
    is understated. Nothing outside its own test reads the field; the loop
    destructures only `readTokens` and `writeTokens`. The test asserts the old
    non-inclusive semantics.
-6. **A total cache failure is the one thing the detector can't see.** The loop's
+5. **A total cache failure is the one thing the detector can't see.** The loop's
    `emitCacheWarm` returns early when reads *and* writes are both zero
    (`loop.ts:1910`), so `checkCacheUsage` is never called — and its own
    `!reportsCache` branch would bail anyway. The `expected_read_missing` case is
    reachable only when a write happened. "Caching stopped entirely" is exactly
    the failure worth alarming on.
-7. **Only `anthropic` counts as a caching provider for the cold warning.**
+6. **Only `anthropic` counts as a caching provider for the cold warning.**
    `CACHING_PROVIDERS` (`cache-awareness.ts:24`) is a one-element set, yet
    `minimax` and `zai` go through the same Anthropic endpoint shape and carry the
    same `cacheControl` markers. Their users never see the cold-cache warning.
-8. **A changing tool set busts the cache with no journal entry.** When an MCP
+7. **A changing tool set busts the cache with no journal entry.** When an MCP
     server connects or disconnects, `invalidateToolDefs()` rebuilds the tools
     array; the tools block sits in the cached prefix, so the next request must
     miss. Nothing calls `recordInvalidation`, so the miss detector reports it as
     an unexplained bust — the exact false positive the journal exists to prevent.
-9. **`ExecuteResult.thinking` is dead for every provider.** All six set
+8. **`ExecuteResult.thinking` is dead for every provider.** All six set
     `thinking: undefined` in `execute()`; reasoning reaches the loop only as
     `thinking_delta` chunks on the streaming path. A non-streaming turn silently
     loses extended thinking, and there is no way to configure a thinking budget
     or reasoning effort anywhere in `ExecuteOptions`.
-10. **`ProviderInfo.maxOutputTokens`'s documentation is stale.** Its comment
+9. **`ProviderInfo.maxOutputTokens`'s documentation is stale.** Its comment
     (`types.ts:10`) says compaction subtracts it from the context limit;
     compaction actually subtracts `resolveMaxOutputTokens()`, which reads
     models.dev and caps at 32K. The field is only a fallback for callers that
     omit `maxTokens`, and it is 4096 for four of the six providers.
-11. **`session/normalize/` is unreachable.** The v4 spec describes a
+10. **`session/normalize/` is unreachable.** The v4 spec describes a
     `ProviderResponseNormalizer` as a separate layer with per-provider modules;
     nothing in the codebase imports it. Normalization actually happens in
     `streaming.ts` plus `mapUsage`. The directory includes a second, independent
     `[TOOL_CALLS]` parser that duplicates the one in `loop.ts`.
-12. **`browser/` has zero importers.** `CLAUDE.md` calls the Playwright path
+11. **`browser/` has zero importers.** `CLAUDE.md` calls the Playwright path
     "legacy / not wired into the primary path" — it is in fact unreachable: no
     file outside the directory imports anything from it, and `chatgpt` is not in
     the provider registry. It is dead code, not a fallback.

@@ -1,5 +1,4 @@
 import { registerCommand, type Command, type CommandContext } from "./index.js";
-import { AVAILABLE_MODELS } from "../models.js";
 import { restoreScreen } from "../terminal-screen.js";
 import {
   getUsage,

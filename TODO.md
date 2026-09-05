@@ -374,10 +374,6 @@ that page's **Known gaps**.
       blocking disk read at least once per turn (`callProviderOnce`) plus once per
       compaction (`compactOptions`). Memoize per provider id, invalidating when
       config changes.
-- [ ] **`readConfig()` throws on a malformed `config.json`** (`config.ts:39`,
-      bare `JSON.parse`). It propagates out of `createRecoveryManagerFromConfig()`
-      during loop construction, so a stray comma takes down the session rather
-      than degrading. Every other settings loader warns and falls back.
 - [ ] **`summarizeCache`'s hit ratio is both wrong and unused.**
       `read / (read + inputTokens)` (`cache-awareness.ts:71`) treats `inputTokens`
       as the fresh portion, but `NormalizedUsage.inputTokens` is inclusive of
@@ -577,11 +573,6 @@ on the pages but not repeated here.
       `~/.profile`, fish's `config.fish`, and any existing `~/.zshrc` /
       `~/.zprofile` / `~/.bash_profile`; uninstalling leaves every one of them
       pointing at a directory that no longer exists.
-- [ ] **`apps/tui/src/models.ts` is stale dead code.** `AVAILABLE_MODELS`
-      hard-codes three Anthropic model ids and is imported by
-      `commands/built-in.ts:2` without being used — the picker gets its list from
-      `models.list` over IPC. A hard-coded model table in a frontend that is not
-      allowed to have one.
 - [ ] **`TODO.md`'s own entry for user-defined commands is stale.** "User-defined
       prompt commands loader — **Status:** Not started" is contradicted by
       `commands/loader.ts:113`, which already loads `.freecode/commands/` from

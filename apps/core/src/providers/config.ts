@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { envKeysFor as catalogueEnvKeys } from "./catalogue.js";
 import { hasStoredAnthropicOAuth } from "./auth-store.js";
+import { logger } from "../utils/logger.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".freecode");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -69,17 +70,57 @@ function ensureConfigDir(): void {
   }
 }
 
+let warnedMalformedConfig = false;
+
 export function readConfig(): Config {
   ensureConfigDir();
   if (!fs.existsSync(CONFIG_FILE)) {
     return {};
   }
   const content = fs.readFileSync(CONFIG_FILE, "utf-8");
-  return JSON.parse(content) as Config;
+  try {
+    const parsed = JSON.parse(content) as Config;
+    warnedMalformedConfig = false;
+    return parsed;
+  } catch (err) {
+    // A stray comma from a hand edit must degrade to "no provider configured",
+    // not take down loop construction — every other settings loader warns and
+    // falls back. Once per breakage, not once per turn: readConfig runs at
+    // least once per turn and stderr reaches the TUI as a system message.
+    if (!warnedMalformedConfig) {
+      warnedMalformedConfig = true;
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `Malformed ${CONFIG_FILE} (${msg}); treating as empty until it parses again`,
+      );
+    }
+    return {};
+  }
 }
 
 export function writeConfig(config: Config): void {
   ensureConfigDir();
+  // Never clobber a file that no longer parses: every mutator here is a
+  // read-modify-write, and a malformed read degrades to `{}` above — writing
+  // that back would silently destroy every stored API key mid-hand-edit.
+  // Preserve the original alongside first.
+  if (fs.existsSync(CONFIG_FILE)) {
+    const existing = fs.readFileSync(CONFIG_FILE, "utf-8");
+    try {
+      JSON.parse(existing);
+    } catch {
+      const backup = `${CONFIG_FILE}.invalid`;
+      fs.copyFileSync(CONFIG_FILE, backup);
+      try {
+        fs.chmodSync(backup, 0o600); // it still holds the keys
+      } catch {
+        // Best effort.
+      }
+      logger.warn(
+        `Overwriting malformed ${CONFIG_FILE}; original preserved as ${backup}`,
+      );
+    }
+  }
   // config.json holds every API key and any web-session cookie; owner-only.
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), {
     encoding: "utf-8",

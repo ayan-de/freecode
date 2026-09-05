@@ -157,7 +157,3 @@ Found while writing this page; each is also tracked in `TODO.md`.
   found, but `current.provider` is still unset and the session refuses to start.
   The environment variable path only works headlessly, where `--model
   anthropic/<model>` supplies the provider explicitly.
-- **`apps/tui/src/models.ts` is stale dead code.** `AVAILABLE_MODELS` hard-codes
-  three Anthropic model ids and is imported by `commands/built-in.ts:2` without
-  ever being used — the picker gets its list from `models.list` over IPC. It is a
-  hard-coded model table in a frontend that is not allowed to have one.
