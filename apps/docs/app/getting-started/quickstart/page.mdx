@@ -19,13 +19,14 @@ freecode
 You get a prompt, a mode line reading `BUILD (shift+tab to cycle)`, and a hint
 in the header: `/help` for help, `/model` to change.
 
-**Do `/model` first.** A fresh install has no provider selected, and FreeCode
-deliberately refuses to guess one — `createSession` throws
+On a fresh install the provider picker opens by itself: no provider is selected
+yet, and FreeCode deliberately refuses to guess one — `createSession` throws
 `No provider configured` rather than sending your prompt somewhere you never
-chose (`server.ts:280`). An API key in the environment is not enough on its own;
-it is a credential, not a choice of provider.
+chose (`server.ts:287`). An API key in the environment is not enough on its own;
+it is a credential, not a choice of provider. `/model` reopens the same picker
+any time.
 
-`/model` walks three steps:
+The picker walks three steps:
 
 1. **Provider** — pick one of the providers you have a key for.
 2. **Model** — pick from that provider's catalogue.
@@ -151,14 +152,6 @@ invalidating the prefix every turn.
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-- **Nothing tells a new user to run `/model` before their first prompt.** With a
-  fresh `config.json`, the first Enter fails with `No provider configured. Set
-  current.provider in ~/.freecode/config.json, or pass provider to
-  session.start` (`server.ts:281`) — a message written for an integrator, not for
-  the person who just installed the binary. It names a file to hand-edit and
-  never mentions `/model`, which is the supported path. Detecting a missing
-  `current` at startup and opening the model picker would remove the worst first
-  five minutes in the product.
 - **Setting `ANTHROPIC_API_KEY` looks like it should be enough, and is not.**
   `hasApiKey` reads the environment (`providers/config.ts:116`), so the key is
   found, but `current.provider` is still unset and the session refuses to start.

@@ -548,13 +548,6 @@ on the pages but not repeated here.
 
 ### Real fixes
 
-- [ ] **First run has no path to a working session that the product itself
-      teaches.** A fresh `config.json` has no `current.provider`, so the first
-      prompt dies with `No provider configured. Set current.provider in
-      ~/.freecode/config.json, or pass \`provider\` to session.start`
-      (`server.ts:281`) — a message written for an integrator. It names a file to
-      hand-edit and never mentions `/model`, which is the only supported path.
-      Detect a missing `current` at TUI startup and open the model picker.
 - [ ] **`ANTHROPIC_API_KEY` (etc.) looks sufficient and is not.** `hasApiKey`
       reads the environment (`providers/config.ts:116`) so the key resolves, but
       the session still refuses to start without `current.provider`. Env-only

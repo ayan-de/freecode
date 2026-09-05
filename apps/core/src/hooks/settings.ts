@@ -262,12 +262,12 @@ export class HookSettingsManager {
       }
     }
 
-    console.log("[Hooks] Loaded hooks from settings.json");
+    logger.debug("[Hooks] Loaded hooks from settings.json");
   }
 
   /** Reload hooks (called on file change) */
   reload(): void {
-    console.log("[Hooks] Reloading hooks from settings.json");
+    logger.debug("[Hooks] Reloading hooks from settings.json");
     this.load();
   }
 

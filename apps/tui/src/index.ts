@@ -936,6 +936,17 @@ async function loadCurrentModel(): Promise<void> {
       currentProvider = current.provider;
       currentModel = current.model;
       updateModelDisplay();
+    } else if (!current?.provider) {
+      // First run: nothing configured yet. Open the picker now — without this
+      // the first prompt dies on core's "No provider configured" error, which
+      // names a file to hand-edit and not /model, the supported path.
+      showMessage(
+        "**Welcome! No model is configured yet.** Pick a provider and model " +
+          "below to get started — you'll be asked for an API key if one isn't " +
+          "already set. Change it any time with `/model`, or use `/web` for a " +
+          "browser-session provider.",
+      );
+      void showProviderSelector("api");
     }
 
     const savedMode = await getLastAgentMode();

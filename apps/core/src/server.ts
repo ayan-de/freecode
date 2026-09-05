@@ -298,8 +298,8 @@ function createSession(config: SessionConfig): SessionInfo {
   const provider = config.provider || current?.provider;
   if (!provider) {
     throw new Error(
-      "No provider configured. Set current.provider in ~/.freecode/config.json, " +
-        "or pass `provider` to session.start.",
+      "No provider configured. Pick one with /model, set current.provider in " +
+        "~/.freecode/config.json, or pass `provider` to session.start.",
     );
   }
   const session: SessionInfo = {
@@ -484,7 +484,8 @@ export const methodHandlers: Record<
     const currentProvider = config.current?.provider || session.provider;
     if (!currentProvider) {
       throw new Error(
-        "No provider configured. Set current.provider in ~/.freecode/config.json.",
+        "No provider configured. Pick one with /model, or set current.provider " +
+          "in ~/.freecode/config.json.",
       );
     }
 
@@ -1058,7 +1059,7 @@ export const methodHandlers: Record<
     if (!resumeProvider) {
       throw new Error(
         `Session ${context.id} has no provider and none is configured. ` +
-          "Set current.provider in ~/.freecode/config.json.",
+          "Pick one with /model, or set current.provider in ~/.freecode/config.json.",
       );
     }
     const session: SessionInfo = {
