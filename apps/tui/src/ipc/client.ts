@@ -689,8 +689,9 @@ export async function graphExplore(): Promise<
     | { error: "not-installed" };
 }
 
+/** Redacted: `config.get` reports whether a key is set, never the key. */
 export interface ConfigInfo {
-  providers?: Record<string, { apiKey?: string }>;
+  providers?: Record<string, { hasApiKey: boolean; model?: string }>;
   current?: { provider: string; model: string };
 }
 

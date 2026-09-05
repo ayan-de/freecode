@@ -265,8 +265,13 @@ earlier audit are not repeated here.
       the default like every other numeric variable.
 - [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
       `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
-- [ ] **`config.get` returns API keys verbatim.** Fine over a local stdio pipe,
-      wrong the moment the backend is reachable another way; no redaction anywhere.
+- [x] **`config.get` returns API keys verbatim.** ~~Fine over a local stdio pipe,
+      wrong the moment the backend is reachable another way; no redaction anywhere.~~
+      Fixed 2026-09-05: `redactConfig()` (`providers/config.ts`) builds a safe view
+      field by field — `{ hasApiKey, model?, authMode? }` per provider,
+      `{ hasCredential }` per web session — and `config.get` returns that. An
+      allowlist, not a blocklist, so the next credential field is excluded by
+      default. Tests in `providers/config-redaction.test.ts`.
 - [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
       `~/.freecode` (`cli/utils/config.ts`), so a repository cannot ship the MCP
       servers its contributors need the way it can ship rules and hooks.

@@ -29,6 +29,7 @@ import {
 } from "./models-dev.js";
 import {
   readConfig,
+  redactConfig,
   writeConfig,
   setApiKey,
   setCurrentModel,
@@ -872,8 +873,12 @@ const methodHandlers: Record<
     return { prompt };
   },
 
+  // Redacted, not raw: this is reachable over `web-server.ts`'s POST /api,
+  // whose `host` is a parameter — one `--host 0.0.0.0` would otherwise turn a
+  // debug convenience into key exfiltration. No caller ever wanted the key
+  // itself; `hasApiKey` is the question they were all asking.
   "config.get": async (): Promise<unknown> => {
-    return readConfig();
+    return redactConfig();
   },
 
   "config.setApiKey": async (
