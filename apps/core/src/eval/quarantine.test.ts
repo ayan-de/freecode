@@ -93,10 +93,12 @@ test("every quarantined id names a case that actually exists", async () => {
     const { parseSuite } = await import("./dataset.js");
     const known = new Set<string>();
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl"))) {
-      for (const kase of parseSuite(
+      const cases = parseSuite(
         fs.readFileSync(path.join(dir, file), "utf-8"),
         file,
-      )) {
+      );
+      if (cases.length === 0) continue;
+      for (const kase of cases) {
         known.add(kase.id);
       }
     }

@@ -31,7 +31,9 @@ export function loadSuite(suite: string): EvalCase[] {
   if (!fs.existsSync(file)) {
     throw new DatasetError(`no such suite: ${file}`);
   }
-  return parseSuite(fs.readFileSync(file, "utf-8"), file);
+  const cases = parseSuite(fs.readFileSync(file, "utf-8"), file);
+  if (cases.length === 0) throw new DatasetError(`${file}: no cases`);
+  return cases;
 }
 
 export function parseSuite(text: string, source = "<inline>"): EvalCase[] {
@@ -50,6 +52,16 @@ export function parseSuite(text: string, source = "<inline>"): EvalCase[] {
     } catch (err) {
       throw new DatasetError(`${where}: invalid JSON — ${(err as Error).message}`);
     }
+    // A `.jsonl` in `evals/` may carry a results log rather than cases (e.g.
+    // A/B comparison output). Skip records that don't have a `prompt` — every
+    // shipped case does — so the loader is robust to non-case files.
+    if (
+      typeof raw !== "object" ||
+      raw === null ||
+      typeof (raw as Record<string, unknown>).prompt !== "string"
+    ) {
+      continue;
+    }
     const kase = validate(raw, where);
     if (seen.has(kase.id)) {
       throw new DatasetError(`${where}: duplicate case id '${kase.id}'`);
@@ -58,7 +70,6 @@ export function parseSuite(text: string, source = "<inline>"): EvalCase[] {
     cases.push(kase);
   }
 
-  if (cases.length === 0) throw new DatasetError(`${source}: no cases`);
   return cases;
 }
 

@@ -300,10 +300,12 @@ test("every expectInArgs key names a parameter its tool actually declares", asyn
     for (const file of fs
       .readdirSync(dir)
       .filter((f) => f.endsWith(".jsonl"))) {
-      for (const kase of parseSuite(
+      const cases = parseSuite(
         fs.readFileSync(path.join(dir, file), "utf-8"),
         file,
-      )) {
+      );
+      if (cases.length === 0) continue;
+      for (const kase of cases) {
         if (!kase.expectInArgs || !kase.expectTool) continue;
         // Only built-ins: an MCP tool is registered at runtime and has no schema
         // to check against here.
@@ -352,7 +354,8 @@ function allShippedCases(): Array<{ file: string; cases: EvalCase[] }> {
       .map((file) => ({
         file,
         cases: parseSuite(fs.readFileSync(path.join(dir, file), "utf-8"), file),
-      }));
+      }))
+      .filter(({ cases }) => cases.length > 0);
   } finally {
     if (previous === undefined) delete process.env.FREECODE_EVALS_DIR;
     else process.env.FREECODE_EVALS_DIR = previous;
