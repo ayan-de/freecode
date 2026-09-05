@@ -78,8 +78,7 @@ import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers, listClients, getMcpTools } from "./mcp/index.js";
 import { getConfigDir } from "./cli/utils/config.js";
-import { registerRtkHook } from "./hooks/builtin/rtk-rewrite.js";
-import { HookSettingsManager } from "./hooks/settings.js";
+import { initHooks } from "./hooks/bootstrap.js";
 import {
   bus,
   BusEvents,
@@ -1255,14 +1254,9 @@ export async function startServer() {
   await initProviders();
   await initMcpServers();
 
-  // Optional rtk integration: rewrites bash commands to compact `rtk`
-  // equivalents to save tokens. No-op unless rtk resolves; FREECODE_RTK=0 opts out.
-  registerRtkHook();
-
-  // Load hooks from settings.json (project + user scopes)
-  const hookSettings = new HookSettingsManager(process.cwd());
-  hookSettings.load();
-  hookSettings.watch();
+  // Built-in hooks + settings.json hooks (project + user scopes). Shared with
+  // `freecode run` so headless and served runs load the same hooks.
+  const hookSettings = initHooks(process.cwd(), { watch: true });
 
   // Clean up on shutdown. `exit` cannot await, so the memory flush goes on the
   // signal handlers, which can (spec D3/D4) — quitting is how most sessions

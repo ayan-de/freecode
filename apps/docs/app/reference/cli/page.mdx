@@ -51,6 +51,7 @@ error — is swallowed and the current version opens.
 
 ```bash
 freecode run [message..] [--model <p/m>] [--agent <mode>] [--continue] [--session <id>]
+                       [--max-turns <n>] [--yes] [--allow <rule>]
 ```
 
 | Flag | Alias | Type | Default | Meaning |
@@ -60,6 +61,9 @@ freecode run [message..] [--model <p/m>] [--agent <mode>] [--continue] [--sessio
 | `--agent` | — | string | `build` | `plan` \| `build` \| `review` \| `explore` \| `danger` |
 | `--continue` | `-c` | boolean | `false` | continue the most recent *active* session for this directory |
 | `--session` | `-s` | string | — | continue a specific session id |
+| `--max-turns` | — | number | unbounded | cap on agent iterations; loop-health and the gates are the only limit without it |
+| `--yes` | `-y` | boolean | `false` | answer permission prompts with *allow*. Deny rules and read-only modes still refuse |
+| `--allow` | — | string (repeatable) | `[]` | grant one permission rule for this run only, e.g. `--allow 'Bash(pnpm test:*)'` |
 
 If no message positional is given and stdin is not a TTY, the prompt is read from
 stdin — `echo "explain this repo" | freecode run` works.
@@ -70,17 +74,33 @@ tool activity, thinking, and errors go to **stderr**. That is what makes
 `0` when the turn succeeded, `1` otherwise (including "no message provided" and
 "no provider configured").
 
-The turn is **unbounded** — there is no `--max-turns`. Use
-`FREECODE_MAX_TURN_TOKENS` if you need a spend ceiling in CI.
+The turn is **unbounded** unless you pass `--max-turns`. That caps iterations,
+not spend — use `FREECODE_MAX_TURN_TOKENS` for a token ceiling in CI.
 
 > **Read this before scripting `run`.** In headless mode nobody can answer a
 > permission prompt, and an unanswerable prompt resolves to **deny**, never to a
 > silent allow. In the default `build` mode every mutating tool (`write`, `edit`,
-> `bash`) defaults to *ask*, so a bare `freecode run "fix the test"` can read your
-> repository but will be denied every write. Make it work by granting the rules up
-> front in `.freecode/settings.json` (`"allow": ["Edit", "Write", "Bash(pnpm test:*)"]`)
-> — or, if you genuinely accept the risk in a sandbox, `--agent danger`, which
-> bypasses evaluation entirely. See [known gaps](#known-gaps).
+> `bash`) defaults to *ask*, so a bare `freecode run "fix the test"` reads your
+> repository fine and is denied every write.
+
+Three ways to make a headless run able to act, narrowest first:
+
+```bash
+# 1. Grant exactly what the task needs, for this run only.
+freecode run --allow 'Edit' --allow 'Bash(pnpm test:*)' "fix the failing test"
+
+# 2. Answer every prompt with allow. Deny rules and read-only modes still refuse.
+freecode run --yes "fix the failing test"
+
+# 3. Persist the grants for the repo, in .freecode/settings.json.
+#    { "permissions": { "allow": ["Edit", "Write", "Bash(pnpm test:*)"] } }
+freecode run "fix the failing test"
+```
+
+`--yes` answers the *ask* tier and nothing else. A `deny` rule is still absolute,
+and `--agent plan|review|explore` is still read-only — those are decisions someone
+already made, not questions waiting for an answer. `--agent danger` remains the
+only flag that bypasses evaluation entirely; use it only in a sandbox.
 
 ## `freecode serve` — the backend alone
 
@@ -92,8 +112,9 @@ No flags. Starts the JSON-RPC 2.0 backend on stdin/stdout — the same process t
 TUI spawns internally, and what any other frontend attaches to. See
 [IPC methods](/reference/ipc-methods).
 
-This is also the only entry point that loads `settings.json` **hooks** and
-registers the built-in `rtk` rewrite hook.
+`settings.json` **hooks** and the built-in `rtk` rewrite hook load here through
+`hooks/bootstrap.ts` — the same bootstrap `freecode run` calls, so a headless run
+and a served session see the same hooks.
 
 ## `freecode web` — browser frontend
 

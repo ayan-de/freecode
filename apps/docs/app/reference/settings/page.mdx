@@ -182,9 +182,10 @@ generation first, so reloading is idempotent.
 The exit-code protocol (`0` continue, `2` block, anything else block) and the JSON
 stdout form are documented under [hook events](/reference/hook-events#the-shell-protocol).
 
-> Hooks are only loaded by `freecode serve` — the backend the TUI and the other
-> frontends spawn. `freecode run` does not load them. See
-> [known gaps](#known-gaps).
+> Both `freecode serve` (the backend the TUI and the other frontends spawn) and
+> `freecode run` load these, through the shared bootstrap in
+> `apps/core/src/hooks/bootstrap.ts`. Only `serve` watches the file for changes —
+> a one-shot run exits before an edit could apply.
 
 ## `memory`
 
@@ -256,6 +257,3 @@ Found while writing this page; each is also tracked in `TODO.md`.
 - **`once` is parsed but never enforced** (`hooks/settings.ts` → `RegisteredHook`).
   Either implement per-session tracking or reject the field so it cannot look
   configured when it is not.
-- **Hooks are not loaded in headless runs.** `HookSettingsManager` is constructed
-  only in `startServer()` (`server.ts:1106`), so `freecode run` silently skips every
-  hook in the file.

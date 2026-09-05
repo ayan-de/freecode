@@ -209,22 +209,21 @@ earlier audit are not repeated here.
 
 ### Real fixes
 
-- [ ] **`freecode run` runs without hooks.** `HookSettingsManager` is constructed
-      only in `startServer()` (`server.ts:1106`), so a headless run loads no
-      `settings.json` hooks and never calls `registerRtkHook()`. Permission *rules*
-      do apply (the loop builds its own `PermissionSettingsManager`,
-      `loop.ts:571`), so the same repo behaves differently under `serve` and under
-      `run` — the formatter that fires after every edit interactively silently does
-      not fire in CI. Move both into a shared bootstrap the `run` handler also calls.
-- [ ] **Headless `build` mode denies everything and says nothing useful.**
-      `askPermission` rejects immediately when no frontend is listening
-      (`bus/index.ts:413`) and `promptForPermission` maps that to deny, while
-      `build`'s mode default for mutating tools is `ask`. So `freecode run "fix the
-      test"` reads fine and is denied every write. Needs a `--yes`/`--allow <rule>`
-      flag, or a one-time explanation on the first headless denial.
-- [ ] **`freecode run --agent` is an unchecked cast** (`run.ts:140`). `--agent buld`
-      falls through `modeDefault`'s `default` branch and runs with **build**
-      semantics. Add yargs `choices`, as `mcp add`'s `type` already has.
+- [x] **`freecode run` runs without hooks.** *Fixed 2026-09-05.* Both entrypoints
+      now call `hooks/bootstrap.ts`'s `initHooks()`; only `serve` passes
+      `watch: true`, since a one-shot run exits before a settings edit could apply.
+      Pinned by `hooks/bootstrap.test.ts`.
+- [x] **Headless `build` mode denies everything and says nothing useful.**
+      *Fixed 2026-09-05.* `freecode run` gained `--yes` (answers the **ask** tier
+      only) and repeatable `--allow <rule>` (in-memory session grants). Deny rules
+      and read-only modes still refuse — those are answered decisions, not open
+      questions. `AgentLoopConfig.autoApproveAsks` / `.sessionGrants` carry it into
+      the loop; pinned by `agent/headless-permission.test.ts`, whose first case
+      still asserts the unattended default is deny.
+- [x] **`freecode run --agent` is an unchecked cast.** *Fixed 2026-09-05.* yargs
+      `choices` now rejects an unknown mode at parse time with a usage error; the
+      cast at the read site is kept, matching `mcp add`'s house style, and is safe
+      because the runtime check exists.
 - [ ] **Shell hooks cannot set `modifiedOutput`.** `executeCommandHook` only ever
       returns `blocked` / `modifiedInput` / `additionalContext`, so the two events
       whose purpose is rewriting — `PostToolUse` (tool output) and
