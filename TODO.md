@@ -245,12 +245,17 @@ earlier audit are not repeated here.
       the difference and `/getting-started/configuration` claims a single "project
       wins" rule that only holds for hooks. One loader that parses the file once and
       hands each subsystem its section would make one answer true.
-- [ ] **Unknown `settings.json` keys are silently ignored.** `"permission"` for
-      `"permissions"`, or a misspelled hook field, produces no warning — identical
-      from the outside to the feature being broken. Each loader already warns on
-      malformed input.
-- [ ] **No JSON Schema for `settings.json`.** No `$schema`, no generated schema, so
-      editors cannot complete or validate a hand-edited, security-relevant file.
+- [x] **Unknown `settings.json` keys are silently ignored.** Done 2026-09-05:
+      `settings/known-keys.ts` + `settings/validate.ts`, called from the shared
+      hook bootstrap so `serve` and `run` behave alike. Reports any key nothing
+      reads and suggests the near miss ("did you mean `permissions`?"). A name
+      check only — values stay each loader's business, and hook event names stay
+      with `hooks/settings.ts`, which already names the valid list.
+- [x] **No JSON Schema for `settings.json`.** Done 2026-09-05:
+      `schemas/settings.schema.json`, referenced from `/reference/settings` and
+      usable via `$schema`. A test asserts the schema's key set matches
+      `KNOWN_SETTINGS`, so the editor contract and the runtime warning cannot
+      drift.
 - [ ] **`FREECODE_HOME` is read in exactly one place** — the updater's
       `builds/stable/freecode` lookup (`apps/tui/src/entry.ts:101`). Every data path
       (`config.json`, `sessions/`, `projects/`, `rollout/`, `history.jsonl`) builds

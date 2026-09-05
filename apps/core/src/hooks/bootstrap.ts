@@ -10,6 +10,7 @@
 
 import { registerRtkHook } from "./builtin/rtk-rewrite.js";
 import { HookSettingsManager } from "./settings.js";
+import { warnOnUnknownSettings } from "../settings/validate.js";
 
 export interface HookBootstrapOptions {
   /**
@@ -23,6 +24,11 @@ export interface HookBootstrapOptions {
 /**
  * Register built-in hooks and load `settings.json` hooks for `projectRoot`.
  * Returns the manager so the caller can dispose it on shutdown.
+ *
+ * Also the one place the settings file is checked for keys nothing reads —
+ * it lives here for the same reason hooks do: this is the single bootstrap
+ * both `serve` and `run` go through, and a second call site is how the two
+ * diverged last time.
  */
 export function initHooks(
   projectRoot: string,
@@ -31,6 +37,8 @@ export function initHooks(
   // Optional rtk integration: rewrites bash commands to compact `rtk`
   // equivalents to save tokens. No-op unless rtk resolves; FREECODE_RTK=0 opts out.
   registerRtkHook();
+
+  warnOnUnknownSettings(projectRoot);
 
   const hookSettings = new HookSettingsManager(projectRoot);
   hookSettings.load();

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/ayan-de/freecode/main/schemas/settings.schema.json",
+  "title": "FreeCode settings.json",
+  "description": "Project (.freecode/settings.json) and user (~/.freecode/settings.json) settings. Both scopes use this shape; project wins per key.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "permissions": {
+      "description": "Per-rule allow/ask/deny. deny anywhere wins; scope does not break a tie within a tier.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": { "$ref": "#/$defs/ruleList" },
+        "ask": { "$ref": "#/$defs/ruleList" },
+        "deny": { "$ref": "#/$defs/ruleList" }
+      }
+    },
+
+    "hooks": {
+      "description": "Shell commands run at lifecycle points, keyed by event name.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "PreToolUse": { "$ref": "#/$defs/hookList" },
+        "PostToolUse": { "$ref": "#/$defs/hookList" },
+        "PostToolUseFailure": { "$ref": "#/$defs/hookList" },
+        "PermissionRequest": { "$ref": "#/$defs/hookList" },
+        "PreCompact": { "$ref": "#/$defs/hookList" },
+        "PostCompact": { "$ref": "#/$defs/hookList" },
+        "SessionStart": { "$ref": "#/$defs/hookList" },
+        "UserPromptSubmit": { "$ref": "#/$defs/hookList" },
+        "SubagentStart": { "$ref": "#/$defs/hookList" },
+        "SubagentStop": { "$ref": "#/$defs/hookList" },
+        "Stop": { "$ref": "#/$defs/hookList" },
+        "TurnStart": { "$ref": "#/$defs/hookList" },
+        "TurnEnd": { "$ref": "#/$defs/hookList" },
+        "Notification": { "$ref": "#/$defs/hookList" }
+      }
+    },
+
+    "memory": {
+      "description": "Persistent cross-session memory: extraction, retrieval judging, consolidation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "autoExtract": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mine finished turns for facts worth remembering."
+        },
+        "extractEveryNRuns": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 8,
+          "description": "How often extraction is even considered. Values < 1 are ignored."
+        },
+        "retrievalJudge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Judge retrieved memories for relevance before injecting them. Fails closed."
+        },
+        "autoConsolidate": {
+          "type": "boolean",
+          "default": true,
+          "description": "One cheap merge pass per project per day. Merges only — never deletes."
+        },
+        "consolidateMinHours": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Minimum hours between consolidation runs."
+        },
+        "consolidateMinSessions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum sessions since the last run before consolidating again."
+        }
+      }
+    },
+
+    "redirect": {
+      "description": "Trajectory redirection. Off by default; see specs/2026-08-26-trajectory-redirection.md.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow redirection at all."
+        },
+        "maxPerRun": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 2,
+          "description": "Redirections per run. 0 disables as surely as enabled: false."
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "ruleList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Rule, e.g. Bash(git *), Write(src/**), WebFetch(https://example.com/**)."
+      }
+    },
+    "hookList": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique within the event; also the merge key across scopes."
+          },
+          "command": { "type": "string", "description": "Shell command to run." },
+          "matcher": {
+            "type": "string",
+            "description": "Tool-name pattern: *, exact, regex, or write|edit. Default: all tools."
+          },
+          "if": {
+            "type": "string",
+            "description": "Argument condition, Tool(pattern) — e.g. bash(git *), write(*.ts)."
+          },
+          "shell": { "enum": ["bash", "powershell"], "default": "bash" },
+          "timeout": {
+            "type": "number",
+            "default": 300,
+            "description": "SECONDS (multiplied by 1000 internally)."
+          },
+          "once": {
+            "type": "boolean",
+            "default": false,
+            "description": "Parsed and stored, but NOT enforced — treat as reserved."
+          }
+        }
+      }
+    }
+  }
+}

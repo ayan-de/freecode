@@ -14,19 +14,36 @@ agreed on travel with the repository. Credentials, the current model, and MCP
 servers are *not* here — they live in `~/.freecode/config.json`; see
 [the overview](/reference#the-three-surfaces).
 
-**Exactly three top-level keys are read.** Anything else in the file is ignored
-without comment.
+**Exactly four top-level keys are read.** Anything else produces a warning on
+startup naming the key — and, when it is a near miss, the key you probably
+meant.
 
 | Key | Read by | Purpose |
 | --- | --- | --- |
 | [`permissions`](#permissions) | `permission/settings.ts` | which tool calls are allowed, asked about, or denied |
 | [`hooks`](#hooks) | `hooks/settings.ts` | shell commands to run at lifecycle events |
 | [`memory`](#memory) | `memory/extract-policy.ts` | automatic memory extraction |
+| [`redirect`](#redirect) | `agent/redirect/settings.ts` | trajectory redirection (off by default) |
+
+## Editor completion
+
+A JSON Schema ships at [`schemas/settings.schema.json`](https://github.com/ayan-de/freecode/blob/main/schemas/settings.schema.json).
+Point `$schema` at it and your editor completes and validates the file as you
+type:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/ayan-de/freecode/main/schemas/settings.schema.json"
+}
+```
+
+`$schema` is the one key FreeCode ignores on purpose.
 
 ## A complete file
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/ayan-de/freecode/main/schemas/settings.schema.json",
   "permissions": {
     "allow": ["Read", "Grep", "Bash(pnpm test:*)"],
     "ask": ["Bash(git push:*)"],
@@ -193,6 +210,10 @@ stdout form are documented under [hook events](/reference/hook-events#the-shell-
 | --- | --- | --- | --- |
 | `autoExtract` | boolean | `true` | mine finished turns for facts worth remembering |
 | `extractEveryNRuns` | number | `8` | how often extraction is even considered; values `< 1` are ignored, non-integers are floored |
+| `retrievalJudge` | boolean | `true` | judge retrieved memories for relevance before injecting them; fails closed |
+| `autoConsolidate` | boolean | `true` | one cheap merge pass per project per day — merges only, never deletes |
+| `consolidateMinHours` | number | `24` | minimum hours between consolidation runs |
+| `consolidateMinSessions` | number | `5` | minimum sessions since the last run before consolidating again; values `< 1` are ignored |
 
 ```json
 { "memory": { "autoExtract": false } }
@@ -201,8 +222,9 @@ stdout form are documented under [hook events](/reference/hook-events#the-shell-
 Scope merge here is **first definition wins, project → user → default**, per
 field. `FREECODE_DISABLE_MEMORY_EXTRACTION=1` overrides both files. Throttling is
 safe because each extraction rebuilds the transcript from the session's whole
-history, so a skipped run is covered by the next one. Background:
-[memory](/internals/memory).
+history, so a skipped run is covered by the next one.
+`FREECODE_DISABLE_MEMORY_JUDGE=1` and `FREECODE_DISABLE_MEMORY_CONSOLIDATION=1`
+do the same for the other two. Background: [memory](/internals/memory).
 
 ## `redirect`
 
@@ -246,14 +268,14 @@ Found while writing this page; each is also tracked in `TODO.md`.
   `/getting-started/configuration` currently claims a single "project wins" rule
   that is only true for hooks. A shared loader (parse once, hand each subsystem its
   section) would make one answer true.
-- **Unknown keys are silently ignored.** `"permission"` instead of `"permissions"`,
-  or a hook field typo, produces no warning anywhere — the settings simply do not
-  apply, which is indistinguishable from the feature being broken. Each loader
-  already warns on *malformed* input; warning on unrecognised top-level keys is
-  the same cost.
-- **No published schema.** There is no `$schema` and no generated JSON Schema, so
-  editors cannot complete or validate the file — for a hand-edited security-relevant
-  file that is the highest-value missing piece.
+- ~~**Unknown keys are silently ignored.**~~ Fixed: `settings/known-keys.ts`
+  reports any key nothing reads, with a "did you mean" for near misses. It is a
+  *name* check only — values stay each loader's business, since they already
+  validate and default their own. Hook event names are still left to
+  `hooks/settings.ts`, which already names the valid list.
+- ~~**No published schema.**~~ Fixed: `schemas/settings.schema.json`, referenced
+  via `$schema` (see above). A test asserts the schema's keys and the runtime
+  key list agree, so the two cannot drift.
 - **`once` is parsed but never enforced** (`hooks/settings.ts` → `RegisteredHook`).
   Either implement per-session tracking or reject the field so it cannot look
   configured when it is not.
