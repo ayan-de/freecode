@@ -1,36 +1,24 @@
 import { Button } from "./Button";
-import PixelBlast from "./PixelBlast";
+import Orb from "./Orb";
 import { FaGithub } from "react-icons/fa";
 import { Divider } from "./Divider";
 
 export function Hero() {
   return (
     <div className="relative w-full mb-0 px-4 lg:px-0 min-h-[80vh] flex flex-col justify-between isolate">
-      {/* Background Grid */}
-      <div className="absolute inset-0 w-full h-full">
-        <PixelBlast
-          variant="square"
-          pixelSize={5}
-          color="#7462f2"
-          patternScale={3.5}
-          patternDensity={1.15}
-          pixelSizeJitter={0.85}
-          enableRipples
-          rippleSpeed={0.4}
-          rippleThickness={0.12}
-          rippleIntensityScale={1.5}
-          liquid={false}
-          liquidStrength={0.12}
-          liquidRadius={1.2}
-          liquidWobbleSpeed={5}
-          speed={1.05}
-          edgeFade={0.36}
-          transparent
+      {/* Background Orb */}
+      <div className="absolute inset-0 w-full h-full -z-10">
+        <Orb
+          hoverIntensity={1.5}
+          rotateOnHover
+          hue={275}
+          forceHoverState={false}
+          backgroundColor="#ffffff"
         />
       </div>
 
       {/* Foreground Content */}
-      <div className="relative z-10 flex flex-col items-center text-center gap-6 w-full max-w-6xl mx-auto mt-0 py-12">
+      <div className="relative z-10 flex flex-col items-center text-center gap-6 w-full max-w-6xl mx-auto mt-16 py-12">
         <h1 className="text-5xl lg:text-[4.5rem] font-bold text-foreground tracking-tight leading-[1.1] max-w-3xl">
           Your <span className="text-primary">AI</span> Coding Assistant
         </h1>
