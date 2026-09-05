@@ -169,7 +169,9 @@ export function deriveView(raw: RawBenchmark): BenchView {
     const successes = mine.filter((r) =>
       raw.graded ? r.resolved === true : r.producedPatch,
     ).length;
-    const metered = mine.filter((r) => r.inputTokens !== undefined);
+    // Metered means the proxy saw model calls — a trial where the agent
+    // talked around the proxy still writes zeros, and zeros are not a $0 run.
+    const metered = mine.filter((r) => (r.turns ?? 0) > 0);
     const usds = metered.map((r) => r.usd).filter((u): u is number => typeof u === "number");
     return {
       id: a.id,
@@ -211,8 +213,8 @@ export function deriveView(raw: RawBenchmark): BenchView {
         patchBytes: r.patchBytes,
         reason: r.reason,
         trial: r.trial,
-        tokens: totalTokens(r),
-        usd: r.usd,
+        tokens: (r.turns ?? 0) > 0 ? totalTokens(r) : undefined,
+        usd: (r.turns ?? 0) > 0 ? r.usd : undefined,
         auditOk: r.auditOk,
       })),
   }));
@@ -238,7 +240,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
             r.agent === a.id &&
             solvedByAll.includes(r.instanceId) &&
             r.resolved === true &&
-            r.inputTokens !== undefined,
+            (r.turns ?? 0) > 0,
         );
         const usds = mine.map((r) => r.usd).filter((u): u is number => typeof u === "number");
         return {
