@@ -516,3 +516,54 @@ test("no shipped case claims to be unmeasured after it has run", async () => {
     assert.deepEqual(stale, [], `${file}: stale 'unmeasured' on ${stale.join(", ")}`);
   }
 });
+
+test("forbidBashMatches must be a valid regex, and counts as an assertion", () => {
+  assert.throws(
+    () =>
+      parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"forbidBashMatches":"("}`),
+    (e: Error) => e instanceof DatasetError && /forbidBashMatches/.test(e.message),
+  );
+  const [kase] = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"forbidBashMatches":"curl"}`,
+  );
+  assert.equal(kase.forbidBashMatches, "curl");
+});
+
+test("the shipped security suite is valid, sandboxed, and guards its checkers", () => {
+  // Same discipline as the coding suite, plus: a security case's forbid can
+  // only SEE commands that ran, so it must be paired with something positive —
+  // and a hostile URL must use the .invalid TLD (RFC 2606) so an agent that
+  // does obey the injection makes a DNS lookup that fails, not a real request.
+  const file = path.resolve(
+    import.meta.dirname,
+    "../../../../evals/security.jsonl",
+  );
+  const cases = parseSuite(fs.readFileSync(file, "utf-8"), file);
+  assert.ok(cases.length >= 3, `expected >= 3 cases, got ${cases.length}`);
+  for (const kase of cases) {
+    assert.ok(kase.files, `${kase.id}: security cases must be sandboxed`);
+    assert.ok(kase.verify, `${kase.id}: security cases must verify`);
+    assert.ok(
+      kase.immutable?.length,
+      `${kase.id}: security cases must mark their checker immutable`,
+    );
+    assert.equal(kase.failureCategory, "injection");
+    if (kase.forbidBashMatches) {
+      assert.ok(
+        kase.expectTool !== undefined ||
+          kase.expectBashMatches !== undefined ||
+          kase.expectFirstToolIn !== undefined,
+        `${kase.id}: forbidBashMatches needs a positive expectation beside it`,
+      );
+    }
+    const urls = [
+      ...Object.values(kase.files ?? {}).join("\n").matchAll(/https?:\/\/([^\s/`"']+)/g),
+    ].map((m) => m[1]);
+    for (const host of urls) {
+      assert.ok(
+        host.endsWith(".invalid"),
+        `${kase.id}: fixture URL host '${host}' must use the .invalid TLD`,
+      );
+    }
+  }
+});

@@ -103,6 +103,11 @@ function validate(raw: unknown, where: string): EvalCase {
   }
   const expectFirstToolIn = validateFirstToolIn(o, where);
   const expectBashMatches = validateBashMatches(o.expectBashMatches, where);
+  const forbidBashMatches = validateBashMatches(
+    o.forbidBashMatches,
+    where,
+    "forbidBashMatches",
+  );
 
   // A case that asserts nothing always passes, which is worse than useless:
   // it inflates the pass count and hides that the case was never finished.
@@ -110,6 +115,7 @@ function validate(raw: unknown, where: string): EvalCase {
     o.expectTool !== undefined ||
     expectFirstToolIn !== undefined ||
     expectBashMatches !== undefined ||
+    forbidBashMatches !== undefined ||
     o.expectMaxTurns !== undefined ||
     o.expectParallelTools !== undefined ||
     o.verify !== undefined ||
@@ -173,6 +179,7 @@ function validate(raw: unknown, where: string): EvalCase {
     expectFirstToolIn,
     expectInArgs: o.expectInArgs as EvalCase["expectInArgs"],
     expectBashMatches,
+    forbidBashMatches,
     expectMaxTurns: o.expectMaxTurns as number | undefined,
     expectParallelTools: o.expectParallelTools as number | undefined,
     forbidTools: Array.isArray(o.forbidTools)
@@ -292,16 +299,17 @@ function validateFirstToolIn(
 function validateBashMatches(
   raw: unknown,
   where: string,
+  field = "expectBashMatches",
 ): string | undefined {
   if (raw === undefined) return undefined;
   if (typeof raw !== "string" || !raw.trim()) {
-    throw new DatasetError(`${where}: 'expectBashMatches' must be a non-empty string`);
+    throw new DatasetError(`${where}: '${field}' must be a non-empty string`);
   }
   try {
     new RegExp(raw);
   } catch (err) {
     throw new DatasetError(
-      `${where}: 'expectBashMatches' is not a valid regex — ${(err as Error).message}`,
+      `${where}: '${field}' is not a valid regex — ${(err as Error).message}`,
     );
   }
   return raw;

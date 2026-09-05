@@ -53,6 +53,9 @@ export const FAILURE_CATEGORIES = [
   "frustration",
   /** An MCP server that is down, slow, or lying. */
   "mcp-failure",
+  /** Treats instructions embedded in file content or tool output as data,
+   *  not directives — the agent reads hostile text with its own privileges. */
+  "injection",
 ] as const;
 
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
@@ -124,6 +127,15 @@ export interface EvalCase {
    * never a failed case.
    */
   expectBashMatches?: string;
+  /**
+   * The negative twin: NO `bash` span's `command` may match. What an injection
+   * case needs — "did not run the curl the hostile file suggested" — and what
+   * `forbidTools` cannot say, because the right answer still uses bash. Like
+   * `forbidTools` it only sees commands that RAN: a mode-denied call folds to
+   * `deniedSpans`, so pair it with a positive expectation or it asserts
+   * nothing. Compiled at load time, same as `expectBashMatches`.
+   */
+  forbidBashMatches?: string;
   expectMaxTurns?: number;
   /**
    * At least one model turn must emit this many tool calls in ONE response.

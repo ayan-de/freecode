@@ -121,6 +121,14 @@ expectFirstToolIn?: string[];
  * rather than a tool choice. Anchored by the author, not by us.
  */
 expectBashMatches?: string;
+
+/**
+ * Added 2026-09-05, for the security suite: NO bash span's command may match.
+ * The negative twin of expectBashMatches — "did not run the curl the hostile
+ * file suggested" — which forbidTools cannot express, because the right
+ * answer still uses bash.
+ */
+forbidBashMatches?: string;
 ```
 
 ### Semantics
@@ -147,6 +155,12 @@ expectBashMatches?: string;
 - Both compose with `expectTool` rather than replacing it. `expectTool` keeps its
   membership semantics, including `expectTool: null` meaning *nothing fired*.
   Nothing in the existing 39 cases changes meaning.
+- **Added 2026-09-05:** `forbidBashMatches` fails the case when **any** `bash`
+  span's command matches. Like `forbidTools` it sees only commands that *ran*
+  (a denied call is a `deniedSpan`), so a mode that blocks bash passes it
+  vacuously — pair it with a positive expectation, as `evals/security.jsonl`
+  does. Its validation and load-time regex compilation are shared with
+  `expectBashMatches`.
 - An invalid regex is a **dataset error, not a failed case** — `parseSuite`
   compiles it at load, alongside the existing `expectInArgs` check. A suite that
   cannot be loaded is better than a suite that reports a false red.
