@@ -79,10 +79,21 @@ confounded by definition.
 | `--trials N` | paired trials per case, default 3. Below 2, every delta is inconclusive and it says so |
 | `--cases a,b,c` | subset by case id; default is the whole suite |
 | `--json`, `--out <file>` | machine output / full report to disk |
+| `--hypothesis "..."` | record the run in `evals/experiments.jsonl` as a pre-declared experiment |
 
 **Deliberately not a gate**: no baseline, no history, always exits 0. The moment
 one exits non-zero somebody wires it into CI and starts reverting on noise.
 Don't wire it.
+
+**The experiment ledger.** An A/B without `--out` used to evaporate, and
+nothing recorded why it ran or what was decided — so an abandoned tweak could
+be earnestly re-tried a quarter later. `--hypothesis` (declared **before** the
+result exists, which is what makes a mixed outcome hard to rationalise) appends
+the run to `evals/experiments.jsonl`: variant specs, delta tally, efficiency
+totals, commit, and `"verdict": null`. Decide it the calibration way — edit the
+field to `"kept"` or `"rejected"` (optionally add a `"note"`), and commit the
+ledger: rejected entries are the ones most worth the history. `freecode eval
+experiments` lists the ledger and nags about undecided entries.
 
 ## 3. Grow the suite — `freecode eval add <session-id>`
 
@@ -180,7 +191,7 @@ FREECODE_EVAL_MODEL=...          # what CI pins as the model under test
 | --- | --- | --- |
 | Every commit / PR — *already automated in `ci.yml`* | `pnpm test` (registry audit + scorer units) | free |
 | While writing a case | `pnpm eval trajectory --trials 1` | ~1 turn/case |
-| Changed a prompt, tool description, or system message | `pnpm eval ab trajectory --baseline … --candidate … --trials 5` | 2 × 5 × cases |
+| Changed a prompt, tool description, or system message | `pnpm eval ab trajectory --baseline … --candidate … --trials 5 --hypothesis "…"` | 2 × 5 × cases |
 | Changed the loop, redirect, or recovery | `pnpm eval ab redirect --trials 5` | same |
 | **Before merging a major branch / cutting a release** | `pnpm eval:gate` | full |
 | Monthly hygiene | `pnpm eval trajectory --quarantine-report` | free |

@@ -230,6 +230,7 @@ interface EvalAbArgs {
   cases?: string;
   json: boolean;
   out?: string;
+  hypothesis?: string;
 }
 
 // `freecode eval ab` — run two variants over the same cases, interleaved.
@@ -263,7 +264,13 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
         describe: "comma-separated case ids; default is the whole suite",
       })
       .option("json", { type: "boolean", default: false })
-      .option("out", { type: "string", describe: "write the full report here" }),
+      .option("out", { type: "string", describe: "write the full report here" })
+      .option("hypothesis", {
+        type: "string",
+        describe:
+          "record this run in evals/experiments.jsonl as a pre-declared " +
+          "experiment awaiting a kept/rejected verdict",
+      }),
   handler: async (argv) => {
     const { parseVariant, AbError, NOTABLE } = await import("../../eval/ab.js");
     const { runAb } = await import("../../eval/ab-run.js");
@@ -277,6 +284,11 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
         throw new AbError(
           "--baseline and --candidate are identical, so this measures nothing " +
             "but noise. Change one of them.",
+        );
+      }
+      if (argv.hypothesis !== undefined && !argv.hypothesis.trim()) {
+        throw new AbError(
+          "--hypothesis is empty — a pre-registration has to say what it predicts.",
         );
       }
       if (argv.trials < 2) {
@@ -311,6 +323,15 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
           );
         },
       );
+
+      if (argv.hypothesis !== undefined) {
+        const { recordExperiment } = await import("../../eval/experiments.js");
+        const record = recordExperiment(argv.hypothesis, report);
+        console.error(
+          `${dim}recorded ${record.id} in evals/experiments.jsonl — decide it ` +
+            `by editing \`"verdict": null\` to "kept" or "rejected"${reset}`,
+        );
+      }
 
       if (argv.out) {
         const fs = await import("fs");
@@ -383,6 +404,65 @@ const evalAbCommand: CommandModule<object, EvalAbArgs> = {
   },
 };
 
+interface EvalExperimentsArgs {
+  json: boolean;
+}
+
+// `freecode eval experiments` — read the experiment ledger back.
+//
+// Entries are written by `eval ab --hypothesis`; the verdict is edited in by
+// hand (the calibration pattern). This lists them newest-first and nags about
+// the undecided ones — an experiment nobody decided is a run that taught
+// nothing, and the ledger's whole point is that rejected changes leave a
+// trail too.
+const evalExperimentsCommand: CommandModule<object, EvalExperimentsArgs> = {
+  command: "experiments",
+  describe: "List recorded A/B experiments and their verdicts",
+  builder: (yargs) => yargs.option("json", { type: "boolean", default: false }),
+  handler: async (argv) => {
+    const { experimentsPath, loadExperiments } =
+      await import("../../eval/experiments.js");
+
+    try {
+      const records = loadExperiments();
+      if (argv.json) {
+        console.log(JSON.stringify(records, null, 2));
+        return;
+      }
+      if (records.length === 0) {
+        console.log(
+          `No experiments at ${experimentsPath()}.\n` +
+            `${dim}Record one with \`freecode eval ab <suite> --hypothesis "..."\`${reset}`,
+        );
+        return;
+      }
+      for (const r of [...records].reverse()) {
+        const verdict =
+          r.verdict === "kept"
+            ? `${green}kept    ${reset}`
+            : r.verdict === "rejected"
+              ? `${red}rejected${reset}`
+              : `${yellow}undecided${reset}`;
+        const deltas = Object.entries(r.deltas)
+          .map(([k, n]) => `${n} ${k}`)
+          .join(" · ");
+        console.log(`${verdict} ${r.id}  ${dim}${deltas}${reset}`);
+        console.log(`  ${r.hypothesis}${r.note ? ` ${dim}— ${r.note}${reset}` : ""}`);
+      }
+      const undecided = records.filter((r) => r.verdict === null).length;
+      if (undecided > 0) {
+        console.log(
+          `\n${yellow}${undecided} undecided${reset} — edit \`"verdict": null\` ` +
+            `to "kept" or "rejected" in ${experimentsPath()}`,
+        );
+      }
+    } catch (err) {
+      console.error(`${red}${(err as Error).message}${reset}`);
+      process.exit(1);
+    }
+  },
+};
+
 export const evalCommand: CommandModule<object, EvalArgs> = {
   command: "eval [suite]",
   describe: "Run an eval suite against the agent loop",
@@ -448,7 +528,8 @@ export const evalCommand: CommandModule<object, EvalArgs> = {
       })
       .command(evalAddCommand)
       .command(evalAbCommand)
-      .command(evalCalibrateCommand),
+      .command(evalCalibrateCommand)
+      .command(evalExperimentsCommand),
   handler: async (argv) => {
     const { runSuite } = await import("../../eval/suite.js");
     const { loadQuarantine, proposeQuarantine } =
