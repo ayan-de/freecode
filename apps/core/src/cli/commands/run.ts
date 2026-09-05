@@ -13,9 +13,22 @@ interface RunArgs {
   continue: boolean;
   session?: string;
   maxTurns?: number;
+  yes: boolean;
+  allow: string[];
 }
 
 type AgentMode = "plan" | "build" | "review" | "explore" | "danger";
+
+// Passed to yargs `choices`, which rejects anything else at parse time. That
+// runtime check is what makes the cast at the read site safe: `--agent buld`
+// now exits with a usage error instead of silently running as `build`.
+const AGENT_MODES: AgentMode[] = [
+  "plan",
+  "build",
+  "review",
+  "explore",
+  "danger",
+];
 
 // Read piped stdin when no message positional was given (e.g. `echo ... | freecode run`).
 function readStdin(): Promise<string> {
@@ -46,7 +59,8 @@ export const runCommand: CommandModule<object, RunArgs> = {
       .option("agent", {
         type: "string",
         default: "build",
-        describe: "agent mode: plan | build | review | explore | danger",
+        choices: AGENT_MODES,
+        describe: "agent mode",
       })
       .option("continue", {
         alias: "c",
@@ -63,6 +77,20 @@ export const runCommand: CommandModule<object, RunArgs> = {
         type: "number",
         describe:
           "cap on agent iterations; unbounded (loop-health + gates only) if omitted",
+      })
+      .option("yes", {
+        alias: "y",
+        type: "boolean",
+        default: false,
+        describe:
+          "approve permission prompts automatically; deny rules and read-only modes still refuse",
+      })
+      .option("allow", {
+        type: "string",
+        array: true,
+        default: [] as string[],
+        describe:
+          "grant a permission rule for this run only, e.g. --allow 'Bash(npm test:*)' (repeatable)",
       }),
   handler: async (argv) => {
     // Lazy imports: `run` pulls in the full backend, which no other command
@@ -74,6 +102,7 @@ export const runCommand: CommandModule<object, RunArgs> = {
     const { createAgentLoopEffect } = await import("../../agent/loop.js");
     const { getSessionManager } = await import("../../session/index.js");
     const { bus } = await import("../../bus/index.js");
+    const { initHooks } = await import("../../hooks/bootstrap.js");
 
     let prompt = argv.message.join(" ").trim();
     if (!prompt && !process.stdin.isTTY) {
@@ -86,6 +115,9 @@ export const runCommand: CommandModule<object, RunArgs> = {
 
     await initProviders();
     await initMcpServers();
+    // Same hooks a served session gets. Not watched: this process runs one turn
+    // and exits, so a settings.json edit mid-run could not take effect anyway.
+    const hookSettings = initHooks(process.cwd(), { watch: false });
 
     const config = readConfig();
     // --model provider/model overrides the configured current model.
@@ -143,15 +175,20 @@ export const runCommand: CommandModule<object, RunArgs> = {
       }
     });
 
+    // Safe: yargs `choices` rejected anything outside AGENT_MODES already.
     const agentMode = argv.agent as AgentMode;
     try {
       const loop = await getAppRuntime().runPromise(
         // Unbounded unless --max-turns is passed, matching Claude Code's
         // headless mode (maxTurns is opt-in there too, not a default cap).
-        createAgentLoopEffect(
-          sessionId,
-          argv.maxTurns ? { maxIterations: argv.maxTurns } : undefined,
-        ),
+        createAgentLoopEffect(sessionId, {
+          ...(argv.maxTurns ? { maxIterations: argv.maxTurns } : {}),
+          // Without one of these, `build` denies every mutating tool here:
+          // there is no frontend to answer an `ask`, and an unanswered ask is
+          // a denial by design (permission/prompt.ts).
+          autoApproveAsks: argv.yes,
+          sessionGrants: argv.allow,
+        }),
       );
       const result = await getAppRuntime().runPromise(
         loop.runEffect({
@@ -165,9 +202,11 @@ export const runCommand: CommandModule<object, RunArgs> = {
       );
       process.stdout.write("\n");
       unsubscribe();
+      hookSettings.dispose();
       process.exit(result.success ? 0 : 1);
     } catch (err) {
       unsubscribe();
+      hookSettings.dispose();
       console.error(`\nError: ${(err as Error).message}`);
       process.exit(1);
     }

@@ -209,5 +209,3 @@ Found while writing this page; each is also tracked in `TODO.md`.
   the registered hook and nothing reads it.
 - **`hook.triggered` / `hook.blocked` are published with a cast** and are not part
   of the typed bus union, so no consumer gets checking on them.
-- **Hooks only load under `freecode serve`.** `freecode run` never constructs
-  `HookSettingsManager`, so headless runs silently skip every hook in the file.

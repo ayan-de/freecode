@@ -213,7 +213,15 @@ export interface SerializedMessage {
  * `SessionResumeResult` below.
  */
 export interface SessionContext extends SessionMeta {
-  messages: SerializedMessage[];
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    timestamp: number;
+  }>;
+  memories: MemoryEntry[];
+  exportedAt: number;
+  expiresAt?: number;
 }
 
 /**
@@ -327,4 +335,148 @@ export interface ContextBreakdown {
   toolCount: number;
   mcpToolCount: number;
   messageCount: number;
+}
+
+// =============================================================================
+// Wire shapes for the remaining IPC methods
+//
+// These mirror types that live in `apps/core` — shared cannot import from an
+// app, and an app type carries internals (Effect handles, storage paths) that
+// have no business on the wire. Same pattern as `SessionMeta` and
+// `SerializedMessage` above. `ipc/wire-shapes.test.ts` in core asserts each
+// core type is assignable to its mirror, so drift is a typecheck failure
+// rather than a runtime surprise in a frontend.
+// =============================================================================
+
+/** Mirrors core's `ModelLimit` (`models-dev.ts`). */
+export interface ModelLimit {
+  /** Context-window size (max input tokens). */
+  context: number;
+  /** Max output tokens per response. */
+  output: number;
+}
+
+/** Mirrors core's `ModelCost` (`models-dev.ts`) — USD per million tokens. */
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
+/** Mirrors core's `ProviderModel` (`models-dev.ts`) — one `models.list` row. */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description?: string;
+  /** Present when models.dev reports limits for this model. */
+  limit?: ModelLimit;
+  /** Present when models.dev publishes a rate card for this model. */
+  cost?: ModelCost;
+  /** Input modalities, e.g. ["text", "image", "pdf"]. Absent if unreported. */
+  inputModalities?: string[];
+}
+
+/** Mirrors core's `MemoryType` (`memory/mem-types.ts`). */
+export type MemoryType =
+  | "user"
+  | "feedback"
+  | "project"
+  | "reference"
+  | "episode";
+
+/** Mirrors core's `MemoryEntry` (`memory/mem-types.ts`). */
+export interface MemoryEntry {
+  name: string;
+  description: string;
+  type: MemoryType;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+  tags?: string[];
+  supersedes?: string[];
+  /** ISO date (YYYY-MM-DD) an episode describes; absent means undated. */
+  happened_at?: string;
+}
+
+/** Mirrors the return of core's `MemoryGraphService.stats()`. */
+export interface MemoryGraphStats {
+  vectors: number;
+  dims: number;
+  nodes: number;
+  edges: number;
+  clusters: number;
+  embedder: boolean;
+}
+
+export type AnthropicAuthMode = "oauth" | "api-key";
+
+/**
+ * Mirrors core's `RedactedConfig` (`providers/config.ts`) — the ONLY config
+ * shape that leaves the process. There is no wire type for the raw config
+ * because there must never be one: `config.get` returns this.
+ */
+export interface RedactedConfig {
+  providers?: Record<
+    string,
+    { hasApiKey: boolean; model?: string; authMode?: AnthropicAuthMode }
+  >;
+  web?: Record<string, { hasCredential: boolean }>;
+  current?: { provider: string; model: string };
+  lastAgentMode?: string;
+  recovery?: { fallbackProviders?: string[] };
+}
+
+/**
+ * Mirrors the wire-facing half of core's `LoopResult` (`agent/types.ts`).
+ * `finalState` is deliberately omitted: it is the loop's internal state
+ * machine, and no frontend reads it.
+ */
+export interface TurnResult {
+  success: boolean;
+  message?: string;
+  content?: string;
+  thinking?: string;
+  turnCount: number;
+  iterationCount: number;
+  usage?: {
+    /** Already includes cache writes — they are billed as input. */
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens?: number;
+    /** The same tokens as above, broken out for the hit rate. Not an addend. */
+    cacheCreationInputTokens?: number;
+    /** The last API call's full input — true context-window occupancy. */
+    contextTokens?: number;
+  };
+}
+
+/**
+ * Mirrors core's `ExportedSession` (`store/remote.ts`). Its `messages` are a
+ * flattened transcript, NOT `SerializedMessage` — the export format drops
+ * parts so it stays readable and stable across store versions.
+ */
+export interface ExportedSession {
+  version: 1;
+  metadata: {
+    id: string;
+    title: string;
+    projectPath: string;
+    provider: string;
+    status: "active" | "archived" | "deleted";
+    createdAt: number;
+    updatedAt: number;
+    lastTurnAt: number;
+    turnCount: number;
+    parentId?: string;
+  };
+  messages: Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    timestamp: number;
+  }>;
+  memories: MemoryEntry[];
+  exportedAt: number;
+  expiresAt?: number;
 }

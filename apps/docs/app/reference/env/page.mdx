@@ -42,6 +42,15 @@ things you might genuinely need — an API key and a model — are better kept i
 the app, exporting a different one changes nothing. A provider suffixed with
 `-coding-plan` falls back to its base provider's key and variable.
 
+| Variable | Values | Effect |
+| --- | --- | --- |
+| `FREECODE_ANTHROPIC_AUTH` | `oauth`, `api-key` | pins how `anthropic` authenticates, overriding `providers.anthropic.authMode` |
+
+`oauth` bills a Claude Pro/Max subscription instead of a key, and setting it is
+one of the three ways to opt in. It is not a neutral switch — see
+[Anthropic subscription login](/getting-started/anthropic-subscription) for what
+the OAuth path does and the risk it carries.
+
 ## Provider requests
 
 | Variable | Default | Read | Effect |

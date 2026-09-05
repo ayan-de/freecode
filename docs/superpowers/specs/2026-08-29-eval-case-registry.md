@@ -520,7 +520,7 @@ most expensive kind of wrong answer this harness can give.
 
 | Category | What it needs first |
 | --- | --- |
-| `compaction-boundary` | A turn long enough to compact. Reachable only by accident today, and an accident is not a p ≥ 0.99 case. |
+| `compaction-boundary` | A turn long enough to compact. Reachable only by accident today, and an accident is not a p ≥ 0.99 case — but see the note below: it may be cheaper than "larger" suggests. |
 | `memory-recall` | A seeded memory dir. `files` paths are sandbox-relative and `assertSafeRelativePath` refuses to escape, which is correct — so a fixture cannot reach `~/.freecode`. |
 | `resume` | A prior session to resume from. One `runEffect` per trial means there is no earlier turn. |
 | `mcp-failure` | A fixture MCP server. `initRunner` calls `initMcpServers()` against the user's real config, so the suite is not hermetic here and could not be made to fail on purpose. |
@@ -530,6 +530,27 @@ The cheapest unlock is `resume` (a second `runEffect` on the same session id);
 `memory-recall` wants a `memory` fixture key alongside `files`; the other two are
 larger. None of it is Phase 4 work — it is harness work, and it should be
 specified before it is built.
+
+**A cheaper route to `compaction-boundary` (noted 2026-09-05, not built.)** The
+objection above is that compacting is an *accident*, and an accident cannot
+carry a p ≥ 0.99 case. But the threshold is already a knob:
+`getCompactTarget()` reads `FREECODE_COMPACT_TARGET_TOKENS`, and
+`shouldCompact` takes `min(windowLimit, target) - buffer`. Set the target to a
+few thousand for one case and compaction stops being an accident and becomes
+the *point* of the case — deterministic, and reached by an ordinary short
+prompt instead of a manufactured 100k one.
+
+What it needs: a per-case `env` key on `EvalCase`, honoured by `runner.ts` and
+scoped to the trial. That is a real harness change and wants its own spec pass —
+in particular, whether a case may set arbitrary env (it should not; an allowlist
+of compaction knobs is the safe shape) and how the gate treats a case whose
+environment differs from every other case's.
+
+Why it matters now: the 2026-09-05 compaction changes — the head carve-out in
+`selectForCompaction` and the tool transcript from `addToolTurn` — are exactly
+what this category would measure, and today nothing does. They ship on unit
+tests and reasoning, which is weaker evidence than this suite exists to
+provide.
 
 **Every phase in this spec is now built.** What is left is not in this spec: the harness capability §9.1 names, and plan §3's scripted provider. Phases 1–3 improved how the suite reports and Phase 4 added the coverage that could be added without new harness capability.
 

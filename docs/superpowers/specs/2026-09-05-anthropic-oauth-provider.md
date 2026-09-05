@@ -68,6 +68,28 @@ Consequences for the design:
    what this does, that it impersonates Claude Code, that Anthropic may block or
    action the account. No repeated nagging afterward.
 
+### 0.2 Resolution — the published stance (2026-09-05)
+
+This section was the open risk item blocking v1 (`beforeStable.md` P0 #5). It is
+resolved as **ship it, state the risk plainly, do not euphemize**:
+
+> FreeCode ships subscription auth as a real, supported, opt-in feature. It says
+> in plain words that it presents itself to Anthropic as Claude Code, that
+> Anthropic reserves that inference for its own surfaces and has acted against
+> tools doing this, and that the account at risk is the user's. Whether the
+> trade is worth it is the user's call, on the user's account. API key stays the
+> default and is one `freecode auth logout` away.
+
+The three constraints above are what make that stance honest rather than a
+disclaimer, and they stay invariants.
+
+What changed is that the stance is now **published**, not just implemented: a
+`/getting-started/anthropic-subscription` docs page, a `freecode auth` section in
+the CLI reference, `FREECODE_ANTHROPIC_AUTH` in the env reference, and a warning
+callout in `README.md` beside the command itself. Before this, the only place a
+user could read any of it was the paragraph `auth login` prints — after they had
+already decided to run it.
+
 ## 1. Motivation
 
 1. The user pays for Claude Max. Freecode dev loops (evals excepted — see §8) burn

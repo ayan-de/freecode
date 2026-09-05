@@ -209,22 +209,21 @@ earlier audit are not repeated here.
 
 ### Real fixes
 
-- [ ] **`freecode run` runs without hooks.** `HookSettingsManager` is constructed
-      only in `startServer()` (`server.ts:1106`), so a headless run loads no
-      `settings.json` hooks and never calls `registerRtkHook()`. Permission *rules*
-      do apply (the loop builds its own `PermissionSettingsManager`,
-      `loop.ts:571`), so the same repo behaves differently under `serve` and under
-      `run` — the formatter that fires after every edit interactively silently does
-      not fire in CI. Move both into a shared bootstrap the `run` handler also calls.
-- [ ] **Headless `build` mode denies everything and says nothing useful.**
-      `askPermission` rejects immediately when no frontend is listening
-      (`bus/index.ts:413`) and `promptForPermission` maps that to deny, while
-      `build`'s mode default for mutating tools is `ask`. So `freecode run "fix the
-      test"` reads fine and is denied every write. Needs a `--yes`/`--allow <rule>`
-      flag, or a one-time explanation on the first headless denial.
-- [ ] **`freecode run --agent` is an unchecked cast** (`run.ts:140`). `--agent buld`
-      falls through `modeDefault`'s `default` branch and runs with **build**
-      semantics. Add yargs `choices`, as `mcp add`'s `type` already has.
+- [x] **`freecode run` runs without hooks.** *Fixed 2026-09-05.* Both entrypoints
+      now call `hooks/bootstrap.ts`'s `initHooks()`; only `serve` passes
+      `watch: true`, since a one-shot run exits before a settings edit could apply.
+      Pinned by `hooks/bootstrap.test.ts`.
+- [x] **Headless `build` mode denies everything and says nothing useful.**
+      *Fixed 2026-09-05.* `freecode run` gained `--yes` (answers the **ask** tier
+      only) and repeatable `--allow <rule>` (in-memory session grants). Deny rules
+      and read-only modes still refuse — those are answered decisions, not open
+      questions. `AgentLoopConfig.autoApproveAsks` / `.sessionGrants` carry it into
+      the loop; pinned by `agent/headless-permission.test.ts`, whose first case
+      still asserts the unattended default is deny.
+- [x] **`freecode run --agent` is an unchecked cast.** *Fixed 2026-09-05.* yargs
+      `choices` now rejects an unknown mode at parse time with a usage error; the
+      cast at the read site is kept, matching `mcp add`'s house style, and is safe
+      because the runtime check exists.
 - [ ] **Shell hooks cannot set `modifiedOutput`.** `executeCommandHook` only ever
       returns `blocked` / `modifiedInput` / `additionalContext`, so the two events
       whose purpose is rewriting — `PostToolUse` (tool output) and
@@ -240,18 +239,30 @@ earlier audit are not repeated here.
 - [ ] **Non-zero exit is ignored when a hook prints JSON.** `command.ts` checks exit
       `2`, then parses JSON, then checks exit `0` — so `{"block":false}` + `exit 1`
       continues. Honour the exit code or state that JSON overrides it.
+- [ ] **No eval case can reach the compaction path** — so the head carve-out and
+      the tool transcript (both landed 2026-09-05) are unmeasurable end to end,
+      and a green `eval:gate` is silent about them rather than evidence for them.
+      Already tracked where it belongs: `compaction-boundary` sits in
+      `CATEGORIES_WITHOUT_CASES` (`eval/dataset.test.ts`) and in §9.1 of
+      `specs/2026-08-29-eval-case-registry.md`, which is the spec to change
+      first. Not repeated here — see that row for the mechanism.
 - [ ] **`settings.json` has three loaders and three different merge rules.**
       `permissions` concatenates both scopes, `hooks` override by `event + name`,
       `memory` takes the first definition (project → user → default). Nothing states
       the difference and `/getting-started/configuration` claims a single "project
       wins" rule that only holds for hooks. One loader that parses the file once and
       hands each subsystem its section would make one answer true.
-- [ ] **Unknown `settings.json` keys are silently ignored.** `"permission"` for
-      `"permissions"`, or a misspelled hook field, produces no warning — identical
-      from the outside to the feature being broken. Each loader already warns on
-      malformed input.
-- [ ] **No JSON Schema for `settings.json`.** No `$schema`, no generated schema, so
-      editors cannot complete or validate a hand-edited, security-relevant file.
+- [x] **Unknown `settings.json` keys are silently ignored.** Done 2026-09-05:
+      `settings/known-keys.ts` + `settings/validate.ts`, called from the shared
+      hook bootstrap so `serve` and `run` behave alike. Reports any key nothing
+      reads and suggests the near miss ("did you mean `permissions`?"). A name
+      check only — values stay each loader's business, and hook event names stay
+      with `hooks/settings.ts`, which already names the valid list.
+- [x] **No JSON Schema for `settings.json`.** Done 2026-09-05:
+      `schemas/settings.schema.json`, referenced from `/reference/settings` and
+      usable via `$schema`. A test asserts the schema's key set matches
+      `KNOWN_SETTINGS`, so the editor contract and the runtime warning cannot
+      drift.
 - [ ] **`FREECODE_HOME` is read in exactly one place** — the updater's
       `builds/stable/freecode` lookup (`apps/tui/src/entry.ts:101`). Every data path
       (`config.json`, `sessions/`, `projects/`, `rollout/`, `history.jsonl`) builds
@@ -266,17 +277,27 @@ earlier audit are not repeated here.
       the default like every other numeric variable.
 - [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
       `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
-- [ ] **`config.get` returns API keys verbatim.** Fine over a local stdio pipe,
-      wrong the moment the backend is reachable another way; no redaction anywhere.
+- [x] **`config.get` returns API keys verbatim.** ~~Fine over a local stdio pipe,
+      wrong the moment the backend is reachable another way; no redaction anywhere.~~
+      Fixed 2026-09-05: `redactConfig()` (`providers/config.ts`) builds a safe view
+      field by field — `{ hasApiKey, model?, authMode? }` per provider,
+      `{ hasCredential }` per web session — and `config.get` returns that. An
+      allowlist, not a blocklist, so the next credential field is excluded by
+      default. Tests in `providers/config-redaction.test.ts`.
 - [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
       `~/.freecode` (`cli/utils/config.ts`), so a repository cannot ship the MCP
       servers its contributors need the way it can ship rules and hooks.
 - [ ] **`freecode session` exposes 2 of 12 session operations.** `fork`, `switch`,
       `archive`, `export`, `import`, `upload`, `download` are IPC-only, so scripting
       session management means speaking JSON-RPC by hand.
-- [ ] **`freecode uninstall` deletes user data on one `y`.** It removes all of
+- [x] **`freecode uninstall` deletes user data on one `y`.** ~~It removes all of
       `~/.freecode` — sessions, rollout logs, memory, history, usage — and the prompt
-      does not say so. No `--keep-data`, no backup.
+      does not say so. No `--keep-data`, no backup.~~ Fixed 2026-09-05: the default
+      now removes the launcher and `~/.freecode/builds` only, `--purge` is what takes
+      the data directory, and the target list names what is inside it. Added
+      `--dry-run`; a non-TTY stdin errors instead of resolving the prompt as a silent
+      "no". Same semantics as `scripts/uninstall.sh`, which was always the correct
+      copy. Tests in `cli/commands/uninstall.test.ts`.
 - [ ] **No way to print effective configuration.** Diagnosing "why is it compacting
       so early" means reading source. A `freecode config env` dumping
       name / default / effective / source would pay for itself.
@@ -1105,3 +1126,20 @@ Found while writing `specs/2026-09-04-harness-cost-efficiency.md`.
       `metadata.outputKind`, so MCP tools (which can be just as log-noisy) always
       take the blind head+tail path. Extend classification once the D2 A/B proves
       the approach. Recorded in `/internals/cost-efficiency` Known gaps.
+
+## Docs findings (Anthropic subscription login — 2026-09-05)
+
+Found while writing `/getting-started/anthropic-subscription`, the page that
+publishes the OAuth ToS stance (`beforeStable.md` P0 #5). Recorded in that
+page's Known gaps.
+
+- [ ] **Tool names are forwarded unmapped on the OAuth path.** jcode renames
+      tools to the ones Claude Code ships; freecode does not. Spec §9 Q1 — a
+      tool-use-*quality* question, not an access or billing one, and it waits on
+      a real turn.
+- [ ] **No multi-account support.** One Anthropic login per machine
+      (`auth.json` is keyed by provider, not by account). Deliberate YAGNI in the
+      spec's §2 non-goals; listed here so the docs claim has a home.
+- [ ] **`anthropic` is the only provider with an OAuth mode.** `freecode auth
+      login` rejects any other provider by name. Fine today — no other catalogue
+      entry has a subscription surface freecode can reach.

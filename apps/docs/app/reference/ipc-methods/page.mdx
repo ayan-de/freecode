@@ -110,14 +110,21 @@ itself never crosses the pipe.
 
 | ✓ | Method | Params | Result |
 | --- | --- | --- | --- |
-|  | `config.get` | — | the parsed `~/.freecode/config.json` |
+|  | `config.get` | — | `~/.freecode/config.json`, **redacted** |
 |  | `config.setApiKey` | `{ provider, apiKey, model? }` | `void` |
 |  | `config.getCurrentModel` / `config.setCurrentModel` | — / `{ provider, model }` | current pair / `void` |
 |  | `config.getLastAgentMode` / `config.setLastAgentMode` | — / `{ mode }` | mode / `void` |
 
-`config.get` returns the file as-is, **API keys included**. It is fine over a
-stdio pipe to a local frontend; it is worth knowing about before exposing the
-backend any other way.
+`config.get` returns the file with every secret replaced by whether it is set:
+each provider entry becomes `{ hasApiKey, model?, authMode? }` and each `web`
+entry `{ hasCredential }`. `current`, `lastAgentMode` and `recovery` pass
+through unchanged. The redaction is an allowlist built field by field, not a
+blocklist of known secret names, so a credential field added later is excluded
+by default rather than leaked until someone remembers it.
+
+That matters because the same method is reachable over the web transport's
+`POST /api`, whose `host` is a parameter — a backend bound to `0.0.0.0` would
+otherwise hand out API keys.
 
 ## Memory
 
@@ -230,6 +237,3 @@ Also tracked in `TODO.md`; the first three are shared with
 - **`graph.explore` breaks the naming convention** and hard-codes `process.cwd()`
   while every neighbouring memory method takes `projectPath`. It should be
   `memory.graph.explore` with the same parameter.
-- **`config.get` returns API keys.** Fine for a local stdio frontend, wrong the
-  moment the backend is reachable any other way; the web transport gates `/api` but
-  the method itself does no redaction.

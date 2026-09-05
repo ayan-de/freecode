@@ -291,3 +291,61 @@ export function subscriptionAuth(providerId: string): "oauth" | undefined {
     ? "oauth"
     : undefined;
 }
+
+/**
+ * `Config` with every secret replaced by whether it is set.
+ *
+ * `apiKey`, and each of the four secret-bearing `WebCredentials` fields, are
+ * the whole reason this shape exists: nothing that authenticates is worth
+ * sending anywhere, and the only question a caller ever asked of them was
+ * "is one configured". `hasApiKey`/`hasCredential` answer that.
+ */
+export interface RedactedConfig {
+  providers?: Record<
+    string,
+    { hasApiKey: boolean; model?: string; authMode?: AnthropicAuthMode }
+  >;
+  web?: Record<string, { hasCredential: boolean }>;
+  current?: Config["current"];
+  lastAgentMode?: string;
+  recovery?: Config["recovery"];
+}
+
+/**
+ * The safe view of `config.json`, for anything that leaves the process.
+ *
+ * Built field by field rather than by deleting known secrets from a spread: a
+ * blocklist is wrong the day a credential field is added, and this file's
+ * `WebCredentials` has grown one twice.
+ */
+export function redactConfig(config: Config = readConfig()): RedactedConfig {
+  const redacted: RedactedConfig = {};
+  if (config.providers) {
+    redacted.providers = Object.fromEntries(
+      Object.entries(config.providers).map(([id, entry]) => [
+        id,
+        {
+          hasApiKey: Boolean(entry?.apiKey),
+          ...(entry?.model ? { model: entry.model } : {}),
+          ...(entry?.authMode ? { authMode: entry.authMode } : {}),
+        },
+      ]),
+    );
+  }
+  if (config.web) {
+    redacted.web = Object.fromEntries(
+      Object.entries(config.web).map(([id, credential]) => [
+        id,
+        {
+          hasCredential: Boolean(
+            credential?.cookie || credential?.cookieFile || credential?.apiKey,
+          ),
+        },
+      ]),
+    );
+  }
+  if (config.current) redacted.current = config.current;
+  if (config.lastAgentMode) redacted.lastAgentMode = config.lastAgentMode;
+  if (config.recovery) redacted.recovery = config.recovery;
+  return redacted;
+}

@@ -29,6 +29,7 @@ import {
 } from "./models-dev.js";
 import {
   readConfig,
+  redactConfig,
   writeConfig,
   setApiKey,
   setCurrentModel,
@@ -43,6 +44,7 @@ import {
 } from "./providers/config.js";
 import { logger } from "./utils/logger.js";
 import { formatFatalError } from "./cli/format-fatal-error.js";
+import { validateParams, INVALID_PARAMS } from "./ipc/validate-params.js";
 import type { ToolContext } from "./tools/types.js";
 import type {
   JsonRpcRequest,
@@ -78,8 +80,7 @@ import { getInterruptHandler } from "./session/interrupt.js";
 import { generateTitleFromPrompt } from "./agent/title-generator.js";
 import { initMcpServers, listClients, getMcpTools } from "./mcp/index.js";
 import { getConfigDir } from "./cli/utils/config.js";
-import { registerRtkHook } from "./hooks/builtin/rtk-rewrite.js";
-import { HookSettingsManager } from "./hooks/settings.js";
+import { initHooks } from "./hooks/bootstrap.js";
 import {
   bus,
   BusEvents,
@@ -367,7 +368,7 @@ function createError(
   return { jsonrpc: "2.0", id, error: { code, message, data } };
 }
 
-const methodHandlers: Record<
+export const methodHandlers: Record<
   string,
   (params: Record<string, unknown>) => Promise<unknown>
 > = {
@@ -873,8 +874,12 @@ const methodHandlers: Record<
     return { prompt };
   },
 
+  // Redacted, not raw: this is reachable over `web-server.ts`'s POST /api,
+  // whose `host` is a parameter — one `--host 0.0.0.0` would otherwise turn a
+  // debug convenience into key exfiltration. No caller ever wanted the key
+  // itself; `hasApiKey` is the question they were all asking.
   "config.get": async (): Promise<unknown> => {
-    return readConfig();
+    return redactConfig();
   },
 
   "config.setApiKey": async (
@@ -1197,7 +1202,12 @@ export async function handleRequest(
         `Method not found: ${request.method}`,
       );
     }
-    const result = await handler(request.params ?? {});
+    const params = request.params ?? {};
+    const invalid = validateParams(request.method, params);
+    if (invalid) {
+      return createError(request.id, INVALID_PARAMS, invalid);
+    }
+    const result = await handler(params);
     return createResponse(request.id, result);
   } catch (error) {
     if (error instanceof JsonRpcError) {
@@ -1255,14 +1265,9 @@ export async function startServer() {
   await initProviders();
   await initMcpServers();
 
-  // Optional rtk integration: rewrites bash commands to compact `rtk`
-  // equivalents to save tokens. No-op unless rtk resolves; FREECODE_RTK=0 opts out.
-  registerRtkHook();
-
-  // Load hooks from settings.json (project + user scopes)
-  const hookSettings = new HookSettingsManager(process.cwd());
-  hookSettings.load();
-  hookSettings.watch();
+  // Built-in hooks + settings.json hooks (project + user scopes). Shared with
+  // `freecode run` so headless and served runs load the same hooks.
+  const hookSettings = initHooks(process.cwd(), { watch: true });
 
   // Clean up on shutdown. `exit` cannot await, so the memory flush goes on the
   // signal handlers, which can (spec D3/D4) — quitting is how most sessions

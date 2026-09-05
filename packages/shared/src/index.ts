@@ -31,6 +31,16 @@ export type {
   ContextSegmentId,
   ContextSegmentStat,
   ContextBreakdown,
+  ModelLimit,
+  ModelCost,
+  ModelInfo,
+  MemoryType,
+  MemoryEntry,
+  MemoryGraphStats,
+  AnthropicAuthMode,
+  RedactedConfig,
+  TurnResult,
+  ExportedSession,
 } from "./types.js";
 
 // IPC Protocol
@@ -44,6 +54,7 @@ export type {
   MethodName,
   MethodParams,
   MethodResult,
+  ParamType,
 } from "./ipc/protocol.js";
 
-export { METHODS } from "./ipc/protocol.js";
+export { METHODS, REQUIRED_PARAMS } from "./ipc/protocol.js";

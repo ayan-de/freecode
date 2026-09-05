@@ -51,6 +51,7 @@ error — is swallowed and the current version opens.
 
 ```bash
 freecode run [message..] [--model <p/m>] [--agent <mode>] [--continue] [--session <id>]
+                       [--max-turns <n>] [--yes] [--allow <rule>]
 ```
 
 | Flag | Alias | Type | Default | Meaning |
@@ -60,6 +61,9 @@ freecode run [message..] [--model <p/m>] [--agent <mode>] [--continue] [--sessio
 | `--agent` | — | string | `build` | `plan` \| `build` \| `review` \| `explore` \| `danger` |
 | `--continue` | `-c` | boolean | `false` | continue the most recent *active* session for this directory |
 | `--session` | `-s` | string | — | continue a specific session id |
+| `--max-turns` | — | number | unbounded | cap on agent iterations; loop-health and the gates are the only limit without it |
+| `--yes` | `-y` | boolean | `false` | answer permission prompts with *allow*. Deny rules and read-only modes still refuse |
+| `--allow` | — | string (repeatable) | `[]` | grant one permission rule for this run only, e.g. `--allow 'Bash(pnpm test:*)'` |
 
 If no message positional is given and stdin is not a TTY, the prompt is read from
 stdin — `echo "explain this repo" | freecode run` works.
@@ -70,17 +74,33 @@ tool activity, thinking, and errors go to **stderr**. That is what makes
 `0` when the turn succeeded, `1` otherwise (including "no message provided" and
 "no provider configured").
 
-The turn is **unbounded** — there is no `--max-turns`. Use
-`FREECODE_MAX_TURN_TOKENS` if you need a spend ceiling in CI.
+The turn is **unbounded** unless you pass `--max-turns`. That caps iterations,
+not spend — use `FREECODE_MAX_TURN_TOKENS` for a token ceiling in CI.
 
 > **Read this before scripting `run`.** In headless mode nobody can answer a
 > permission prompt, and an unanswerable prompt resolves to **deny**, never to a
 > silent allow. In the default `build` mode every mutating tool (`write`, `edit`,
-> `bash`) defaults to *ask*, so a bare `freecode run "fix the test"` can read your
-> repository but will be denied every write. Make it work by granting the rules up
-> front in `.freecode/settings.json` (`"allow": ["Edit", "Write", "Bash(pnpm test:*)"]`)
-> — or, if you genuinely accept the risk in a sandbox, `--agent danger`, which
-> bypasses evaluation entirely. See [known gaps](#known-gaps).
+> `bash`) defaults to *ask*, so a bare `freecode run "fix the test"` reads your
+> repository fine and is denied every write.
+
+Three ways to make a headless run able to act, narrowest first:
+
+```bash
+# 1. Grant exactly what the task needs, for this run only.
+freecode run --allow 'Edit' --allow 'Bash(pnpm test:*)' "fix the failing test"
+
+# 2. Answer every prompt with allow. Deny rules and read-only modes still refuse.
+freecode run --yes "fix the failing test"
+
+# 3. Persist the grants for the repo, in .freecode/settings.json.
+#    { "permissions": { "allow": ["Edit", "Write", "Bash(pnpm test:*)"] } }
+freecode run "fix the failing test"
+```
+
+`--yes` answers the *ask* tier and nothing else. A `deny` rule is still absolute,
+and `--agent plan|review|explore` is still read-only — those are decisions someone
+already made, not questions waiting for an answer. `--agent danger` remains the
+only flag that bypasses evaluation entirely; use it only in a sandbox.
 
 ## `freecode serve` — the backend alone
 
@@ -92,8 +112,9 @@ No flags. Starts the JSON-RPC 2.0 backend on stdin/stdout — the same process t
 TUI spawns internally, and what any other frontend attaches to. See
 [IPC methods](/reference/ipc-methods).
 
-This is also the only entry point that loads `settings.json` **hooks** and
-registers the built-in `rtk` rewrite hook.
+`settings.json` **hooks** and the built-in `rtk` rewrite hook load here through
+`hooks/bootstrap.ts` — the same bootstrap `freecode run` calls, so a headless run
+and a served session see the same hooks.
 
 ## `freecode web` — browser frontend
 
@@ -241,6 +262,38 @@ Servers are written to `~/.freecode/config.json` under `mcp.servers`, with
 `enabled: true` and `timeout: 5000` defaults. There is no project-scoped MCP
 config ([known gaps](#known-gaps)).
 
+## `freecode auth`
+
+```bash
+freecode auth login [provider] [--no-browser]
+freecode auth status
+freecode auth logout [provider]
+```
+
+Authenticates the `anthropic` provider with a Claude Pro/Max subscription
+instead of an API key. `provider` defaults to `anthropic` and any other value is
+rejected by name — it is the only provider with an OAuth mode.
+
+| Command | Flag | Notes |
+| --- | --- | --- |
+| `login` | `--no-browser` | skip opening the authorize URL; print it and paste the code back |
+| `status` | — | auth mode, token expiry, scopes; also reports an importable Claude Code login |
+| `logout` | — | deletes the stored tokens **and** un-pins the mode, reverting to your API key |
+
+`login` prints a disclosure before it does anything, and it means it: reaching
+subscription inference requires presenting FreeCode to Anthropic **as Claude
+Code** — its OAuth client id, its headers, its identity line. Anthropic reserves
+that inference for its own surfaces and has acted against tools doing this, and
+the account at risk is yours. The full stance, the three opt-ins, and what
+happens when Anthropic refuses are on
+[Anthropic subscription login](/getting-started/anthropic-subscription).
+
+The flow is PKCE against a `localhost` callback with a 120-second wait, falling
+back to paste. It is a single process — the OAuth `state` **is** the PKCE
+verifier, so there is no second command and no `--code` flag. Tokens go to
+`~/.freecode/auth.json` at mode `0600`, separate from `config.json`, and refresh
+automatically.
+
 ## `freecode update`
 
 Runs `curl -fsSL https://freecode.website/install | bash` and exits with the
@@ -250,42 +303,35 @@ from source.
 ## `freecode uninstall`
 
 ```bash
-freecode uninstall [--force]
+freecode uninstall [--purge] [--dry-run] [--force]
 ```
 
 | Flag | Alias | Default | Meaning |
 | --- | --- | --- | --- |
-| `--force` | `-f` | `false` | skip the confirmation prompt |
+| `--purge` | — | `false` | also delete `~/.freecode` — sessions, memory, history, usage |
+| `--dry-run` | — | `false` | print what would be removed, delete nothing |
+| `--force` | `-f`, `-y`, `--yes` | `false` | skip the confirmation prompt |
 
-Removes `~/.freecode` **entirely**, plus a `freecode` binary found in
-`/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or `~/.cargo/bin`. It prints the
-list first and asks `y/n` unless `--force` is given. Exit code is `1` if any
-removal failed.
+**The program goes, the data stays.** By default it removes a `freecode` binary
+found in `/usr/local/bin`, `/usr/bin`, `~/.local/bin`, or `~/.cargo/bin`, plus
+`~/.freecode/builds` (the installed versions). Your sessions, rollout logs,
+memory, prompt history, and usage stay where they are.
 
-That directory is not just the binary: it contains your sessions, rollout logs,
-memory, prompt history, and usage data. There is no `--keep-data`, and nothing is
-backed up. Copy `~/.freecode/projects/` and `~/.freecode/sessions/` first if you
+`--purge` is what takes `~/.freecode` entirely, and the confirmation names what
+is inside it rather than saying only "proceed". Nothing is backed up either way,
+so copy `~/.freecode/projects/` and `~/.freecode/sessions/` before purging if you
 might want them back.
+
+It prints the list first and asks `y/N` unless `--force` is given; a
+non-terminal stdin is an error telling you to pass `--force`, not a silent "no".
+Exit code is `1` if any removal failed. These are the same semantics as
+`curl -fsSL https://freecode.website/uninstall | bash`, which has always drawn
+the line here.
 
 ## Known gaps
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-- **`freecode run` runs without hooks.** `HookSettingsManager` is constructed only
-  in `startServer()` (`server.ts:1106`), so a headless run never loads
-  `settings.json` hooks and never registers the built-in `rtk` hook. Permission
-  *rules* do apply (the loop builds its own `PermissionSettingsManager`), so the
-  same command behaves differently under `serve` and under `run` — the formatter
-  you rely on after every edit silently does not run in CI.
-- **Headless `build` mode is a trap.** Every unanswerable "ask" resolves to deny
-  (`permission/prompt.ts:44`), and `build` defaults mutating tools to ask, so the
-  common first command produces a turn full of denials with no hint that a rule
-  would fix it. A `--yes`/`--allow <rule>` flag, or a one-line explanation on the
-  first denial, would remove the whole class of confusion.
-- **`--agent` is not validated.** `argv.agent as AgentMode` is an unchecked cast
-  (`run.ts:140`); `--agent buld` falls through `modeDefault`'s `default` branch and
-  silently runs with **build** semantics. yargs `choices` would catch it at parse
-  time, as `mcp add`'s `type` already does.
 - **`session` CLI covers 2 of 12 operations.** `fork`, `switch`, `archive`,
   `export`, `import`, `upload`, `download` all exist over IPC and none has a CLI
   surface, so scripting session management means speaking JSON-RPC by hand.
@@ -299,6 +345,7 @@ Found while writing this page; each is also tracked in `TODO.md`.
 - **MCP config is user-scope only.** `getConfigDir()` is hard-wired to
   `~/.freecode`, so a repository cannot ship the MCP servers its contributors need
   the way it can ship permission rules and hooks.
-- **`uninstall` deletes user data with one `y`.** No `--keep-data`, no backup, and
-  the prompt does not spell out that sessions and memory are inside the directory
-  being removed.
+- **`uninstall` ignores the variables the installer honours.** It hard-codes
+  `~/.freecode` and four Unix bin paths, while `install.sh` supports
+  `FREECODE_HOME` and `FREECODE_INSTALL_DIR`, and the Windows launcher path is
+  not in the list at all.

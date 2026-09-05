@@ -92,18 +92,12 @@ import { MemoryService } from "../compaction/index.js";
 import { getMaxTurnTokens } from "../compaction/tokens.js";
 import { getMemoryGraphService } from "../memory/graph/index.js";
 import { renderRetrievedMemories } from "../memory/mem-prompt.js";
-import {
-  CitationStreamFilter,
-  parseCitations,
-} from "../memory/citations.js";
+import { CitationStreamFilter, parseCitations } from "../memory/citations.js";
 import { runConsolidationIfDue } from "../memory/consolidate-run.js";
 import { getSessionManager } from "../session/manager.js";
 import type { MemoryEntry } from "../memory/mem-types.js";
 import { extractMemories } from "../memory/extract.js";
-import {
-  loadMemorySettings,
-  shouldExtract,
-} from "../memory/extract-policy.js";
+import { loadMemorySettings, shouldExtract } from "../memory/extract-policy.js";
 import { createLlmSummarizer } from "../compaction/llm-summarizer.js";
 import type { CompactOptions } from "../compaction/service.js";
 import {
@@ -228,6 +222,21 @@ export interface AgentLoopConfig {
    * for interactive runs. Spec `2026-08-10-autonomous-runs-design.md` §4.3.
    */
   budgetMaxRedirects?: number;
+  /**
+   * Answer every `ask` decision with "allow" instead of prompting. Set by
+   * `freecode run --yes`, where there is no frontend to prompt: `askPermission`
+   * rejects with no subscriber, so an unattended `build` run was denied every
+   * mutating tool it tried. Deliberately scoped to the ask tier only — a deny
+   * rule and a read-only mode still refuse, because those are decisions someone
+   * already made, not questions waiting for an answer.
+   */
+  autoApproveAsks?: boolean;
+  /**
+   * In-memory allow rules applied to this run's permission settings, from
+   * `freecode run --allow <rule>`. Session grants, so nothing is written to a
+   * settings file. Never beats a deny rule (`evaluate.ts` §3).
+   */
+  sessionGrants?: string[];
 }
 
 // =============================================================================
@@ -320,6 +329,7 @@ export class AgentLoop {
     heuristics: LoopHeuristics;
     redirect: boolean;
     budgetMaxRedirects?: number;
+    autoApproveAsks: boolean;
   };
   private memory: MemoryService;
   private hooks: HookRuntime;
@@ -337,6 +347,7 @@ export class AgentLoop {
   private compiler: PromptCompiler;
   // Per-rule permission layer: project + user settings + session grants
   private permissionSettings: PermissionSettingsManager | undefined;
+  private sessionGrants: string[] | undefined;
   // Cancellation: aborted on interrupt(); threaded into provider requests and
   // tool contexts so in-flight work stops, not just the next loop check.
   private abort = new AbortController();
@@ -405,7 +416,9 @@ export class AgentLoop {
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
       redirect: config?.redirect ?? true,
       budgetMaxRedirects: config?.budgetMaxRedirects,
+      autoApproveAsks: config?.autoApproveAsks ?? false,
     };
+    this.sessionGrants = config?.sessionGrants;
     this.memory = config?.memory ?? new MemoryService(sessionId);
     this.hooks = config?.hooks ?? createHookRuntime();
     this.recorder = config?.recorder ?? createRecorder(sessionId);
@@ -657,6 +670,14 @@ export class AgentLoop {
         this.permissionSettings = new PermissionSettingsManager(
           input.projectPath,
         );
+        // --allow rules from a headless run, before anything can consult them.
+        for (const rule of this.sessionGrants ?? []) {
+          if (!this.permissionSettings.addSessionGrant(rule)) {
+            logger.warn(
+              `[AgentLoop] Ignoring unparseable --allow rule: ${rule}`,
+            );
+          }
+        }
         this.permissionSettings.watch();
       }
 
@@ -1058,7 +1079,12 @@ export class AgentLoop {
         };
       }
 
-      return await this.complete("Loop stopped", undefined, undefined, usageSoFar());
+      return await this.complete(
+        "Loop stopped",
+        undefined,
+        undefined,
+        usageSoFar(),
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return await this.fail("Loop error", message);
@@ -1763,10 +1789,17 @@ export class AgentLoop {
         await this.appendUserMessage(caption, toolImages);
       }
 
-      // Add assistant response to MemoryService for token tracking
-      this.memory.addMessage(
-        "assistant",
-        providerResult.content || `[Executed ${toolCalls.length} tools]`,
+      // Record the turn for compaction. The transcript carries what the tools
+      // actually did — the stub this replaced ("[Executed N tools]") meant a
+      // summary could describe a coding session without a single edit in it.
+      this.memory.addToolTurn(
+        providerResult.content,
+        toolCalls.map((tc, i) => ({
+          tool: tc.tool,
+          args: tc.args,
+          output: toolResults[i]?.modelOutput,
+          error: toolResults[i]?.error,
+        })),
       );
 
       await this.maybeCompact(provider, model);
@@ -2400,29 +2433,37 @@ export class AgentLoop {
       }
 
       if (decision === "ask") {
-        // Notification Hook — agent needs user attention for approval
-        await this.hooks.runNotification(
-          `Permission needed: ${toolCall.tool}${evaluation.matchedRule ? ` — ${evaluation.matchedRule}` : ""}`,
-          hookContext,
-        );
-        const outcome = this.permissionSettings
-          ? await promptForPermission({
-              toolName: toolCall.tool,
-              args,
-              projectRoot: this.state.projectPath,
-              settings: this.permissionSettings,
-              sessionId: this.state.sessionId,
-              reason:
-                evaluation.matchedRule ??
-                `${evaluation.source} (${this.state.agentMode} mode)`,
-            })
-          : { allowed: false, reason: "Permission system unavailable" };
-        if (!outcome.allowed) {
-          return this.denyToolCall(
-            toolCall,
-            "user",
-            `Permission denied: ${outcome.reason ?? "user declined"}`,
+        // --yes: nobody is listening, so the ask is answered here rather than
+        // round-tripping to a bus that would reject it and read as a denial.
+        if (this.config.autoApproveAsks) {
+          logger.debug(
+            `[AgentLoop] Auto-approved (--yes): ${toolCall.tool}${evaluation.matchedRule ? ` — ${evaluation.matchedRule}` : ""}`,
           );
+        } else {
+          // Notification Hook — agent needs user attention for approval
+          await this.hooks.runNotification(
+            `Permission needed: ${toolCall.tool}${evaluation.matchedRule ? ` — ${evaluation.matchedRule}` : ""}`,
+            hookContext,
+          );
+          const outcome = this.permissionSettings
+            ? await promptForPermission({
+                toolName: toolCall.tool,
+                args,
+                projectRoot: this.state.projectPath,
+                settings: this.permissionSettings,
+                sessionId: this.state.sessionId,
+                reason:
+                  evaluation.matchedRule ??
+                  `${evaluation.source} (${this.state.agentMode} mode)`,
+              })
+            : { allowed: false, reason: "Permission system unavailable" };
+          if (!outcome.allowed) {
+            return this.denyToolCall(
+              toolCall,
+              "user",
+              `Permission denied: ${outcome.reason ?? "user declined"}`,
+            );
+          }
         }
       }
     }
@@ -2681,7 +2722,9 @@ export class AgentLoop {
       jaccardSimilarity(prev, reasoning) >=
         heuristics.reasoningSimilarityThreshold;
 
-    const score = similar ? this.state.loopHealth.repeatedReasoningScore + 1 : 0;
+    const score = similar
+      ? this.state.loopHealth.repeatedReasoningScore + 1
+      : 0;
     this.state = {
       ...this.state,
       loopHealth: { ...this.state.loopHealth, repeatedReasoningScore: score },
@@ -3053,7 +3096,10 @@ export const createAgentLoop = (
 // Effect context, so a test layer swaps any of them without patching globals.
 export const createAgentLoopEffect = (
   sessionId: string,
-  config?: Pick<AgentLoopConfig, "maxIterations" | "heuristics">,
+  config?: Pick<
+    AgentLoopConfig,
+    "maxIterations" | "heuristics" | "autoApproveAsks" | "sessionGrants"
+  >,
 ): Effect.Effect<
   AgentLoop,
   never,

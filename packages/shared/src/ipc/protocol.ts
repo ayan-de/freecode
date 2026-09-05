@@ -218,15 +218,20 @@ export const METHODS = {
     params: {} as {
       sessionId: string;
       message: string;
+      model?: string;
+      effort?: import("../types.js").EffortLevel;
+      agentMode?: string;
       images?: Array<{ data: string; mediaType: string; altText?: string }>;
     },
-    // The LoopResult shape when the turn ran normally. When the session was
-    // already busy, the call parks the prompt in the follow-up queue and
-    // resolves immediately with { queued: true, id } — the UI uses the
-    // `message_queued` stream event for the same data so web/SSE subscribes
-    // stay in sync.
+    // The completed turn. This said `StreamResponse` for a long time and was
+    // simply wrong — the handler returns the loop's result, and the per-token
+    // output arrives on the stream channel, never as the RPC result. When the
+    // session was already busy the call parks the prompt in the follow-up
+    // queue and resolves immediately with { queued: true, id }; the UI uses
+    // the `message_queued` stream event for the same data so web/SSE
+    // subscribers stay in sync.
     result: {} as
-      | StreamResponse
+      | import("../types.js").TurnResult
       | { queued: true; id: string },
   },
   "session.dequeue": {
@@ -367,8 +372,247 @@ export const METHODS = {
     params: undefined,
     result: {} as { url: string } | { error: "not-installed" },
   },
+
+  // ===========================================================================
+  // Models
+  // ===========================================================================
+  "models.list": {
+    params: { providerId: "" },
+    result: [] as import("../types.js").ModelInfo[],
+  },
+  // Context window in tokens for one provider/model pair, or 0 when the
+  // catalogue has no entry — never a guessed default.
+  "models.contextLimit": {
+    params: { provider: "", model: "" },
+    result: 0 as number,
+  },
+
+  // ===========================================================================
+  // Config
+  //
+  // `config.get` returns the REDACTED view. There is deliberately no method
+  // that returns the raw config: the JSON-RPC surface is reachable over the
+  // web server's POST /api, and `host` is a parameter.
+  // ===========================================================================
+  "config.get": {
+    params: undefined,
+    result: {} as import("../types.js").RedactedConfig,
+  },
+  "config.setApiKey": {
+    params: {} as { provider: string; apiKey: string; model?: string },
+    result: undefined as void,
+  },
+  "config.setCurrentModel": {
+    params: { provider: "", model: "" },
+    result: undefined as void,
+  },
+  "config.getCurrentModel": {
+    params: undefined,
+    result: {} as { provider: string; model: string } | undefined,
+  },
+  "config.getLastAgentMode": {
+    params: undefined,
+    result: undefined as string | undefined,
+  },
+  "config.setLastAgentMode": {
+    params: { mode: "" },
+    result: undefined as void,
+  },
+
+  // ===========================================================================
+  // Memory
+  // ===========================================================================
+  "memory.list": {
+    params: {} as {
+      projectPath?: string;
+      type?: import("../types.js").MemoryType;
+    },
+    result: [] as import("../types.js").MemoryEntry[],
+  },
+  "memory.get": {
+    params: {} as {
+      name: string;
+      type: import("../types.js").MemoryType;
+      projectPath?: string;
+    },
+    result: null as import("../types.js").MemoryEntry | null,
+  },
+  "memory.save": {
+    params: {} as {
+      entry: import("../types.js").MemoryEntry;
+      projectPath?: string;
+    },
+    result: undefined as void,
+  },
+  "memory.delete": {
+    params: {} as {
+      name: string;
+      type: import("../types.js").MemoryType;
+      projectPath?: string;
+    },
+    result: false as boolean,
+  },
+  "memory.query": {
+    params: {} as {
+      query: string;
+      projectPath?: string;
+      limit?: number;
+      types?: import("../types.js").MemoryType[];
+    },
+    result: [] as import("../types.js").MemoryEntry[],
+  },
+  "memory.graph.rebuild": {
+    params: {} as { projectPath?: string },
+    result: {} as import("../types.js").MemoryGraphStats,
+  },
+  "memory.graph.stats": {
+    params: {} as { projectPath?: string },
+    result: {} as import("../types.js").MemoryGraphStats,
+  },
+  // The rendered <memories> block, for previewing what a turn would inject.
+  "memory.buildPrompt": {
+    params: {} as {
+      projectPath?: string;
+      types?: import("../types.js").MemoryType[];
+      limit?: number;
+      all?: boolean;
+    },
+    result: "" as string,
+  },
+
+  // ===========================================================================
+  // Session lifecycle
+  // ===========================================================================
+  "session.switch": {
+    params: { sessionId: "" },
+    result: undefined as void,
+  },
+  /** Returns the new session's id. */
+  "session.fork": {
+    params: { sessionId: "" },
+    result: "" as string,
+  },
+  "session.archive": {
+    params: { sessionId: "" },
+    result: undefined as void,
+  },
+  // `purge` also removes the session's on-disk artifacts; without it the
+  // record is marked deleted and the files stay.
+  "session.delete": {
+    params: {} as { sessionId: string; purge?: boolean },
+    result: undefined as void,
+  },
+  // The session whose last turn was killed mid-stream, if any — what the TUI
+  // offers to resume at startup.
+  "session.getInterrupted": {
+    params: undefined,
+    result: null as { sessionId: string; messageId: string } | null,
+  },
+
+  // ===========================================================================
+  // Remote sync
+  // ===========================================================================
+  "session.export": {
+    params: { sessionId: "" },
+    result: {} as import("../types.js").ExportedSession,
+  },
+  "session.import": {
+    params: { url: "" },
+    result: { sessionId: "" },
+  },
+  /** Returns the share URL the session was uploaded to. */
+  "session.upload": {
+    params: {} as { sessionId: string; endpoint: string; apiKey?: string },
+    result: "" as string,
+  },
+  /** Returns the id of the session the download created locally. */
+  "session.download": {
+    params: {} as { url: string; endpoint?: string; apiKey?: string },
+    result: "" as string,
+  },
 } as const;
 
 export type MethodName = keyof typeof METHODS;
+
+// =============================================================================
+// Runtime parameter contracts
+//
+// Handlers reach their params through `params as { … }` — a cast, which
+// checks nothing. A missing or mistyped field therefore became `undefined`
+// deep inside the handler and surfaced as an internal error (-32603), which
+// says "the server broke" when the truth is "you sent the wrong params".
+//
+// This table is what the server validates against before dispatch, so a bad
+// call gets -32602 and the field name. It is typed `Record<MethodName, …>`,
+// so a new method without an entry is a compile error — there is no path to
+// adding a method that silently skips validation. Methods with nothing
+// mandatory declare `{}`; optional params are deliberately absent, since
+// omitting them is legal and the handler already defaults them.
+// =============================================================================
+
+export type ParamType = "string" | "number" | "boolean" | "object" | "array";
+
+export const REQUIRED_PARAMS: Record<
+  MethodName,
+  Readonly<Record<string, ParamType>>
+> = {
+  "tools.list": {},
+  "tools.call": { name: "string", args: "object" },
+  // projectPath is validated by the handler, which falls back to cwd when it
+  // is missing or does not exist — a fallback, not a contract violation.
+  "session.start": {},
+  "session.send": { sessionId: "string", message: "string" },
+  "session.dequeue": { sessionId: "string", id: "string" },
+  "session.stop": { sessionId: "string" },
+  "session.compact": { sessionId: "string" },
+  "session.list": {},
+  "session.resume": { sessionId: "string" },
+  "session.claudeList": {},
+  "session.claudeTranscript": { sessionId: "string" },
+  "providers.list": {},
+  "config.setWebCredential": { provider: "string", credential: "object" },
+  // projectPath is optional in both handlers (they fall back to the process
+  // cwd), so it is not required here. The rule for this table is what the
+  // handler actually needs — validation must never reject a call the handler
+  // would have served.
+  "commands.list": {},
+  "commands.resolve": { name: "string" },
+  "question.answer": { requestId: "string", answers: "array" },
+  "question.reject": { requestId: "string" },
+  "permission.answer": { requestId: "string", decision: "string" },
+  "permission.reject": { requestId: "string" },
+  "context.stats": { sessionId: "string" },
+  "usage.get": {},
+  "skills.list": {},
+  "mcp.status": {},
+  "history.list": {},
+  "history.append": { text: "string" },
+  "graph.explore": {},
+  "models.list": { providerId: "string" },
+  "models.contextLimit": { provider: "string", model: "string" },
+  "config.get": {},
+  "config.setApiKey": { provider: "string", apiKey: "string" },
+  "config.setCurrentModel": { provider: "string", model: "string" },
+  "config.getCurrentModel": {},
+  "config.getLastAgentMode": {},
+  "config.setLastAgentMode": { mode: "string" },
+  "memory.list": {},
+  "memory.get": { name: "string", type: "string" },
+  "memory.save": { entry: "object" },
+  "memory.delete": { name: "string", type: "string" },
+  "memory.query": { query: "string" },
+  "memory.graph.rebuild": {},
+  "memory.graph.stats": {},
+  "memory.buildPrompt": {},
+  "session.switch": { sessionId: "string" },
+  "session.fork": { sessionId: "string" },
+  "session.archive": { sessionId: "string" },
+  "session.delete": { sessionId: "string" },
+  "session.getInterrupted": {},
+  "session.export": { sessionId: "string" },
+  "session.import": { url: "string" },
+  "session.upload": { sessionId: "string", endpoint: "string" },
+  "session.download": { url: "string" },
+};
 export type MethodParams<M extends MethodName> = (typeof METHODS)[M]["params"];
 export type MethodResult<M extends MethodName> = (typeof METHODS)[M]["result"];
