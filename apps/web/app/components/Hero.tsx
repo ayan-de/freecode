@@ -46,8 +46,8 @@ export function Hero() {
         </p>
 
         <div className="flex flex-wrap items-center gap-4 mt-4 mb-2">
-          <Button variant="primary" className="px-6 py-3" href="/internal">
-            View Architecture
+          <Button variant="primary" className="px-6 py-3" href="https://docs.freecode.website/">
+            View Docs
           </Button>
           <Button
             variant="outline"

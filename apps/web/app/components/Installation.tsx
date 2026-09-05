@@ -132,7 +132,7 @@ export function Installation() {
           </div>
         </div>
         <div>
-          <div className="text-4xl lg:text-5xl font-bold text-foreground">3</div>
+          <div className="text-4xl lg:text-5xl font-bold text-foreground">200+</div>
           <div className="text-base lg:text-lg text-muted-foreground mt-2">
             AI Providers
           </div>
