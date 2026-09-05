@@ -22,6 +22,10 @@ const BUILD_LABEL_PATTERN = /(boq_assistant-bard-web-server_\d+\.\d+_p\d+)/;
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2000;
+// Throttling surfaces as an EMPTY reply, not a 429 (spec E3: 3/5 empty
+// back-to-back, 1/4 at 25s spacing). Waiting is the only fix, so an empty
+// reply retries on a much longer clock than a transport error.
+const EMPTY_RETRY_DELAY_MS = 20_000;
 
 // Same timeouts every other provider gets: a stalled body is the failure mode
 // that otherwise hangs a turn forever with no output and no error.
@@ -58,7 +62,17 @@ export interface GenerateOptions {
   prompt: string;
   model?: string;
   signal?: AbortSignal;
+  /** Treat an empty reply as a retryable throttle signal instead of returning
+   *  it. Set by the tool bridge: an empty reply mid tool-loop dead-ends the
+   *  whole turn, where a human just re-asks. */
+  retryEmpty?: boolean;
+  /** Minimum spacing since the previous request. The tool bridge sets this
+   *  because a tool round trip fires the follow-up request at machine speed —
+   *  exactly the back-to-back case E3 measured at 3/5 empty. */
+  minGapMs?: number;
 }
+
+let lastRequestAt = 0;
 
 async function post(
   options: GenerateOptions,
@@ -67,6 +81,11 @@ async function post(
   const settings = loadGeminiWebSettings();
   const resolved = resolveGeminiWebModel(options.model);
   const label = await getBuildLabel(forceLabelRefresh);
+  if (options.minGapMs) {
+    const wait = lastRequestAt + options.minGapMs - Date.now();
+    if (wait > 0) await sleep(wait);
+  }
+  lastRequestAt = Date.now();
   return timeoutFetch(requestUrl(label, settings), {
     method: "POST",
     headers: buildHeaders(settings),
@@ -101,7 +120,11 @@ async function withRetry<T>(
       refreshLabel = error instanceof HttpStatusError && error.status < 500;
       if (i < MAX_ATTEMPTS - 1) {
         logger.debug(`[gemini-web] retry ${i + 1}/${MAX_ATTEMPTS}`, { error });
-        await sleep(RETRY_DELAY_MS);
+        await sleep(
+          error instanceof EmptyReplyError
+            ? EMPTY_RETRY_DELAY_MS
+            : RETRY_DELAY_MS,
+        );
       }
     }
   }
@@ -114,12 +137,20 @@ export class HttpStatusError extends Error {
   }
 }
 
+export class EmptyReplyError extends Error {
+  constructor() {
+    super("Gemini web returned an empty reply (likely throttled)");
+  }
+}
+
 /** One non-streaming turn. */
 export async function generate(options: GenerateOptions): Promise<string> {
   return withRetry(options.signal, async (refresh) => {
     const response = await post(options, refresh);
     if (!response.ok) throw new HttpStatusError(response.status);
-    return extractResponseText(await response.text());
+    const text = extractResponseText(await response.text());
+    if (!text && options.retryEmpty) throw new EmptyReplyError();
+    return text;
   });
 }
 
@@ -127,6 +158,26 @@ export async function generate(options: GenerateOptions): Promise<string> {
 export async function* generateStream(
   options: GenerateOptions,
 ): AsyncGenerator<string> {
+  // An empty reply is only detectable once the body has been fully read, and
+  // is only safely retryable while nothing has been yielded — so the retry
+  // wraps whole attempts, and stops mattering the moment text flows.
+  const attempts = options.retryEmpty ? MAX_ATTEMPTS : 1;
+  for (let attempt = 0; ; attempt++) {
+    let yielded = false;
+    for await (const delta of streamOnce(options)) {
+      yielded = true;
+      yield delta;
+    }
+    if (yielded || attempt >= attempts - 1) return;
+    if (options.signal?.aborted) return;
+    logger.debug(
+      `[gemini-web] empty streamed reply, retry ${attempt + 1}/${attempts - 1}`,
+    );
+    await sleep(EMPTY_RETRY_DELAY_MS);
+  }
+}
+
+async function* streamOnce(options: GenerateOptions): AsyncGenerator<string> {
   // Retry wraps only the connect + first byte. Once text has reached the
   // caller a retry would replay it, and the fold rejects a reply that is not
   // an extension of what was already shown.
@@ -142,7 +193,8 @@ export async function* generateStream(
 
   const body = response.body;
   if (!body) {
-    yield extractResponseText(await response.text());
+    const text = extractResponseText(await response.text());
+    if (text) yield text;
     return;
   }
 

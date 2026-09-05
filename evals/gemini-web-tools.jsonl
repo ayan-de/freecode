@@ -1,0 +1,24 @@
+// Gemini-web tool bridge suite — does the web-session model comply with the
+// text tool protocol instead of answering from priors? Spec:
+// docs/superpowers/specs/2026-08-29-gemini-web-provider.md §10 (the bridge)
+// and §4 E1/E2 (the fabrication these cases are the regression net for).
+//
+// NOT part of the gate, and not for CI: every case pins the gemini-web
+// provider and REQUIRES the bridge flag, or the provider silently discards
+// tools and every expectTool here reads as a false regression. Run manually:
+//
+//   FREECODE_GEMINI_WEB_TOOLS=1 pnpm eval gemini-web-tools --trials 1
+//
+// from the REPO ROOT (cases reference root-level files). The budget is
+// requests, not tokens (spec E3): the bridge paces tool-loop requests 8s
+// apart and retries empty replies on a 20s clock, so this suite is SLOW —
+// minutes, not seconds — and each trial spends the anonymous session's quota.
+//
+// Pass rates are provisional: the 2026-09-05 smoke run was 3/3 compliant plus
+// one grounded round trip, which is evidence, not p >= 0.99. If a case here
+// proves flaky, that is §10 data about the bridge, not a bad case — record
+// the rate in spec §10.2 before reaching for quarantine.txt.
+{"id": "web-bridge-reads-before-answering", "model": "gemini-web/gemini-3.5-flash-thinking", "prompt": "What is the first line of TRACE.md? Read it, do not guess.", "failureCategory": "tool-routing", "whyModelBacked": "The bridge's parser and stream gate are unit-tested (tool-bridge.test.ts); whether the web model obeys the text protocol instead of answering from priors is inference-time behaviour — E1 measured this exact question answered with fabricated content on 4/9 turns, and only a real turn against the live endpoint can show the bridge holds.", "expectTool": "read", "expectFirstToolIn": ["read"], "expectInArgs": {"filePath": "TRACE.md"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "web-bridge-grounded-count", "model": "gemini-web/gemini-3.5-flash-thinking", "prompt": "How many quarantined cases are listed in evals/quarantine.txt? Read the file, then answer.", "failureCategory": "tool-routing", "whyModelBacked": "E1's flagship fabrication: '23 quarantined cases' invented for a file that says 3, with a fabricated verbatim quote. The regression this guards is the model answering WITHOUT the read — a choice it makes at inference time, invisible to any unit test of the bridge.", "expectTool": "read", "expectInArgs": {"filePath": "quarantine.txt"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "web-bridge-grep-routing", "model": "gemini-web/gemini-3.5-flash-thinking", "prompt": "Which file defines the function proposeQuarantine?", "failureCategory": "tool-routing", "whyModelBacked": "Tool CHOICE over the text protocol is thinner than over a native tools field — the model sees one-line signatures, not schemas — so routing to grep instead of guessing or misusing read is behaviour only a real turn over the bridge exercises.", "expectTool": "grep", "expectFirstToolIn": ["grep", "glob"], "expectInArgs": {"pattern": "proposeQuarantine"}, "expectMaxTurns": 4, "forbidTools": ["write", "edit"]}
+{"id": "web-bridge-final-without-tools", "model": "gemini-web/gemini-3.5-flash-thinking", "prompt": "Without using any tools, in one sentence: what does the acronym JSONL stand for?", "failureCategory": "tool-routing", "whyModelBacked": "The protocol's other arm: a general-knowledge question must produce a FINAL: answer, not a needless tool call — and a violation (neither form) is retried inside the provider, so what this observes is the whole bridge contract end to end, which no unit test can, since compliance is the model's choice.", "expectTool": null, "expectMaxTurns": 2}

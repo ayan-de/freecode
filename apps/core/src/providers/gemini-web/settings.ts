@@ -25,6 +25,11 @@ export interface GeminiWebSettings {
   authUser?: string;
   /** Page XSRF token (`SNlM0e`), sent as the `at` form field. */
   xsrfToken?: string;
+  /** Opt-in for the text-protocol tool bridge (tool-bridge.ts). Off by
+   *  default: spec D1's no-tools stance is the measured design, and the bridge
+   *  is the experiment against it. Also enabled by
+   *  FREECODE_GEMINI_WEB_TOOLS=1. */
+  experimentalTools: boolean;
 }
 
 interface RawSettings {
@@ -32,6 +37,7 @@ interface RawSettings {
   cookieFile?: string;
   authUser?: string | number;
   xsrfToken?: string;
+  experimentalTools?: boolean;
 }
 
 function sapisidFrom(cookie: string): string | undefined {
@@ -73,5 +79,8 @@ export function loadGeminiWebSettings(): GeminiWebSettings {
         ? undefined
         : String(raw.authUser),
     xsrfToken: raw.xsrfToken || undefined,
+    experimentalTools:
+      raw.experimentalTools === true ||
+      process.env.FREECODE_GEMINI_WEB_TOOLS === "1",
   };
 }

@@ -53,6 +53,7 @@ and needs no key". Everything else in FreeCode is unchanged.
 | `models.ts` | 71 | The web UI's model table (`mode`/`think` slot values) |
 | `settings.ts` | 76 | Optional cookie / cookieFile / authUser / xsrfToken |
 | `index.ts` | 191 | `AIProvider` impl, system prompt, prompt assembly, registration |
+| `tool-bridge.ts` | — | Opt-in text-protocol tool bridge (§10), off by default |
 
 ---
 
@@ -400,7 +401,9 @@ Both pre-existing, neither introduced here:
 
 ## 7. Non-goals
 
-- **Tool use.** See D1. Not deferred — designed out, on evidence.
+- **Tool use by default.** See D1 — designed out, on evidence. An opt-in
+  text-protocol bridge now exists as an experiment against that evidence
+  (§10); the default remains no tools on the wire.
 - **Server-side conversation threads.** See §3.1.
 - **Browser automation.** No Playwright, no sidecar, no new dependency.
 - **Usage accounting.** See D6.
@@ -446,3 +449,85 @@ Carried into `TODO.md` under *Findings (gemini-web provider — 2026-08-29)*.
 - Does the `@mention` inlining in `inline.ts` belong to this provider at all, or
   is it generally useful — a metered provider with a cold cache pays real money
   for a tool round trip that a mention would have avoided.
+
+---
+
+## 10. Experimental tool bridge (2026-09-05)
+
+> **Status:** built, opt-in, off by default. `tool-bridge.ts` +
+> `tool-bridge.test.ts`, wired through `index.ts`, `settings.ts`, `client.ts`.
+> Enable with `web["gemini-web"].experimentalTools: true` or
+> `FREECODE_GEMINI_WEB_TOOLS=1`. D1 stands as the default; this section is the
+> experiment against it, run at the user's request.
+
+### 10.1 Why this can work where E1 failed
+
+E1's finding was not that the model *cannot* call tools — it did, 56% of the
+time — but that its failure mode is **silent**: a fluent fabricated answer is
+indistinguishable from a grounded one. The bridge attacks the silence, not the
+rate:
+
+1. **A forced dichotomy.** Every reply must be either a `[TOOL_CALLS]` block
+   (the same `name:{json}` format `loop.ts` already parses as a fallback) or
+   an answer beginning with `FINAL:`. A fluent answer that is neither is now a
+   *detectable protocol violation*, answered with one corrective re-prompt —
+   one, because every retry is a request against E3's quota.
+2. **Gated streaming** (`StreamGate`). Nothing is emitted until the reply
+   classifies, so a violating reply is retried before anything reached the
+   screen — the fix E1 could never have applied, because by the time the
+   fabrication is visible it has been read.
+3. **What cannot be forced to zero** is a *compliant* `FINAL:` answer the
+   model invented. The prompt's grounding rules and @mention inlining (still
+   active) shrink that residue; nothing on this channel can eliminate it. That
+   asymmetry — violations detectable, compliant lies not — is why the flag is
+   opt-in rather than the new default.
+
+Mechanically: the provider emits real `tool_call` chunks / `toolCalls`, so the
+orchestrator, batching, and permission modes gate the calls exactly as for any
+API provider. D1's "no mode gating needed" corollary applies only to the
+default path. Tool results are re-sent each turn under a newest-first budget
+(20 KB total, 6 KB per result, elision always visible — same philosophy as
+D2), and the tool loop's machine-speed follow-ups get client-side pacing (8 s
+gap) plus empty-reply retries on a 20 s clock, which is E3 turned into code.
+
+### 10.2 Measurements (2026-09-05, live endpoint, anonymous Flash)
+
+- **Protocol compliance, single turn:** 3/3 questions produced a parseable
+  `[TOOL_CALLS]` block, 0 violations — including "first line of TRACE.md",
+  the question E1 answered with census statistics.
+- **Full round trip:** quarantine-count question → `read` call → result fed
+  back → `FINAL:` answer naming **3** cases, all three ids exactly correct —
+  the same file E1 fabricated "23 quarantined cases" for.
+- **Through the real agent loop** (`freecode run`, flag on): one turn from the
+  wrong cwd ran 10 read-only tool calls and *correctly reported the file
+  absent* rather than inventing it; re-run from the repo root it read the file
+  once and quoted the first line exactly.
+
+- **`evals/gemini-web-tools.jsonl`, first real runs (same day):** 4/4 cases
+  at 1 trial (recorded as run zero), then **12/12 at 3 trials per case** —
+  every tool case fired exactly one correct tool per trial, zero corrective
+  retries needed, ~13.7s model time per trial (the pacing tax). Compare E1's
+  56% on the same question shapes.
+
+Small n, same day, one model tier — a promising bootstrap, not E1's
+replacement. The honest claim is: parse-and-execute is deterministic,
+violations are caught and retried instead of shown, and the E1/E2 failure
+cases pass live at 16/16 trials so far. It is still **not** proven "100% tool
+calling": the compliant-fabrication residue is unmeasured at this sample
+size, and all runs are from one day against one front-end build.
+
+### 10.3 Gaps
+
+1. ~~No eval case yet~~ **Done (2026-09-05):** `evals/gemini-web-tools.jsonl`
+   — 4 cases pinning `gemini-web`, run manually with
+   `FREECODE_GEMINI_WEB_TOOLS=1 pnpm eval gemini-web-tools` from the repo
+   root; deliberately outside the gate (needs the flag, spends the web
+   session's request quota, and is slow by design). What remains open is
+   sample size: the flag defaulting on would want measured pass rates over
+   many runs, not the bootstrap.
+2. `SYSTEM_PROMPT` and the protocol prompt are alternatives, not layers — a
+   tools-on session loses the ask/review prompt's phrasing entirely.
+3. The 8 s gap and 20 s empty-retry are constants, not settings; a Pro
+   session may tolerate much less.
+4. Reliability under long tool chains (>10 calls) is unmeasured; the result
+   budget will start eliding aggressively there.
