@@ -3,9 +3,13 @@
 //
 // Owns the multi-subscriber fan-out for /events (spec §4.3) and the
 // resumable ring buffer (spec §4.2). Each session has a record with a
-// Set<Subscriber> and a StreamBuffer; both share lifetime and tear down
-// together so a session can never retain a buffer with no subscribers or
-// vice versa.
+// Set<Subscriber> and a StreamBuffer.
+//
+// The buffer OUTLIVES the last subscriber by RECORD_TTL_MS. Disposing on
+// the last leave is tempting — it keeps the two structures' lifetimes
+// identical — but it breaks the one case resumability exists for: a single
+// browser disconnecting is the last subscriber leaving, so the buffer was
+// always gone by the time it reconnected with Last-Event-ID.
 //
 // Liveness is established positively rather than inferred from silence:
 //   - Periodic heartbeat (HEARTBEAT_MS) — a `: heartbeat` comment frame.
@@ -38,10 +42,25 @@ interface Subscriber {
 interface SessionRecord {
   subscribers: Set<Subscriber>;
   buffer: StreamBuffer;
+  /**
+   * When the last subscriber left, or undefined while at least one is
+   * attached. The record — and with it the replay buffer — is kept for
+   * RECORD_TTL_MS after this so a reconnect can actually replay the gap.
+   * Disposing on the last leave made the single-browser case (the normal
+   * one) replay as "nothing was missed".
+   */
+  emptySince?: number;
 }
 
 const HEARTBEAT_MS = 15_000;
 const IDLE_TIMEOUT_MS = 60_000;
+/**
+ * How long a subscriber-less record (and its buffer) survives. Long enough
+ * to cover a laptop lid-close or a tab suspend; short enough that an
+ * abandoned session does not pin its buffer forever. Events emitted during
+ * the window are still buffered, so the reconnect replays them.
+ */
+const RECORD_TTL_MS = 5 * 60_000;
 
 const sessions = new Map<string, SessionRecord>();
 
@@ -86,6 +105,7 @@ export function addSubscriber(
   };
 
   rec.subscribers.add(sub);
+  rec.emptySince = undefined;
 
   // Bind close/error on both directions. Either side closing means the
   // socket is gone for our purposes. We bind BEFORE writing anything because
@@ -105,7 +125,7 @@ export function removeSubscriber(sessionId: string, sub: Subscriber): void {
   const rec = sessions.get(sessionId);
   if (!rec) return;
   rec.subscribers.delete(sub);
-  tearDownIfEmpty(sessionId);
+  markEmpty(sessionId);
 }
 
 /**
@@ -172,10 +192,14 @@ export function replayForSubscriber(
   afterSeq: number | undefined,
 ): ReplayResult {
   const rec = sessions.get(sessionId);
-  if (!rec) return { gap: false, from: 0, to: 0, events: [] };
   if (afterSeq === undefined || afterSeq < 0) {
     return { gap: false, from: 0, to: 0, events: [] };
   }
+  // No record, but the client claims to have seen events: the buffer aged
+  // out (or the daemon restarted). We cannot know what was missed, so the
+  // only honest answer is a gap. Reporting "nothing missed" here is worse
+  // than eviction, which at least admits the loss.
+  if (!rec) return { gap: true, from: afterSeq + 1, to: afterSeq + 1 };
   return rec.buffer.replayFrom(afterSeq);
 }
 
@@ -262,12 +286,16 @@ function getOrCreateSession(sessionId: string): SessionRecord {
   return rec;
 }
 
-function tearDownIfEmpty(sessionId: string): void {
+/**
+ * The last subscriber left. Start the TTL rather than disposing: the buffer
+ * is exactly what a reconnect needs, and the common single-browser case
+ * always passes through here. The reaper does the actual disposal.
+ */
+function markEmpty(sessionId: string): void {
   const rec = sessions.get(sessionId);
   if (!rec) return;
-  if (rec.subscribers.size === 0) {
-    rec.buffer.dispose();
-    sessions.delete(sessionId);
+  if (rec.subscribers.size === 0 && rec.emptySince === undefined) {
+    rec.emptySince = Date.now();
   }
 }
 
@@ -281,11 +309,18 @@ function tearDownIfEmpty(sessionId: string): void {
 
 const HEARTBEAT_FRAME = ": heartbeat\n\n";
 
-function tick(): void {
-  const now = Date.now();
+function tick(now: number = Date.now()): void {
   for (const sessionId of [...sessions.keys()]) {
     const rec = sessions.get(sessionId);
     if (!rec) continue;
+    if (
+      rec.subscribers.size === 0 &&
+      rec.emptySince !== undefined &&
+      now - rec.emptySince > RECORD_TTL_MS
+    ) {
+      disposeSession(sessionId);
+      continue;
+    }
     for (const sub of [...rec.subscribers]) {
       // Idle reaper — backstop for half-open sockets that never fire close.
       if (now - sub.lastWriteMs > IDLE_TIMEOUT_MS) {
@@ -316,4 +351,14 @@ reaper.unref?.();
 export const STREAM_TIMINGS = Object.freeze({
   HEARTBEAT_MS,
   IDLE_TIMEOUT_MS,
+  RECORD_TTL_MS,
 });
+
+/**
+ * Test seam: run one reaper pass synchronously, optionally at a simulated
+ * clock. The interval is unref'd and fires every HEARTBEAT_MS, which is far
+ * too slow to assert a five-minute TTL.
+ */
+export function runReaperForTests(now?: number): void {
+  tick(now);
+}

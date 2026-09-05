@@ -16,6 +16,9 @@ import {
   publishToAll,
   subscriberCount,
   disposeSession,
+  replayForSubscriber,
+  currentSeq,
+  runReaperForTests,
   STREAM_TIMINGS,
 } from "./stream-subscribers.js";
 
@@ -177,10 +180,81 @@ describe("web/stream-subscribers", () => {
     });
   });
 
+  // The P1 bug this covers: the record was disposed the moment the last
+  // subscriber left, which for a single browser is every disconnect. The
+  // reconnect then replayed "nothing was missed" and lost the whole gap.
+  describe("reconnect after the last subscriber leaves", () => {
+    it("replays events produced while nobody was attached", () => {
+      const first = makeFakeRes();
+      addSubscriber("s-C", makeFakeReq(), first.res);
+      publishToSession("s-C", { type: "text", content: "before" });
+      const seen = currentSeq("s-C");
+
+      // The only browser goes away.
+      first.destroy();
+      first.res.emit("close");
+      assert.equal(subscriberCount("s-C"), 0);
+
+      // Work continues while disconnected.
+      publishToSession("s-C", { type: "text", content: "while away" });
+
+      const replay = replayForSubscriber("s-C", seen);
+      assert.equal(replay.gap, false);
+      assert.equal(replay.gap === false && replay.events.length, 1);
+      assert.match(JSON.stringify(replay), /while away/);
+    });
+
+    it("reports a gap — never 'nothing missed' — once the record is reaped", () => {
+      const sub = makeFakeRes();
+      addSubscriber("s-D", makeFakeReq(), sub.res);
+      publishToSession("s-D", { type: "text", content: "before" });
+      sub.destroy();
+      sub.res.emit("close");
+
+      // Run one reaper pass at a clock past the record's TTL.
+      runReaperForTests(Date.now() + STREAM_TIMINGS.RECORD_TTL_MS + 1);
+
+      const replay = replayForSubscriber("s-D", 1);
+      assert.equal(replay.gap, true, "a vanished buffer must report a gap");
+    });
+
+    it("keeps the record alive while a subscriber is still attached", () => {
+      const a = makeFakeRes();
+      const b = makeFakeRes();
+      addSubscriber("s-E", makeFakeReq(), a.res);
+      addSubscriber("s-E", makeFakeReq(), b.res);
+      publishToSession("s-E", { type: "text", content: "x" });
+
+      a.destroy();
+      a.res.emit("close");
+      runReaperForTests();
+
+      assert.equal(subscriberCount("s-E"), 1);
+      assert.equal(currentSeq("s-E"), 1, "buffer survives a partial disconnect");
+    });
+
+    it("a reconnect inside the window clears the TTL, so the record survives", () => {
+      const a = makeFakeRes();
+      addSubscriber("s-F", makeFakeReq(), a.res);
+      publishToSession("s-F", { type: "text", content: "x" });
+      a.destroy();
+      a.res.emit("close");
+
+      // Reconnect, then age the clock as far as the reaper can see.
+      const b = makeFakeRes();
+      addSubscriber("s-F", makeFakeReq(), b.res);
+      runReaperForTests();
+
+      assert.equal(subscriberCount("s-F"), 1);
+      assert.equal(currentSeq("s-F"), 1);
+    });
+  });
+
   describe("timings", () => {
     it("exports heartbeat and idle constants", () => {
       assert.ok(STREAM_TIMINGS.HEARTBEAT_MS > 0);
       assert.ok(STREAM_TIMINGS.IDLE_TIMEOUT_MS > STREAM_TIMINGS.HEARTBEAT_MS);
+      assert.ok(STREAM_TIMINGS.RECORD_TTL_MS > STREAM_TIMINGS.IDLE_TIMEOUT_MS);
     });
   });
 });
