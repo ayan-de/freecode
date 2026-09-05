@@ -1,5 +1,24 @@
 # @thisisayande/freecode-core
 
+## 0.30.0
+
+### Minor Changes
+
+- **Anthropic OAuth subscription auth (spec `2026-09-05-anthropic-oauth-provider.md`, Phases 0–2)**: `freecode auth login|status|logout` signs into a Claude Pro/Max subscription (PKCE, localhost callback, paste fallback) and pins `providers.anthropic.authMode: "oauth"`; an org-forbidden 403 is detected at the fetch, latches, and falls back to the API key. Cost is stamped on the call (`model.response.authMode`), so historical sessions never reprice, and `SuiteReport.authMode` keeps eval baselines from crossing an auth-mode switch.
+- **Headless `freecode run` made usable**: real exit codes, output to stdout, and the flags (`--model`, `--agent`, `--max-turns`) the agent-comparison benchmark invokes it with.
+- **gemini-web tool bridge on by default** (spec §10.4): the text-protocol bridge (`[TOOL_CALLS]`/`FINAL:` with one gated retry) now ships enabled; opt out via `experimentalTools: false` or `FREECODE_GEMINI_WEB_TOOLS=0`. Watchdog suite `evals/gemini-web-tools.jsonl`.
+- **IPC surface hardening**: the whole surface is declared in `METHODS` and enforced, bad params reject with `-32602`, and `config.get` redacts secrets.
+- **Eval harness**: security suite (injection cases, `forbidBashMatches` scorer), experiment ledger for pre-declared A/B runs, judge calibration (banked trials, human-agreement report), clean-negative trajectory cases, and more robust dataset loading.
+- **Settings**: published JSON Schema plus warnings on keys nothing reads.
+
+### Patch Changes
+
+- Prompt-cache fix: session blocks no longer rewrite the cache prefix every turn.
+- Provider hardening: a sole configured credential selects its provider, the environment overrides a stored API key, malformed `config.json` degrades instead of crashing, and `config.json` is written owner-only (0600).
+- Memory store keyed on the full project path, not the basename.
+- Compaction preserves the founding brief and records what the tools did.
+- `freecode uninstall` keeps user data unless `--purge`; web SSE replay buffer survives past the last subscriber; hooks' documented rewrite capabilities made real.
+
 ## 0.29.0
 
 ### Minor Changes

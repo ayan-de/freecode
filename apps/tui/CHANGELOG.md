@@ -1,5 +1,17 @@
 # @thisisayande/freecode
 
+## 0.30.0
+
+### Minor Changes
+
+- Anthropic OAuth subscription auth (`freecode auth login|status|logout`), usable headless `freecode run`, gemini-web tool bridge on by default, IPC surface hardening with secret redaction, and an eval-harness expansion (security suite, experiment ledger, judge calibration). See freecode-core 0.30.0 for details.
+- TUI: consecutive tool results collapse into a ToolGroupMessage summary; `FREECODE_NO_UPDATE=1` disables the on-launch update check; the provider picker opens on first run instead of failing later.
+
+### Patch Changes
+
+- Updated dependencies
+  - @thisisayande/freecode-core@0.30.0
+
 ## 0.29.0
 
 ### Minor Changes
