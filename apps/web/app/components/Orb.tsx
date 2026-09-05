@@ -293,6 +293,8 @@ export default function Orb({
       container.removeChild(gl.canvas);
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
+    // frag/vert are lazy GLSL strings that don't change between renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hue, hoverIntensity, rotateOnHover, forceHoverState, backgroundColor]);
 
   return <div ref={ctnDom} className="w-full h-full" />;
