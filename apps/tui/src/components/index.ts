@@ -14,11 +14,13 @@ import { createMessageComponent, ThinkingMessage } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
 import { ToolProgressMessage } from "./tool-progress-message.js";
 import { ToolResultMessage } from "./tool-result-message.js";
+import { ToolGroupMessage } from "./tool-group-message.js";
 
 /**
  * Add a user message to the store and return the message instance
  */
 export function createUserMessage(content: string): MessageInstance {
+  sealToolGroups();
   const component = createMessageComponent("user", content);
   return addMessage("user", content, component);
 }
@@ -54,6 +56,7 @@ export function promoteQueuedToUser(queueId: string): MessageInstance | undefine
  * Add an assistant message to the store and return the message instance
  */
 export function createAssistantMessage(content: string): MessageInstance {
+  sealToolGroups();
   const component = createMessageComponent("assistant", content);
   return addMessage("assistant", content, component);
 }
@@ -157,6 +160,41 @@ export function createToolProgressMessage(
   return addMessage("tool", toolName, component);
 }
 
+/**
+ * Closes every open tool group. A user prompt, an assistant reply, or a
+ * thinking block ends the run of calls it belongs to, so the next call starts
+ * a fresh group below the new message.
+ */
+export function sealToolGroups(): void {
+  for (const msg of getMessages()) {
+    if (msg.component instanceof ToolGroupMessage) msg.component.seal();
+  }
+}
+
+/**
+ * The group still accepting calls, if any. Tool progress rows and the
+ * in-progress line are skipped: with parallel tools, a sibling that is still
+ * running sits between the group and the result now arriving, and that must
+ * not start a second group.
+ */
+function findOpenToolGroup(): ToolGroupMessage | undefined {
+  const messages = getMessages();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]!;
+    if (msg.component instanceof ToolGroupMessage) {
+      return msg.component.isSealed ? undefined : msg.component;
+    }
+    if (msg.component instanceof ToolProgressMessage) continue;
+    if (msg.type === "in_progress") continue;
+    // Ambient notices (cache status, recovery lines) interleave with tool
+    // calls but are not part of the conversation, so they must not chop one
+    // run of calls into a group per call.
+    if (msg.type === "system") continue;
+    return undefined;
+  }
+  return undefined;
+}
+
 export function createToolResultMessage(
   toolCallId: string,
   toolName: string,
@@ -165,15 +203,22 @@ export function createToolResultMessage(
   success: boolean,
   duration_ms?: number,
 ): MessageInstance {
-  const component = new ToolResultMessage({
-    toolCallId,
-    toolName,
-    args,
-    result,
-    success,
-    duration_ms,
-  });
-  return addMessage("tool", toolName, component);
+  const options = { toolCallId, toolName, args, result, success, duration_ms };
+
+  const open = findOpenToolGroup();
+  if (open) {
+    open.add(options);
+    // Same store entry, new content — the list re-renders it in place.
+    return updateMessage(
+      getMessages().find((m) => m.component === open)!.id,
+      toolName,
+      open,
+    )!;
+  }
+
+  const group = new ToolGroupMessage();
+  group.add(options);
+  return addMessage("tool", toolName, group);
 }
 
 /**
@@ -189,6 +234,7 @@ export function createThinkingMessage(content: string, startTime?: number): Mess
     return lastMessage;
   }
 
+  sealToolGroups();
   const component = createMessageComponent("thinking", content, startTime);
   return addMessage("thinking", content, component);
 }
@@ -256,3 +302,4 @@ export {
   ToolResultMessage,
   type ToolResultMessageOptions,
 } from "./tool-result-message.js";
+export { ToolGroupMessage } from "./tool-group-message.js";
