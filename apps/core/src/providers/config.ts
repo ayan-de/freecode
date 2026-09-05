@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { envKeysFor as catalogueEnvKeys } from "./catalogue.js";
+import { hasStoredAnthropicOAuth } from "./auth-store.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".freecode");
 export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
@@ -10,6 +11,12 @@ export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 export interface ProviderCredentials {
   apiKey: string;
   model?: string;
+  /**
+   * Anthropic only: "oauth" authenticates with a stored Claude Pro/Max
+   * subscription login instead of a metered key. Opt-in, never the default —
+   * see spec `2026-09-05-anthropic-oauth-provider.md` §0.1 for why.
+   */
+  authMode?: "oauth" | "api-key";
 }
 
 /**
@@ -150,10 +157,58 @@ export function setLastAgentMode(mode: string): void {
 }
 
 export function hasApiKey(providerId: string): boolean {
+  // OAuth stands in for a key: provider listing must show anthropic as
+  // configured when a subscription login is on file, or the UI would demand a
+  // key the request path will never read.
+  if (
+    providerId === "anthropic" &&
+    anthropicAuthMode() === "oauth" &&
+    hasStoredAnthropicOAuth()
+  ) {
+    return true;
+  }
+  return hasConfiguredKey(providerId);
+}
+
+/**
+ * A real API key, ignoring OAuth. `hasApiKey` deliberately answers true for an
+ * anthropic subscription login; the OAuth→API-key fallback needs the narrower
+ * question, "is there a key to fall back TO?".
+ */
+export function hasConfiguredKey(providerId: string): boolean {
   const config = readConfig();
   if (config.providers?.[providerId]?.apiKey) return true;
   const baseProvider = providerId.replace(/-coding-plan$/, "");
   return envKeysFor(baseProvider).some((key) => Boolean(process.env[key]));
+}
+
+export type AnthropicAuthMode = "oauth" | "api-key";
+
+function normalizeAuthMode(value: string | undefined): AnthropicAuthMode | undefined {
+  if (value === "oauth") return "oauth";
+  if (value === "api-key" || value === "apiKey") return "api-key";
+  return undefined;
+}
+
+/**
+ * How the `anthropic` provider authenticates. Resolution:
+ * `FREECODE_ANTHROPIC_AUTH` env pin → `providers.anthropic.authMode` in
+ * config → default. The default is API-key whenever one exists — a machine
+ * with a key never silently switches to the subscription — and falls back to
+ * OAuth only when no key is configured but a login is already stored in
+ * `~/.freecode/auth.json` (mirrors jcode's resolution, keeps zero-config
+ * working after a login). Note import from Claude Code does NOT count here:
+ * OAuth without an explicit opt-in requires freecode's own stored login.
+ */
+export function anthropicAuthMode(): AnthropicAuthMode {
+  const pinned = normalizeAuthMode(process.env.FREECODE_ANTHROPIC_AUTH);
+  if (pinned) return pinned;
+  const configured = normalizeAuthMode(
+    readConfig().providers?.["anthropic"]?.authMode,
+  );
+  if (configured) return configured;
+  if (hasConfiguredKey("anthropic")) return "api-key";
+  return hasStoredAnthropicOAuth() ? "oauth" : "api-key";
 }
 
 export function setApiKey(
@@ -209,4 +264,30 @@ export function setWebCredential(
   if (!config.web) config.web = {};
   config.web[providerId] = { ...config.web[providerId], ...credential };
   writeConfig(config);
+}
+
+/**
+ * Pin (or, with undefined, un-pin) how `anthropic` authenticates. Written by
+ * `freecode auth login/logout` — an explicit login is one of the two opt-ins
+ * §0.1 of the OAuth spec allows, and an explicit logout takes it back.
+ */
+export function setAnthropicAuthMode(mode: AnthropicAuthMode | undefined): void {
+  const config = readConfig();
+  if (!config.providers) config.providers = {};
+  const entry = config.providers["anthropic"] ?? {};
+  if (mode) entry.authMode = mode;
+  else delete entry.authMode;
+  config.providers["anthropic"] = entry;
+  writeConfig(config);
+}
+
+/**
+ * "oauth" when a call to this provider right now is billed to a subscription
+ * rather than a key — stamped onto `model.response` so the cost of a recorded
+ * call never depends on how the machine reading the log is configured.
+ */
+export function subscriptionAuth(providerId: string): "oauth" | undefined {
+  return providerId === "anthropic" && anthropicAuthMode() === "oauth"
+    ? "oauth"
+    : undefined;
 }

@@ -29,6 +29,7 @@ import type {
   AgentMode,
 } from "./types.js";
 import type { SystemBlock, ExecuteUsage } from "../providers/types.js";
+import { subscriptionAuth } from "../providers/config.js";
 import type { PermissionRequestResult } from "../hooks/PermissionRequest.js";
 import { evaluatePermission } from "../permission/evaluate.js";
 import { isReadOnlyMode } from "../permission/mode-policy.js";
@@ -2061,6 +2062,7 @@ export class AgentLoop {
           cacheWriteTokens:
             usage?.cacheWriteInputTokens ?? usage?.cacheCreationInputTokens,
           reasoningTokens: usage?.reasoningTokens,
+          authMode: subscriptionAuth(provider),
           toolCalls: (toolCalls ?? []).map((t) => t.name),
           textChars: content.length,
           thinkingChars: thinking.length,
@@ -2100,6 +2102,7 @@ export class AgentLoop {
           result.usage?.cacheWriteInputTokens ??
           result.usage?.cacheCreationInputTokens,
         reasoningTokens: result.usage?.reasoningTokens,
+        authMode: subscriptionAuth(provider),
         toolCalls: (result.toolCalls ?? []).map((t) => t.name),
         textChars: result.content.length,
         thinkingChars: result.thinking?.length ?? 0,

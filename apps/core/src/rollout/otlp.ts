@@ -106,7 +106,7 @@ function modelSpanToOtlp(
       // An estimate from a table with a vintage, not a bill — `pricing.ts`.
       // Absent, rather than 0, when the model is unpriced: a collector cannot
       // tell a real zero from a missing price, so it must not see one.
-      "gen_ai.usage.cost": priceUsd(span.provider, span.model, span),
+      "gen_ai.usage.cost": priceUsd(span.provider, span.model, span, span.authMode),
       // Not part of the convention, but the fields that actually explain a
       // slow or hung call — which is the whole point of exporting this.
       "freecode.turn_id": span.turnId,

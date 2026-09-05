@@ -98,6 +98,22 @@ test("cost is a double, not a rounded integer", () => {
   assert.deepEqual(attr(chat, "gen_ai.usage.cost"), { doubleValue: 3 });
 });
 
+test("a subscription call emits no cost attribute, even on a priced model", () => {
+  // Anthropic Sonnet has a price; the call still cost no dollars because it
+  // was billed to a Claude subscription (OAuth spec §5). The stamp comes off
+  // the recorded event, so a collector sees the same thing no matter how the
+  // machine reading the log authenticates today.
+  const spans = spansOf(
+    trace({
+      modelSpans: [
+        modelSpan({ inputTokens: 1_000_000, authMode: "oauth" as const }),
+      ],
+    }),
+  );
+  const chat = spans.find((s) => s.name.startsWith("chat"))!;
+  assert.equal(attr(chat, "gen_ai.usage.cost"), undefined);
+});
+
 test("an unpriced model emits no cost attribute at all", () => {
   // A collector cannot tell a real zero from a missing price, so it must not
   // be shown one.

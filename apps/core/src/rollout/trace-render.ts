@@ -162,12 +162,23 @@ export function renderTrace(trace: Trace, opts: RenderOptions = {}): string {
   // Silent when nothing in the session is priced — a "cost $0.00" line for an
   // unpriced model is worse than no line, because it reads as free.
   const cost = totalUsd(trace.modelSpans);
+  // Subscription calls have no per-token price at all (OAuth spec §5), so they
+  // are what the missing dollars ARE — say "subscription" rather than leaving
+  // the reader to read an unexplained `*`, or no line, as free.
+  const subscription = trace.modelSpans.some((s) => s.authMode === "oauth");
   if (cost) {
+    const why = cost.partial
+      ? subscription
+        ? "; * = subscription calls, no per-token price"
+        : "; * = some models unpriced"
+      : "";
     out.push(
       dim(
-        `  cost    ${formatUsd(cost)} ${dim(`(est., prices as of ${pricesAsOf()}${cost.partial ? "; * = some models unpriced" : ""})`)}`,
+        `  cost    ${formatUsd(cost)} ${dim(`(est., prices as of ${pricesAsOf()}${why})`)}`,
       ),
     );
+  } else if (subscription) {
+    out.push(dim(`  cost    subscription ${dim("(no per-token price)")}`));
   }
   // Only when something happened: a line reading "redirects 0" on every
   // healthy session is noise, and the feature is off by default.

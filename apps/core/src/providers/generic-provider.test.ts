@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildGenerateOptions } from "./generic-provider.js";
+
+// These assertions describe the API-key request shape; pin the auth mode so
+// they don't flip on a machine whose config resolves anthropic to OAuth.
+// The OAuth shape has its own tests in anthropic-oauth.test.ts.
+process.env.FREECODE_ANTHROPIC_AUTH = "api-key";
 import { resolveCatalogue } from "./catalogue.js";
 import type { ProviderCatalogueEntry } from "./catalogue.js";
 

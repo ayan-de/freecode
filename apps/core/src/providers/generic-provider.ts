@@ -8,8 +8,13 @@ import {
   ProviderChunk,
   ProviderInfo,
 } from "./types.js";
-import { getApiKey } from "./config.js";
+import { getApiKey, anthropicAuthMode, hasConfiguredKey } from "./config.js";
 import { createTimeoutFetch } from "./fetch-timeout.js";
+import {
+  anthropicOAuthForbidden,
+  createAnthropicOAuthFetch,
+  withClaudeCodeIdentity,
+} from "./anthropic-oauth.js";
 import {
   convertToCoreMessages,
   buildAnthropicSystemParam,
@@ -36,6 +41,22 @@ import type { ProviderCatalogueEntry } from "./catalogue.js";
  */
 function requestShape(npm: string): "anthropic" | "openai" {
   return npm === "@ai-sdk/anthropic" ? "anthropic" : "openai";
+}
+
+/**
+ * Whether this entry authenticates with a Claude subscription login rather
+ * than a key. Keyed on the provider id, not the SDK package: `minimax` and
+ * `zai` share `@ai-sdk/anthropic` but have nothing to do with Anthropic's
+ * OAuth surface.
+ */
+function usesAnthropicOAuth(entry: ProviderCatalogueEntry): boolean {
+  if (entry.id !== "anthropic" || anthropicAuthMode() !== "oauth") return false;
+  // A latched "OAuth not allowed for this organization" 403 takes the OAuth
+  // path out of service for the rest of the process (spec §6 Phase 2). Read
+  // here rather than in the fallback alone so BOTH the SDK construction and
+  // the system param agree: retrying with a key while still prepending the
+  // Claude Code identity block would break the §0.1 invariant.
+  return anthropicOAuthForbidden() === undefined;
 }
 
 /**
@@ -72,7 +93,15 @@ export function buildGenerateOptions(
   };
 
   if (requestShape(entry.npm) === "anthropic") {
-    if (opts.system) {
+    if (usesAnthropicOAuth(entry)) {
+      // The subscription endpoint only answers requests whose system param
+      // leads with the Claude Code identity block — even when the caller sent
+      // no system prompt at all. OAuth path only: an API-key request must
+      // never carry it (spec §0.1, tested).
+      generateOptions.system = buildAnthropicSystemParam(
+        withClaudeCodeIdentity(opts.system),
+      );
+    } else if (opts.system) {
       generateOptions.system = buildAnthropicSystemParam(opts.system);
     }
     if (opts.messages) {
@@ -135,18 +164,55 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
   //     provider must not require having its credential;
   //   - nothing should pay to load an SDK for a provider it never calls.
   let sdkPromise: Promise<any> | undefined;
+  let fallbackAnnounced = false;
+
+  /**
+   * One retry after Anthropic refuses OAuth for the account/organization.
+   *
+   * The trigger is the latch set by the OAuth fetch wrapper, not the shape of
+   * the thrown error: `generateText` and `streamText` surface a 403 quite
+   * differently (throw vs. an error chunk), while the fetch sees the same raw
+   * body on both paths. Falling back means rebuilding the SDK with the API key
+   * — which also drops the identity block, since `usesAnthropicOAuth` now
+   * answers false.
+   */
+  function canFallBackToApiKey(usedOAuth: boolean): boolean {
+    if (!usedOAuth || anthropicOAuthForbidden() === undefined) return false;
+    if (!hasConfiguredKey(entry.id)) return false;
+    sdkPromise = undefined;
+    if (!fallbackAnnounced) {
+      fallbackAnnounced = true;
+      console.warn(
+        `[anthropic] ${anthropicOAuthForbidden()}\n[anthropic] Falling back to ` +
+          `the API key for the rest of this process. Run \`freecode auth status\` ` +
+          `to see how anthropic is authenticating.`,
+      );
+    }
+    return true;
+  }
+
   function getSdk(): Promise<any> {
     if (!sdkPromise) {
       sdkPromise = loadSdkFactory(entry.npm)
-        .then((factory) =>
-          factory({
-            apiKey: getApiKey(entry.id, entry.envKeys),
+        .then((factory) => {
+          // Auth mode is read once, when the SDK is first built — flipping
+          // authMode mid-process needs a restart, same as changing a key.
+          const oauth = usesAnthropicOAuth(entry);
+          return factory({
+            // On the OAuth path the placeholder only satisfies the SDK
+            // constructor; the fetch wrapper deletes its x-api-key header and
+            // substitutes bearer auth on every request.
+            apiKey: oauth
+              ? "oauth-subscription"
+              : getApiKey(entry.id, entry.envKeys),
             baseURL: entry.baseURL,
-            fetch: createTimeoutFetch(),
+            fetch: oauth
+              ? createAnthropicOAuthFetch(createTimeoutFetch())
+              : createTimeoutFetch(),
             // Only @ai-sdk/openai-compatible requires this; the rest ignore it.
             name: entry.id,
-          }),
-        )
+          });
+        })
         .catch((err) => {
           // Not memoized on failure: a missing key set after the first attempt
           // should work on the next one, without restarting the process.
@@ -173,12 +239,21 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
       entry.defaultModel,
       !opts.quietModelFallback,
     );
-    const generateOptions = buildGenerateOptions(
-      entry,
-      await modelHandle(model),
-      opts,
-    );
-    const result = await generateText(generateOptions);
+    async function call(): Promise<Awaited<ReturnType<typeof generateText>>> {
+      const usedOAuth = usesAnthropicOAuth(entry);
+      const generateOptions = buildGenerateOptions(
+        entry,
+        await modelHandle(model),
+        opts,
+      );
+      try {
+        return await generateText(generateOptions);
+      } catch (err) {
+        if (!canFallBackToApiKey(usedOAuth)) throw err;
+        return call();
+      }
+    }
+    const result = await call();
 
     const toolCalls = result.toolCalls?.map(
       (tc): { name: string; args: Record<string, unknown>; id: string } => {
@@ -220,10 +295,42 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
       await modelHandle(model),
       opts,
     );
-    const result = streamText({ ...generateOptions, onError: silenceStreamErrors });
-    yield* normalizeAiSdkStream(
-      result.fullStream as unknown as AsyncIterable<{ type: string } & Record<string, unknown>>,
-    );
+    for (;;) {
+      const usedOAuth = usesAnthropicOAuth(entry);
+      const generateOptions = buildGenerateOptions(
+        entry,
+        await modelHandle(model),
+        opts,
+      );
+      const result = streamText({
+        ...generateOptions,
+        onError: silenceStreamErrors,
+      });
+      const chunks = normalizeAiSdkStream(
+        result.fullStream as unknown as AsyncIterable<
+          { type: string } & Record<string, unknown>
+        >,
+      )[Symbol.asyncIterator]();
+
+      // A refused-OAuth 403 fails the request before any content exists, so
+      // the first chunk is the error chunk. Once anything has been yielded the
+      // turn is committed and a retry would duplicate output — hence the
+      // fallback is only ever considered on that first chunk.
+      const first = await chunks.next();
+      if (
+        !first.done &&
+        first.value.type === "error" &&
+        canFallBackToApiKey(usedOAuth)
+      ) {
+        continue;
+      }
+      if (first.done) return;
+      yield first.value;
+      for (let next = await chunks.next(); !next.done; next = await chunks.next()) {
+        yield next.value;
+      }
+      return;
+    }
   }
 
   return { info, execute, stream };
