@@ -5,6 +5,7 @@
 import { loadSuite } from "./dataset.js";
 import { evaluateGate, summarise, type Verdict } from "./gate.js";
 import { baselineFor, writeReport } from "./report.js";
+import { subscriptionAuth } from "../providers/config.js";
 import { resolveJudge } from "./judge-config.js";
 import { loadQuarantine } from "./quarantine.js";
 import { initRunner, runTrial } from "./runner.js";
@@ -97,6 +98,9 @@ export async function runSuite(
     // through a gateway route, so the resolved judge is recorded on every
     // report for a reader to check.
     ...(config.judge ? { judge: config.judge } : {}),
+    // Spec §8: a mode switch changes the instrument, so it is recorded and
+    // `baselineFor` refuses to compare across it.
+    ...(subscriptionAuth(config.provider) ? { authMode: "oauth" as const } : {}),
     ...(judgeSkipped ? { judgeSkipped } : {}),
     // Same reason as `judge` above: what we asked for is already recorded, and
     // what was actually served is the thing a stable id cannot tell you.
@@ -105,7 +109,7 @@ export async function runSuite(
 
   // Read the baseline BEFORE writing, or this run becomes its own baseline
   // and the gate compares the report to itself.
-  const baseline = baselineFor(options.suite, report.model);
+  const baseline = baselineFor(options.suite, report.model, report.authMode);
   const verdict = evaluateGate(report, baseline);
 
   // A blocked run is recorded but MUST NOT become the baseline. Writing it

@@ -72,6 +72,10 @@ export interface Baseline {
  * run meant a regression became its own baseline and was forgiven on the next
  * attempt — 18/20 → 14/20 closes the gate, re-run at 14/20 and it opens.
  *
+ * Skipping a different auth mode is the same argument (OAuth spec §8): the
+ * subscription endpoint carries a different beta set and an extra system
+ * block, so its numbers are not comparable to an API-key run's.
+ *
  * Skipping other models is the other half. Comparing a cheap local run against
  * a CI baseline from a different model reads as a regression with no way to see
  * why, and the spec is explicit that a repriced baseline is worse than none
@@ -79,12 +83,21 @@ export interface Baseline {
  * before the model was tracked — compared anyway rather than discarded, since
  * refusing would throw away every baseline written before this change.
  */
-export function baselineFor(suite: string, model?: string): Baseline | null {
+export function baselineFor(
+  suite: string,
+  model?: string,
+  authMode?: "oauth" | "api-key",
+): Baseline | null {
   const history = readHistory(suite);
+  // An absent mode on either side means "api-key or not tracked yet", which is
+  // the same instrument — only a recorded "oauth" on one side and not the
+  // other is a switch.
+  const normalize = (m?: string) => (m === "oauth" ? "oauth" : "api-key");
   for (let i = history.length - 1; i >= 0; i--) {
     const run = history[i];
     if (run.gateBlocked) continue;
     if (model && run.model && run.model !== model) continue;
+    if (normalize(run.authMode) !== normalize(authMode)) continue;
     return {
       passed: run.passed,
       total: run.total,

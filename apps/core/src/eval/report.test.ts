@@ -84,6 +84,35 @@ test("a baseline from a different model is refused", () => {
   assert.equal(baselineFor("trajectory", "openai/gpt-4o")?.passed, 2);
 });
 
+test("a baseline from the other auth mode is refused (OAuth spec §8)", () => {
+  // The subscription endpoint sends a different beta set and an extra system
+  // block, so an OAuth run is a different instrument — its numbers must not
+  // become the bar an API-key run is measured against, in either direction.
+  writeReport(report({ authMode: "oauth", passed: 2 }));
+  assert.equal(baselineFor("trajectory", "anthropic/claude-sonnet-4-5"), null);
+  assert.equal(
+    baselineFor("trajectory", "anthropic/claude-sonnet-4-5", "oauth")?.passed,
+    2,
+  );
+
+  writeReport(report({ passed: 1, total: 2 }));
+  assert.equal(
+    baselineFor("trajectory", "anthropic/claude-sonnet-4-5", "oauth")?.passed,
+    2,
+    "an API-key run must not overwrite the OAuth baseline",
+  );
+});
+
+test("an untracked auth mode still matches an api-key run", () => {
+  // Every baseline written before §8 landed has no authMode. Treating that as
+  // a mismatch would throw away all of them.
+  writeReport(report({ passed: 2 }));
+  assert.equal(
+    baselineFor("trajectory", "anthropic/claude-sonnet-4-5", "api-key")?.passed,
+    2,
+  );
+});
+
 test("the newest run on the SAME model wins over a newer one on another", () => {
   writeReport(report({ model: "anthropic/claude-sonnet-4-5", passed: 2 }));
   writeReport(report({ model: "openai/gpt-4o", passed: 0, total: 2 }));

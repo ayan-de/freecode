@@ -206,6 +206,12 @@ export interface TokenCounts {
 }
 
 /**
+ * How a recorded call was authenticated. Only "oauth" changes pricing, and it
+ * is stamped on the event when the call is made (`rollout/types.ts`).
+ */
+export type AuthModeAtCall = "oauth" | "api-key";
+
+/**
  * Cost of one call in USD, or `undefined` if the model is unpriced.
  *
  * `inputTokens` is the INCLUSIVE prompt total — cache reads and writes are
@@ -219,7 +225,18 @@ export function priceUsd(
   provider: string,
   model: string,
   usage: TokenCounts,
+  authMode?: AuthModeAtCall,
 ): number | undefined {
+  // Subscription inference has no per-token dollar price. `undefined`, not
+  // $0 — a zero would poison cost rollups with fake savings, and nothing
+  // downstream could tell it from a real free call (OAuth spec §5).
+  //
+  // Passed in, never read from config here: the caller pricing a trace is
+  // pricing calls that already happened. Reading the CURRENT auth mode meant
+  // logging in once repriced every historical API-key session as
+  // "subscription" — and made the price of a span depend on the machine
+  // reading it.
+  if (authMode === "oauth") return undefined;
   const price = priceFor(provider, model);
   if (!price) return undefined;
 
@@ -246,12 +263,14 @@ export function priceUsd(
  * quietly omits a model.
  */
 export function totalUsd(
-  calls: Array<{ provider: string; model: string } & TokenCounts>,
+  calls: Array<
+    { provider: string; model: string; authMode?: AuthModeAtCall } & TokenCounts
+  >,
 ): { usd: number; partial: boolean } | undefined {
   let usd = 0;
   let priced = 0;
   for (const call of calls) {
-    const cost = priceUsd(call.provider, call.model, call);
+    const cost = priceUsd(call.provider, call.model, call, call.authMode);
     if (cost === undefined) continue;
     usd += cost;
     priced++;

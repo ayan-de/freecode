@@ -55,6 +55,8 @@ export interface ModelSpan {
    * fold change, not an instrumentation change.
    */
   cacheWriteTokens?: number;
+  /** "oauth" when the call was billed to a subscription rather than a key. */
+  authMode?: "oauth";
   toolCalls: string[];
   errorKind?: "stall" | "abort" | "provider";
   error?: string;
@@ -204,6 +206,7 @@ export function buildTrace(
         span.outputTokens = event.outputTokens;
         span.cacheReadTokens = event.cacheReadTokens;
         span.cacheWriteTokens = event.cacheWriteTokens;
+        span.authMode = event.authMode;
         span.toolCalls = event.toolCalls;
         break;
       }

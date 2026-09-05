@@ -24,6 +24,7 @@ import { runCommand } from "./commands/run.js";
 import { traceCommand } from "./commands/trace.js";
 import { evalCommand } from "./commands/eval.js";
 import { uninstallCommand } from "./commands/uninstall.js";
+import { authCommand } from "./commands/auth.js";
 
 // ANSI color codes
 const yellowBright = "\x1b[93m";
@@ -95,6 +96,7 @@ export function createCli(extraCommands: CommandModule[] = []) {
     .command(runCommand)
     .command(traceCommand as CommandModule)
     .command(evalCommand as CommandModule)
+    .command(authCommand)
     .command(uninstallCommand)
     .strict();
 

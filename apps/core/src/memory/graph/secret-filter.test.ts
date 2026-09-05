@@ -30,3 +30,17 @@ test("does not flag ordinary memory prose", () => {
     assert.ok(!containsSecret(c), `should not flag: ${c}`);
   }
 });
+
+test("Anthropic OAuth tokens are treated as secrets (OAuth spec §3.5)", () => {
+  // `~/.freecode/auth.json` holds sk-ant-oat01-/sk-ant-ort01- tokens; spec §3.5
+  // asks that these shapes be covered here, so nothing derived from a memory
+  // quoting one is ever embedded. Synthetic values — no real credential.
+  assert.equal(containsSecret("sk-ant-oat01-" + "A".repeat(40)), true);
+  assert.equal(containsSecret("sk-ant-ort01-" + "B".repeat(40)), true);
+  assert.equal(
+    containsSecret(
+      JSON.stringify({ access_token: "sk-ant-oat01-" + "C".repeat(40) }),
+    ),
+    true,
+  );
+});

@@ -227,6 +227,12 @@ export interface ModelResponseEvent extends BaseEvent {
   cacheWriteTokens?: number;
   /** Subset of `outputTokens` spent on hidden reasoning. */
   reasoningTokens?: number;
+  /**
+   * How the call authenticated, stamped when it was made. Only recorded for
+   * the Anthropic subscription path, and only so cost stays a property of the
+   * call rather than of whoever later reads the log (OAuth spec §5).
+   */
+  authMode?: "oauth";
   /** Names only — the args are already captured by function.call. */
   toolCalls: string[];
   textChars: number;
