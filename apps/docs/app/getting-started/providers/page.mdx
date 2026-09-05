@@ -46,18 +46,21 @@ somewhere else that is safe to commit.
 
 ### Lookup order
 
-`getApiKey` (`providers/config.ts:59`) tries four places in order:
+`getApiKey` (`providers/config.ts`) tries these in order:
 
-1. `config.json` → `providers.<id>.apiKey`
-2. `config.json` → the **base** provider, stripping a `-coding-plan` suffix, so
-   `minimax-coding-plan` reuses the `minimax` key
-3. the provider's environment variable
-4. the base provider's environment variable
+1. the provider's environment variable
+2. `config.json` → `providers.<id>.apiKey`
 
-If all four miss it throws a message naming both the config path and the
-variable. Note what this order means in practice: **`config.json` wins over the
-environment.** A key you pasted months ago silently takes precedence over the
-one you just exported.
+so **the environment wins over the stored key**, like every other
+configuration surface here. A `-coding-plan` variant is the one exception:
+the catalogue declares the *base* provider's env var for it, so the generic
+env var is checked *after* the variant's own `config.json` entry (or a
+`MINIMAX_API_KEY` export would hijack a deliberately-configured plan key
+that bills a different plan), and the base provider's stored key is the
+final fallback.
+
+If everything misses it throws a message naming both the config path and the
+variable.
 
 > An environment variable alone will not get an interactive session started. It
 > supplies a credential, not a choice of provider, and a session with no
@@ -129,7 +132,7 @@ orchestrator coerces on the way in. The full picture is in
 
 Found while writing this page; each is also tracked in `TODO.md`.
 
-- **`config.json` silently outranks the environment.** For a tool whose other two
-  configuration surfaces let the environment override the file, having the
-  stored key win is the opposite of what a `FOO_API_KEY=… freecode` invocation
-  implies. Nothing surfaces which of the four sources a key came from.
+- **Nothing surfaces which source a key came from.** The environment now
+  overrides the stored key, but when both are set nothing reports which one a
+  request actually used — diagnosing a wrong-key 401 still means checking both
+  by hand.

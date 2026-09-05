@@ -546,11 +546,10 @@ on the pages but not repeated here.
       configuration works headlessly (`--model anthropic/…` supplies the
       provider) and never interactively — which is backwards from every other CLI
       that reads a `*_API_KEY`.
-- [ ] **`config.json` silently outranks the environment for API keys.**
-      `getApiKey` (`providers/config.ts:59`) checks the stored key first, so
-      `ANTHROPIC_API_KEY=… freecode` does *not* override a key pasted months ago,
-      and nothing reports which of the four sources was used. The other two
-      configuration surfaces let the environment win.
+- [ ] **Nothing reports which source an API key came from.** The environment
+      now overrides the stored key (fixed 2026-09-05), but when both are set
+      nothing surfaces which one a request used — a wrong-key 401 still means
+      checking both by hand.
 - [ ] **`freecode uninstall` ignores the variables the installer honours.** The
       handler hard-codes `~/.freecode` plus four Unix bin paths
       (`cli/commands/uninstall.ts:44`), while `install.sh` supports
@@ -967,21 +966,6 @@ Ranked by value. Full context in §8 of that spec.
 Found while writing `docs/superpowers/OPENHANDS_COMPARISON.md`, which reads the
 `OpenHands/OpenHands` Agent Canvas frontend (`ca4024e3a`) for what makes its
 long-running sessions survivable. Ranked as the doc's §"Recommended sequencing".
-
-### Bug
-
-- [ ] **SSE replay silently returns "caught up" after every full disconnect.**
-      `tearDownIfEmpty` (`apps/core/src/web/stream-subscribers.ts:265`) disposes
-      the ring buffer and deletes the session record as soon as the last
-      subscriber leaves — the normal case with one browser client. A reconnect
-      carrying `Last-Event-ID` then hits `if (!rec) return { gap: false, ...
-      events: [] }` (`:175`) and is told nothing was missed, losing every event
-      produced while away. Not even a `stream_gap` marker: that branch in
-      `replayToSubscriber` needs the record that was just deleted. Strictly
-      worse than eviction, which at least reports a gap. Fix is to decouple
-      record lifetime from subscriber count (TTL after the last leaves); the
-      comment on `publishToSession` claiming the buffer survives an empty
-      subscriber set documents the intended behaviour already.
 
 ### Long-session fidelity
 

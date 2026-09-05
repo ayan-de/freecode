@@ -150,7 +150,14 @@ function envKeysFor(providerId: string): string[] {
 }
 
 /**
- * The configured key for a provider: config file first, then env vars.
+ * The configured key for a provider. The environment overrides the stored
+ * key — matching the other two configuration surfaces, where the environment
+ * always wins — with one exception: for a `-coding-plan` variant the
+ * catalogue declares the BASE provider's env var, so the env var is generic
+ * while the variant's config entry is specific. There the order is exact
+ * config entry → env → base config entry, or a generic MINIMAX_API_KEY
+ * export would hijack a deliberately-configured plan key that bills a
+ * different plan.
  *
  * `envKeys` is passed in by the caller that already has the catalogue entry
  * (the generic provider); callers without one fall back to looking it up.
@@ -160,22 +167,29 @@ function envKeysFor(providerId: string): string[] {
  */
 export function getApiKey(providerId: string, envKeys?: string[]): string {
   const config = readConfig();
-
-  // Try exact match first
-  const configKey = config.providers?.[providerId]?.apiKey;
-  if (configKey) return configKey;
-
-  // Try base provider (e.g., "minimax-coding-plan" -> "minimax")
   const baseProvider = providerId.replace(/-coding-plan$/, "");
-  const baseConfigKey = config.providers?.[baseProvider]?.apiKey;
-  if (baseConfigKey) return baseConfigKey;
-
-  // Priority 2: environment variables, in the catalogue's own precedence order
   const candidates =
-    envKeys && envKeys.length > 0 ? envKeys : envKeysFor(baseProvider);
-  for (const key of candidates) {
-    const envValue = process.env[key];
-    if (envValue) return envValue;
+    envKeys && envKeys.length > 0 ? envKeys : envKeysFor(providerId);
+  const envKey = (): string | undefined => {
+    for (const key of candidates) {
+      const value = process.env[key];
+      if (value) return value;
+    }
+    return undefined;
+  };
+
+  if (baseProvider === providerId) {
+    const fromEnv = envKey();
+    if (fromEnv) return fromEnv;
+    const stored = config.providers?.[providerId]?.apiKey;
+    if (stored) return stored;
+  } else {
+    const stored = config.providers?.[providerId]?.apiKey;
+    if (stored) return stored;
+    const fromEnv = envKey();
+    if (fromEnv) return fromEnv;
+    const baseStored = config.providers?.[baseProvider]?.apiKey;
+    if (baseStored) return baseStored;
   }
 
   // Error — provide helpful message
