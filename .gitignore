@@ -4,6 +4,10 @@
 node_modules
 .pnp
 .pnp.js
+# Content-addressable package store. Default is ~/.local/share/pnpm/store;
+# if pnpm is pointed at the repo (store-dir / PNPM_STORE_DIR), it lands here
+# and must never be committed.
+.pnpm-store/
 
 # Local env files
 .env
