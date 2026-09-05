@@ -187,38 +187,160 @@ name buys nothing the paragraph above it does not already say.
 
 ## P1 — should fix, will not sink the release
 
-- **SSE replay lies after a full disconnect.** `tearDownIfEmpty`
-  (`web/stream-subscribers.ts:265`) disposes the ring buffer when the last
-  subscriber leaves — the normal single-browser case. A reconnect carrying
-  `Last-Event-ID` then hits `if (!rec) return { gap: false, events: [] }`
-  (`:175`) and is told nothing was missed, losing every event produced while
-  away. Not even a `stream_gap` marker. Strictly worse than eviction, which at
-  least reports a gap. Fix: decouple record lifetime from subscriber count (TTL
-  after the last leaves).
-- **Compaction summarizes the original task away.** `selectForCompaction`
-  preserves only the tail and takes `messages.slice(0, firstPreservedIndex)` for
-  the summary (`compaction/selector.ts:54`). No head carve-out, so the founding
-  instruction is compacted first and, on the next compaction, the summary of it
-  is re-summarized. Lossy compounding on the oldest content — the plausible
-  mechanism behind long-session drift off the brief.
-- **Compaction summaries never see tool activity.** `MemoryService` records only
-  user prompts and assistant text; a tool-calling turn is stored as the stub
-  `[Executed N tools]` (`loop.ts:1567`). The transcript handed to the summarizer
-  contains none of the edits, commands, or errors that were the actual work.
-  Also makes two heuristic-summarizer paths dead code
-  (`summarizer.ts:106`, `service.ts:63`).
-- **`METHODS` declares 24 of 49 implemented IPC methods**, and
-  `METHODS["session.send"]` declares the wrong result type. `CLAUDE.md` calls
-  that map the source of truth; it is not one yet. All of `memory.*`, `config.*`,
-  `models.*` and 8 session ops get zero compile-time checking in frontends.
-- **No `-32602` invalid-params validation.** Every handler does `params as {…}`
-  with no runtime check, so a missing or mistyped field becomes `undefined` deep
-  inside and surfaces as a confusing `-32603`.
-- **No JSON Schema for `settings.json`, and unknown keys are silently ignored.**
-  `"permission"` for `"permissions"` is indistinguishable from the outside from
-  the feature being broken — in a security-relevant, hand-edited file.
+> **Status:** all six are done (2026-09-05).
 
----
+### 1. ~~SSE replay lies after a full disconnect~~ — DONE 2026-09-05
+
+`tearDownIfEmpty` (`web/stream-subscribers.ts`) disposed the ring buffer when
+the last subscriber left — the normal single-browser case. A reconnect carrying
+`Last-Event-ID` then hit `if (!rec) return { gap: false, events: [] }` and was
+told nothing was missed, losing every event produced while away. Not even a
+`stream_gap` marker. Strictly worse than eviction, which at least reports a gap.
+
+**Fixed.** Record lifetime is decoupled from subscriber count: the last leave
+starts a 5-minute TTL (`emptySince`) enforced by the reaper that already runs,
+and a reconnect inside the window clears it and replays for real. Events emitted
+while nobody is attached keep being buffered, as they already were.
+
+`replayForSubscriber` also stops lying when the record is genuinely gone: a
+client that claims to have seen events but finds no buffer gets a **gap**, since
+we cannot know what it missed. That was the same lie in the other branch.
+
+Tests: 4 in `web/stream-subscribers.test.ts` (replay across a full disconnect, a
+gap once reaped, survival of a partial disconnect, a reconnect clearing the
+TTL). `runReaperForTests(now?)` is the seam — a five-minute TTL is not
+assertable against a 15s unref'd interval.
+
+### 2. ~~Compaction summarizes the original task away~~ — DONE 2026-09-05
+
+`selectForCompaction` preserved only the tail and took `messages.slice(0,
+firstPreservedIndex)` for the summary. No head carve-out, so the founding
+instruction was compacted first and, on the next compaction, the summary of it
+was re-summarized. Lossy compounding on the oldest content — the plausible
+mechanism behind long-session drift off the brief.
+
+**Fixed.** The first user message is carved out and preserved verbatim,
+prepended *after* the tail-trimming loop so trimming can never evict it. A head
+over `maxPreserveHeadTokens` (2k) is a pasted document rather than an
+instruction and is summarized as before — the carve-out is for a brief, not for
+anything that happens to be first.
+
+Tests: 2 in `selector.test.ts` — the brief survives two consecutive
+compactions (the second is where the old code re-summarized the summary of it),
+and an oversized head is not pinned.
+
+### 3. ~~Compaction summaries never see tool activity~~ — DONE 2026-09-05
+
+`MemoryService` recorded only user prompts and assistant text; a tool-calling
+turn was stored as the stub `[Executed N tools]`. The transcript handed to the
+summarizer contained none of the edits, commands or errors that were the actual
+work, and it left `summarizer.ts`'s `extractToolCalls`/`extractFiles` matching
+nothing — two paths that could not fire.
+
+**Fixed.** `compaction/tool-transcript.ts` renders one bounded line per call
+(`Tool <name>: <args> -> <outcome>`, in the format the summarizer already greps
+for), and `MemoryService.addToolTurn` records it in place of the stub.
+
+The turn budget moved with it. `normalizeContent` is gone: it clipped the *tail*
+of a long message, i.e. the most recent tools. The transcript drops the **oldest**
+calls and says how many, which is the right end to lose.
+`maxToolOutputChars` is now that per-turn budget (4k) rather than a per-output
+one — it was sized for a single raw output and would have kept about four calls.
+
+Tests: 6 in `tool-transcript.test.ts`, one of which pins the line format against
+the summarizer's own regexes so the two cannot silently part ways again.
+
+### 4. ~~`METHODS` declares 24 of 49 implemented IPC methods~~ — DONE 2026-09-05
+
+25 of 50, in the end. `CLAUDE.md` calls that map the source of truth; it was
+not one. All of `memory.*`, `config.*`, `models.*` and eight session ops got
+zero compile-time checking in frontends, and `METHODS["session.send"]` declared
+`StreamResponse` as its result — a shape it has never returned (the handler
+resolves with the loop's result; per-token output goes over the stream channel).
+Its params were missing `model`, `effort` and `agentMode` too.
+
+**Fixed.** All 25 are declared, `session.send` is corrected, and
+`ipc/methods-coverage.test.ts` asserts the two sets are equal **in both
+directions** — adding a handler without declaring it now fails the suite. That
+assertion, not the entries, is what makes the source-of-truth claim true.
+
+Six result shapes needed wire types, since `packages/shared` cannot import from
+an app: `MemoryEntry`/`MemoryType`, `MemoryGraphStats`, `RedactedConfig`,
+`TurnResult`, `ExportedSession`, `ModelInfo`. They follow the existing
+`SessionMeta`/`SerializedMessage` mirror pattern, and `ipc/wire-shapes.test.ts`
+pins each with a type-level assignability assertion, so drift is a
+`check-types` failure rather than a field that quietly stops reaching
+frontends.
+
+Two deliberate narrowings: `TurnResult` omits `LoopResult.finalState` (the
+loop's internal state machine — no frontend reads it), and there is no wire type
+for the raw config, only the redacted one. Adding one would undo P0 #3.
+
+### 5. ~~No `-32602` invalid-params validation~~ — DONE 2026-09-05
+
+Every handler read its params through `params as { … }`, a cast that checks
+nothing, so a missing or mistyped field became `undefined` deep inside and
+surfaced as `-32603` — an internal error, which tells the caller the server is
+broken when in fact the request was.
+
+**Fixed.** `REQUIRED_PARAMS` in `packages/shared` declares, per method, the
+params a handler genuinely cannot proceed without and their JSON types.
+`handleRequest` checks it before dispatch and answers `-32602` naming the field
+and both types, so a bad call is fixable from the error alone. The table is
+typed `Record<MethodName, …>`, so a new method without an entry is a **compile**
+error — there is no path to adding a method that skips validation.
+
+Scope is deliberately narrow: presence and type of the *required* params, not a
+schema validator. Optional params stay the handler's business (they have
+defaults), `null` counts as missing because that is how a JSON caller usually
+spells "nothing" and it fails identically, and unknown params are ignored so a
+newer frontend still talks to an older core.
+
+The rule for what goes in the table is **what the handler actually needs, not
+what `METHODS` types**: `commands.list` types `projectPath` as required but
+falls back to cwd, so requiring it would have rejected calls the handler would
+have served. Validation that is stricter than the handler is a new bug, not a
+fix.
+
+Tests: 9 in `ipc/validate-params.test.ts`, including the point of the exercise
+(`handleRequest` returning `-32602` rather than `-32603`) and one asserting an
+unknown method is still `-32601`.
+
+### 6. ~~No JSON Schema for `settings.json`, and unknown keys are silently ignored~~ — DONE 2026-09-05
+
+**Fixed, in two halves.**
+
+`settings/known-keys.ts` is the one place that knows the whole shape, so it can
+say "unknown key" and, for a near miss, which key was meant —
+`"permission"` → *did you mean "permissions"?*. `settings/validate.ts` runs it
+over both scopes once per process from the **shared hook bootstrap**, because a
+second call site is exactly how `serve` and `run` diverged last time (P0 #2).
+
+Deliberately a *name* check, not a schema validator. Values stay each reader's
+business — they already validate and default their own, and a second copy of
+those rules diverges. Hook event names are left to `hooks/settings.ts`, which
+already reports an unknown one with the full valid list: one good message beats
+two in different words. And it warns rather than refuses, since a file with a
+stray key is still a usable file.
+
+`schemas/settings.schema.json` is the editor half, wired up with `$schema` —
+the one key FreeCode ignores on purpose. Two descriptions of the same file drift
+the moment a key lands in only one, so a test asserts the schema's key set
+matches `KNOWN_SETTINGS` section by section.
+
+Tests: 9 in `settings/known-keys.test.ts`, including the motivating typo, a
+section-level typo, both deliberate non-warnings, and the drift guard.
+
+Docs: `/reference/settings` gained the `$schema` section, `redirect` in the
+top-level table (reachable but undocumented there), and the four `memory` keys
+the page never listed — `retrievalJudge`, `autoConsolidate`,
+`consolidateMinHours`, `consolidateMinSessions`. Two Known-gaps bullets and
+their `TODO.md` entries are closed.
+
+**Not adopted:** a shared settings loader. The three-loaders/three-merge-rules
+gap (`TODO.md:242`) is real and still open, but collapsing four readers into one
+is a refactor with its own risk surface, and it is not what made a typo
+invisible. The name check fixes that without touching a single merge rule.
 
 ## Explicitly not blockers
 
@@ -239,7 +361,16 @@ and docs do not promise them**:
 2. ~~Fix the three `run.ts` issues — shared hook bootstrap, `--yes`, `.choices()`.~~
 3. ~~Redact `config.get`~~; ~~make `uninstall` keep data by default~~.
 4. ~~Write the OAuth ToS stance into user-facing docs.~~
-5. `pnpm eval:gate` (needs `FREECODE_JUDGE_PROVIDER`), then tag.
+5. ~~Clear P1: SSE replay, compaction (brief + tool activity), `METHODS`,
+   `-32602`, settings schema.~~
+6. `pnpm eval:gate` (needs `FREECODE_JUDGE_PROVIDER`), then tag.
 
-**Steps 1–4 are done (2026-09-05).** What remains before the tag is step 5:
-`pnpm eval:gate` with `FREECODE_JUDGE_PROVIDER` set, then tag.
+**Steps 1–5 are done (2026-09-05).** All P0 and all P1 items are closed; the
+suite is **1255 pass / 0 fail** and `check-types` is clean across all five
+workspaces. What remains before the tag is step 6: `pnpm eval:gate` with
+`FREECODE_JUDGE_PROVIDER` set, then tag.
+
+Note that P1 #2 and #3 both change what the model sees after a compaction, which
+is a behaviour change in the sense `CLAUDE.md`'s eval-driven-development section
+means. The gate run in step 6 is the measurement; if the judged suite moves,
+those two are the first place to look.
