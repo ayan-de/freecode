@@ -1,3 +1,11 @@
+/* Departure Mono everywhere. Nextra's font tokens are declared inside
+   @layer theme, so these unlayered rules win regardless of import order. */
+:root {
+  --x-font-sans: var(--font-departure-mono), ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --x-font-mono: var(--x-font-sans);
+}
+
 /* Minimal app-level overrides. Nextra theme handles the rest. */
 html,
 body {
