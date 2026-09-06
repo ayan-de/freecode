@@ -41,16 +41,30 @@ against classic `princeton-nlp/SWE-bench_Lite` it dies with
 ~/.venvs/swebench3/bin/pip install swebench==3.0.17`, then point the grader
 at it with `SWEBENCH_PYTHON=~/.venvs/swebench3/bin/python3`.
 
-**opencode is not yet isolation-ready.** It reads `MINIMAX_API_KEY` and calls
-`api.minimax.io` directly — it has no endpoint flag and ignores
-`MINIMAX_BASE_URL`, so on the internal network its egress is dropped, not
-redirected. It would fail every isolated trial (no route to the model),
-which is a measurement artefact, not a result — so the shipped runs are
-freecode vs claude-code. Making opencode isolatable needs a per-trial
-opencode config pinning its minimax provider's baseURL to the sidecar (its
-IP is dynamic), or a TLS-terminating transparent redirect. Until then, an
-opencode number belongs only to the non-isolated (`--no-meter` or host)
-path, and even there it is unmetered.
+**opencode is isolation-ready as of 2026-09-07** — via a per-trial config
+file, not an env var. It has no endpoint flag and honours neither
+`MINIMAX_BASE_URL` nor `ANTHROPIC_BASE_URL`, so it used to have no route to
+the model on the internal network and would have lost every isolated trial
+for a plumbing reason. Its **config file does take a provider baseURL**
+(verified against 1.18.25: pointed at a local server, it sent
+`POST /v1/messages` — the same Anthropic wire shape claude-code produces, so
+the meter and rate card need no special case). `runner/agent-config.ts`
+renders that config per trial, because the sidecar proxy's IP is allocated
+when its container joins the network and so cannot be a committed file.
+
+Two things about that config dir are load-bearing, both measured rather than
+assumed:
+
+- It is mounted **rw**, and is a throwaway under `$TMPDIR`, never the artifact
+  dir. opencode treats `XDG_CONFIG_HOME` as writable state.
+- It is **pre-seeded** (`configSeed`, §1). opencode npm-installs
+  `@opencode-ai/plugin` — 62 MB — into a fresh `XDG_CONFIG_HOME` on first run,
+  `--pure` included, and an isolated container has no network to install it
+  from.
+
+The rendered config is copied to `<trial>/agent-config.json`, so the config an
+agent ran under is published beside the number it produced; its package cache
+is not.
 
 There is still no gate, no CI wiring, no exit-on-regression — same reasoning
 as `eval ab`.
@@ -91,6 +105,20 @@ The django mirror (~250 MB) is cloned on first use into
 measure GitHub's mood.
 
 `.cache/` and `results/` are git-ignored.
+
+**The opencode config seed** is the other one-time online step, needed before
+any opencode trial:
+
+```bash
+XDG_CONFIG_HOME=bench/agent-bench/.cache/opencode-config opencode run --pure "hi" >/dev/null 2>&1
+rm -f bench/agent-bench/.cache/opencode-config/opencode/opencode.json
+```
+
+That leaves ~62 MB of `@opencode-ai/plugin` deps which every trial's config dir
+is copied from. opencode installs them itself on first run, and an isolated
+container has no network to do it in. A missing seed is a hard error naming
+this command, not a silently failed trial. Re-seed when `OPENCODE_VERSION`
+changes.
 
 ---
 
@@ -153,7 +181,7 @@ On by default. Each trial starts a **pass-through HTTP proxy**
 | --- | --- | --- |
 | Claude Code | `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>` | adapter's `ANTHROPIC_BASE_URL` (MiniMax `/anthropic`) |
 | freecode | `MINIMAX_BASE_URL=http://127.0.0.1:<port>/v1` | same MiniMax origin; `baseURLFor()` in `catalogue.ts` honours `$<ID>_BASE_URL` |
-| OpenCode | those two vars, which it **does not honour** | unmetered without `--isolate`; in a container the internal network leaves it no other route |
+| OpenCode | neither — it honours no base-URL env var | a per-trial `opencode.json` pinning `provider.minimax.options.baseURL` to `<proxy>/v1` (§5, `configFile`). Metered on both paths; unmetered is a hard error, since it would go off the shared bill |
 
 The proxy: no cache, no retries, no body rewrite. Tokens are parsed off
 Anthropic Messages JSON/SSE and OpenAI Chat Completions. Anthropic
@@ -358,10 +386,16 @@ Flags verified 2026-09-03 — **the adapter file is the source of truth:**
 | opencode | 1.18.25 | `run --pure --auto --model <p/m> "<p>"` + `XDG_CONFIG_HOME` | yes |
 | codex | 0.151.0 | `exec --dangerously-bypass-approvals-and-sandbox --ephemeral --ignore-user-config` | Phase 3 |
 
-OpenCode's `XDG_CONFIG_HOME` points at `empty-config/` (deliberately empty).
-Without it, opencode loads `~/.config/opencode/opencode.json` and every MCP
-server in it. Measured: 19 tools with the operator's config, 10 without.
-Neither `--pure` nor `OPENCODE_CONFIG` suppresses MCP.
+Optional `configFile` writes a per-trial config for an agent that has no env
+var for a setting the harness must control, with `{proxyOrigin}` and `{model}`
+substituted; `configSeed` pre-populates that directory from a git-ignored
+cache. `{configDir}` in `env` resolves to it (`/agent-config`, mounted rw, in
+a container).
+
+OpenCode needs all three. Its `XDG_CONFIG_HOME` is that generated dir, which
+also keeps it off `~/.config/opencode/opencode.json` and every MCP server in
+it. Measured: 19 tools with the operator's config, 10 without. Neither
+`--pure` nor `OPENCODE_CONFIG` suppresses MCP; only XDG_CONFIG_HOME does.
 
 Claude Code's `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1048576` is a **fairness
 correction**, not a tuning knob: MiniMax's `/anthropic` shim reports a 200K
@@ -440,7 +474,7 @@ bench/agent-bench/
   runner/                   # trial loop, fetch, publish, workspace, grade, bundle
   proxy/                    # recording meter (spec §6.4)
   isolate/                  # Dockerfile + container/network plumbing (§6.3)
-  empty-config/             # opencode: no MCP, no personal config
+  .cache/opencode-config/   # opencode's pre-installed plugin deps (seed, git-ignored)
   results/<date>/           # git-ignored
   .cache/                   # git-ignored
 
