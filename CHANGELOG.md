@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.30.2
+
+A hardening release focused on the memory system, TUI transcript rendering, and eval fixture accuracy. It fixes findings from the memory-system review, improves live assistant text and reasoning streaming, removes debug chatter and blank tool-group framing from the transcript, and updates eval samples so recorded outcomes and judge feedback match the intended cases.
+
+### Fixed
+
+- **Memory system review findings** across the write path, recall benchmark, and knowledge graph (`f6e74e8`). Fixes issues identified by the review and records the recall benchmark result and the eval memory-store confound.
+- **TUI transcript rendering** (`e07e484`, `e7e7a5a`, `796ed5e`, `446a6d0`). Live assistant text and reasoning now stream correctly, INFO/DEBUG logger chatter is kept out of the transcript, and expanded tool calls no longer introduce blank framing inside tool groups.
+- **Eval sample accuracy** (`def3b04`). Updated responses in `samples.jsonl` for clarity and accuracy so recorded cases reflect the intended behavior and judge feedback.
+
 ## v0.27.1
 
 A documentation and hardening release on top of `v0.27.0`. The 26 commits since `0.27.0` are mostly docs cleanup — the Mermaid conversion work moved ASCII box-drawings on `/internals/*` into proper flowcharts, and several internals pages were rewritten (subagents, runtime, permissions, bus, sessions, eval reference). Underneath, the agent-loop audit closed its last three known gaps, MCP got an interactive picker and stricter tool-conversion validation, `applyEdit` handles ambiguous matches, sessions got a cleanup pass, and the TUI gained `@mention` autocomplete plus fd-less file search and PowerShell clipboard image support.
