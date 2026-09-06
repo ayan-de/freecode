@@ -19,6 +19,8 @@ export interface RawResult {
   trial: number;
   producedPatch: boolean;
   resolved: boolean | null;
+  /** Per-row isolation; absent on legacy rows. */
+  isolation?: "none" | "container";
   durationMs: number;
   patchBytes: number;
   newFiles: number;
