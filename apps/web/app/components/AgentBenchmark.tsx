@@ -451,7 +451,52 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
           description="Spawn to agent exit. Shorter is better — the longest bar is the slowest agent, not the winner. An agent that runs the tests pays for it here, which is not obviously a vice."
           bars={speedBars}
           footnote={`Slowest median in this matchup: ${secs(slowest)}.`}
-        />
+        >
+          {/* Wall time decomposed: turns per trial × seconds per turn. The
+              interesting finding is when the slower agent has the FASTER
+              turns — then the whole gap is round trips, not latency. */}
+          {free?.meanTurns !== undefined &&
+            fastestRival?.meanTurns !== undefined &&
+            (() => {
+              const perTurn = (a: { medianMs: number; meanTurns?: number }) =>
+                a.medianMs / (a.meanTurns as number);
+              const rows = [free, fastestRival];
+              const freeSlower = free.medianMs > fastestRival.medianMs;
+              const freeMoreTurns = free.meanTurns > fastestRival.meanTurns;
+              const freeFasterTurns = perTurn(free) < perTurn(fastestRival);
+              return (
+                <div className="mt-6 pt-5 border-t border-border">
+                  <h4 className="text-sm font-medium text-foreground mb-3">
+                    Where the time goes
+                  </h4>
+                  <div className="space-y-1.5 mb-4">
+                    {rows.map((a) => (
+                      <div key={a.id} className="flex items-center gap-3 font-mono text-xs">
+                        <span
+                          className="w-28 shrink-0 font-bold"
+                          style={{ color: agentColor(a.id) }}
+                        >
+                          {a.id}
+                        </span>
+                        <span className="text-foreground/80">
+                          ~{Math.round(a.meanTurns as number)} turns per trial
+                        </span>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span className="text-foreground/80">
+                          ~{(perTurn(a) / 1000).toFixed(1)}s per turn
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {freeSlower && freeMoreTurns && freeFasterTurns
+                      ? `freecode's turns are actually faster than ${fastestRival.id}'s — it loses wall time purely by making ~${Math.round(((free.meanTurns as number) / (fastestRival.meanTurns as number) - 1) * 100)}% more round trips. Every extra turn pays a full network round-trip plus time-to-first-token, even on a warm prompt cache; ${fastestRival.id} packs more work into each turn and finishes sooner.`
+                      : "Wall time is turns × time per turn: an agent can lose this bar by making slow turns, or by making more of them. The split above says which."}
+                  </p>
+                </div>
+              );
+            })()}
+        </BenchBarList>
 
         <BenchBarList
           id={`size-${view.slug}`}
