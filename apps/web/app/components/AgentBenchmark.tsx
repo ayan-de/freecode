@@ -699,6 +699,77 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         </div>
 
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
+          <h3 className="text-lg font-medium text-foreground">How it ran</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-6">
+            The whole pipeline, in order. Every step is the same for every
+            agent — the moment one step differs per agent, the benchmark stops
+            comparing harnesses and starts comparing our treatment of them.
+          </p>
+          <ol className="space-y-5">
+            {[
+              {
+                title: "Pick the bugs",
+                body: `${view.taskSet.instances.length} real ${view.taskSet.repo} issues from ${view.taskSet.name}, fetched from HuggingFace. The gold patch, the test patch, and the maintainer hints are stripped before anything touches disk — the answer key never enters this repo.`,
+              },
+              {
+                title: "Build the workspace",
+                body: "Each trial gets its own fresh checkout at the commit just before the real fix landed, cloned from a cached local mirror on a detached HEAD. No network clone in the timed path, nothing shared between trials.",
+              },
+              {
+                title: "Give every agent the same prompt",
+                body: "One string, identical for all agents: the upstream issue text, plus instructions not to touch tests and not to commit. The prompt lives in its own file so changing it reviews as what it is — a change to the experiment.",
+              },
+              {
+                title: "Pin the model, max the autonomy",
+                body: `Every agent runs ${view.model} on the same API key, each with its own full-autonomy flag (see Setup above). Running one agent at full autonomy against another at its default would measure permission defaults, not agents.`,
+              },
+              {
+                title:
+                  view.isolation === "container"
+                    ? "Isolate each trial in Docker"
+                    : "Isolation: not yet",
+                body:
+                  view.isolation === "container"
+                    ? "Each trial runs in a container on an internal Docker network whose only exit is the metering proxy — the agent cannot look the fix up, and a fresh $HOME means nothing an agent learns carries into the next trial."
+                    : "These trials ran without a container: open network, shared $HOME. That is exactly why the page marks them provisional.",
+              },
+              {
+                title: "Meter everything through one proxy",
+                body: "All model traffic passes through a single recording pass-through proxy. Tokens are counted by that one meter and priced from a committed rate card — the same accounting for every agent, never each vendor's own dashboard.",
+              },
+              {
+                title: "Run the matrix, keep the diff",
+                body: `agents × bugs × trials, ${Math.max(...view.matrix.flatMap((r) => r.cells.map((c) => c.trial)), 1)} trial${Math.max(...view.matrix.flatMap((r) => r.cells.map((c) => c.trial)), 1) === 1 ? "" : "s"} per bug here. When the agent exits, its working-tree diff is extracted as the patch — that diff is the entire submission.`,
+              },
+              {
+                title: view.graded ? "Grade with the official harness" : "Grading: not yet",
+                body: view.graded
+                  ? "The official SWE-bench harness applies each patch in its own Docker environment and runs the project's real test suite. Only its verdict marks a trial resolved — 'produced a patch' is never promoted to 'fixed the bug'."
+                  : "The official SWE-bench grader has not run on these trials, so nothing on this page says 'fixed' — only 'changed a file'.",
+              },
+              {
+                title: "Publish the evidence",
+                body: "Every trial writes its prompt, argv, patch, and stdout/stderr to the results directory, and the numbers land on this page by finishing. There is no editorial step between the run and what you are reading.",
+              },
+            ].map((s, i) => (
+              <li key={s.title} className="flex gap-4">
+                <span className="shrink-0 h-6 w-6 rounded-full border border-border bg-muted font-mono text-[11px] font-bold text-foreground/70 flex items-center justify-center mt-0.5">
+                  {i + 1}
+                </span>
+                <div>
+                  <h4 className="text-sm font-medium text-foreground">
+                    {s.title}
+                  </h4>
+                  <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                    {s.body}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <h3 className="text-lg font-medium text-foreground">
             Check it yourself
           </h3>
