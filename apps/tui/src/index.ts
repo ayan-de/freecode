@@ -10,6 +10,7 @@ import {
   type OverlayHandle,
 } from "@earendil-works/pi-tui";
 import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
+import { FrameStatsOverlay } from "./components/frame-stats.js";
 import { NoticeModal } from "./components/notice-modal.js";
 import { CompactionModal } from "./components/compaction-modal.js";
 import { ScrollableModal } from "./components/scrollable-modal.js";
@@ -143,7 +144,7 @@ import type {
 
 registerBuiltInCommands();
 
-let tui: TUI;
+let tui: SafeTUI;
 let messageCount = 0;
 
 let currentSession: SessionInfo | null = null;
@@ -304,11 +305,14 @@ const selectionStore = new SelectionStore();
 // mode: terminal height minus the chrome below it (editor, spacers, mode line),
 // so the scrolled window and the input stay on screen together. The context
 // widget is now a top-right overlay and doesn't reserve viewport rows.
+// Height measurements go through tui.renderChild — the per-frame memo — so
+// measuring a sibling doesn't re-run its full render (the editor used to be
+// rendered 3-4x per frame between these callbacks and the tree pass).
 const getMessageListOffset = () => {
   const idx = tui.children.indexOf(messageList);
   if (idx <= 0) return 0;
   return tui.children.slice(0, idx).reduce((sum, child) => {
-    return sum + child.render(terminal.columns).length;
+    return sum + tui.renderChild(child, terminal.columns).length;
   }, 0);
 };
 
@@ -318,7 +322,7 @@ messageList = new VirtualMessageList(
     const otherHeight = tui.children
       .filter((child) => child !== messageList)
       .reduce((sum, child) => {
-        return sum + child.render(terminal.columns).length;
+        return sum + tui.renderChild(child, terminal.columns).length;
       }, 0);
     return Math.max(6, terminal.rows - otherHeight);
   },
@@ -1961,7 +1965,10 @@ function inputChromeHeight(): number {
   if (start < 0) return 0;
   return tui.children
     .slice(start)
-    .reduce((sum, child) => sum + child.render(terminal.columns).length, 0);
+    .reduce(
+      (sum, child) => sum + tui.renderChild(child, terminal.columns).length,
+      0,
+    );
 }
 
 // Hug the text so a notice stays a single line, capped by what the terminal
@@ -2023,6 +2030,32 @@ const jumpOptions = {
   },
 };
 tui.showOverlay(jumpModal, jumpOptions);
+
+// Shift+Ctrl+D: toggle the frame-timing overlay (SafeTUI.stats). The 500ms
+// tick only exists while the overlay is up, so the debug view never drives
+// frames the session wouldn't otherwise render.
+const frameStatsView = new FrameStatsOverlay(tui.stats);
+let frameStatsHandle: OverlayHandle | null = null;
+let frameStatsTimer: ReturnType<typeof setInterval> | null = null;
+tui.onDebug = () => {
+  if (frameStatsHandle) {
+    frameStatsHandle.hide();
+    frameStatsHandle = null;
+    if (frameStatsTimer) {
+      clearInterval(frameStatsTimer);
+      frameStatsTimer = null;
+    }
+  } else {
+    frameStatsHandle = tui.showOverlay(frameStatsView, {
+      anchor: "top-left",
+      width: frameStatsView.width(),
+      nonCapturing: true,
+    });
+    frameStatsTimer = setInterval(() => tui.requestRender(), 500);
+    frameStatsTimer.unref?.();
+  }
+  tui.requestRender();
+};
 
 /** Whether a click at (cx, cy) — 1-based — landed on the jump-to-bottom pill. */
 function jumpButtonHit(cx: number, cy: number): boolean {

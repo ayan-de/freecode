@@ -20,7 +20,12 @@
 // that has to format untrusted text.
 // =============================================================================
 
-import { TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  TUI,
+  truncateToWidth,
+  visibleWidth,
+  type Component,
+} from "@earendil-works/pi-tui";
 
 /**
  * C0 controls that move the cursor on their own, plus DEL. Three are excluded
@@ -54,13 +59,98 @@ export function sanitizeLines(lines: string[], width: number): string[] {
   return lines.map((line) => sanitizeLine(line, width));
 }
 
+/** Rolling render-cost figures, read by the Shift+Ctrl+D stats overlay. */
+export interface FrameStats {
+  /** Frames rendered since startup. */
+  frames: number;
+  /** Component-tree render cost of the last frame, ms (excludes the terminal write). */
+  lastMs: number;
+  /** Rolling mean / max over the last `WINDOW` frames. */
+  avgMs: number;
+  maxMs: number;
+  /** Child renders served from / missed by the per-frame memo. */
+  memoHits: number;
+  memoMisses: number;
+}
+
+const STATS_WINDOW = 120;
+
 /**
  * TUI that guarantees every line handed to the differential renderer occupies
  * exactly one row. `render` is the single point where the whole child tree's
  * output passes through, so the guard sits there.
+ *
+ * It is also the frame boundary, which makes it the home of two perf pieces:
+ *
+ * - A per-frame child-render memo (`renderChild`). Layout code measures
+ *   heights by rendering sibling components (the message list's viewport
+ *   callback, `inputChromeHeight`, overlay `visible` hooks), so before the
+ *   memo the editor and mode line were fully rendered 3-4x per frame. pi-tui
+ *   re-renders every child every frame regardless, so within one frame a
+ *   component's output is stable and safe to reuse; the memo also survives
+ *   into overlay compositing and click handling, where reusing the displayed
+ *   frame's lines is more correct than re-rendering fresher state.
+ * - Frame timing (`stats`), so optimization is measured, not eyeballed.
  */
 export class SafeTUI extends TUI {
+  private frameId = 0;
+  private memo = new WeakMap<
+    Component,
+    { frame: number; width: number; lines: string[] }
+  >();
+  private durations: number[] = [];
+
+  readonly stats: FrameStats = {
+    frames: 0,
+    lastMs: 0,
+    avgMs: 0,
+    maxMs: 0,
+    memoHits: 0,
+    memoMisses: 0,
+  };
+
+  /**
+   * Render a child once per frame; every later caller in the same frame gets
+   * the same lines. Callers outside a render pass (click handlers) get the
+   * lines of the frame on screen. Falls through to a plain render when the
+   * width differs (overlays measure at their own width).
+   */
+  renderChild(child: Component, width: number): string[] {
+    const hit = this.memo.get(child);
+    if (hit && hit.frame === this.frameId && hit.width === width) {
+      this.stats.memoHits++;
+      return hit.lines;
+    }
+    this.stats.memoMisses++;
+    const lines = child.render(width);
+    this.memo.set(child, { frame: this.frameId, width, lines });
+    return lines;
+  }
+
   override render(width: number): string[] {
-    return sanitizeLines(super.render(width), width);
+    this.frameId++;
+    const t0 = performance.now();
+    const lines: string[] = [];
+    for (const child of this.children) {
+      for (const line of this.renderChild(child, width)) {
+        lines.push(line);
+      }
+    }
+    const out = sanitizeLines(lines, width);
+
+    const elapsed = performance.now() - t0;
+    this.stats.frames++;
+    this.stats.lastMs = elapsed;
+    this.durations.push(elapsed);
+    if (this.durations.length > STATS_WINDOW) this.durations.shift();
+    let sum = 0;
+    let max = 0;
+    for (const d of this.durations) {
+      sum += d;
+      if (d > max) max = d;
+    }
+    this.stats.avgMs = sum / this.durations.length;
+    this.stats.maxMs = max;
+    return out;
   }
 }
