@@ -119,3 +119,28 @@ test("ambient system notices do not split a run into one group per call", () => 
     /Ran 2 commands, Read 1 file/,
   );
 });
+
+test("expanding a child inside the group adds no blank framing rows", () => {
+  clearMessages();
+  addResult("Read", { file_path: "a.ts" });
+  // Multi-line output so the child, once expanded, has a real body.
+  createToolResultMessage("call-ls", "ls", { path: "/tmp" }, "one\ntwo\nthree", true);
+  sealToolGroups();
+
+  const group = getMessages()[0]!.component as ToolGroupMessage;
+  group.toggle(); // expand the group
+  let lines = group.render(80);
+
+  // Expand the ls child by clicking its header row.
+  const lsHeader = lines.findIndex((l) => plain([l]).includes("ls(") );
+  assert.ok(lsHeader > 0);
+  assert.equal(group.isToggleLine(lsHeader), true);
+  group.toggleAt(lsHeader);
+
+  lines = group.render(80);
+  // Only the group's own leading spacer may be blank — the expanded child's
+  // standalone blank framing must not leak into the stacked list.
+  const blanks = lines.filter((l) => l === "").length;
+  assert.equal(blanks, 1);
+  assert.match(plain(lines), /one/);
+});
