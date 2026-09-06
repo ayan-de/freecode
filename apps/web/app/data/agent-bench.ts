@@ -76,6 +76,15 @@ export interface AgentSummary {
   /** Max USD on a single metered trial — the runaway the mean hides (§7). */
   worstUsd?: number;
   meanTurns?: number;
+  /** Mean input tokens per metered trial, and how many were cache reads. */
+  meanInput?: number;
+  meanCacheRead?: number;
+  meanCacheWrite?: number;
+  /** cacheRead / input over all metered trials — the prompt-cache hit rate. */
+  cacheHitRate?: number;
+  /** Trials that created at least one new file, and how many they created. */
+  newFileTrials: number;
+  newFilesTotal: number;
 }
 
 export interface MatrixCell {
@@ -88,6 +97,8 @@ export interface MatrixCell {
   tokens?: number;
   usd?: number | null;
   auditOk?: boolean;
+  /** Per-row isolation; absent on legacy rows (which predate containers). */
+  isolation?: "none" | "container";
 }
 
 /**
@@ -145,6 +156,12 @@ export interface BenchView {
   costPoints: CostPoint[];
   /** freecode's token saving vs the best rival, when both are metered. */
   tokenEdge?: { rivalId: string; freeTokens: number; rivalTokens: number; pctFewer: number };
+  /**
+   * Per-row isolation, counted. A stitched file can mix container and
+   * open-network rows; when it does, the page must say which rows are which
+   * instead of letting the top-level field speak for all of them.
+   */
+  isolationMix: { container: number; none: number; mixed: boolean };
   caveats: { title: string; body: string }[];
 }
 
@@ -230,6 +247,11 @@ export function deriveView(raw: RawBenchmark): BenchView {
     // talked around the proxy still writes zeros, and zeros are not a $0 run.
     const metered = mine.filter((r) => (r.turns ?? 0) > 0);
     const usds = metered.map((r) => r.usd).filter((u): u is number => typeof u === "number");
+    // Cache figures only when the proxy actually recorded them — an absent
+    // column on a metered row is old data, not a 0% hit rate.
+    const cacheKnown = metered.some((r) => r.cacheReadTokens !== undefined);
+    const inputSum = metered.reduce((s, r) => s + (r.inputTokens ?? 0), 0);
+    const cacheReadSum = metered.reduce((s, r) => s + (r.cacheReadTokens ?? 0), 0);
     return {
       id: a.id,
       isFreeCode: a.id === "freecode",
@@ -248,6 +270,12 @@ export function deriveView(raw: RawBenchmark): BenchView {
       meanUsd: metered.length ? (usds.length ? mean(usds)! : null) : undefined,
       worstUsd: usds.length ? Math.max(...usds) : undefined,
       meanTurns: mean(metered.map((r) => r.turns ?? 0)),
+      meanInput: cacheKnown ? mean(metered.map((r) => r.inputTokens ?? 0)) : undefined,
+      meanCacheRead: cacheKnown ? mean(metered.map((r) => r.cacheReadTokens ?? 0)) : undefined,
+      meanCacheWrite: cacheKnown ? mean(metered.map((r) => r.cacheWriteTokens ?? 0)) : undefined,
+      cacheHitRate: cacheKnown && inputSum > 0 ? cacheReadSum / inputSum : undefined,
+      newFileTrials: mine.filter((r) => r.newFiles > 0).length,
+      newFilesTotal: mine.reduce((s, r) => s + r.newFiles, 0),
     };
   });
 
@@ -273,8 +301,18 @@ export function deriveView(raw: RawBenchmark): BenchView {
         tokens: (r.turns ?? 0) > 0 ? totalTokens(r) : undefined,
         usd: (r.turns ?? 0) > 0 ? r.usd : undefined,
         auditOk: r.auditOk,
+        isolation: r.isolation,
       })),
   }));
+
+  // Absent per-row isolation means a legacy row from before containers, i.e.
+  // an open network — counting it as "none" is the conservative reading.
+  const isoContainer = results.filter((r) => r.isolation === "container").length;
+  const isolationMix = {
+    container: isoContainer,
+    none: results.length - isoContainer,
+    mixed: isoContainer > 0 && isoContainer < results.length,
+  };
 
   /**
    * §7.2, executed: cost is compared only on instances every agent resolved
@@ -389,6 +427,14 @@ export function deriveView(raw: RawBenchmark): BenchView {
           },
         ]
       : []),
+    ...(isolationMix.mixed
+      ? [
+          {
+            title: "Isolation is mixed across trials",
+            body: `${isolationMix.container} trial row${isolationMix.container === 1 ? "" : "s"} ran inside a container and ${isolationMix.none} did not — the open-network rows are drawn with a dashed border in the per-instance table. The rates above blend both regimes; re-running the open rows in the container is what retires this caveat.`,
+          },
+        ]
+      : []),
     ...(agents.some((a) => a.trials > 0 && a.meteredTrials < a.trials)
       ? [
           {
@@ -452,6 +498,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
     cost,
     costPoints,
     tokenEdge,
+    isolationMix,
     caveats,
   };
 }

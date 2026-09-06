@@ -69,6 +69,12 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
   // An unmetered agent gets a zero-width bar labelled as such, never a zero —
   // a blank is not the cheapest run in the table.
   const anyMetered = view.agents.some((a) => a.meteredTrials > 0);
+  // Prompt-cache section data: shown only when the proxy recorded the cache
+  // columns at all. Fresh = input the trial paid full price for.
+  const anyCache = view.agents.some((a) => a.cacheHitRate !== undefined);
+  const maxInput = Math.max(...view.agents.map((a) => a.meanInput ?? 0), 1);
+  const freshOf = (a: { meanInput?: number; meanCacheRead?: number }) =>
+    Math.max((a.meanInput ?? 0) - (a.meanCacheRead ?? 0), 0);
   const tokenBars: BenchBar[] = view.agents.map((a) => ({
     label: a.id,
     value: a.meanTokens ?? 0,
@@ -306,9 +312,67 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         </div>
         <div>
           <dt className="inline text-muted-foreground/60">isolation </dt>
-          <dd className="inline text-foreground/80">{view.isolation}</dd>
+          <dd
+            className={`inline ${view.isolationMix.mixed ? "text-destructive" : "text-foreground/80"}`}
+          >
+            {view.isolationMix.mixed
+              ? `mixed — ${view.isolationMix.container} container / ${view.isolationMix.none} open`
+              : view.isolation}
+          </dd>
         </div>
       </dl>
+
+      {/* Every run stitched into this page, on the record. One run is a trust
+          signal ("nothing merged"); several are the receipt behind the
+          stitched-runs caveat — which rows were measured when, against what. */}
+      <div className="mb-10 rounded-md border border-border bg-card px-5 py-4 md:px-6">
+        <h4 className="font-mono text-xs uppercase tracking-widest text-muted-foreground/60 mb-1">
+          Run history
+        </h4>
+        <p className="text-xs text-muted-foreground mb-3">
+          {view.runs.length === 1
+            ? "Every row on this page comes from this single run — nothing was merged in."
+            : `${view.runs.length} runs merged into this page. Rows measured at different times met a moving endpoint — trust the shape, not the decimals.`}
+        </p>
+        {/* publish.ts prepends the newest run, so the array is already
+            newest-first — #1 is the oldest, the top row the latest. */}
+        <ol className="space-y-0.5">
+          {view.runs.map((r, i) => (
+            <li
+              key={r.runId}
+              className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 py-1.5 border-b border-border/60 last:border-0 font-mono text-xs"
+            >
+              <span className="w-6 shrink-0 text-muted-foreground/40">
+                #{view.runs.length - i}
+              </span>
+              <span className="text-foreground/80 tabular-nums">
+                {new Date(r.generatedAt).toISOString().slice(0, 16).replace("T", " ")}{" "}
+                UTC
+              </span>
+              <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                {r.agents.map((a, j) => (
+                  <span key={a}>
+                    <span className="font-bold" style={{ color: agentColor(a) }}>
+                      {a}
+                    </span>
+                    {j < r.agents.length - 1 && (
+                      <span className="text-muted-foreground/40"> ·</span>
+                    )}
+                  </span>
+                ))}
+              </span>
+              {r.runId === view.runId && (
+                <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-px text-[10px] font-bold text-primary">
+                  latest
+                </span>
+              )}
+              <span className="ml-auto text-muted-foreground/40 text-[10px]">
+                {r.runId}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
 
       {provisional && (
         <div className="mb-10 rounded-md border border-destructive/40 bg-destructive/5 p-5 md:p-6">
@@ -426,7 +490,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                     {cells.map((c) => (
                       <span
                         key={`${c.instanceId}-${c.trial}`}
-                        title={`${c.instanceId} · t${c.trial} · ${secs(c.durationMs)} · ${c.reason}`}
+                        title={`${c.instanceId} · t${c.trial} · ${secs(c.durationMs)} · ${c.reason}${view.isolationMix.mixed && c.isolation ? ` · ${c.isolation}` : ""}`}
                         className={`h-4 w-4 rounded-[3px] border ${c.ok ? "" : "bg-destructive/10 border-destructive/60"}`}
                         style={
                           c.ok
@@ -503,7 +567,43 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
           title="Median patch size"
           description="Bytes of diff produced. A fact about each harness's style, not a score — a bigger patch is not a better fix, and a smaller one is not automatically surgical."
           bars={sizeBars}
-        />
+        >
+          <div className="mt-6 pt-5 border-t border-border">
+            <h4 className="text-sm font-medium text-foreground mb-2">
+              New files created
+            </h4>
+            {view.agents.every((a) => a.newFilesTotal === 0) ? (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                None — across all{" "}
+                {view.agents.reduce((s, a) => s + a.trials, 0)} trials, every
+                patch edited existing code only. That is what a bug-fix task set
+                should look like: a harness that scaffolds new files here would
+                be a smell, not a feature.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {view.agents.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center gap-3 font-mono text-xs"
+                  >
+                    <span
+                      className="w-28 shrink-0 font-bold"
+                      style={{ color: agentColor(a.id) }}
+                    >
+                      {a.id}
+                    </span>
+                    <span className="text-foreground/80">
+                      {a.newFilesTotal === 0
+                        ? "none — edits only"
+                        : `${a.newFilesTotal} new file${a.newFilesTotal === 1 ? "" : "s"} across ${a.newFileTrials} of ${a.trials} trials`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </BenchBarList>
 
         {anyMetered && (
           <BenchBarList
@@ -512,6 +612,119 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
             description="Input + output counted off one recording proxy for every agent — the same meter, the same rules, never each vendor's own accounting. Fewer is cheaper, but an agent that gives up early is also cheap; read this next to the outcome bar, not instead of it."
             bars={tokenBars}
           />
+        )}
+
+        {anyCache && (
+          <div className="rounded-md border border-border bg-card p-6 md:p-8">
+            <h3 className="text-lg font-medium text-foreground">Prompt cache</h3>
+            <p className="text-sm text-muted-foreground mt-1 mb-6">
+              How much of each trial&apos;s input the provider served from its
+              prompt cache, off the same meter as the token chart. The pale
+              segment was read from cache at a discounted rate; the solid
+              segment is fresh context, billed in full. Bars share one scale,
+              so their lengths also compare input volume.
+            </p>
+            <div className="space-y-4">
+              {view.agents.map((a) => {
+                const hasCache = a.cacheHitRate !== undefined;
+                const input = a.meanInput ?? 0;
+                const cached = a.meanCacheRead ?? 0;
+                const fresh = freshOf(a);
+                const display = hasCache
+                  ? `${((a.cacheHitRate as number) * 100).toFixed(1)}% cached`
+                  : a.meteredTrials > 0
+                    ? "no cache data"
+                    : "unmetered";
+                const note = hasCache
+                  ? `~${tok(fresh)} fresh of ${tok(input)}/trial${(a.meanCacheWrite ?? 0) > 0 ? ` · ${tok(a.meanCacheWrite as number)} writes` : ""}`
+                  : a.meteredTrials > 0
+                    ? "proxy recorded no cache columns"
+                    : "proxy saw no traffic";
+                return (
+                  <div
+                    key={a.id}
+                    className="flex flex-col md:flex-row md:items-center justify-between py-2 border-b border-border hover:bg-accent/10 px-2 rounded transition-colors"
+                  >
+                    <div className="w-full md:w-36 flex items-center justify-between md:justify-start mb-1 md:mb-0">
+                      <span
+                        className={`font-mono text-sm ${a.isFreeCode ? "font-bold" : ""}`}
+                        style={{ color: agentColor(a.id) }}
+                      >
+                        {a.id}
+                      </span>
+                      <span className="md:hidden text-xs text-muted-foreground/60">
+                        {display}
+                      </span>
+                    </div>
+                    <div className="flex-1 mx-0 md:mx-6 flex items-center h-6">
+                      <div className="w-full bg-muted h-3.5 rounded overflow-hidden border border-border">
+                        {hasCache && input > 0 && (
+                          <div
+                            className="h-full flex transition-all duration-1000 ease-out"
+                            style={{ width: `${(input / maxInput) * 100}%` }}
+                          >
+                            <div
+                              className="h-full"
+                              style={{
+                                width: `${(cached / input) * 100}%`,
+                                backgroundColor: agentColor(a.id),
+                                opacity: 0.3,
+                              }}
+                            />
+                            <div
+                              className="h-full"
+                              style={{
+                                width: `${(fresh / input) * 100}%`,
+                                backgroundColor: agentColor(a.id),
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="hidden md:flex w-56 justify-between items-center text-right font-mono text-xs">
+                      <span
+                        className={`text-sm ${a.isFreeCode ? "font-semibold" : ""}`}
+                        style={{ color: agentColor(a.id) }}
+                      >
+                        {display}
+                      </span>
+                      <span className="text-muted-foreground/60 text-[10px] w-32">
+                        {note}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 font-mono text-[11px] text-muted-foreground/70">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-[2px] bg-foreground/25" aria-hidden />
+                read from cache (discounted)
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-[2px] bg-foreground/80" aria-hidden />
+                fresh input (billed in full)
+              </span>
+            </div>
+            {(() => {
+              const freeCache = view.agents.find(
+                (a) => a.isFreeCode && a.cacheHitRate !== undefined,
+              );
+              const rivalCache = view.agents.find(
+                (a) => !a.isFreeCode && a.cacheHitRate !== undefined,
+              );
+              return (
+                <div className="mt-6 p-4 rounded bg-muted border border-border">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {freeCache && rivalCache
+                      ? `A high hit rate means the harness keeps its prompt stable enough for the provider to reuse it. What each trial actually pays full price for is the solid segment: freecode ~${tok(freshOf(freeCache))} fresh input tokens per trial vs ${rivalCache.id} ~${tok(freshOf(rivalCache))} — the hit rate is where a token gap becomes a cost gap.`
+                      : "A high hit rate means the harness keeps its prompt stable enough for the provider to reuse it — the solid segment is what each trial actually pays full price for."}
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
         )}
 
         {anyMetered && (
@@ -675,6 +888,8 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
             One row per bug, one cell per trial. Disagreement between trials of
             the same agent is the interesting signal — it is what a single-run
             benchmark cannot show you.
+            {view.isolationMix.mixed &&
+              " Dashed cells ran on an open network, outside the container."}
           </p>
           <div className="space-y-3">
             {view.matrix.map((row) => (
@@ -697,12 +912,12 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                   {row.cells.map((cell) => (
                     <span
                       key={`${cell.agent}-${cell.trial}`}
-                      title={`${cell.reason} · ${cell.patchBytes}B${cell.tokens !== undefined ? ` · ${tok(cell.tokens)} tok` : ""}${typeof cell.usd === "number" ? ` · ${usd(cell.usd)}` : ""}${cell.auditOk === false ? " · UNMETERED/LEAK" : ""}`}
+                      title={`${cell.reason} · ${cell.patchBytes}B${cell.tokens !== undefined ? ` · ${tok(cell.tokens)} tok` : ""}${typeof cell.usd === "number" ? ` · ${usd(cell.usd)}` : ""}${cell.isolation ? ` · ${cell.isolation}` : ""}${cell.auditOk === false ? " · UNMETERED/LEAK" : ""}`}
                       className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] ${
                         cell.ok
                           ? "border-border bg-muted text-foreground/80"
                           : "border-destructive/40 bg-destructive/5 text-destructive"
-                      }`}
+                      } ${view.isolationMix.mixed && cell.isolation !== "container" ? "border-dashed" : ""}`}
                     >
                       {cell.ok ? (
                         <Check className="h-3 w-3" aria-hidden />
