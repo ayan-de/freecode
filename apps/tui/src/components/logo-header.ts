@@ -23,12 +23,22 @@ const PENDING = "…";
  * once at startup and the header stays synchronous.
  */
 export class LogoHeader implements Component {
+  /**
+   * Rendered every frame as the message list's first entry (even in follow
+   * mode, where the window slice usually discards it), so the lines are
+   * cached on everything they actually depend on: width and the two counts
+   * (version and cwd are fixed for the process).
+   */
+  private cache?: { width: number; tools: number; mcp: number; lines: string[] };
+
   constructor(
     private getToolCount: () => number,
     private getMcpCount: () => number,
   ) {}
 
-  invalidate(): void {}
+  invalidate(): void {
+    this.cache = undefined;
+  }
 
   /**
    * Center a styled fragment by padding with spaces. `visiblePlainLen` is the
@@ -49,6 +59,17 @@ export class LogoHeader implements Component {
     if (width < LOGO_WIDTH) {
       // Logo is 34 chars wide; skip the overlay rather than truncating it.
       return [];
+    }
+
+    const toolCount = this.getToolCount();
+    const mcpCount = this.getMcpCount();
+    if (
+      this.cache &&
+      this.cache.width === width &&
+      this.cache.tools === toolCount &&
+      this.cache.mcp === mcpCount
+    ) {
+      return this.cache.lines;
     }
 
     const padLeft = Math.max(0, Math.floor((width - LOGO_WIDTH) / 2));
@@ -83,7 +104,7 @@ export class LogoHeader implements Component {
     const dirStyled = chalk.dim("Directory:") + ` ${cwd}`;
     const dirLine = this.centerLine(width, dirPlain.length, dirStyled);
 
-    return [
+    const lines = [
       `${indent}${coloredLogoLines[0]}${rightPad}`,
       `${indent}${coloredLogoLines[1]}${rightPad}`,
       `${indent}${coloredLogoLines[2]}${rightPad}`,
@@ -91,5 +112,7 @@ export class LogoHeader implements Component {
       statsLine,
       dirLine,
     ].map((line) => truncateToWidth(line, width));
+    this.cache = { width, tools: toolCount, mcp: mcpCount, lines };
+    return lines;
   }
 }

@@ -10,7 +10,11 @@ import {
   getMessages,
   getMessageByQueueId,
 } from "../state/message-store.js";
-import { createMessageComponent, ThinkingMessage } from "./message-row.js";
+import {
+  createMessageComponent,
+  ThinkingMessage,
+  StreamingAssistantMessage,
+} from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
 import { ToolProgressMessage } from "./tool-progress-message.js";
 import { ToolResultMessage } from "./tool-result-message.js";
@@ -59,6 +63,77 @@ export function createAssistantMessage(content: string): MessageInstance {
   sealToolGroups();
   const component = createMessageComponent("assistant", content);
   return addMessage("assistant", content, component);
+}
+
+// The assistant row currently streaming in, if any. One per internal turn:
+// the turn-end `text` snapshot settles it, and the next turn's first delta
+// starts a fresh row — which is how prose emitted between tool calls stays
+// in the transcript instead of being dropped.
+let liveAssistant: {
+  instance: MessageInstance;
+  component: StreamingAssistantMessage;
+} | null = null;
+
+/**
+ * Append a streamed `text_delta` chunk, creating the live assistant row on
+ * the first delta of an internal turn.
+ */
+export function appendAssistantDelta(delta: string): MessageInstance {
+  if (liveAssistant && !liveAssistant.component.done) {
+    liveAssistant.component.append(delta);
+    return liveAssistant.instance;
+  }
+  sealToolGroups();
+  const component = new StreamingAssistantMessage(delta);
+  const instance = addMessage("assistant", delta, component);
+  liveAssistant = { instance, component };
+  return instance;
+}
+
+/**
+ * Settle the live streaming row with the turn's authoritative `text`
+ * snapshot. With no live row and a snapshot in hand (the non-streaming
+ * provider path emits no deltas), the snapshot renders as a settled
+ * assistant message. Without either, this is a no-op — it doubles as the
+ * "close any dangling stream" call on the abort/error paths.
+ */
+export function finalizeAssistantText(content?: string): MessageInstance | null {
+  if (liveAssistant) {
+    const { instance, component } = liveAssistant;
+    liveAssistant = null;
+    component.finalize(content);
+    // Same component, refreshed content — keeps message.content truthful for
+    // anything reading the store, and the notify re-renders the row settled.
+    return updateMessage(instance.id, component.content, component) ?? instance;
+  }
+  if (content) {
+    return createAssistantMessage(`**FreeCode:** ${content}`);
+  }
+  return null;
+}
+
+/**
+ * Append a streamed `thinking_delta` chunk into the open thinking block,
+ * creating it on the first chunk. The turn-end `thinking` snapshot still
+ * flows through createThinkingMessage, which replaces the whole buffer.
+ */
+export function appendThinkingDelta(
+  delta: string,
+  startTime?: number,
+): MessageInstance {
+  const messages = getMessages();
+  const lastMessage = messages[messages.length - 1];
+  if (
+    lastMessage &&
+    lastMessage.component instanceof ThinkingMessage &&
+    !lastMessage.component.done
+  ) {
+    lastMessage.component.appendContent(delta);
+    return lastMessage;
+  }
+  sealToolGroups();
+  const component = new ThinkingMessage(delta, startTime);
+  return addMessage("thinking", delta, component);
 }
 
 /**
@@ -261,6 +336,7 @@ export { subscribeToMessages };
  * Clear all messages from the store
  */
 export function clearAllMessages(): void {
+  liveAssistant = null;
   clearMessages();
 }
 

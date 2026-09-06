@@ -129,7 +129,16 @@ export class ToolGroupMessage implements Component {
 
     for (const item of this.items) {
       const rendered = item.render(width);
-      for (let local = 0; local < rendered.length; local++) {
+      // An expanded ToolResultMessage frames its body with blank lines for
+      // standalone use; inside the group's stacked list those frames read as
+      // stray gaps around the expanded call. Trim them — but keep each kept
+      // row's ORIGINAL local index, since isToggleLine/toggleAt address the
+      // child's own line numbering (its headerLineIndex in particular).
+      let start = 0;
+      let end = rendered.length;
+      while (start < end && rendered[start] === "") start++;
+      while (end > start && rendered[end - 1] === "") end--;
+      for (let local = start; local < end; local++) {
         push(rendered[local]!, { item, local });
       }
     }

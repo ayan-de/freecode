@@ -12,6 +12,13 @@ class MessageStoreImpl {
   private subscribers = new Set<Subscriber>();
   private idCounter = 0;
   private maxMessages: number | undefined;
+  /**
+   * Memoized copy handed out by getMessages(). Reads vastly outnumber writes
+   * (every stream event and every frame reads; only actual transcript changes
+   * write), and the un-memoized version cloned the full ≤2000-element array
+   * per read. Callers treat the snapshot as read-only.
+   */
+  private snapshot: MessageInstance[] | null = null;
 
   constructor(options: MessageStoreOptions = {}) {
     this.maxMessages = options.maxMessages;
@@ -41,8 +48,15 @@ class MessageStoreImpl {
 
     this.messages.push(message);
 
-    // Cap memory usage if limit set
-    if (this.maxMessages && this.messages.length > this.maxMessages) {
+    // Cap memory usage if limit set. Trimmed with slack: trimming exactly at
+    // the cap re-copied the whole 2000-element array on every add for the
+    // rest of the session; letting it overshoot by a small batch makes the
+    // copy amortized instead. Consumers window the tail anyway.
+    const TRIM_SLACK = 64;
+    if (
+      this.maxMessages &&
+      this.messages.length > this.maxMessages + TRIM_SLACK
+    ) {
       this.messages = this.messages.slice(-this.maxMessages);
     }
 
@@ -83,7 +97,8 @@ class MessageStoreImpl {
    * Get all messages
    */
   getMessages(): MessageInstance[] {
-    return [...this.messages];
+    if (!this.snapshot) this.snapshot = [...this.messages];
+    return this.snapshot;
   }
 
   /**
@@ -135,6 +150,8 @@ class MessageStoreImpl {
    * Internal notification to all subscribers
    */
   private notify(): void {
+    // Every mutation lands here, so this is the one invalidation point.
+    this.snapshot = null;
     const snapshot = this.getMessages();
     for (const callback of this.subscribers) {
       callback(snapshot);

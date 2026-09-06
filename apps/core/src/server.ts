@@ -1068,7 +1068,10 @@ export const methodHandlers: Record<
   "session.resume": async (
     params: Record<string, unknown>,
   ): Promise<unknown> => {
-    const { sessionId } = params as { sessionId: string };
+    const { sessionId, agentMode } = params as {
+      sessionId: string;
+      agentMode?: string;
+    };
     const manager = await getSessionManager();
     const context = await manager.resume(sessionId);
 
@@ -1092,8 +1095,11 @@ export const methodHandlers: Record<
       provider: resumeProvider,
       model: context.model || resumeCurrent?.model,
     };
-    // Initialize default agent mode
-    (session as unknown as Record<string, unknown>).agentMode = "build";
+    // Honor the caller's mode (a resumed plan/review session used to be
+    // silently reverted to build); session.send's agentMode still overrides
+    // this per turn.
+    (session as unknown as Record<string, unknown>).agentMode =
+      agentMode || "build";
     sessions.set(context.id, session);
 
     // Return shape the TUI client expects: { sessionId, messages }

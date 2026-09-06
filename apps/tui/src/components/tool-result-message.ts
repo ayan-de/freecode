@@ -72,6 +72,23 @@ export class ToolResultMessage implements Component {
   private collapsible = false;
   /** Header row's index within the last render, for `isToggleLine`. */
   private headerLineIndex = 0;
+  /**
+   * Everything derived purely from the immutable result/toolName, computed on
+   * first render. JSON.parse + looksLikeDiff + cli-highlight used to run on
+   * every frame for any result sitting in the live tail (the tail is
+   * re-rendered each frame — see VirtualMessageList.renderMessages).
+   */
+  private derived?: {
+    displayResult?: string;
+    isDiff: boolean;
+    stats: { added: number; removed: number } | null;
+    /** Body lines, syntax-highlighted when the filename's language is known. */
+    bodyLines: string[] | null;
+    /** Raw (unhighlighted) body line count, for the "+N lines" tail. */
+    lineCount: number;
+  };
+  /** renderDiff output is width-dependent — cached per width instead. */
+  private diffLines?: { width: number; lines: string[] };
 
   constructor(options: ToolResultMessageOptions) {
     this.toolCallId = options.toolCallId;
@@ -113,7 +130,10 @@ export class ToolResultMessage implements Component {
     
     const toolNameLower = this.toolName.toLowerCase();
     const isFileUpdate = ["write", "edit", "replace_file_content", "multi_replace_file_content"].includes(toolNameLower);
-    const isFileRead = ["read", "view_file", "skill", "webfetch"].includes(toolNameLower);
+    // Only actual file reads suppress their body — the content is already on
+    // disk. skill/webfetch used to be in this list, which hid their output
+    // with no caret to reveal it.
+    const isFileRead = ["read", "view_file"].includes(toolNameLower);
     const isRun = ["bash", "run_command"].includes(toolNameLower);
 
     let filename: string | undefined = undefined;
@@ -136,11 +156,41 @@ export class ToolResultMessage implements Component {
       }
     }
 
-    const displayResult = this.unwrapOutput(this.result);
-    // `looksLikeDiff` only tests for leading +/-, so any markdown bullet list
-    // trips it — a README read as "Removed 6 lines". Read-type tools suppress
-    // their body anyway, so they never take the diff branch.
-    const isDiff = !isFileRead && !!displayResult && looksLikeDiff(displayResult);
+    if (!this.derived) {
+      const displayResult = this.unwrapOutput(this.result);
+      // `looksLikeDiff` only tests for leading +/-, so any markdown bullet
+      // list trips it — a README read as "Removed 6 lines". Read-type tools
+      // suppress their body anyway, so they never take the diff branch;
+      // skill/webfetch bodies are usually markdown, so they must never take
+      // it either.
+      const isProse = ["skill", "webfetch"].includes(toolNameLower);
+      const isDiff =
+        !isFileRead &&
+        !isProse &&
+        !!displayResult &&
+        looksLikeDiff(displayResult);
+      const stats = isDiff && displayResult ? getDiffStats(displayResult) : null;
+      let bodyLines: string[] | null = null;
+      let lineCount = 0;
+      if (!isDiff && displayResult && !isFileRead) {
+        const resultLines = displayResult.replace(/\r/g, "").split("\n");
+        lineCount = resultLines.length;
+        bodyLines = resultLines;
+        const lang = getLanguageFromFilename(filename);
+        if (lang && supportsLanguage(lang)) {
+          try {
+            bodyLines = highlight(displayResult, {
+              language: lang,
+              theme: diffTheme,
+            }).split("\n");
+          } catch (err) {
+            // fallback to the raw lines
+          }
+        }
+      }
+      this.derived = { displayResult, isDiff, stats, bodyLines, lineCount };
+    }
+    const { displayResult, isDiff, stats } = this.derived;
     // `isFileRead` output is dropped below, so those never get a caret either.
     this.collapsible = !isDiff && !isFileRead && (!!displayResult || this.success);
     const collapsed = this.collapsible && this.isCollapsed;
@@ -166,8 +216,7 @@ export class ToolResultMessage implements Component {
 
     const resultWidth = safeWidth - 3; // 3 for "   " or "└─ "
 
-    if (isDiff && displayResult) {
-      const stats = getDiffStats(displayResult);
+    if (isDiff && displayResult && stats) {
       let statText = "No changes";
       if (stats.added > 0 && stats.removed > 0) statText = `Added ${stats.added} line${stats.added === 1 ? "" : "s"}, removed ${stats.removed} line${stats.removed === 1 ? "" : "s"}`;
       else if (stats.added > 0) statText = `Added ${stats.added} line${stats.added === 1 ? "" : "s"}`;
@@ -175,7 +224,17 @@ export class ToolResultMessage implements Component {
 
       lines.push(`${chalk.dim("└─")} ${statText}`);
 
-      const colored = renderDiff(displayResult.replace(/\r/g, ""), resultWidth, filename);
+      if (!this.diffLines || this.diffLines.width !== resultWidth) {
+        this.diffLines = {
+          width: resultWidth,
+          lines: renderDiff(
+            displayResult.replace(/\r/g, ""),
+            resultWidth,
+            filename,
+          ),
+        };
+      }
+      const colored = this.diffLines.lines;
       const preview = colored.slice(0, ToolResultMessage.MAX_DIFF_LINES);
       preview.forEach((raw) => {
         lines.push(`   ${raw}`);
@@ -184,21 +243,8 @@ export class ToolResultMessage implements Component {
       if (hidden > 0) {
         lines.push(`   ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`);
       }
-    } else if (displayResult && !isFileRead) {
-      const resultLines = displayResult.replace(/\r/g, "").split("\n");
-      
-      let highlightedLines = resultLines;
-      const lang = getLanguageFromFilename(filename);
-      if (lang && supportsLanguage(lang)) {
-        try {
-          const highlightedText = highlight(displayResult, { language: lang, theme: diffTheme });
-          highlightedLines = highlightedText.split("\n");
-        } catch (err) {
-          // fallback
-        }
-      }
-
-      const preview = highlightedLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
+    } else if (displayResult && !isFileRead && this.derived.bodyLines) {
+      const preview = this.derived.bodyLines.slice(0, ToolResultMessage.MAX_PREVIEW_LINES);
       
       if (isRun) {
         lines.push(`${chalk.dim("└─")} Output`);
@@ -208,7 +254,7 @@ export class ToolResultMessage implements Component {
         const prefix = (i === 0 && !isRun) ? chalk.dim("└─") : "  ";
         lines.push(` ${prefix} ${truncateToWidth(raw, resultWidth)}`);
       });
-      const hidden = resultLines.length - preview.length;
+      const hidden = this.derived.lineCount - preview.length;
       if (hidden > 0) {
         lines.push(`    ${chalk.dim(`… +${hidden} line${hidden === 1 ? "" : "s"}`)}`);
       }

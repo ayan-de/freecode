@@ -302,6 +302,24 @@ function rejectAllPending(reason: string): void {
 }
 
 /**
+ * Settle the in-flight session.send with a failure. Every `session.error`
+ * emitter in core ends the turn, but the escaped-error net (server.ts
+ * handleEscapedProviderError) tears the loop down without ever answering the
+ * RPC — without this, the caller's await sits on the 10-min idle deadline
+ * with the spinner stuck. Returns false when no stream call is pending
+ * (already settled, or the error arrived between turns). Deleting before
+ * rejecting mirrors the timeout path, so a late RPC response is a no-op.
+ */
+export function failActiveStream(reason: string): boolean {
+  if (activeStreamId === null) return false;
+  const pending = pendingRequests.get(activeStreamId);
+  if (!pending) return false;
+  pendingRequests.delete(activeStreamId);
+  pending.reject(new Error(reason));
+  return true;
+}
+
+/**
  * Track an in-flight JSON-RPC call and arm its deadline.
  *
  * The deadline is an *idle* one: `touch()` restarts it. Plain request/response

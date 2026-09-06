@@ -10,6 +10,7 @@ import {
   type OverlayHandle,
 } from "@earendil-works/pi-tui";
 import { TodoPanel, parseTodoResult } from "./components/todo-panel.js";
+import { FrameStatsOverlay } from "./components/frame-stats.js";
 import { NoticeModal } from "./components/notice-modal.js";
 import { CompactionModal } from "./components/compaction-modal.js";
 import { ScrollableModal } from "./components/scrollable-modal.js";
@@ -47,6 +48,7 @@ import {
   setCliRestartHandler,
   sessionStart,
   sessionSendStreaming,
+  failActiveStream,
   sessionStop,
   sessionDequeue,
   sessionCompact,
@@ -91,6 +93,9 @@ import {
   createToolProgressMessage,
   createToolResultMessage,
   createThinkingMessage,
+  appendThinkingDelta,
+  appendAssistantDelta,
+  finalizeAssistantText,
   ToolProgressMessage,
   type MessageInstance,
   loadSessionMessages,
@@ -142,7 +147,7 @@ import type {
 
 registerBuiltInCommands();
 
-let tui: TUI;
+let tui: SafeTUI;
 let messageCount = 0;
 
 let currentSession: SessionInfo | null = null;
@@ -235,6 +240,11 @@ function resetSessionCacheTotals(): void {
 // Running length of streamed assistant text for the active turn, converted to a
 // live output-token estimate (~4 chars/token) for the in-progress line.
 let streamedChars = 0;
+// Whether at least one `text` snapshot rendered during the active run. When it
+// did, the transcript already carries every internal turn's prose (final turn
+// included) and the RPC result's content must NOT be rendered again — it is
+// only the final turn's text, i.e. a strict subset of what streamed.
+let renderedTextThisRun = false;
 let modeLine: ModeLine;
 
 let modelSelector: SearchableSelectList | null = null;
@@ -303,11 +313,14 @@ const selectionStore = new SelectionStore();
 // mode: terminal height minus the chrome below it (editor, spacers, mode line),
 // so the scrolled window and the input stay on screen together. The context
 // widget is now a top-right overlay and doesn't reserve viewport rows.
+// Height measurements go through tui.renderChild — the per-frame memo — so
+// measuring a sibling doesn't re-run its full render (the editor used to be
+// rendered 3-4x per frame between these callbacks and the tree pass).
 const getMessageListOffset = () => {
   const idx = tui.children.indexOf(messageList);
   if (idx <= 0) return 0;
   return tui.children.slice(0, idx).reduce((sum, child) => {
-    return sum + child.render(terminal.columns).length;
+    return sum + tui.renderChild(child, terminal.columns).length;
   }, 0);
 };
 
@@ -317,7 +330,7 @@ messageList = new VirtualMessageList(
     const otherHeight = tui.children
       .filter((child) => child !== messageList)
       .reduce((sum, child) => {
-        return sum + child.render(terminal.columns).length;
+        return sum + tui.renderChild(child, terminal.columns).length;
       }, 0);
     return Math.max(6, terminal.rows - otherHeight);
   },
@@ -1006,7 +1019,11 @@ function handleToolEvent(event: StreamEvent) {
     case "tool_output": {
       const entry = toolMessageComponents.get(event.toolCallId);
       if (entry) {
-        entry.progress.updateOutput(event.content.split("\n").slice(-5));
+        // Only the last 5 lines are ever shown, so don't split a large
+        // output in full — a 4KB tail is more than 5 terminal rows.
+        const tail =
+          event.content.length > 4096 ? event.content.slice(-4096) : event.content;
+        entry.progress.updateOutput(tail.split("\n").slice(-5));
       }
       tui.requestRender();
       break;
@@ -1037,22 +1054,42 @@ function handleToolEvent(event: StreamEvent) {
       break;
     }
     case "thinking": {
-      // Create or update thinking message - dimmed cyan stream
-      const thinkingComponent = createThinkingMessage(
-        event.content,
-        globalThinkingStartTime || Date.now(),
-      );
+      // Turn-end reasoning snapshot — authoritative, replaces whatever the
+      // thinking_delta stream accumulated (it wins over any dropped chunk).
+      createThinkingMessage(event.content, globalThinkingStartTime || Date.now());
       tui.requestRender();
       break;
     }
-    case "text_delta":
-    case "thinking_delta": {
-      // Drive the in-progress line's live output-token estimate from the
-      // actual streamed text (~4 chars/token). The 1s in-progress tick picks
-      // this up on its next render, so the number tracks real generation
-      // instead of the old time-based guess.
+    case "text_delta": {
+      // Live prose: append into the streaming assistant row (created on the
+      // first delta of each internal turn). Also drive the in-progress
+      // line's live output-token estimate from the streamed text
+      // (~4 chars/token) so the number tracks real generation.
       streamedChars += event.delta.length;
       setLiveOutputTokens(Math.round(streamedChars / 4));
+      appendAssistantDelta(event.delta);
+      tui.requestRender();
+      break;
+    }
+    case "text": {
+      // Authoritative per-internal-turn snapshot (core emits it citation-
+      // stripped at every turn's end, final turn included). Settles the live
+      // streaming row — or, on the non-streaming provider path where no
+      // deltas ever arrive, is itself the whole render. This is also what
+      // keeps prose emitted between tool calls in the transcript: each turn
+      // settles its own row and the next turn starts a new one.
+      finalizeAssistantText(event.content);
+      renderedTextThisRun = true;
+      tui.requestRender();
+      break;
+    }
+    case "thinking_delta": {
+      streamedChars += event.delta.length;
+      setLiveOutputTokens(Math.round(streamedChars / 4));
+      // Streams into the open thinking block, so expanding it (Ctrl+T)
+      // mid-turn shows live reasoning instead of waiting for the snapshot.
+      appendThinkingDelta(event.delta, globalThinkingStartTime || Date.now());
+      tui.requestRender();
       break;
     }
     case "memory_saved": {
@@ -1234,6 +1271,23 @@ function handleToolEvent(event: StreamEvent) {
       }
       break;
     }
+    // The turn is dead (see the union comment in protocol.ts). Settle the
+    // in-flight session.send now — submitPrompt's catch renders the error and
+    // removes the in-progress row. On the loop's fail() path this races the
+    // RPC's own success:false response and whichever lands first wins; on the
+    // escaped-error path that response never comes and this is the only thing
+    // standing between the user and a spinner stuck on the idle deadline.
+    case "session.error": {
+      const ownSessionId = activeTurnSessionId ?? currentSession?.sessionId;
+      if (event.sessionId && ownSessionId && event.sessionId !== ownSessionId)
+        break;
+      if (!failActiveStream(event.error)) {
+        // No send pending (error arrived between turns) — render it directly.
+        createSystemMessage(`**Error:** ${event.error}`);
+        tui.requestRender();
+      }
+      break;
+    }
   }
 }
 
@@ -1264,6 +1318,7 @@ async function submitPrompt(
   hasFirstMessage = true;
   // Reset the live streamed-token estimate for this turn.
   streamedChars = 0;
+  renderedTextThisRun = false;
   resetLiveOutputTokens();
   resetLiveInputTokens();
   resetLiveUsageTotals();
@@ -1400,7 +1455,16 @@ async function submitPrompt(
 
     if (result.success) {
       const response = result.content || result.message;
-      createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+      if (renderedTextThisRun) {
+        // The streamed `text` snapshots already rendered every internal
+        // turn's prose, final turn included — result.content is only the
+        // final turn's text, so rendering it again would duplicate the last
+        // row. Just settle a dangling live row (an aborted stream can skip
+        // its snapshot).
+        finalizeAssistantText();
+      } else {
+        createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+      }
       const inTokens = result.usage?.inputTokens ?? 0;
       const outTokens = result.usage?.outputTokens ?? 0;
       const contextLimit = await getModelContextLimit(
@@ -1461,6 +1525,9 @@ async function submitPrompt(
       `**Error:** ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
+    // Settle a still-streaming assistant row on every exit path (error,
+    // interrupt, session.error reject) — no-op when nothing is live.
+    finalizeAssistantText();
     activeTurnSessionId = null;
     editor.setText("");
   }
@@ -1943,7 +2010,10 @@ function inputChromeHeight(): number {
   if (start < 0) return 0;
   return tui.children
     .slice(start)
-    .reduce((sum, child) => sum + child.render(terminal.columns).length, 0);
+    .reduce(
+      (sum, child) => sum + tui.renderChild(child, terminal.columns).length,
+      0,
+    );
 }
 
 // Hug the text so a notice stays a single line, capped by what the terminal
@@ -2005,6 +2075,32 @@ const jumpOptions = {
   },
 };
 tui.showOverlay(jumpModal, jumpOptions);
+
+// Shift+Ctrl+D: toggle the frame-timing overlay (SafeTUI.stats). The 500ms
+// tick only exists while the overlay is up, so the debug view never drives
+// frames the session wouldn't otherwise render.
+const frameStatsView = new FrameStatsOverlay(tui.stats);
+let frameStatsHandle: OverlayHandle | null = null;
+let frameStatsTimer: ReturnType<typeof setInterval> | null = null;
+tui.onDebug = () => {
+  if (frameStatsHandle) {
+    frameStatsHandle.hide();
+    frameStatsHandle = null;
+    if (frameStatsTimer) {
+      clearInterval(frameStatsTimer);
+      frameStatsTimer = null;
+    }
+  } else {
+    frameStatsHandle = tui.showOverlay(frameStatsView, {
+      anchor: "top-left",
+      width: frameStatsView.width(),
+      nonCapturing: true,
+    });
+    frameStatsTimer = setInterval(() => tui.requestRender(), 500);
+    frameStatsTimer.unref?.();
+  }
+  tui.requestRender();
+};
 
 /** Whether a click at (cx, cy) — 1-based — landed on the jump-to-bottom pill. */
 function jumpButtonHit(cx: number, cy: number): boolean {
@@ -2253,9 +2349,17 @@ tui.addInputListener((data) => {
 });
 
 // Wire stderr to system messages via store — must be the first startCli()
-// call so the handler is attached when the process spawns.
+// call so the handler is attached when the process spawns. Routine INFO/DEBUG
+// logger chatter ("Session started", "Session send") stays out of the
+// transcript — the UI already shows the turn itself — while WARN/ERROR lines
+// and non-logger notices (e.g. "core backend restarted") still surface.
 startCli((stderrMsg) => {
-  createSystemMessage(stderrMsg);
+  const visible = stderrMsg
+    .split("\n")
+    .filter((line) => !/^\[freecode\] (INFO|DEBUG):/.test(line.trim()))
+    .join("\n")
+    .trim();
+  if (visible) createSystemMessage(visible);
 });
 
 // Core keeps its session map in memory, so a respawned backend has never heard
