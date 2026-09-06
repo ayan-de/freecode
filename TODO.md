@@ -1003,3 +1003,21 @@ anchors). Detector gained a one-sample deferral for provider blips
       spiral-by-design case, 3 trials — could be variance). If long-run turn
       counts creep after this change, the nudge's salience as the final user
       message is the first suspect.
+
+## Eval-harness finding (memory-system review — 2026-09-06)
+
+- [ ] **Eval turns inject the developer's live memory store, so trajectory runs
+      are environment-dependent.** `eval/runner.ts` sets `projectPath:
+      process.cwd()` and the loop's `prepareMemories` runs against
+      `~/.freecode/projects/<repo>/memory` — a store that grows with every real
+      session on the machine. Measured 2026-09-06: the recorded 23/24 baseline
+      was unreproducible on the same commit (`main` re-run scored 23/24 but
+      flipped `no-tool-for-live-infra-data`, closing the gate; a fix branch with
+      byte-identical injection behavior scored 22 then 21). Off-topic prompts
+      like the live-infra case get a full 8-memory block (vector cosine floor,
+      see `memory/bench/README.md`), and that block differs per machine and per
+      week. Fix shape: the runner should isolate memory for unsandboxed cases
+      (point the store at an empty temp dir, or a committed fixture store) so a
+      case's verdict depends on the code, not on what the developer did
+      yesterday. Until then, cross-day gate deltas on trajectory are partly
+      memory-store drift.

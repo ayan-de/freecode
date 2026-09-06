@@ -57,6 +57,25 @@ promotes the relevant ones.
 documents and the metric divides by k. Read it as a relative measure between
 runs, not as an absolute quality score.
 
+## Results — 2026-09-06 (stopword tokenizer + whole-name bonus)
+
+Same machine, fused mode, before/after the BM25 stopword filter and the
+whole-name `EXACT_NAME_BONUS` fix:
+
+| metric | before | after |
+| --- | ---: | ---: |
+| recall@5 | 81.8% | 81.8% |
+| recall@10 | 86.4% | 86.4% |
+| precision@5 | 24.5% | 24.5% |
+| MRR | 81.7% | **84.1%** |
+| nDCG@10 | 76.9% | **79.0%** |
+| abstention accuracy | 0.0% | 0.0% |
+
+Coverage unchanged, ordering improved. Abstention does not move in fused mode —
+that is the cosine-floor property documented below, and the judge remains the
+abstention mechanism; the stopword filter fixes abstention only on the
+lexical-only path, where trivial "the"/"and" overlap used to score positive.
+
 ## Why there is a model call in the read path at all
 
 D1 originally claimed a local scorer could decide "is anything here relevant"
