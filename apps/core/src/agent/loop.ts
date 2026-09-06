@@ -397,6 +397,10 @@ export class AgentLoop {
   // What the last provider call was shown, so a citation in its reply can be
   // verified against it rather than trusted (spec D12).
   private lastInjectedMemories: MemoryEntry[] = [];
+  // Ids already credited for the current injection. A model that repeats the
+  // citation tag across several inner-loop replies must bump useCount once per
+  // show, or useCount/injectedCount stops being a precision estimate.
+  private citedThisInjection = new Set<string>();
   // Which tool results have gone to the provider, and how, so the cached
   // prompt prefix stays byte-stable across turns — kept in the module-level
   // store (keyed by sessionId) since a fresh AgentLoop is built per message.
@@ -651,6 +655,7 @@ export class AgentLoop {
     this.lastVerifierReport = undefined;
     this.lastMemoryBlock = undefined;
     this.lastMemoryEmittedFor = undefined;
+    this.citedThisInjection.clear();
     this.memoryToolUsedThisRun = false;
     // pruneState is intentionally NOT reset here: ids are derived
     // deterministically from persisted message ids, so decisions from earlier
@@ -1497,6 +1502,7 @@ export class AgentLoop {
         currentUserText !== this.lastMemoryEmittedFor
       ) {
         this.lastMemoryEmittedFor = currentUserText;
+        this.citedThisInjection.clear();
         BusEvents.stream(this.state.sessionId, {
           type: "memory_injected",
           memories: retrievedMemories.map((e) => ({
@@ -1646,9 +1652,14 @@ export class AgentLoop {
       if (providerResult.content) {
         const { ids, stripped } = parseCitations(providerResult.content);
         providerResult.content = stripped;
-        if (ids.length > 0 && this.lastInjectedMemories.length > 0) {
+        // Each id is credited once per injection, however many inner-loop
+        // replies repeat the tag — recordInjected fires once per show, and the
+        // two counters must stay divisible.
+        const fresh = ids.filter((id) => !this.citedThisInjection.has(id));
+        if (fresh.length > 0 && this.lastInjectedMemories.length > 0) {
+          for (const id of fresh) this.citedThisInjection.add(id);
           getMemoryGraphService(context.projectPath).recordCited(
-            ids,
+            fresh,
             this.lastInjectedMemories,
           );
         }
@@ -1695,7 +1706,18 @@ export class AgentLoop {
       }
 
       const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
-      if (toolCalls.some((tc) => tc.tool === "memory")) {
+      // Only a mutating action counts as "the model already curated memory
+      // this run" for extraction gate 3. `list` — which the tool's own
+      // description recommends doing first — used to count too, and a model
+      // that listed every run starved the interval gate for the whole session.
+      if (
+        toolCalls.some((tc) => {
+          if (tc.tool !== "memory") return false;
+          const action = (tc.args as Record<string, unknown> | undefined)
+            ?.action;
+          return action === "save" || action === "delete";
+        })
+      ) {
         this.memoryToolUsedThisRun = true;
       }
 

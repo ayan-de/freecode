@@ -14,6 +14,7 @@ import type {
 } from "./mem-types.js";
 import {
   MEMORY_TYPES,
+  isMemoryType,
   parseMemoryFrontmatter,
   serializeMemoryEntry,
 } from "./mem-types.js";
@@ -91,6 +92,11 @@ function getMemoryFilePath(
   type: MemoryType,
   name: string,
 ): string {
+  // The type is a path segment. IPC callers pass it as an unchecked string, so
+  // an unknown value here is a traversal attempt, not a new memory type.
+  if (!isMemoryType(type)) {
+    throw new Error(`Invalid memory type: ${JSON.stringify(type)}`);
+  }
   const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_");
   return path.join(getTypeDir(basePath, type), `${safeName}.md`);
 }
@@ -246,7 +252,7 @@ export class MemoryStore {
       "## Types of memory",
       "- **user**: User's role, goals, preferences, knowledge",
       "- **feedback**: Guidance on what to avoid/repeat",
-      "- **project**: Non-derivabl context (deadlines, decisions, who's doing what)",
+      "- **project**: Non-derivable context (deadlines, decisions, who's doing what)",
       "- **reference**: External system pointers (Linear, Grafana, Slack)",
       "",
       "## When to access memories",

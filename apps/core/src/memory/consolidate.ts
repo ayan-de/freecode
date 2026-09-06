@@ -291,6 +291,9 @@ export async function consolidateMemories(
         content: p.content,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
+        // A promotion over an existing name must not sever its graph edges.
+        tags: existing?.tags,
+        supersedes: existing?.supersedes,
       });
       promoted++;
       saved.push({ type: p.type, name: p.name });
@@ -317,8 +320,11 @@ export async function consolidateMemories(
 
     // Retention (D6.2). Only after a successful call: the model was given these
     // and asked to fold anything durable in them into a semantic memory first,
-    // so deleting them on a failed run would discard that chance.
+    // so deleting them on a failed run would discard that chance. An overflow
+    // episode squeezed out of the candidate cap was never shown at all — it
+    // keeps its slot until a run actually gives it the fold-first pass.
     for (const name of input.overflowEpisodes ?? []) {
+      if (!input.shownNames.has(name)) continue;
       if (store.delete(name, "episode")) deleted++;
     }
 
@@ -342,5 +348,8 @@ function findByName(
   entries: MemoryEntry[],
   name: string,
 ): MemoryEntry | undefined {
-  return entries.find((e) => e.name === name);
+  const matches = entries.filter((e) => e.name === name);
+  // A name held by two types is ambiguous; guessing here can merge into — or
+  // delete — the wrong-type memory, which a retry cannot undo. Refuse instead.
+  return matches.length === 1 ? matches[0] : undefined;
 }

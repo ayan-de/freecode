@@ -22,6 +22,14 @@ import { logger } from "../utils/logger.js";
 
 const LOCK_FILE = "consolidation.lock";
 const STATE_FILE = "consolidation.json";
+// Exclusive-create in-progress marker. The mtime lock alone is check-then-set:
+// two processes hitting the daily gate together both "acquired" it and ran two
+// full consolidations concurrently — interleaved merges/deletes and concurrent
+// `git commit`s in the same repo, not the wasted no-op the old comment claimed.
+const RUN_LOCK_FILE = "consolidation.running";
+// A crashed consolidator must not wedge the run lock forever. A run is one
+// model call plus file writes — minutes at most — so anything older is a corpse.
+const RUN_LOCK_STALE_MS = 30 * 60_000;
 
 export type ConsolidationOutcome = "succeeded" | "succeeded_no_output" | "failed";
 
@@ -41,6 +49,39 @@ function lockPath(graphDir: string): string {
 
 function statePath(graphDir: string): string {
   return path.join(graphDir, STATE_FILE);
+}
+
+function runLockPath(graphDir: string): string {
+  return path.join(graphDir, RUN_LOCK_FILE);
+}
+
+// `wx` create is the only genuinely atomic primitive here: exactly one process
+// wins it. A loser whose rival's marker has gone stale clears the corpse and
+// retries the exclusive create once.
+function tryTakeRunLock(graphDir: string, now = Date.now()): boolean {
+  const p = runLockPath(graphDir);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      fs.writeFileSync(p, String(process.pid), { flag: "wx" });
+      return true;
+    } catch {
+      try {
+        if (now - fs.statSync(p).mtimeMs <= RUN_LOCK_STALE_MS) return false;
+        fs.rmSync(p, { force: true });
+      } catch {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
+function releaseRunLock(graphDir: string): void {
+  try {
+    fs.rmSync(runLockPath(graphDir), { force: true });
+  } catch {
+    // Nothing to do; staleness recovery covers it.
+  }
 }
 
 /** Epoch ms of the last consolidation, or 0 if there has never been one. */
@@ -69,24 +110,26 @@ export function inRetryBackoff(graphDir: string, now = Date.now()): boolean {
 /**
  * Take the lock, returning the prior mtime so a failure can rewind to it.
  *
- * `null` means another process moved it first. The check-then-set is not
- * atomic, but the consequence of losing the race is one wasted no-op run
- * rather than corruption — and both processes then see the same committed
- * baseline (D13), so neither can act on stale input.
+ * `null` means another process holds or just advanced it. The mtime file is
+ * still the schedule (its mtime is the last-consolidated timestamp), but
+ * mutual exclusion comes from the exclusive-create run marker — the mtime
+ * check alone was check-then-set and let two daily-gated processes run full
+ * concurrent consolidations. The marker is released by
+ * recordConsolidationOutcome / rollbackConsolidationLock, and a corpse from a
+ * crashed run self-heals after RUN_LOCK_STALE_MS.
  */
 export function tryAcquireConsolidationLock(graphDir: string): number | null {
   try {
     fs.mkdirSync(graphDir, { recursive: true });
+    if (!tryTakeRunLock(graphDir)) return null;
     const before = readLastConsolidatedAt(graphDir);
     const now = new Date();
     fs.writeFileSync(lockPath(graphDir), "");
     fs.utimesSync(lockPath(graphDir), now, now);
-    const after = readLastConsolidatedAt(graphDir);
-    // Somebody else advanced it between the read and the write.
-    if (after < before) return null;
     return before;
   } catch (error) {
     logger.debug("[MemoryConsolidation] could not acquire lock", { error });
+    releaseRunLock(graphDir);
     return null;
   }
 }
@@ -113,6 +156,8 @@ export function rollbackConsolidationLock(
     });
   } catch (error) {
     logger.debug("[MemoryConsolidation] could not roll back lock", { error });
+  } finally {
+    releaseRunLock(graphDir);
   }
 }
 
@@ -122,6 +167,7 @@ export function recordConsolidationOutcome(
   outcome: Exclude<ConsolidationOutcome, "failed">,
 ): void {
   writeState(graphDir, { lastOutcome: outcome });
+  releaseRunLock(graphDir);
 }
 
 function writeState(graphDir: string, state: LockState): void {

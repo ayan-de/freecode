@@ -203,7 +203,10 @@ would silently kill the feature.
 ### 4.1 Every turn
 
 `agent/loop.ts` → `MemoryGraphService.prepareMemories(sessionId, lastUserText)`
-→ `renderRetrievedMemories()` → a `# Relevant memories` system block.
+→ `renderRetrievedMemories()` → a `# Relevant memories` block riding
+`ExecuteOptions.ephemeralTail` — appended as a plain final user message *after*
+`applyMessageCaching` places its anchors, never as a system block (RC8: one
+changed system byte re-sends the whole conversation).
 
 **One-turn-behind (spec D5).** A warm turn returns the *previous* turn's set
 instantly and refreshes in the background; the loop never blocks. A cold turn
@@ -286,7 +289,7 @@ Two distinct blocks, in two distinct places, for one reason.
 | Block | Where | Cached? | Changes when |
 | ----- | ----- | ------- | ------------ |
 | `buildMemoryGuidanceBlock()` — how to use memory | static system prefix (`context/compiler.ts`) | ✅ | never |
-| `renderRetrievedMemories()` — the actual memories | session block, per turn | ❌ | every turn |
+| `renderRetrievedMemories()` — the actual memories | `ephemeralTail`, a final user message after the cache anchors (no breakpoint) | ❌ | every turn |
 
 **`MEMORY.md` is deliberately never injected.** claude-code loads it every turn
 and consequently caps it (`MAX_ENTRYPOINT_LINES = 200`,
@@ -310,11 +313,16 @@ byte-identical regardless of store contents.
 
 It is enforced at **two** points, and the second one was a real hole:
 
-1. **Before embedding** (`graph/index.ts:152, 211`) — original behaviour.
-2. **Before writing**, in both the tool and the extractor — **added with the
-   write path.** Previously a secret-bearing memory was never vectorized but
-   *was* still written to disk in plaintext and still reachable through the
-   keyword fallback.
+1. **Before embedding** (`graph/index.ts`, `onChange` + `syncVectors`; both also prune a pre-existing vector when content turns secret-bearing) — original behaviour.
+2. **Before writing**, in the tool, the extractor, consolidation, and the
+   `memory.save` IPC handler — **added with the write path** (IPC gained the
+   check later; it was the one writer that bypassed it). Previously a
+   secret-bearing memory was never vectorized but *was* still written to disk
+   in plaintext and still reachable through the keyword fallback.
+3. **Before serving**, in the explorer's node detail
+   (`nodeDetailForExplorer`) — a secret-bearing file that reached disk by any
+   other route (hand-edit, older binary) is redacted, never served over the
+   localhost HTTP API.
 
 Vectors never leave the machine. There is no network call anywhere in retrieval.
 

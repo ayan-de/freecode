@@ -7,7 +7,7 @@
 import { getProvider } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
 import { getMemoryStore } from "./mem-store.js";
-import { MEMORY_TYPES, type MemoryType } from "./mem-types.js";
+import { AUTHORABLE_MEMORY_TYPES, type MemoryType } from "./mem-types.js";
 import { containsSecret } from "./graph/secret-filter.js";
 import { BusEvents } from "../bus/index.js";
 import { logger } from "../utils/logger.js";
@@ -75,7 +75,9 @@ function parseProposals(raw: string): Proposal[] {
     if (!item || typeof item !== "object") continue;
     const p = item as Record<string, unknown>;
     const type = typeof p.type === "string" ? p.type.toLowerCase() : "";
-    if (!(MEMORY_TYPES as readonly string[]).includes(type)) continue;
+    // Episodes are machine-written (D5); an extractor proposal claiming to be
+    // one is exactly the self-narration failure mode the tool refuses too.
+    if (!(AUTHORABLE_MEMORY_TYPES as readonly string[]).includes(type)) continue;
     if (
       typeof p.name !== "string" ||
       typeof p.description !== "string" ||
@@ -155,6 +157,11 @@ export async function extractMemories(input: ExtractInput): Promise<number> {
         content: p.content,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
+        // The extractor knows nothing about graph metadata; dropping it here
+        // would sever the entry's HasTag/Supersedes edges on every update.
+        tags: existing?.tags,
+        supersedes: existing?.supersedes,
+        happened_at: existing?.happened_at,
       });
       saved++;
       savedEntries.push({ type: p.type, name: p.name });

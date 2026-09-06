@@ -9,7 +9,7 @@
 const SECRET_PATTERNS: RegExp[] = [
   /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----/,
   /\bsk-ant-[A-Za-z0-9_-]{10,}/, // Anthropic
-  /\bsk-[A-Za-z0-9]{20,}/, // OpenAI-style
+  /\bsk-[A-Za-z0-9_-]{20,}/, // OpenAI-style, incl. segmented ids like sk-proj-…
   /\bAKIA[0-9A-Z]{16}\b/, // AWS access key id
   /\bASIA[0-9A-Z]{16}\b/, // AWS temporary key id
   /\bghp_[A-Za-z0-9]{36}\b/, // GitHub PAT (classic)

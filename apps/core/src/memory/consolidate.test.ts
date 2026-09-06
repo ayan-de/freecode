@@ -226,10 +226,22 @@ test(
       "a failed run must not discard the model's chance to fold them in",
     );
 
-    const ok = await run(
+    const unshown = await run(
       path,
       JSON.stringify({ merges: [], episode: null, promote: [] }),
       [],
+      ["old-episode"],
+    );
+    assert.equal(unshown.ok, true);
+    assert.ok(
+      store.load("old-episode", "episode"),
+      "an overflow episode squeezed out of the candidate cap was never shown, so it keeps its slot",
+    );
+
+    const ok = await run(
+      path,
+      JSON.stringify({ merges: [], episode: null, promote: [] }),
+      ["old-episode"],
       ["old-episode"],
     );
     assert.equal(ok.ok, true);

@@ -62,6 +62,7 @@ import {
   type MemoryEntry,
   type MemoryType,
 } from "./memory/index.js";
+import { containsSecret } from "./memory/graph/secret-filter.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { disposeOutputStore } from "./tools/output-store/index.js";
 import { disposeReadState } from "./tools/read-state.js";
@@ -69,7 +70,11 @@ import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "./context/session-context.js";
 import { buildContextBreakdown } from "./context/breakdown.js";
 import type { AgentMode } from "./agent/types.js";
-import { endSession, type SessionEndReason } from "./session/end-session.js";
+import {
+  endSession,
+  reviveSession,
+  type SessionEndReason,
+} from "./session/end-session.js";
 import { flushSessionMemory } from "./memory/final-flush.js";
 import { getSessionManager, type SessionContext } from "./session/index.js";
 import { type SessionStore } from "./session/store.js";
@@ -352,7 +357,10 @@ async function endSessionOnce(
             const messages = await store.getMessages(sessionId);
             return flushSessionMemory({
               sessionId,
-              projectPath: process.cwd(),
+              // The session's own project, not the daemon's cwd — a session
+              // opened on another workspace must not flush its memories into
+              // whatever directory the daemon happened to start in.
+              projectPath: info.projectPath || process.cwd(),
               provider: info.provider,
               messages,
             });
@@ -977,6 +985,13 @@ export const methodHandlers: Record<
       entry: MemoryEntry;
       projectPath?: string;
     };
+    // Same rule as the tool and the extractor (D4): credentials never hit
+    // disk, whichever writer they arrive through.
+    if (containsSecret(`${entry.description}\n${entry.content}`)) {
+      throw new Error(
+        "Memory content matches a secret pattern; refusing to save credentials",
+      );
+    }
     const store = getMemoryStore(projectPath || process.cwd());
     store.save(entry);
   },
@@ -1101,6 +1116,9 @@ export const methodHandlers: Record<
     (session as unknown as Record<string, unknown>).agentMode =
       agentMode || "build";
     sessions.set(context.id, session);
+    // A resumed session is active again; clear any earlier ended mark so its
+    // next end runs the disposers and the final flush.
+    reviveSession(context.id);
 
     // Return shape the TUI client expects: { sessionId, messages }
     return {
@@ -1137,6 +1155,9 @@ export const methodHandlers: Record<
     // six per-session caches used to leak on every switch.
     const leaving = (await manager.getCurrent())?.id;
     await manager.switch(sessionId);
+    // Switching *to* a session revives it: if it was ended by an earlier
+    // switch-away, its next end must flush again or later turns are lost.
+    reviveSession(sessionId);
     if (leaving && leaving !== sessionId) {
       await endSessionOnce(leaving, "switch");
     }

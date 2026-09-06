@@ -14,6 +14,8 @@
 
 import { extractMemories } from "./extract.js";
 import { shouldExtract } from "./extract-policy.js";
+import { allowsAuxiliaryCalls } from "../providers/index.js";
+import type { ProviderId } from "../providers/index.js";
 import { logger } from "../utils/logger.js";
 
 // Matches the loop's own transcript budget: enough to judge durability without
@@ -76,6 +78,13 @@ export async function flushSessionMemory(
   input: FinalFlushInput,
 ): Promise<number> {
   try {
+    // Same rule as the loop's own extraction: a provider that disallows
+    // auxiliary calls must not get one from the flush either.
+    if (!allowsAuxiliaryCalls(input.provider as ProviderId)) {
+      logger.debug("[MemoryFlush] skipped: provider disallows auxiliary calls");
+      return 0;
+    }
+
     const { text, turns, lastUserText } = buildTranscript(input.messages);
     if (text.length === 0) return 0;
 
