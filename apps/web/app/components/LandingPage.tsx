@@ -1,3 +1,4 @@
+import { FaGithub } from "react-icons/fa";
 import { Installation } from "./Installation";
 import { Mission } from "./Mission";
 import { Benchmark } from "./Benchmark";
@@ -10,6 +11,17 @@ import { Announcement } from "./Announcement";
 export function LandingPage() {
   return (
     <PageWrapper>
+      {/* Same corner treatment as the theme toggle (fixed bottom-right). */}
+      <a
+        href="https://github.com/ayan-de/freecode"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="freecode on GitHub"
+        className="fixed top-6 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg transition-transform hover:scale-110 active:scale-95"
+      >
+        <FaGithub className="h-5 w-5" />
+      </a>
+
       <div className="px-[max(80px,calc((100vw-1024px)/2))]">
         <Announcement />
       </div>
