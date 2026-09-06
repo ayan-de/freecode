@@ -19,11 +19,12 @@ import { taskPrompt } from "./prompt.js";
 import { createWorkspace, extractPatch, verifyWorkspace } from "./workspace.js";
 import {
   IMAGE,
-  NETWORK,
+  INTERNAL_NETWORK,
   dockerAvailable,
-  ensureInternalNetwork,
+  ensureNetworks,
   forwardedEnvNames,
   imageExists,
+  startProxyContainer,
 } from "../isolate/docker.js";
 import { meterEnv, upstreamFor } from "../proxy/env.js";
 import { persistTrialMeter } from "../proxy/fold.js";
@@ -49,10 +50,8 @@ const meter = !process.argv.includes("--no-meter");
 const isolate = process.argv.includes("--isolate");
 
 async function main() {
-  // Isolation implies metering: without the proxy the container has no route
-  // to the model at all, and an unmeterable run in a locked box is just a
-  // slower way to produce nothing.
-  let gateway: string | undefined;
+  // Isolation implies metering: the agent's only route out is the sidecar
+  // proxy, so an --isolate run is always metered.
   if (isolate) {
     if (!dockerAvailable()) {
       throw new Error("--isolate needs docker (daemon up, user in the docker group)");
@@ -60,10 +59,10 @@ async function main() {
     if (!imageExists(IMAGE)) {
       throw new Error(
         `--isolate needs the "${IMAGE}" image. Build it (online) first:\n` +
-          `  docker build -t ${IMAGE} bench/agent-bench/isolate`,
+          `  pnpm bench:image`,
       );
     }
-    gateway = ensureInternalNetwork(NETWORK);
+    ensureNetworks();
   }
 
   const agents = agentIds.map(loadAgent);
@@ -100,7 +99,15 @@ async function main() {
 
         const ws = createWorkspace(inst);
         let record: TrialRecord;
-        let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
+        // Either a host proxy (metered non-isolated) or a sidecar container
+        // proxy (isolated); both expose an origin and a close().
+        let proxyOrigin: string | undefined;
+        let closeProxy: (() => void | Promise<void>) | undefined;
+        // DNS-safe name (container names are hostnames on user networks; the
+        // instance id's `__` is not valid there).
+        const safe = `${inst.instanceId}-t${trial}-${spec.id}`
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, "-");
         try {
           if (!verifyWorkspace(ws.dir, inst.baseCommit)) {
             throw new Error(`checkout is not at ${inst.baseCommit}`);
@@ -109,24 +116,28 @@ async function main() {
           fs.writeFileSync(path.join(artifactDir, "prompt.txt"), prompt);
 
           const logPath = path.join(artifactDir, "proxy.jsonl");
-          proxy =
-            meter || isolate
-              ? await startProxy({
-                  upstream: upstreamFor(spec),
-                  logPath,
-                  host: gateway,
-                })
-              : undefined;
+          if (isolate) {
+            const pc = await startProxyContainer({
+              name: `bench-proxy-${safe}`.slice(0, 63),
+              image: IMAGE,
+              upstream: upstreamFor(spec),
+              artifactDir,
+              benchDir: ROOT,
+            });
+            proxyOrigin = pc.url;
+            closeProxy = pc.close;
+          } else if (meter) {
+            const hp = await startProxy({ upstream: upstreamFor(spec), logPath });
+            proxyOrigin = hp.origin;
+            closeProxy = hp.close;
+          }
 
-          const extraEnv = proxy ? meterEnv(proxy.origin) : undefined;
+          const extraEnv = proxyOrigin ? meterEnv(proxyOrigin) : undefined;
           const containerize = isolate
             ? {
                 image: IMAGE,
-                network: NETWORK,
-                name: `bench-${runId}-${inst.instanceId}-t${trial}-${spec.id}`
-                  .toLowerCase()
-                  .replace(/[^a-z0-9_.-]/g, "-")
-                  .slice(0, 63),
+                network: INTERNAL_NETWORK,
+                name: `bench-${safe}`.slice(0, 63),
                 wsDir: ws.dir,
                 benchDir: ROOT,
                 envNames: forwardedEnvNames(spec.env, extraEnv),
@@ -151,7 +162,7 @@ async function main() {
 
           const patch = extractPatch(ws.dir);
           fs.writeFileSync(path.join(artifactDir, "patch.diff"), patch.diff);
-          const usage = proxy ? persistTrialMeter(artifactDir, spec.model) : undefined;
+          const usage = proxyOrigin ? persistTrialMeter(artifactDir, spec.model) : undefined;
 
           record = {
             agent: spec.id,
@@ -201,7 +212,7 @@ async function main() {
             artifactDir: path.relative(ROOT, artifactDir),
           };
         } finally {
-          await proxy?.close();
+          await closeProxy?.();
           ws.cleanup();
         }
 

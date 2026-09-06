@@ -19,6 +19,8 @@ export interface RawResult {
   trial: number;
   producedPatch: boolean;
   resolved: boolean | null;
+  /** Per-row isolation; absent on legacy rows. */
+  isolation?: "none" | "container";
   durationMs: number;
   patchBytes: number;
   newFiles: number;
@@ -39,6 +41,8 @@ export interface RawBenchmark {
   generatedAt: string;
   runs: { runId: string; generatedAt: string; agents: string[] }[];
   phase: number;
+  /** Top-level pinned model; absent on files published before it existed. */
+  model?: string;
   isolation: "none" | "container";
   graded: boolean;
   taskSet: { name: string; repo: string; instances: string[] };
@@ -95,6 +99,20 @@ export interface CostComparison {
     meanUsd: number | null;
     meanTokens: number | null;
   }[];
+  /** One row per solved-by-all instance; mean USD/tokens per agent on it. */
+  perBug: {
+    instanceId: string;
+    perAgent: { id: string; usd: number | null; tokens: number | null }[];
+  }[];
+}
+
+/** One metered trial as a scatter point: which agent, which bug, what it cost. */
+export interface CostPoint {
+  agent: string;
+  isFreeCode: boolean;
+  instanceId: string;
+  usd: number;
+  resolved: boolean | null;
 }
 
 export interface BenchView {
@@ -105,6 +123,8 @@ export interface BenchView {
   generatedAt: string;
   runs: RawBenchmark["runs"];
   phase: number;
+  /** The pinned model this matchup ran on — the page's model picker keys off it. */
+  model: string;
   isolation: "none" | "container";
   graded: boolean;
   taskSet: RawBenchmark["taskSet"];
@@ -115,7 +135,29 @@ export interface BenchView {
   matrix: { instanceId: string; cells: MatrixCell[] }[];
   /** §7.2 cost table. Undefined until the matchup is graded. */
   cost?: CostComparison;
+  /** Every metered trial as a point, for the cost-distribution scatter. */
+  costPoints: CostPoint[];
+  /** freecode's token saving vs the best rival, when both are metered. */
+  tokenEdge?: { rivalId: string; freeTokens: number; rivalTokens: number; pctFewer: number };
   caveats: { title: string; body: string }[];
+}
+
+/**
+ * Stable per-agent colour, used by every chart so an agent reads the same
+ * everywhere. freecode is the theme's primary (black on light, white on dark);
+ * the rivals get their own brand-ish hues that hold up in both themes.
+ */
+export function agentColor(id: string): string {
+  switch (id) {
+    case "freecode":
+      return "var(--primary)";
+    case "claude-code":
+      return "#c15f3c";
+    case "opencode":
+      return "#4f8ff7";
+    default:
+      return "var(--muted-foreground)";
+  }
 }
 
 const median = (xs: number[]) => {
@@ -133,6 +175,15 @@ const totalTokens = (r: RawResult) =>
 
 export function deriveView(raw: RawBenchmark): BenchView {
   const { results } = raw;
+
+  // Files published before the top-level field fall back to the agents' own
+  // model strings, provider prefix stripped ("minimax/MiniMax-M3" → "MiniMax-M3")
+  // so both spellings of the same pin land in one dropdown entry.
+  const model =
+    raw.model ??
+    [...new Set(raw.agents.map((a) => a.model.split("/").pop() ?? a.model))].join(
+      " / ",
+    );
 
   /**
    * What the headline bar means, which changes the moment the grader lands.
@@ -250,6 +301,62 @@ export function deriveView(raw: RawBenchmark): BenchView {
           meanTokens: mine.length ? mean(mine.map((r) => totalTokens(r)!))! : null,
         };
       }),
+      // Per-bug rows: on each solved-by-all instance, each agent's mean cost
+      // and tokens over its resolved trials of that bug.
+      perBug: solvedByAll.map((instanceId) => ({
+        instanceId,
+        perAgent: raw.agents.map((a) => {
+          const mine = results.filter(
+            (r) =>
+              r.agent === a.id &&
+              r.instanceId === instanceId &&
+              r.resolved === true &&
+              (r.turns ?? 0) > 0,
+          );
+          const usds = mine.map((r) => r.usd).filter((u): u is number => typeof u === "number");
+          return {
+            id: a.id,
+            usd: usds.length ? mean(usds)! : null,
+            tokens: mine.length ? mean(mine.map((r) => totalTokens(r)!))! : null,
+          };
+        }),
+      })),
+    };
+  }
+
+  // Every metered, priced trial as a scatter point (all shared instances, not
+  // just solved-by-all): the shape of the cost distribution, before averaging.
+  const costPoints: CostPoint[] = results
+    .filter(
+      (r) =>
+        sharedInstances.includes(r.instanceId) &&
+        (r.turns ?? 0) > 0 &&
+        typeof r.usd === "number",
+    )
+    .map((r) => ({
+      agent: r.agent,
+      isFreeCode: r.agent === "freecode",
+      instanceId: r.instanceId,
+      usd: r.usd as number,
+      resolved: r.resolved,
+    }));
+
+  // freecode's token edge vs the best (fewest-token) metered rival — the
+  // "N% fewer tokens" headline, stated only when both sides are metered.
+  const freeSummary = agents.find((a) => a.isFreeCode);
+  const meteredRivals = agents.filter(
+    (a) => !a.isFreeCode && a.meanTokens !== undefined,
+  );
+  let tokenEdge: BenchView["tokenEdge"];
+  if (freeSummary?.meanTokens !== undefined && meteredRivals.length) {
+    const rival = meteredRivals.reduce((m, a) =>
+      a.meanTokens! < m.meanTokens! ? a : m,
+    );
+    tokenEdge = {
+      rivalId: rival.id,
+      freeTokens: freeSummary.meanTokens,
+      rivalTokens: rival.meanTokens!,
+      pctFewer: Math.round((1 - freeSummary.meanTokens / rival.meanTokens!) * 100),
     };
   }
 
@@ -312,7 +419,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
     },
     {
       title: "This compares harnesses, not models",
-      body: `Every agent is pinned to the same model (${raw.agents[0]?.model ?? "—"}) on the same key, and each keeps its own system prompt. Change the model and it becomes a different experiment with the same table.`,
+      body: `Every agent is pinned to the same model (${model}) on the same key, and each keeps its own system prompt. Change the model and it becomes a different experiment with the same table.`,
     },
     {
       title: "We built the harness and we are in the table",
@@ -327,6 +434,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
     generatedAt: raw.generatedAt,
     runs: raw.runs,
     phase: raw.phase,
+    model,
     isolation: raw.isolation,
     graded: raw.graded,
     taskSet: raw.taskSet,
@@ -336,6 +444,8 @@ export function deriveView(raw: RawBenchmark): BenchView {
     ragged,
     matrix,
     cost,
+    costPoints,
+    tokenEdge,
     caveats,
   };
 }

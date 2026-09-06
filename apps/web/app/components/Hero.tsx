@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "./Button";
 import Orb from "./Orb";
-import { FaGithub } from "react-icons/fa";
+import { BarChart3 } from "lucide-react";
 import { Divider } from "./Divider";
 
 function useTheme(): "light" | "dark" {
@@ -62,15 +62,9 @@ export function Hero() {
           <Button variant="primary" className="px-6 py-3" href="https://docs.freecode.website/">
             View Docs
           </Button>
-          <Button
-            variant="outline"
-            className="px-6 py-3 h-[46px]"
-            href="https://github.com/ayan-de/freecode"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <FaGithub className="mr-2 h-4 w-4 text-foreground" />
-            GitHub
+          <Button variant="outline" className="px-6 py-3 h-[46px]" href="/benchmark">
+            <BarChart3 className="mr-2 h-4 w-4 text-foreground" />
+            Benchmark
           </Button>
         </div>
       </div>

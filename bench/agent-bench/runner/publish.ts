@@ -59,6 +59,8 @@ export interface PublishedResult {
   producedPatch: boolean;
   /** null until `graded` — "produced a patch" is not "fixed the bug". */
   resolved: boolean | null;
+  /** Per-row, so the file's flags derive from its rows, not a merge of flags. */
+  isolation: "none" | "container";
   durationMs: number;
   patchBytes: number;
   newFiles: number;
@@ -93,6 +95,13 @@ export interface PublishedRun {
   runs: { runId: string; generatedAt: string; agents: string[] }[];
   /** Which phase of the spec produced this. The page refuses to dress up 0. */
   phase: number;
+  /**
+   * The pinned model, once, at the top — the page's model picker keys off this.
+   * Every agent in a matchup runs the same model by design; agents spell it
+   * differently ("minimax/MiniMax-M3" vs "MiniMax-M3"), so this is the
+   * provider-prefix-stripped name they share.
+   */
+  model: string;
   isolation: "none" | "container";
   /** False until the official SWE-bench grader runs (Phase 1). */
   graded: boolean;
@@ -103,6 +112,9 @@ export interface PublishedRun {
 
 const key = (r: { agent: string; instanceId: string; trial: number }) =>
   `${r.agent}|${r.instanceId}|${r.trial}`;
+
+/** "minimax/MiniMax-M3" and "MiniMax-M3" are the same pin seen from two CLIs. */
+const shortModel = (m: string) => m.split("/").pop() ?? m;
 
 function readExisting(file: string): PublishedRun | undefined {
   if (!fs.existsSync(file)) return undefined;
@@ -173,6 +185,7 @@ export function publish(report: Report, fresh = false): string {
       // "changed a file" as "fixed the bug". An ungraded or harness-errored
       // trial stays null and fails closed on the page.
       resolved: t.resolved ?? null,
+      isolation: t.isolation,
       durationMs: t.durationMs,
       patchBytes: t.patchBytes,
       newFiles: t.newFiles.length,
@@ -200,21 +213,27 @@ export function publish(report: Report, fresh = false): string {
   ];
 
   const rows = [...results.values()];
+  // Flags derive from the ROWS, not from AND-ing this run's flags with the
+  // previous file's. The old approach backfired on the grade-after-run flow:
+  // the run's own ungraded publish set prev.graded=false, and grading the same
+  // run could never flip it back. Row-derived flags are also honest for a
+  // genuine multi-run merge — a file is graded only when every row it shows has
+  // a verdict, and isolated only when every row was isolated. Legacy rows
+  // without an isolation field count as "none" (conservative).
+  const allGraded = rows.length > 0 && rows.every((r) => r.resolved !== null);
+  const allContainer =
+    rows.length > 0 && rows.every((r) => r.isolation === "container");
   const out: PublishedRun = {
     slug,
     generatedAt,
     runId: report.startedAt,
     runs,
-    // Grading is what separates a pipeline check from a result, so the phase is
-    // derived from the run rather than typed in and left to rot. The weakest
-    // contributing run sets it: one graded run does not grade the older rows
-    // sitting next to it.
-    phase: report.graded && prev?.phase !== 0 ? 1 : 0,
-    isolation:
-      report.isolation === "container" && prev?.isolation !== "none"
-        ? "container"
-        : "none",
-    graded: report.graded && (prev?.graded ?? true),
+    phase: allGraded ? 1 : 0,
+    model: [...new Set([...agents.values()].map((a) => shortModel(a.model)))].join(
+      " / ",
+    ),
+    isolation: allContainer ? "container" : "none",
+    graded: allGraded,
     taskSet: {
       name: "SWE-bench Lite",
       repo: "django/django",
