@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { cleanAgentConfig, renderConfig, writeAgentConfig } from "./agent-config.js";
+import { loadAgent } from "./agents.js";
 import type { AgentSpec } from "./types.js";
 
 const SPEC: AgentSpec = {
@@ -76,6 +77,16 @@ test("configFile.path cannot escape the config dir", () => {
   assert.throws(() => writeAgentConfig(evil, artifacts(), "http://x", "."), /escapes/);
 });
 
+test("the shipped opencode adapter is pointed at the meter, not its own endpoint", () => {
+  // The regression this whole path exists to prevent: opencode honours no
+  // base-URL env var, so without a rendered config it reaches api.minimax.io
+  // directly — unmetered on the host, unreachable under --isolate.
+  const spec = loadAgent("opencode");
+  assert.ok(spec.configFile, "opencode must declare a configFile");
+  assert.match(JSON.stringify(spec.configFile.contents), /\{proxyOrigin\}/);
+  assert.equal(spec.env?.XDG_CONFIG_HOME, "{configDir}");
+});
+
 test("a missing config seed fails loudly, with the command that creates it", () => {
   const seeded = { ...SPEC, configSeed: ".cache/does-not-exist" };
   assert.throws(
@@ -106,3 +117,6 @@ test("a config seed is copied in, then the rendered config is written over it", 
   );
 });
 
+test("the shipped opencode adapter declares a seed — it cannot install offline", () => {
+  assert.ok(loadAgent("opencode").configSeed, "opencode must declare configSeed");
+});

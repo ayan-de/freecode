@@ -1,6 +1,9 @@
 {
   "id": "opencode",
-  "versionCmd": ["opencode", "--version"],
+  "versionCmd": [
+    "opencode",
+    "--version"
+  ],
   "run": [
     "opencode",
     "run",
@@ -13,7 +16,22 @@
   "model": "minimax/MiniMax-M3",
   "autonomy": "--auto: approves every permission not explicitly denied",
   "env": {
-    "XDG_CONFIG_HOME": "{benchDir}/empty-config"
+    "MINIMAX_API_KEY": "${MINIMAX_API_KEY}",
+    "XDG_CONFIG_HOME": "{configDir}"
   },
-  "notes": "Same MiniMax-M3 on the same key — opencode resolves minimax/MiniMax-M3 from models.dev and reads MINIMAX_API_KEY from the environment, so no endpoint override is needed. XDG_CONFIG_HOME is a FAIRNESS correction, not tuning: without it opencode loads ~/.config/opencode/opencode.json and every MCP server in it, which on this machine gave it nine tools freecode does not have (contextcarry x7, figma x2). Measured, not assumed — asking it to list its tools returned 19 with the operator's config and 10 without. Neither --pure nor OPENCODE_CONFIG suppresses MCP; only XDG_CONFIG_HOME does. --pure additionally drops external plugins. Verified against opencode 1.18.25."
+  "configFile": {
+    "path": "opencode/opencode.json",
+    "contents": {
+      "$schema": "https://opencode.ai/config.json",
+      "provider": {
+        "minimax": {
+          "options": {
+            "baseURL": "{proxyOrigin}/v1"
+          }
+        }
+      }
+    }
+  },
+  "configSeed": ".cache/opencode-config",
+  "notes": "Same MiniMax-M3 on the same key. opencode resolves minimax/MiniMax-M3 from models.dev and reads MINIMAX_API_KEY from the environment; the key is forwarded explicitly because an isolated container inherits nothing from the operator's shell. It has NO endpoint env var \u2014 it honours neither MINIMAX_BASE_URL nor ANTHROPIC_BASE_URL \u2014 so under --isolate, where the only reachable peer is the recording proxy, it would have no route to the model and lose every trial for a plumbing reason. Its config file DOES take a provider baseURL: verified against 1.18.25 by pointing it at a local server, which received POST /v1/messages \u2014 the same Anthropic wire shape claude-code produces, so the proxy and its rate card need no special case. baseURL carries the /v1 suffix because opencode appends /messages to it. The config is rendered per trial (the sidecar proxy's IP is allocated when it joins the network, so this cannot be a committed file) and lands in the evidence bundle beside the number. configSeed pre-populates that dir because opencode npm-installs @opencode-ai/plugin (62 MB) into a fresh XDG_CONFIG_HOME on first run, --pure included, and an isolated container has no network to install it from \u2014 measured by pointing it at an empty dir and watching node_modules appear. XDG_CONFIG_HOME pointing at the generated dir is also the FAIRNESS correction it used to be on its own: without it opencode loads ~/.config/opencode/opencode.json and every MCP server in it, which on this machine gave it nine tools freecode does not have (contextcarry x7, figma x2). Measured, not assumed \u2014 asking it to list its tools returned 19 with the operator's config and 10 without. Neither --pure nor OPENCODE_CONFIG suppresses MCP; only XDG_CONFIG_HOME does. --pure additionally drops external plugins."
 }
