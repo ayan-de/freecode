@@ -30,7 +30,19 @@
       "django__django-11133",
       "django__django-11179",
       "django__django-11283"
-    ]
+    ],
+    "titles": {
+      "django__django-10914": "Set default FILE_UPLOAD_PERMISSION to 0o644.",
+      "django__django-10924": "Allow FilePathField path to accept a callable.",
+      "django__django-11001": "Incorrect removal of order_by clause created as multiline RawSQL",
+      "django__django-11019": "Merging 3 or more media objects can throw unnecessary MediaOrderConflictWarnings",
+      "django__django-11039": "sqlmigrate wraps it's outpout in BEGIN/COMMIT even if the database doesn't support transactional DDL",
+      "django__django-11049": "Correct expected format in invalid DurationField error message",
+      "django__django-11099": "UsernameValidator allows trailing newline in usernames",
+      "django__django-11133": "HttpResponse doesn't handle memoryview objects",
+      "django__django-11179": "delete() on instances of models without any dependencies doesn't clear PKs.",
+      "django__django-11283": "Migration auth.0011_update_proxy_permissions fails for models recreated as a proxy."
+    }
   },
   "agents": [
     {

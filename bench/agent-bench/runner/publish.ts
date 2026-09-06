@@ -13,6 +13,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { readCache } from "./instances.js";
 import type { Report } from "./types.js";
 
 const BENCH_DIR = path.join(
@@ -105,13 +106,28 @@ export interface PublishedRun {
   isolation: "none" | "container";
   /** False until the official SWE-bench grader runs (Phase 1). */
   graded: boolean;
-  taskSet: { name: string; repo: string; instances: string[] };
+  taskSet: {
+    name: string;
+    repo: string;
+    instances: string[];
+    /**
+     * instanceId → the first line of the SWE-bench problem statement (the
+     * upstream issue's own title). External text, not authored here — the page
+     * uses it so "django-11039" reads as the bug it is. Never the answer key:
+     * problemStatement is exactly what every agent was prompted with.
+     */
+    titles?: Record<string, string>;
+  };
   agents: PublishedAgent[];
   results: PublishedResult[];
 }
 
 const key = (r: { agent: string; instanceId: string; trial: number }) =>
   `${r.agent}|${r.instanceId}|${r.trial}`;
+
+/** One display line from a problem statement: first line, whitespace-collapsed. */
+const titleOf = (problemStatement: string) =>
+  problemStatement.trim().split("\n")[0]!.trim().replace(/\s+/g, " ").slice(0, 120);
 
 /** "minimax/MiniMax-M3" and "MiniMax-M3" are the same pin seen from two CLIs. */
 const shortModel = (m: string) => m.split("/").pop() ?? m;
@@ -238,6 +254,17 @@ export function publish(report: Report, fresh = false): string {
       name: "SWE-bench Lite",
       repo: "django/django",
       instances: [...new Set(rows.map((r) => r.instanceId))].sort(),
+      titles: (() => {
+        // Previous titles survive a merge on a machine without the cache; a
+        // present cache wins because it is the dataset's own current text.
+        const titles: Record<string, string> = { ...prev?.taskSet.titles };
+        const cache = readCache();
+        for (const r of rows) {
+          const inst = cache.get(r.instanceId);
+          if (inst) titles[r.instanceId] = titleOf(inst.problemStatement);
+        }
+        return titles;
+      })(),
     },
     agents: [...agents.values()],
     results: rows,

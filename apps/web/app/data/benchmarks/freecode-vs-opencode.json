@@ -47,7 +47,12 @@
       "django__django-10914",
       "django__django-11001",
       "django__django-11039"
-    ]
+    ],
+    "titles": {
+      "django__django-10914": "Set default FILE_UPLOAD_PERMISSION to 0o644.",
+      "django__django-11001": "Incorrect removal of order_by clause created as multiline RawSQL",
+      "django__django-11039": "sqlmigrate wraps it's outpout in BEGIN/COMMIT even if the database doesn't support transactional DDL"
+    }
   },
   "agents": [
     {

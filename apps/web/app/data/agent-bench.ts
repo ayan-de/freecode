@@ -45,7 +45,13 @@ export interface RawBenchmark {
   model?: string;
   isolation: "none" | "container";
   graded: boolean;
-  taskSet: { name: string; repo: string; instances: string[] };
+  taskSet: {
+    name: string;
+    repo: string;
+    instances: string[];
+    /** instanceId → the upstream issue's first line; absent on older files. */
+    titles?: Record<string, string>;
+  };
   agents: RawAgent[];
   results: RawResult[];
 }

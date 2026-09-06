@@ -128,6 +128,33 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         note: `freecode ${tok(edge.freeTokens)} vs ${edge.rivalId} ${tok(edge.rivalTokens)}`,
       }
     : undefined;
+  // Cost per trial vs the cheapest priced rival — same green/red rule as the
+  // token card, and absent (never zero) when either side is unmetered/unpriced.
+  const costCard = (() => {
+    if (typeof free?.meanUsd !== "number" || free.meanUsd <= 0) return undefined;
+    const priced = rivals.filter(
+      (a): a is typeof a & { meanUsd: number } => typeof a.meanUsd === "number",
+    );
+    if (!priced.length) return undefined;
+    const rival = priced.reduce((m, a) => (a.meanUsd < m.meanUsd ? a : m));
+    const r = rival.meanUsd / free.meanUsd;
+    return {
+      value:
+        Math.abs(r - 1) < 0.05
+          ? "even"
+          : r > 1
+            ? `${r.toFixed(1)}× cheaper`
+            : `${(1 / r).toFixed(1)}× pricier`,
+      tone:
+        Math.abs(r - 1) < 0.05
+          ? "text-foreground"
+          : r > 1
+            ? "text-primary"
+            : "text-destructive",
+      label: "cost per trial",
+      note: `freecode ${usd(free.meanUsd)} vs ${rival.id} ${usd(rival.meanUsd)}`,
+    };
+  })();
 
   const headline =
     free && fastestRival && bestRival
@@ -149,6 +176,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
             label: "median wall time",
             note: `freecode ${secs(free.medianMs)} vs ${fastestRival.id} ${secs(fastestRival.medianMs)}`,
           },
+          ...(costCard ? [costCard] : []),
           // Patch size drops off the headline row when the token card is
           // present (keeps it to 3 cards); it still lives in its own bar below.
           ...(tokenCard
@@ -304,7 +332,9 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
       )}
 
       {headline.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+        <div
+          className={`grid grid-cols-1 sm:grid-cols-2 ${headline.length >= 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"} gap-4 mb-12`}
+        >
           {headline.map((h) => (
             <div
               key={h.label}
@@ -477,48 +507,73 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         {view.cost && !view.cost.suppressed && view.cost.perBug.length > 0 && (
           <div className="rounded-md border border-border bg-card p-6 md:p-8">
             <h3 className="text-lg font-medium text-foreground">
-              Per solved bug, side by side
+              What each fix cost
             </h3>
             <p className="text-sm text-muted-foreground mt-1 mb-6">
               Only the {view.cost.instances.length} bugs every agent resolved
-              (spec §7.2). Cost is the mean over that agent&apos;s resolved
-              trials of the bug; the cheaper agent on each row is in bold.
+              (spec §7.2) — same bug, same model, so the gap is how much context
+              each harness moved to get there. Cost is the mean over that
+              agent&apos;s resolved trials of the bug; the cheaper agent on each
+              row is in bold.
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left font-mono text-xs">
-                <thead className="text-muted-foreground/60">
-                  <tr className="border-b border-border">
-                    <th className="pb-2 pr-4 font-normal">bug</th>
-                    {view.agents.map((a) => (
-                      <th
-                        key={a.id}
-                        className="pb-2 pr-4 font-semibold"
-                        style={{ color: agentColor(a.id) }}
-                      >
-                        {a.id}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.cost.perBug.map((row) => {
-                    const cheapest = Math.min(
-                      ...row.perAgent
-                        .map((p) => p.usd)
-                        .filter((u): u is number => typeof u === "number"),
-                    );
-                    return (
-                      <tr key={row.instanceId} className="border-b border-border/60">
-                        <td className="py-2.5 pr-4 text-foreground/70">
-                          {row.instanceId.replace(/^.*__/, "")}
-                        </td>
-                        {view.agents.map((a) => {
-                          const p = row.perAgent.find((x) => x.id === a.id);
-                          const best = typeof p?.usd === "number" && p.usd === cheapest;
-                          return (
-                            <td
-                              key={a.id}
-                              className={`py-2.5 pr-4 ${best ? "font-bold text-primary" : "text-foreground/80"}`}
+            {(() => {
+              // One scale for the whole card: every bar is a fraction of the
+              // most expensive fix anywhere in it, so bugs compare to each
+              // other, not just agents within a bug.
+              const maxUsd =
+                Math.max(
+                  ...view.cost.perBug.flatMap((row) =>
+                    row.perAgent
+                      .map((p) => p.usd)
+                      .filter((u): u is number => typeof u === "number"),
+                  ),
+                ) || 1;
+              const bugGroup = (
+                key: string,
+                title: React.ReactNode,
+                perAgent: { id: string; usd: number | null; tokens: number | null }[],
+              ) => {
+                const cheapest = Math.min(
+                  ...perAgent
+                    .map((p) => p.usd)
+                    .filter((u): u is number => typeof u === "number"),
+                );
+                return (
+                  <div key={key} className="py-4 border-b border-border/60 last:border-0">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-2.5">
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        {title}
+                      </div>
+                      <div className="ml-auto">
+                        <CostRatioBadge row={{ perAgent }} />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {view.agents.map((a) => {
+                        const p = perAgent.find((x) => x.id === a.id);
+                        const best =
+                          typeof p?.usd === "number" && p.usd === cheapest;
+                        return (
+                          <div key={a.id} className="flex items-center gap-3">
+                            <span
+                              className="w-28 shrink-0 font-mono text-xs font-bold"
+                              style={{ color: agentColor(a.id) }}
+                            >
+                              {a.id}
+                            </span>
+                            <div className="flex-1 bg-muted h-2.5 rounded overflow-hidden border border-border">
+                              {typeof p?.usd === "number" && (
+                                <div
+                                  className="h-full rounded-r transition-all duration-700 ease-out"
+                                  style={{
+                                    width: `${Math.max((p.usd / maxUsd) * 100, 1)}%`,
+                                    backgroundColor: agentColor(a.id),
+                                  }}
+                                />
+                              )}
+                            </div>
+                            <span
+                              className={`w-32 shrink-0 text-right font-mono text-xs ${best ? "font-bold text-primary" : "text-foreground/80"}`}
                             >
                               {typeof p?.usd === "number" ? usd(p.usd) : "—"}
                               {p?.tokens != null && (
@@ -527,26 +582,45 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                                   ({tok(p.tokens)})
                                 </span>
                               )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                  <tr className="border-t-2 border-border">
-                    <td className="py-2.5 pr-4 text-muted-foreground/60">mean</td>
-                    {view.agents.map((a) => {
-                      const p = view.cost!.perAgent.find((x) => x.id === a.id);
-                      return (
-                        <td key={a.id} className="py-2.5 pr-4 text-foreground/80">
-                          {typeof p?.meanUsd === "number" ? usd(p.meanUsd) : "—"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              };
+              return (
+                <div>
+                  {view.cost.perBug.map((row) =>
+                    bugGroup(
+                      row.instanceId,
+                      <>
+                        <span className="text-sm text-foreground/90 leading-snug">
+                          {view.taskSet.titles?.[row.instanceId] ??
+                            row.instanceId.replace(/^.*__/, "")}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground/50">
+                          {row.instanceId.replace(/^.*__/, "")}
+                        </span>
+                      </>,
+                      row.perAgent,
+                    ),
+                  )}
+                  {bugGroup(
+                    "mean",
+                    <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground/60">
+                      mean over {view.cost.perBug.length} bugs
+                    </span>,
+                    view.cost.perAgent.map((p) => ({
+                      id: p.id,
+                      usd: p.meanUsd,
+                      tokens: p.meanTokens,
+                    })),
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -656,5 +730,70 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         </span>
       </footer>
     </section>
+  );
+}
+
+/**
+ * "3.2× cheaper · 2.1× fewer tokens" (or pricier/more), freecode against the
+ * cheapest rival on the row — the onesuperbrain-style verdict. Each half
+ * renders only when both sides carry a real number, and anything within 5% is
+ * called even rather than inventing a winner out of rounding.
+ */
+function CostRatioBadge({
+  row,
+}: {
+  row: { perAgent: { id: string; usd: number | null; tokens?: number | null }[] };
+}) {
+  const free = row.perAgent.find((p) => p.id === "freecode");
+  const rivals = row.perAgent.filter((p) => p.id !== "freecode");
+
+  const verdict = (
+    mine: number | null | undefined,
+    theirs: number[],
+    words: { win: string; lose: string },
+  ) => {
+    if (typeof mine !== "number" || mine <= 0 || theirs.length === 0) return null;
+    const r = Math.min(...theirs) / mine;
+    return Math.abs(r - 1) < 0.05
+      ? {
+          text: "even",
+          cls: "bg-muted text-muted-foreground border-border",
+        }
+      : r > 1
+        ? {
+            text: `${r.toFixed(1)}× ${words.win}`,
+            cls: "bg-primary/10 text-primary border-primary/30",
+          }
+        : {
+            text: `${(1 / r).toFixed(1)}× ${words.lose}`,
+            cls: "bg-destructive/10 text-destructive border-destructive/30",
+          };
+  };
+
+  const nums = (xs: (number | null | undefined)[]) =>
+    xs.filter((u): u is number => typeof u === "number");
+  const badges = [
+    verdict(free?.usd, nums(rivals.map((p) => p.usd)), {
+      win: "cheaper",
+      lose: "pricier",
+    }),
+    verdict(free?.tokens, nums(rivals.map((p) => p.tokens)), {
+      win: "fewer tokens",
+      lose: "more tokens",
+    }),
+  ].filter((b): b is NonNullable<typeof b> => b !== null);
+  if (badges.length === 0) return null;
+
+  return (
+    <span className="inline-flex flex-wrap justify-end gap-1.5">
+      {badges.map((b) => (
+        <span
+          key={b.text}
+          className={`inline-block rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-bold whitespace-nowrap ${b.cls}`}
+        >
+          {b.text}
+        </span>
+      ))}
+    </span>
   );
 }
