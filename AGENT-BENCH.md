@@ -24,16 +24,36 @@ This is **not** `pnpm bench:memory`. That measures PSS and time-to-first-frame
 | How much RAM, how fast to first frame? | `pnpm bench:memory` | `Benchmark.md` |
 | **Does it fix real bugs vs Claude Code / OpenCode, and for how much?** | **`pnpm bench:agents`** | **this file** |
 
-**Status (2026-09-06).** The full pipeline exists: metering (on by default),
-container isolation (`--isolate`), the official SWE-bench grader
+**Status (2026-09-06).** The full pipeline exists and is proven end to end
+on freecode vs claude-code: metering (on by default), container isolation
+(`--isolate`, sidecar-proxy design), the official SWE-bench grader
 (`pnpm bench:grade`), §7.2 cost columns on `/benchmark`, and the evidence
 bundle (`pnpm bench:bundle`). **A publishable number is a run with all of
 them**: `--isolate --trials 3`, then grade, then bundle. A run missing any
 step is labelled provisional by the page and should stay that way. Grader and
-isolation need Docker (daemon up, operator in the docker group) and the
-grader needs `pip install swebench` — neither has had a paid smoke run yet;
-`pnpm test:agent-bench` covers everything that is free. There is still no
-gate, no CI wiring, no exit-on-regression — same reasoning as `eval ab`.
+isolation need Docker (daemon up, operator in the docker group).
+
+**Grader version is pinned: `swebench==3.0.17`** — the last of the classic
+local-build/registry-pull line. swebench 4.x/5.x reworked `TestSpec` to
+require a newer dataset format (instances carrying `image`/`eval_script`);
+against classic `princeton-nlp/SWE-bench_Lite` it dies with
+`KeyError: 'image'`. Install: `python3 -m venv ~/.venvs/swebench3 &&
+~/.venvs/swebench3/bin/pip install swebench==3.0.17`, then point the grader
+at it with `SWEBENCH_PYTHON=~/.venvs/swebench3/bin/python3`.
+
+**opencode is not yet isolation-ready.** It reads `MINIMAX_API_KEY` and calls
+`api.minimax.io` directly — it has no endpoint flag and ignores
+`MINIMAX_BASE_URL`, so on the internal network its egress is dropped, not
+redirected. It would fail every isolated trial (no route to the model),
+which is a measurement artefact, not a result — so the shipped runs are
+freecode vs claude-code. Making opencode isolatable needs a per-trial
+opencode config pinning its minimax provider's baseURL to the sidecar (its
+IP is dynamic), or a TLS-terminating transparent redirect. Until then, an
+opencode number belongs only to the non-isolated (`--no-meter` or host)
+path, and even there it is unmetered.
+
+There is still no gate, no CI wiring, no exit-on-regression — same reasoning
+as `eval ab`.
 
 Code lives in `bench/agent-bench/`, sibling to `bench/jcode-bench/`, outside
 the pnpm workspace on purpose.
@@ -204,7 +224,9 @@ not just a dead client.
 ## 3b. Grading — `pnpm bench:grade`
 
 ```bash
-pip install swebench          # once; or SWEBENCH_PYTHON=/path/to/venv/python3
+# once — pin the classic line; 4.x/5.x need a newer dataset format (see §Status)
+python3 -m venv ~/.venvs/swebench3 && ~/.venvs/swebench3/bin/pip install swebench==3.0.17
+export SWEBENCH_PYTHON=~/.venvs/swebench3/bin/python3
 pnpm bench:grade bench/agent-bench/results/<run> [--max-workers N] [--publish]
 ```
 
@@ -396,13 +418,11 @@ it in and starts reverting on a competitor's noise.
 | Downloadable evidence bundle | Built — `pnpm bench:bundle`, reproducible tar + sha256 |
 
 What still separates any given run from a publishable result is **running the
-whole ritual**: every layer above exists, but a number is publishable only
-when its run used `--isolate`, was graded, kept `auditOk`, and shipped its
-bundle — and the isolation/grader layers have not yet had their first live
-smoke (they need Docker group membership and `pip install swebench` on the
-operator's machine). Until that first smoke run passes, treat them as
-untested code, not as a proven pipeline. Codex remains Phase 3 (adapter
-listed, never run).
+whole ritual**: a number is publishable only when its run used `--isolate`,
+was graded, kept `auditOk`, and shipped its bundle. The isolation + grader
+path is proven on freecode vs claude-code (both resolved django-10914 under
+isolation, 2026-09-06). opencode is not isolation-ready (see §Status) and
+Codex remains Phase 3 (adapter listed, never run).
 
 When more than two agents are in the table, intersection is **pairwise against
 freecode**, and the table says so. A four-way intersection shrinks to nothing.
