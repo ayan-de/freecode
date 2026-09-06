@@ -138,6 +138,24 @@ export interface BenchView {
   caveats: { title: string; body: string }[];
 }
 
+/**
+ * Stable per-agent colour, used by every chart so an agent reads the same
+ * everywhere. freecode is the theme's primary (black on light, white on dark);
+ * the rivals get their own brand-ish hues that hold up in both themes.
+ */
+export function agentColor(id: string): string {
+  switch (id) {
+    case "freecode":
+      return "var(--primary)";
+    case "claude-code":
+      return "#c15f3c";
+    case "opencode":
+      return "#4f8ff7";
+    default:
+      return "var(--muted-foreground)";
+  }
+}
+
 const median = (xs: number[]) => {
   if (xs.length === 0) return 0;
   const s = [...xs].sort((a, b) => a - b);

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, Check, Minus } from "lucide-react";
-import type { BenchView } from "../data/agent-bench";
+import { agentColor, type BenchView } from "../data/agent-bench";
 import { BenchBarList, type BenchBar } from "./BenchBarList";
 import { CostScatter } from "./CostScatter";
 
@@ -37,6 +37,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     display: pct(a.rate),
     note: `${a.successes}/${a.trials} trials`,
     highlight: a.isFreeCode,
+    color: agentColor(a.id),
   }));
 
   const slowest = Math.max(...view.agents.map((a) => a.medianMs), 1);
@@ -46,6 +47,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     display: secs(a.medianMs),
     note: `median of ${a.trials}`,
     highlight: a.isFreeCode,
+    color: agentColor(a.id),
   }));
 
   const sizeBars: BenchBar[] = view.agents.map((a) => ({
@@ -54,6 +56,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     display: `${Math.round(a.medianPatchBytes)}B`,
     note: `median of ${a.trials}`,
     highlight: a.isFreeCode,
+    color: agentColor(a.id),
   }));
 
   // Metering (spec §6.4/§7): shown only for agents the proxy actually saw.
@@ -69,6 +72,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         ? `mean of ${a.meteredTrials} metered trial${a.meteredTrials === 1 ? "" : "s"}${a.meanTurns !== undefined ? ` · ~${Math.round(a.meanTurns)} turns` : ""}`
         : "proxy saw no traffic",
     highlight: a.isFreeCode,
+    color: agentColor(a.id),
   }));
   const costBars: BenchBar[] = view.agents.map((a) => ({
     label: a.id,
@@ -86,6 +90,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
           ? "no rate-card row for this model"
           : "proxy saw no traffic",
     highlight: a.isFreeCode,
+    color: agentColor(a.id),
   }));
 
   // Headline cards, freecode against the strongest rival on each axis. The
@@ -303,7 +308,8 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                 {view.agents.map((a) => (
                   <tr key={a.id} className="border-b border-border/60">
                     <td
-                      className={`py-2.5 pr-4 ${a.isFreeCode ? "text-primary font-bold" : "text-foreground/80"}`}
+                      className="py-2.5 pr-4 font-bold"
+                      style={{ color: agentColor(a.id) }}
                     >
                       {a.id}
                     </td>
@@ -341,7 +347,8 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
               return (
                 <div key={a.id} className="flex items-center gap-3">
                   <span
-                    className={`w-28 shrink-0 font-mono text-xs ${a.isFreeCode ? "text-primary font-bold" : "text-foreground/70"}`}
+                    className="w-28 shrink-0 font-mono text-xs font-bold"
+                    style={{ color: agentColor(a.id) }}
                   >
                     {a.id}
                   </span>
@@ -350,13 +357,12 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                       <span
                         key={`${c.instanceId}-${c.trial}`}
                         title={`${c.instanceId} · t${c.trial} · ${secs(c.durationMs)} · ${c.reason}`}
-                        className={`h-4 w-4 rounded-[3px] border ${
+                        className={`h-4 w-4 rounded-[3px] border ${c.ok ? "" : "bg-destructive/10 border-destructive/60"}`}
+                        style={
                           c.ok
-                            ? a.isFreeCode
-                              ? "bg-primary border-primary"
-                              : "bg-foreground/70 border-foreground/70"
-                            : "bg-destructive/10 border-destructive/60"
-                        }`}
+                            ? { backgroundColor: agentColor(a.id), borderColor: agentColor(a.id) }
+                            : undefined
+                        }
                       />
                     ))}
                   </div>
@@ -424,7 +430,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
               this does not. An open ring is a trial that ran but did not
               resolve, so a cheap dot low on the chart is not always a win.
             </p>
-            <CostScatter points={view.costPoints} freeId="freecode" />
+            <CostScatter points={view.costPoints} />
           </div>
         )}
 
@@ -444,7 +450,11 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                   <tr className="border-b border-border">
                     <th className="pb-2 pr-4 font-normal">bug</th>
                     {view.agents.map((a) => (
-                      <th key={a.id} className="pb-2 pr-4 font-normal">
+                      <th
+                        key={a.id}
+                        className="pb-2 pr-4 font-semibold"
+                        style={{ color: agentColor(a.id) }}
+                      >
                         {a.id}
                       </th>
                     ))}
@@ -540,7 +550,9 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                       ) : (
                         <Minus className="h-3 w-3" aria-hidden />
                       )}
-                      {cell.agent}
+                      <span style={cell.ok ? { color: agentColor(cell.agent) } : undefined}>
+                        {cell.agent}
+                      </span>
                       <span className="text-muted-foreground/60">
                         t{cell.trial} · {secs(cell.durationMs)}
                       </span>

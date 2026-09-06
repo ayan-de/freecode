@@ -1,6 +1,6 @@
 "use client";
 
-import type { CostPoint } from "../data/agent-bench";
+import { agentColor, type CostPoint } from "../data/agent-bench";
 
 // Cost distribution across bugs (onesuperbrain-style): one column per instance,
 // one dot per metered trial, freecode against the rest. A dot's height is what
@@ -11,13 +11,7 @@ import type { CostPoint } from "../data/agent-bench";
 const usd = (n: number) => `$${n.toFixed(4)}`;
 const shortId = (id: string) => id.replace(/^.*__/, "").replace(/^django-/, "");
 
-export function CostScatter({
-  points,
-  freeId,
-}: {
-  points: CostPoint[];
-  freeId: string;
-}) {
+export function CostScatter({ points }: { points: CostPoint[] }) {
   if (points.length === 0) return null;
 
   const instances = [...new Set(points.map((p) => p.instanceId))].sort();
@@ -95,17 +89,24 @@ export function CostScatter({
 
         {/* points */}
         {points.map((p, i) => {
-          const isFree = p.agent === freeId;
           const cx = xFor(p.instanceId, p.agent);
           const cy = yFor(p.usd);
-          const cls = isFree ? "fill-primary stroke-primary" : "fill-foreground/60 stroke-foreground/60";
+          const color = agentColor(p.agent);
           return p.resolved === false ? (
             // open ring = attempted but not resolved
-            <circle key={i} cx={cx} cy={cy} r={4} className={`${cls} fill-none`} strokeWidth={1.5}>
+            <circle
+              key={i}
+              cx={cx}
+              cy={cy}
+              r={4}
+              fill="none"
+              stroke={color}
+              strokeWidth={1.5}
+            >
               <title>{`${p.agent} · ${shortId(p.instanceId)} · ${usd(p.usd)} · not resolved`}</title>
             </circle>
           ) : (
-            <circle key={i} cx={cx} cy={cy} r={4} className={cls}>
+            <circle key={i} cx={cx} cy={cy} r={4} fill={color} stroke={color}>
               <title>{`${p.agent} · ${shortId(p.instanceId)} · ${usd(p.usd)}${p.resolved === true ? " · resolved" : ""}`}</title>
             </circle>
           );
@@ -117,7 +118,8 @@ export function CostScatter({
         {agentsHere.map((a) => (
           <span key={a} className="inline-flex items-center gap-1.5">
             <span
-              className={`inline-block h-2.5 w-2.5 rounded-full ${a === freeId ? "bg-primary" : "bg-foreground/60"}`}
+              className="inline-block h-2.5 w-2.5 rounded-full"
+              style={{ backgroundColor: agentColor(a) }}
             />
             {a}
           </span>

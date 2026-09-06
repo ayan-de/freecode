@@ -9,6 +9,8 @@ export interface BenchBar {
   display: string;
   note: string;
   highlight?: boolean;
+  /** Explicit per-agent colour (CSS colour). Falls back to theme tokens. */
+  color?: string;
 }
 
 /**
@@ -54,7 +56,8 @@ export function BenchBarList({
             >
               <div className="w-full md:w-36 flex items-center justify-between md:justify-start mb-1 md:mb-0">
                 <span
-                  className={`font-mono text-sm ${bar.highlight ? "text-primary font-bold" : "text-foreground/70"}`}
+                  className={`font-mono text-sm ${bar.highlight ? "font-bold" : ""} ${bar.color ? "" : bar.highlight ? "text-primary" : "text-foreground/70"}`}
+                  style={bar.color ? { color: bar.color } : undefined}
                 >
                   {bar.label}
                 </span>
@@ -67,11 +70,18 @@ export function BenchBarList({
                 <div className="w-full bg-muted h-3.5 rounded overflow-hidden border border-border">
                   <div
                     className={`h-full transition-all duration-1000 ease-out ${
-                      bar.highlight
-                        ? "bg-primary shadow-[0_0_12px_var(--primary)]"
-                        : "bg-foreground/25 group-hover:bg-foreground/40"
+                      bar.color
+                        ? ""
+                        : bar.highlight
+                          ? "bg-primary shadow-[0_0_12px_var(--primary)]"
+                          : "bg-foreground/25 group-hover:bg-foreground/40"
                     }`}
-                    style={{ width: `${(bar.value / max) * 100}%` }}
+                    style={{
+                      width: `${(bar.value / max) * 100}%`,
+                      ...(bar.color
+                        ? { backgroundColor: bar.color, boxShadow: `0 0 12px ${bar.color}` }
+                        : {}),
+                    }}
                   />
                 </div>
 
@@ -86,7 +96,8 @@ export function BenchBarList({
 
               <div className="hidden md:flex w-56 justify-between items-center text-right font-mono text-xs">
                 <span
-                  className={`text-sm ${bar.highlight ? "text-primary font-semibold" : "text-foreground/90"}`}
+                  className={`text-sm ${bar.highlight ? "font-semibold" : ""} ${bar.color ? "" : bar.highlight ? "text-primary" : "text-foreground/90"}`}
+                  style={bar.color ? { color: bar.color } : undefined}
                 >
                   {bar.display}
                 </span>
