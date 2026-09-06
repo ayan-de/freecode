@@ -1654,15 +1654,6 @@ export class AgentLoop {
         }
       }
 
-      // Emit text content if present (for UI to display)
-      if (providerResult.content) {
-        this.lastResponseText = providerResult.content;
-        BusEvents.stream(this.state.sessionId, {
-          type: "text",
-          content: providerResult.content,
-        });
-      }
-
       // Get tool calls from provider (native tool calling) or from text parsing
       let toolCalls: ToolCall[] =
         providerResult.toolCalls?.map((tc) => ({
@@ -1672,11 +1663,35 @@ export class AgentLoop {
           execution: "sequential" as const,
         })) ?? [];
 
-      // If no native tool calls, try parsing [TOOL_CALLS] format from text
+      // If no native tool calls, try parsing [TOOL_CALLS] format from text.
+      // When that parse finds calls, only the prose AROUND the block goes out
+      // as the `text` event below — frontends render that event as the
+      // conversation now, and a text-protocol tool block is loop plumbing,
+      // not something to show. (Modern providers never hit this: API
+      // providers use native calls and gemini-web strips its protocol before
+      // returning content.)
+      let visibleText = providerResult.content;
       if (toolCalls.length === 0) {
-        toolCalls = this.parseResponse(
-          this.normalizeResponse(providerResult.content),
-        );
+        const normalized = this.normalizeResponse(providerResult.content);
+        toolCalls = this.parseResponse(normalized);
+        if (toolCalls.length > 0 && providerResult.content) {
+          visibleText = normalized.content
+            .filter(
+              (c): c is Extract<AssistantContent, { type: "text" }> =>
+                c.type === "text",
+            )
+            .map((c) => c.text)
+            .join("\n");
+        }
+      }
+
+      // Emit text content if present (for UI to display)
+      if (visibleText) {
+        this.lastResponseText = visibleText;
+        BusEvents.stream(this.state.sessionId, {
+          type: "text",
+          content: visibleText,
+        });
       }
 
       const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
