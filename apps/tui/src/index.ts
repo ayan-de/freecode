@@ -1011,7 +1011,11 @@ function handleToolEvent(event: StreamEvent) {
     case "tool_output": {
       const entry = toolMessageComponents.get(event.toolCallId);
       if (entry) {
-        entry.progress.updateOutput(event.content.split("\n").slice(-5));
+        // Only the last 5 lines are ever shown, so don't split a large
+        // output in full — a 4KB tail is more than 5 terminal rows.
+        const tail =
+          event.content.length > 4096 ? event.content.slice(-4096) : event.content;
+        entry.progress.updateOutput(tail.split("\n").slice(-5));
       }
       tui.requestRender();
       break;

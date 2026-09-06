@@ -27,6 +27,13 @@ import { highlightRange } from "../utils/ansi-select.js";
  */
 export class VirtualMessageList implements Component {
   private messages: MessageInstance[] = [];
+  /**
+   * Derived views of `messages`, recomputed only when the store notifies.
+   * render() runs every frame and used to filter/find/slice the full array
+   * each time for data that only changes on a store mutation.
+   */
+  private visibleMessages: MessageInstance[] = [];
+  private inProgressMessage: MessageInstance | undefined;
   private maxVisible: number;
   private unsubscribe: (() => void) | null = null;
   private invalidated = false;
@@ -67,12 +74,19 @@ export class VirtualMessageList implements Component {
     this.getVerticalOffset = getVerticalOffset;
     // Subscribe to message store changes
     this.unsubscribe = subscribeToMessages((msgs) => {
-      this.messages = msgs;
+      this.setMessages(msgs);
       this.invalidate();
       this.scheduleTick();
     });
     // Initialize with current messages
-    this.messages = getMessages();
+    this.setMessages(getMessages());
+  }
+
+  private setMessages(msgs: MessageInstance[]): void {
+    this.messages = msgs;
+    const regular = msgs.filter((m) => m.type !== "in_progress");
+    this.visibleMessages = regular.slice(-this.maxVisible);
+    this.inProgressMessage = msgs.find((m) => m.type === "in_progress");
   }
 
   /**
@@ -96,8 +110,7 @@ export class VirtualMessageList implements Component {
    * Schedule a tick interval if an in-progress message exists
    */
   private scheduleTick(): void {
-    const hasInProgress = this.messages.some((m) => m.type === "in_progress");
-    if (!hasInProgress) return;
+    if (!this.inProgressMessage) return;
 
     if (this.tickInterval) return;
 
@@ -304,16 +317,10 @@ export class VirtualMessageList implements Component {
       }
     }
 
-    // Separate in-progress message from others
-    const regularMessages = this.messages.filter(
-      (m) => m.type !== "in_progress",
-    );
-    const inProgressMessage = this.messages.find(
-      (m) => m.type === "in_progress",
-    );
-
-    // Render regular messages first (older messages, then newer ones)
-    const visibleMessages = regularMessages.slice(-this.maxVisible);
+    // Render regular messages first (older messages, then newer ones);
+    // in-progress is kept separate so it can render at the very bottom.
+    const visibleMessages = this.visibleMessages;
+    const inProgressMessage = this.inProgressMessage;
     const perMessage = this.renderMessages(visibleMessages, width);
 
     for (let i = 0; i < visibleMessages.length; i++) {

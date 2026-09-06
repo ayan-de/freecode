@@ -200,6 +200,13 @@ function stripPrefix(content: string): string {
  */
 class WidthBounded implements Component {
   private inner: Component;
+  /**
+   * Keyed on the inner render's array identity: pi-tui's Markdown/Box cache
+   * and return the same array while their input is unchanged, and re-running
+   * truncateToWidth per line per frame threw that caching away for every
+   * message in the re-rendered tail.
+   */
+  private last?: { innerLines: string[]; width: number; out: string[] };
 
   constructor(inner: Component) {
     this.inner = inner;
@@ -207,9 +214,17 @@ class WidthBounded implements Component {
 
   render(width: number): string[] {
     const safeWidth = Math.max(20, width - 1);
-    return this.inner
-      .render(safeWidth)
-      .map((line) => truncateToWidth(line, safeWidth));
+    const innerLines = this.inner.render(safeWidth);
+    if (
+      this.last &&
+      this.last.innerLines === innerLines &&
+      this.last.width === safeWidth
+    ) {
+      return this.last.out;
+    }
+    const out = innerLines.map((line) => truncateToWidth(line, safeWidth));
+    this.last = { innerLines, width: safeWidth, out };
+    return out;
   }
 
   invalidate(): void {

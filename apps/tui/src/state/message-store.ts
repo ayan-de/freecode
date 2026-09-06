@@ -12,6 +12,13 @@ class MessageStoreImpl {
   private subscribers = new Set<Subscriber>();
   private idCounter = 0;
   private maxMessages: number | undefined;
+  /**
+   * Memoized copy handed out by getMessages(). Reads vastly outnumber writes
+   * (every stream event and every frame reads; only actual transcript changes
+   * write), and the un-memoized version cloned the full ≤2000-element array
+   * per read. Callers treat the snapshot as read-only.
+   */
+  private snapshot: MessageInstance[] | null = null;
 
   constructor(options: MessageStoreOptions = {}) {
     this.maxMessages = options.maxMessages;
@@ -83,7 +90,8 @@ class MessageStoreImpl {
    * Get all messages
    */
   getMessages(): MessageInstance[] {
-    return [...this.messages];
+    if (!this.snapshot) this.snapshot = [...this.messages];
+    return this.snapshot;
   }
 
   /**
@@ -135,6 +143,8 @@ class MessageStoreImpl {
    * Internal notification to all subscribers
    */
   private notify(): void {
+    // Every mutation lands here, so this is the one invalidation point.
+    this.snapshot = null;
     const snapshot = this.getMessages();
     for (const callback of this.subscribers) {
       callback(snapshot);
