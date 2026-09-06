@@ -29,6 +29,7 @@ import {
 import { meterEnv, upstreamFor } from "../proxy/env.js";
 import { persistTrialMeter } from "../proxy/fold.js";
 import { startProxy } from "../proxy/server.js";
+import { cleanAgentConfig, writeAgentConfig } from "./agent-config.js";
 import type { Report, TrialRecord } from "./types.js";
 
 const ROOT = path.join(import.meta.dirname, "..");
@@ -103,6 +104,8 @@ async function main() {
         // proxy (isolated); both expose an origin and a close().
         let proxyOrigin: string | undefined;
         let closeProxy: (() => void | Promise<void>) | undefined;
+        // Hoisted so the finally can drop it even if the trial threw.
+        let configDir: string | undefined;
         // DNS-safe name (container names are hostnames on user networks; the
         // instance id's `__` is not valid there).
         const safe = `${inst.instanceId}-t${trial}-${spec.id}`
@@ -133,6 +136,9 @@ async function main() {
           }
 
           const extraEnv = proxyOrigin ? meterEnv(proxyOrigin) : undefined;
+          // opencode has no base-URL env var, so the meter reaches it only
+          // through a config file carrying this trial's proxy address.
+          configDir = writeAgentConfig(spec, artifactDir, proxyOrigin, ROOT);
           const containerize = isolate
             ? {
                 image: IMAGE,
@@ -141,6 +147,7 @@ async function main() {
                 wsDir: ws.dir,
                 benchDir: ROOT,
                 envNames: forwardedEnvNames(spec.env, extraEnv),
+                configDir,
                 uid: process.getuid?.() ?? 1000,
                 gid: process.getgid?.() ?? 1000,
               }
@@ -154,6 +161,7 @@ async function main() {
             timeoutMs,
             extraEnv,
             containerize,
+            configDir,
           );
           fs.writeFileSync(
             path.join(artifactDir, "argv.json"),
@@ -213,6 +221,7 @@ async function main() {
           };
         } finally {
           await closeProxy?.();
+          cleanAgentConfig(configDir);
           ws.cleanup();
         }
 

@@ -26,8 +26,28 @@ test("dockerArgv: env rides as bare -e NAME — no secret ever lands in argv", (
 
 test("forwardedEnvNames: adapter names + meter names; \"\" (unset) is not forwarded", () => {
   const names = forwardedEnvNames(
-    { XDG_CONFIG_HOME: "{benchDir}/empty-config", ANTHROPIC_API_KEY: "" },
+    { XDG_CONFIG_HOME: "{configDir}", ANTHROPIC_API_KEY: "" },
     { MINIMAX_BASE_URL: "http://x", ANTHROPIC_BASE_URL: "http://x" },
   );
   assert.deepEqual(names, ["ANTHROPIC_BASE_URL", "MINIMAX_BASE_URL", "XDG_CONFIG_HOME"]);
+});
+
+test("dockerArgv: a configDir is mounted rw — opencode writes into XDG_CONFIG_HOME", () => {
+  const base = {
+    image: "agent-bench",
+    network: "n",
+    name: "t",
+    wsDir: "/ws",
+    benchDir: "/bench",
+    envNames: [],
+    uid: 1000,
+    gid: 1000,
+  };
+  assert.ok(!dockerArgv(base, ["x"]).some((a) => a.includes("/agent-config")));
+  const mounts = dockerArgv({ ...base, configDir: "/tmp/cfg" }, ["x"]);
+  const i = mounts.indexOf("/tmp/cfg:/agent-config");
+  assert.ok(i > 0, "configDir must be mounted at /agent-config");
+  assert.equal(mounts[i - 1], "-v");
+  // NOT :ro — a read-only mount breaks opencode's package install.
+  assert.ok(!mounts.some((a) => a.startsWith("/tmp/cfg:") && a.endsWith(":ro")));
 });

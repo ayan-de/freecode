@@ -23,6 +23,30 @@ export interface AgentSpec {
    */
   autonomy: string;
   env?: Record<string, string>;
+  /**
+   * A config file this agent needs written per trial, because it has no env
+   * var or flag for the setting. `contents` is rendered with `{proxyOrigin}`
+   * and `{model}` and written to `<trial>/agent-config/<path>`; the directory
+   * is what `{configDir}` in `env` resolves to.
+   *
+   * This exists for opencode: it resolves its endpoint from models.dev and
+   * honours neither `MINIMAX_BASE_URL` nor `ANTHROPIC_BASE_URL`, so on an
+   * `--internal` network it has no route to the model and every trial would
+   * fail for a reason that is about plumbing, not the agent. Its config file
+   * DOES take a provider baseURL (verified against 1.18.25), which is the
+   * only way found to point it at the recording proxy.
+   */
+  configFile?: { path: string; contents: unknown };
+  /**
+   * Directory (relative to bench/agent-bench/) copied into the per-trial config
+   * dir before `configFile` is rendered over it.
+   *
+   * opencode npm-installs `@opencode-ai/plugin` — 62 MB — into a fresh
+   * XDG_CONFIG_HOME on first run, `--pure` included. Under `--isolate` there is
+   * no network to install it from, so the packages must already be there. The
+   * seed is a git-ignored cache, not committed: see AGENT-BENCH.md §1.
+   */
+  configSeed?: string;
   notes?: string;
 }
 

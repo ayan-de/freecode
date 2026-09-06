@@ -9,10 +9,12 @@ import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import {
+  BENCH_MOUNT,
   dockerArgv,
   removeContainer,
   type Containerize,
 } from "../isolate/docker.js";
+import { CONFIG_MOUNT } from "./agent-config.js";
 import type { AgentSpec } from "./types.js";
 
 const AGENT_DIR = path.join(import.meta.dirname, "..", "agents");
@@ -72,19 +74,32 @@ function render(spec: AgentSpec, prompt: string): string[] {
  * `ANTHROPIC_API_KEY` in the operator's shell is kept from overriding the
  * endpoint we are pointing the agent at.
  * `{benchDir}` is this directory, which is how an adapter points an agent at
- * `empty-config/` — the only way found to stop opencode loading the operator's
- * personal MCP servers (see agents/opencode.json).
+ * a committed file.
+ * `{configDir}` is the per-trial dir `writeAgentConfig` rendered, which is how
+ * opencode's `XDG_CONFIG_HOME` reaches a config carrying the proxy's address —
+ * and, as a side effect, keeps it from loading the operator's personal MCP
+ * servers (see agents/opencode.json).
  */
-export function resolveEnv(spec: AgentSpec, benchDir?: string): NodeJS.ProcessEnv {
+export function resolveEnv(
+  spec: AgentSpec,
+  benchDir?: string,
+  configDir?: string,
+): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const [key, raw] of Object.entries(spec.env ?? {})) {
     if (raw === "") {
       delete env[key];
       continue;
     }
+    if (raw.includes("{configDir}") && !configDir) {
+      throw new Error(
+        `${spec.id}: ${key} uses {configDir}, but the adapter declares no configFile`,
+      );
+    }
     env[key] = raw
       // In a container, {benchDir} is the ro mount, not the host path.
       .replaceAll("{benchDir}", benchDir ?? path.join(AGENT_DIR, ".."))
+      .replaceAll("{configDir}", configDir ?? "")
       .replace(/\$\{(\w+)\}/g, (_, name: string) => {
       const value = process.env[name];
       if (!value) {
@@ -122,12 +137,18 @@ export function runAgent(
   timeoutMs: number,
   extraEnv?: NodeJS.ProcessEnv,
   containerize?: Containerize,
+  configDir?: string,
 ): Promise<AgentRun> {
-  // In a container, {benchDir} in the adapter env must resolve to the ro
-  // mount. The env still carries real values (docker copies them from the
-  // spawn env for each bare `-e NAME`); only argv stays value-free.
+  // In a container, {benchDir} and {configDir} in the adapter env must resolve
+  // to the ro mounts, not the host paths. The env still carries real values
+  // (docker copies them from the spawn env for each bare `-e NAME`); only argv
+  // stays value-free.
   const env = {
-    ...resolveEnv(spec, containerize ? "/bench" : undefined),
+    ...resolveEnv(
+      spec,
+      containerize ? BENCH_MOUNT : undefined,
+      configDir ? (containerize ? CONFIG_MOUNT : configDir) : undefined,
+    ),
     ...extraEnv,
   };
   const agentArgv = render(spec, prompt);

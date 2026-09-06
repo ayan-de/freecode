@@ -21,6 +21,7 @@
 // =============================================================================
 
 import { spawnSync } from "child_process";
+import { CONFIG_MOUNT } from "../runner/agent-config.js";
 
 export const IMAGE = "agent-bench";
 export const INTERNAL_NETWORK = "agent-bench-internal";
@@ -38,10 +39,19 @@ export interface Containerize {
   name: string;
   /** Host workspace dir, mounted rw at /workspace. */
   wsDir: string;
-  /** Host bench/agent-bench dir, mounted ro at /bench (empty-config lives there). */
+  /** Host bench/agent-bench dir, mounted ro at /bench. */
   benchDir: string;
   /** Env NAMES to forward. Values come from the spawn env, never argv. */
   envNames: string[];
+  /**
+   * Host dir holding a per-trial rendered agent config, mounted **rw** at
+   * /agent-config. Undefined for adapters that need no config file.
+   *
+   * Writable on purpose: opencode installs packages into XDG_CONFIG_HOME, so a
+   * ro mount fails it outright. The dir is a per-trial throwaway, so nothing
+   * survives to the next trial.
+   */
+  configDir?: string;
   uid: number;
   gid: number;
 }
@@ -55,6 +65,7 @@ export function dockerArgv(c: Containerize, argv: string[]): string[] {
     "--user", `${c.uid}:${c.gid}`,
     "-v", `${c.wsDir}:${WORKSPACE}`,
     "-v", `${c.benchDir}:${BENCH_MOUNT}:ro`,
+    ...(c.configDir ? ["-v", `${c.configDir}:${CONFIG_MOUNT}`] : []),
     "-w", WORKSPACE,
     // Writable HOME for CLIs that insist on one; --user means /root is not it.
     "-e", "HOME=/tmp/agent-home",
