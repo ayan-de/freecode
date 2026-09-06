@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, Check, Minus } from "lucide-react";
 import type { BenchView } from "../data/agent-bench";
 import { BenchBarList, type BenchBar } from "./BenchBarList";
+import { CostScatter } from "./CostScatter";
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const secs = (ms: number) => `${(ms / 1000).toFixed(0)}s`;
@@ -105,6 +106,18 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     if (Math.abs(r - 1) < 0.05) return "even";
     return r < 1 ? `${(1 / r).toFixed(1)}× faster` : `${r.toFixed(1)}× slower`;
   })();
+  // The token-efficiency card, when both sides are metered — freecode's usual
+  // headline. Green when freecode uses fewer, red when more; never hidden.
+  const edge = view.tokenEdge;
+  const tokenCard = edge
+    ? {
+        value: edge.pctFewer >= 0 ? `${edge.pctFewer}% fewer` : `${-edge.pctFewer}% more`,
+        tone: edge.pctFewer > 0 ? "text-primary" : edge.pctFewer < 0 ? "text-destructive" : "text-foreground",
+        label: "tokens per trial",
+        note: `freecode ${tok(edge.freeTokens)} vs ${edge.rivalId} ${tok(edge.rivalTokens)}`,
+      }
+    : undefined;
+
   const headline =
     free && fastestRival && bestRival
       ? [
@@ -114,6 +127,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
             label: view.metric.label.toLowerCase(),
             note: `freecode vs ${bestRival.id}, over ${view.sharedInstances.length} shared instance${view.sharedInstances.length === 1 ? "" : "s"}`,
           },
+          ...(tokenCard ? [tokenCard] : []),
           {
             value: timeVerdict,
             tone: timeVerdict.endsWith("faster")
@@ -124,12 +138,18 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
             label: "median wall time",
             note: `freecode ${secs(free.medianMs)} vs ${fastestRival.id} ${secs(fastestRival.medianMs)}`,
           },
-          {
-            value: `${Math.round(free.medianPatchBytes)}B vs ${Math.round(fastestRival.medianPatchBytes)}B`,
-            tone: "text-foreground",
-            label: "median patch size",
-            note: `freecode vs ${fastestRival.id} — style, not quality`,
-          },
+          // Patch size drops off the headline row when the token card is
+          // present (keeps it to 3 cards); it still lives in its own bar below.
+          ...(tokenCard
+            ? []
+            : [
+                {
+                  value: `${Math.round(free.medianPatchBytes)}B vs ${Math.round(fastestRival.medianPatchBytes)}B`,
+                  tone: "text-foreground",
+                  label: "median patch size",
+                  note: `freecode vs ${fastestRival.id} — style, not quality`,
+                },
+              ]),
         ]
       : [];
 
@@ -392,6 +412,92 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                 : "Per-solved-bug cost (spec §7.2) appears once the matchup is graded — averaging cost over failed attempts would make the agent that gives up fastest look cheapest."
             }
           />
+        )}
+
+        {view.costPoints.length > 0 && (
+          <div className="rounded-md border border-border bg-card p-6 md:p-8">
+            <h3 className="text-lg font-medium text-foreground">
+              Cost distribution
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1 mb-6">
+              Every metered trial, one dot, by bug. A mean hides the outliers —
+              this does not. An open ring is a trial that ran but did not
+              resolve, so a cheap dot low on the chart is not always a win.
+            </p>
+            <CostScatter points={view.costPoints} freeId="freecode" />
+          </div>
+        )}
+
+        {view.cost && !view.cost.suppressed && view.cost.perBug.length > 0 && (
+          <div className="rounded-md border border-border bg-card p-6 md:p-8">
+            <h3 className="text-lg font-medium text-foreground">
+              Per solved bug, side by side
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1 mb-6">
+              Only the {view.cost.instances.length} bugs every agent resolved
+              (spec §7.2). Cost is the mean over that agent&apos;s resolved
+              trials of the bug; the cheaper agent on each row is in bold.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-xs">
+                <thead className="text-muted-foreground/60">
+                  <tr className="border-b border-border">
+                    <th className="pb-2 pr-4 font-normal">bug</th>
+                    {view.agents.map((a) => (
+                      <th key={a.id} className="pb-2 pr-4 font-normal">
+                        {a.id}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.cost.perBug.map((row) => {
+                    const cheapest = Math.min(
+                      ...row.perAgent
+                        .map((p) => p.usd)
+                        .filter((u): u is number => typeof u === "number"),
+                    );
+                    return (
+                      <tr key={row.instanceId} className="border-b border-border/60">
+                        <td className="py-2.5 pr-4 text-foreground/70">
+                          {row.instanceId.replace(/^.*__/, "")}
+                        </td>
+                        {view.agents.map((a) => {
+                          const p = row.perAgent.find((x) => x.id === a.id);
+                          const best = typeof p?.usd === "number" && p.usd === cheapest;
+                          return (
+                            <td
+                              key={a.id}
+                              className={`py-2.5 pr-4 ${best ? "font-bold text-primary" : "text-foreground/80"}`}
+                            >
+                              {typeof p?.usd === "number" ? usd(p.usd) : "—"}
+                              {p?.tokens != null && (
+                                <span className="text-muted-foreground/50">
+                                  {" "}
+                                  ({tok(p.tokens)})
+                                </span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t-2 border-border">
+                    <td className="py-2.5 pr-4 text-muted-foreground/60">mean</td>
+                    {view.agents.map((a) => {
+                      const p = view.cost!.perAgent.find((x) => x.id === a.id);
+                      return (
+                        <td key={a.id} className="py-2.5 pr-4 text-foreground/80">
+                          {typeof p?.meanUsd === "number" ? usd(p.meanUsd) : "—"}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
         <div className="rounded-md border border-border bg-card p-6 md:p-8">

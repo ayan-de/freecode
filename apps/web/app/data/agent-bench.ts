@@ -95,6 +95,20 @@ export interface CostComparison {
     meanUsd: number | null;
     meanTokens: number | null;
   }[];
+  /** One row per solved-by-all instance; mean USD/tokens per agent on it. */
+  perBug: {
+    instanceId: string;
+    perAgent: { id: string; usd: number | null; tokens: number | null }[];
+  }[];
+}
+
+/** One metered trial as a scatter point: which agent, which bug, what it cost. */
+export interface CostPoint {
+  agent: string;
+  isFreeCode: boolean;
+  instanceId: string;
+  usd: number;
+  resolved: boolean | null;
 }
 
 export interface BenchView {
@@ -115,6 +129,10 @@ export interface BenchView {
   matrix: { instanceId: string; cells: MatrixCell[] }[];
   /** §7.2 cost table. Undefined until the matchup is graded. */
   cost?: CostComparison;
+  /** Every metered trial as a point, for the cost-distribution scatter. */
+  costPoints: CostPoint[];
+  /** freecode's token saving vs the best rival, when both are metered. */
+  tokenEdge?: { rivalId: string; freeTokens: number; rivalTokens: number; pctFewer: number };
   caveats: { title: string; body: string }[];
 }
 
@@ -250,6 +268,62 @@ export function deriveView(raw: RawBenchmark): BenchView {
           meanTokens: mine.length ? mean(mine.map((r) => totalTokens(r)!))! : null,
         };
       }),
+      // Per-bug rows: on each solved-by-all instance, each agent's mean cost
+      // and tokens over its resolved trials of that bug.
+      perBug: solvedByAll.map((instanceId) => ({
+        instanceId,
+        perAgent: raw.agents.map((a) => {
+          const mine = results.filter(
+            (r) =>
+              r.agent === a.id &&
+              r.instanceId === instanceId &&
+              r.resolved === true &&
+              (r.turns ?? 0) > 0,
+          );
+          const usds = mine.map((r) => r.usd).filter((u): u is number => typeof u === "number");
+          return {
+            id: a.id,
+            usd: usds.length ? mean(usds)! : null,
+            tokens: mine.length ? mean(mine.map((r) => totalTokens(r)!))! : null,
+          };
+        }),
+      })),
+    };
+  }
+
+  // Every metered, priced trial as a scatter point (all shared instances, not
+  // just solved-by-all): the shape of the cost distribution, before averaging.
+  const costPoints: CostPoint[] = results
+    .filter(
+      (r) =>
+        sharedInstances.includes(r.instanceId) &&
+        (r.turns ?? 0) > 0 &&
+        typeof r.usd === "number",
+    )
+    .map((r) => ({
+      agent: r.agent,
+      isFreeCode: r.agent === "freecode",
+      instanceId: r.instanceId,
+      usd: r.usd as number,
+      resolved: r.resolved,
+    }));
+
+  // freecode's token edge vs the best (fewest-token) metered rival — the
+  // "N% fewer tokens" headline, stated only when both sides are metered.
+  const freeSummary = agents.find((a) => a.isFreeCode);
+  const meteredRivals = agents.filter(
+    (a) => !a.isFreeCode && a.meanTokens !== undefined,
+  );
+  let tokenEdge: BenchView["tokenEdge"];
+  if (freeSummary?.meanTokens !== undefined && meteredRivals.length) {
+    const rival = meteredRivals.reduce((m, a) =>
+      a.meanTokens! < m.meanTokens! ? a : m,
+    );
+    tokenEdge = {
+      rivalId: rival.id,
+      freeTokens: freeSummary.meanTokens,
+      rivalTokens: rival.meanTokens!,
+      pctFewer: Math.round((1 - freeSummary.meanTokens / rival.meanTokens!) * 100),
     };
   }
 
@@ -336,6 +410,8 @@ export function deriveView(raw: RawBenchmark): BenchView {
     ragged,
     matrix,
     cost,
+    costPoints,
+    tokenEdge,
     caveats,
   };
 }
