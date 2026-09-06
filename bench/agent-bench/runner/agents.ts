@@ -147,15 +147,24 @@ export function runAgent(
     child.stderr.pipe(err);
 
     let timedOut = false;
-    const timer = setTimeout(() => {
+    const kill = () => {
       timedOut = true;
       child.kill("SIGKILL");
       // Killing the docker CLIENT does not stop the container.
       if (containerize) removeContainer(containerize.name);
-    }, timeoutMs);
+    };
+    const timer = setTimeout(kill, timeoutMs);
+    // A wall-clock guard on top of the timer: a laptop suspend freezes the
+    // container but pauses setTimeout, so a lid closed overnight would blow
+    // past the deadline (it did — one trial ran 7h). This interval compares
+    // real elapsed time and fires on resume even when the timer is behind.
+    const watchdog = setInterval(() => {
+      if (!timedOut && Date.now() - startedAt >= timeoutMs) kill();
+    }, 30_000);
 
     const done = (exitCode: number | null) => {
       clearTimeout(timer);
+      clearInterval(watchdog);
       out.end();
       err.end();
       resolve({ exitCode, timedOut, durationMs: Date.now() - startedAt, argv });

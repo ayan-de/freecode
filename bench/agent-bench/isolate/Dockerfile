@@ -15,9 +15,13 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
+# tsx runs the recording-proxy source (proxy/main.ts) when this image is
+# started as the sidecar proxy container (isolate/docker.ts). Pinned to the
+# generation the repo uses.
 RUN npm install -g \
       @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
-      opencode-ai@${OPENCODE_VERSION}
+      opencode-ai@${OPENCODE_VERSION} \
+      tsx@4
 
 RUN curl -fsSL -o /tmp/freecode.tar.gz \
       https://github.com/ayan-de/freecode/releases/download/${FREECODE_VERSION}/freecode-linux-x86_64.tar.gz \

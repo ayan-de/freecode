@@ -14,5 +14,8 @@
   ],
   "model": "minimax/MiniMax-M3",
   "autonomy": "--agent danger: no permission prompts",
-  "notes": "MiniMax-M3 is the pinned shared model (spec §12.1, answered 2026-09-03): every agent reaches it on the same key, freecode natively and the others through MiniMax's Anthropic-compatible endpoint. `--agent danger` is the parity setting, not a shortcut — `build` denies every write headlessly (permission/prompt.ts). Sessions and memory still land in ~/.freecode and carry between trials; the container (Phase 1) is what fixes that."
+  "env": {
+    "MINIMAX_API_KEY": "${MINIMAX_API_KEY}"
+  },
+  "notes": "MiniMax-M3 is the pinned shared model (spec §12.1, answered 2026-09-03): every agent reaches it on the same key, freecode natively and the others through MiniMax's Anthropic-compatible endpoint. `--agent danger` is the parity setting, not a shortcut — `build` denies every write headlessly (permission/prompt.ts). The `env` block forwards the key: on the host freecode reads it from ~/.freecode/config.json, but an isolated container has no config, so the key must ride in as MINIMAX_API_KEY (getApiKey reads it from env). Without this, an isolated freecode trial exits 1 in ~1s with no model call. Under isolation the container gives freecode a fresh throwaway HOME, so sessions and memory no longer carry between trials."
 }

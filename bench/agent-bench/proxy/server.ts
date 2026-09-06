@@ -28,10 +28,13 @@ export interface ProxyOptions {
   upstream: string;
   logPath: string;
   /**
-   * Bind address. Default loopback; isolated trials bind the internal docker
-   * network's gateway instead, the one address an agent container can reach.
+   * Bind address. Default loopback (host metering). The sidecar proxy container
+   * binds 0.0.0.0 so its network peers — the agent container — can reach it.
    */
   host?: string;
+  /** Fixed port. Default 0 (random) for host metering; the sidecar pins one so
+   *  the agent's base-URL env is predictable before the proxy exists. */
+  port?: number;
 }
 
 export interface RecordingProxy {
@@ -139,7 +142,7 @@ export async function startProxy(opts: ProxyOptions): Promise<RecordingProxy> {
   });
 
   const host = opts.host ?? "127.0.0.1";
-  await new Promise<void>((resolve) => server.listen(0, host, resolve));
+  await new Promise<void>((resolve) => server.listen(opts.port ?? 0, host, resolve));
   const addr = server.address();
   if (!addr || typeof addr === "string") throw new Error("proxy: no port");
   return {
