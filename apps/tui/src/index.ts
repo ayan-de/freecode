@@ -93,6 +93,9 @@ import {
   createToolProgressMessage,
   createToolResultMessage,
   createThinkingMessage,
+  appendThinkingDelta,
+  appendAssistantDelta,
+  finalizeAssistantText,
   ToolProgressMessage,
   type MessageInstance,
   loadSessionMessages,
@@ -237,6 +240,11 @@ function resetSessionCacheTotals(): void {
 // Running length of streamed assistant text for the active turn, converted to a
 // live output-token estimate (~4 chars/token) for the in-progress line.
 let streamedChars = 0;
+// Whether at least one `text` snapshot rendered during the active run. When it
+// did, the transcript already carries every internal turn's prose (final turn
+// included) and the RPC result's content must NOT be rendered again — it is
+// only the final turn's text, i.e. a strict subset of what streamed.
+let renderedTextThisRun = false;
 let modeLine: ModeLine;
 
 let modelSelector: SearchableSelectList | null = null;
@@ -1046,22 +1054,42 @@ function handleToolEvent(event: StreamEvent) {
       break;
     }
     case "thinking": {
-      // Create or update thinking message - dimmed cyan stream
-      const thinkingComponent = createThinkingMessage(
-        event.content,
-        globalThinkingStartTime || Date.now(),
-      );
+      // Turn-end reasoning snapshot — authoritative, replaces whatever the
+      // thinking_delta stream accumulated (it wins over any dropped chunk).
+      createThinkingMessage(event.content, globalThinkingStartTime || Date.now());
       tui.requestRender();
       break;
     }
-    case "text_delta":
-    case "thinking_delta": {
-      // Drive the in-progress line's live output-token estimate from the
-      // actual streamed text (~4 chars/token). The 1s in-progress tick picks
-      // this up on its next render, so the number tracks real generation
-      // instead of the old time-based guess.
+    case "text_delta": {
+      // Live prose: append into the streaming assistant row (created on the
+      // first delta of each internal turn). Also drive the in-progress
+      // line's live output-token estimate from the streamed text
+      // (~4 chars/token) so the number tracks real generation.
       streamedChars += event.delta.length;
       setLiveOutputTokens(Math.round(streamedChars / 4));
+      appendAssistantDelta(event.delta);
+      tui.requestRender();
+      break;
+    }
+    case "text": {
+      // Authoritative per-internal-turn snapshot (core emits it citation-
+      // stripped at every turn's end, final turn included). Settles the live
+      // streaming row — or, on the non-streaming provider path where no
+      // deltas ever arrive, is itself the whole render. This is also what
+      // keeps prose emitted between tool calls in the transcript: each turn
+      // settles its own row and the next turn starts a new one.
+      finalizeAssistantText(event.content);
+      renderedTextThisRun = true;
+      tui.requestRender();
+      break;
+    }
+    case "thinking_delta": {
+      streamedChars += event.delta.length;
+      setLiveOutputTokens(Math.round(streamedChars / 4));
+      // Streams into the open thinking block, so expanding it (Ctrl+T)
+      // mid-turn shows live reasoning instead of waiting for the snapshot.
+      appendThinkingDelta(event.delta, globalThinkingStartTime || Date.now());
+      tui.requestRender();
       break;
     }
     case "memory_saved": {
@@ -1290,6 +1318,7 @@ async function submitPrompt(
   hasFirstMessage = true;
   // Reset the live streamed-token estimate for this turn.
   streamedChars = 0;
+  renderedTextThisRun = false;
   resetLiveOutputTokens();
   resetLiveInputTokens();
   resetLiveUsageTotals();
@@ -1426,7 +1455,16 @@ async function submitPrompt(
 
     if (result.success) {
       const response = result.content || result.message;
-      createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+      if (renderedTextThisRun) {
+        // The streamed `text` snapshots already rendered every internal
+        // turn's prose, final turn included — result.content is only the
+        // final turn's text, so rendering it again would duplicate the last
+        // row. Just settle a dangling live row (an aborted stream can skip
+        // its snapshot).
+        finalizeAssistantText();
+      } else {
+        createAssistantMessage(`**FreeCode:** ${response || "Done!"}`);
+      }
       const inTokens = result.usage?.inputTokens ?? 0;
       const outTokens = result.usage?.outputTokens ?? 0;
       const contextLimit = await getModelContextLimit(
@@ -1487,6 +1525,9 @@ async function submitPrompt(
       `**Error:** ${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
+    // Settle a still-streaming assistant row on every exit path (error,
+    // interrupt, session.error reject) — no-op when nothing is live.
+    finalizeAssistantText();
     activeTurnSessionId = null;
     editor.setText("");
   }

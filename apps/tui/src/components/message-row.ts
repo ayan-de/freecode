@@ -339,6 +339,76 @@ export function createAssistantMessageComponent(content: string): Component {
   return new WidthBounded(box);
 }
 
+/**
+ * Live assistant prose, streamed in via `text_delta` events. Deltas append
+ * into a text buffer; the markdown pipeline (the same Box + Markdown +
+ * WidthBounded a settled assistant message uses, so the look never changes)
+ * is rebuilt lazily — at most once per frame, and only when new deltas
+ * arrived since the last render. The live tail is re-rendered every frame
+ * anyway (VirtualMessageList.renderMessages), so mutation-in-place plus a
+ * requestRender is enough — the same pattern ThinkingMessage uses.
+ */
+export class StreamingAssistantMessage implements Component {
+  private text: string;
+  private inner: Component | null = null;
+  private dirty = true;
+  private isDone = false;
+
+  constructor(initial = "") {
+    this.text = initial;
+  }
+
+  get done(): boolean {
+    return this.isDone;
+  }
+
+  get content(): string {
+    return this.text;
+  }
+
+  append(delta: string): void {
+    this.text += delta;
+    this.dirty = true;
+  }
+
+  /**
+   * Settle the row. `content`, when given, is the turn's authoritative
+   * snapshot (core emits `text` citation-stripped at each internal turn's
+   * end) and replaces whatever streamed — it wins over any delta the wire
+   * dropped. Without it the streamed buffer stands (abort/error paths).
+   */
+  finalize(content?: string): void {
+    if (content !== undefined && content !== this.text) {
+      this.text = content;
+      this.dirty = true;
+    }
+    this.isDone = true;
+  }
+
+  render(width: number): string[] {
+    if (!this.inner || this.dirty) {
+      this.inner = createAssistantMessageComponent(this.text);
+      this.dirty = false;
+    }
+    return this.inner.render(width);
+  }
+
+  invalidate(): void {
+    if (typeof this.inner?.invalidate === "function") this.inner.invalidate();
+  }
+
+  getMinWidth(): number {
+    return 10;
+  }
+
+  getMinHeight(): number {
+    return 1;
+  }
+
+  addChild(_component: Component): void {}
+  destroy(): void {}
+}
+
 export class ThinkingMessage implements Component {
   private content: string;
   private isCollapsed = true;
@@ -357,6 +427,12 @@ export class ThinkingMessage implements Component {
 
   updateContent(content: string) {
     this.content = content;
+  }
+
+  /** Append a streamed reasoning chunk (`thinking_delta`); the turn-end
+   * `thinking` snapshot still replaces the whole buffer via updateContent. */
+  appendContent(delta: string) {
+    this.content += delta;
   }
 
   setDone() {
