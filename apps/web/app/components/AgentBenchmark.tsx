@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Check, Minus } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Minus } from "lucide-react";
 import { agentColor, type BenchView } from "../data/agent-bench";
 import { BenchBarList, type BenchBar } from "./BenchBarList";
 import { CostScatter } from "./CostScatter";
@@ -13,8 +13,14 @@ const tok = (n: number) =>
 const usd = (n: number) => `$${n.toFixed(4)}`;
 
 export function AgentBenchmark({ views }: { views: BenchView[] }) {
-  const [slug, setSlug] = useState(views[0]?.slug ?? "");
-  const view = views.find((v) => v.slug === slug) ?? views[0];
+  // Every matchup ran on a pinned model; the picker groups the page by it, so
+  // when the same matchups exist on several models each set stays comparable
+  // only within itself (spec: "change the model and it is a new experiment").
+  const models = [...new Set(views.map((v) => v.model))];
+  const [model, setModel] = useState(models[0] ?? "");
+  const modelViews = views.filter((v) => v.model === model);
+  const [slug, setSlug] = useState(modelViews[0]?.slug ?? "");
+  const view = modelViews.find((v) => v.slug === slug) ?? modelViews[0];
 
   if (!view) {
     return (
@@ -182,6 +188,40 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
           {view.taskSet.repo}. Same tasks, same model, same key, and every agent
           at full autonomy.
         </p>
+
+        {/* The pinned model, as the page's primary control. One benchmark is
+            one model: picking a different one swaps the whole page, because
+            numbers measured on different models never share a table. */}
+        <div className="mt-6">
+          <label
+            htmlFor="bench-model"
+            className="block font-mono text-xs uppercase tracking-widest text-muted-foreground/60 mb-2"
+          >
+            Model
+          </label>
+          <div className="relative inline-block">
+            <select
+              id="bench-model"
+              value={model}
+              onChange={(e) => {
+                const m = e.target.value;
+                setModel(m);
+                setSlug(views.find((v) => v.model === m)?.slug ?? "");
+              }}
+              className="appearance-none cursor-pointer rounded-md border border-border bg-card pl-5 pr-14 py-3.5 font-mono text-lg md:text-xl font-bold text-foreground tracking-tight shadow-sm transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground"
+              aria-hidden
+            />
+          </div>
+        </div>
       </header>
 
       {/* One tab per matchup. Separate tabs rather than one merged table
@@ -193,7 +233,7 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
         aria-label="Matchups"
         className="flex flex-wrap gap-2 border-b border-border mb-8"
       >
-        {views.map((v) => {
+        {modelViews.map((v) => {
           const active = v.slug === view.slug;
           return (
             <button

@@ -41,6 +41,8 @@ export interface RawBenchmark {
   generatedAt: string;
   runs: { runId: string; generatedAt: string; agents: string[] }[];
   phase: number;
+  /** Top-level pinned model; absent on files published before it existed. */
+  model?: string;
   isolation: "none" | "container";
   graded: boolean;
   taskSet: { name: string; repo: string; instances: string[] };
@@ -121,6 +123,8 @@ export interface BenchView {
   generatedAt: string;
   runs: RawBenchmark["runs"];
   phase: number;
+  /** The pinned model this matchup ran on — the page's model picker keys off it. */
+  model: string;
   isolation: "none" | "container";
   graded: boolean;
   taskSet: RawBenchmark["taskSet"];
@@ -171,6 +175,15 @@ const totalTokens = (r: RawResult) =>
 
 export function deriveView(raw: RawBenchmark): BenchView {
   const { results } = raw;
+
+  // Files published before the top-level field fall back to the agents' own
+  // model strings, provider prefix stripped ("minimax/MiniMax-M3" → "MiniMax-M3")
+  // so both spellings of the same pin land in one dropdown entry.
+  const model =
+    raw.model ??
+    [...new Set(raw.agents.map((a) => a.model.split("/").pop() ?? a.model))].join(
+      " / ",
+    );
 
   /**
    * What the headline bar means, which changes the moment the grader lands.
@@ -406,7 +419,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
     },
     {
       title: "This compares harnesses, not models",
-      body: `Every agent is pinned to the same model (${raw.agents[0]?.model ?? "—"}) on the same key, and each keeps its own system prompt. Change the model and it becomes a different experiment with the same table.`,
+      body: `Every agent is pinned to the same model (${model}) on the same key, and each keeps its own system prompt. Change the model and it becomes a different experiment with the same table.`,
     },
     {
       title: "We built the harness and we are in the table",
@@ -421,6 +434,7 @@ export function deriveView(raw: RawBenchmark): BenchView {
     generatedAt: raw.generatedAt,
     runs: raw.runs,
     phase: raw.phase,
+    model,
     isolation: raw.isolation,
     graded: raw.graded,
     taskSet: raw.taskSet,

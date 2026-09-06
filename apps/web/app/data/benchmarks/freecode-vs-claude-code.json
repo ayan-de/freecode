@@ -13,6 +13,7 @@
     }
   ],
   "phase": 1,
+  "model": "MiniMax-M3",
   "isolation": "container",
   "graded": true,
   "taskSet": {

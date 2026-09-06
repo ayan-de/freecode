@@ -95,6 +95,13 @@ export interface PublishedRun {
   runs: { runId: string; generatedAt: string; agents: string[] }[];
   /** Which phase of the spec produced this. The page refuses to dress up 0. */
   phase: number;
+  /**
+   * The pinned model, once, at the top — the page's model picker keys off this.
+   * Every agent in a matchup runs the same model by design; agents spell it
+   * differently ("minimax/MiniMax-M3" vs "MiniMax-M3"), so this is the
+   * provider-prefix-stripped name they share.
+   */
+  model: string;
   isolation: "none" | "container";
   /** False until the official SWE-bench grader runs (Phase 1). */
   graded: boolean;
@@ -105,6 +112,9 @@ export interface PublishedRun {
 
 const key = (r: { agent: string; instanceId: string; trial: number }) =>
   `${r.agent}|${r.instanceId}|${r.trial}`;
+
+/** "minimax/MiniMax-M3" and "MiniMax-M3" are the same pin seen from two CLIs. */
+const shortModel = (m: string) => m.split("/").pop() ?? m;
 
 function readExisting(file: string): PublishedRun | undefined {
   if (!fs.existsSync(file)) return undefined;
@@ -219,6 +229,9 @@ export function publish(report: Report, fresh = false): string {
     runId: report.startedAt,
     runs,
     phase: allGraded ? 1 : 0,
+    model: [...new Set([...agents.values()].map((a) => shortModel(a.model)))].join(
+      " / ",
+    ),
     isolation: allContainer ? "container" : "none",
     graded: allGraded,
     taskSet: {
