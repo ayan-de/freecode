@@ -113,7 +113,10 @@ export class ToolResultMessage implements Component {
     
     const toolNameLower = this.toolName.toLowerCase();
     const isFileUpdate = ["write", "edit", "replace_file_content", "multi_replace_file_content"].includes(toolNameLower);
-    const isFileRead = ["read", "view_file", "skill", "webfetch"].includes(toolNameLower);
+    // Only actual file reads suppress their body — the content is already on
+    // disk. skill/webfetch used to be in this list, which hid their output
+    // with no caret to reveal it.
+    const isFileRead = ["read", "view_file"].includes(toolNameLower);
     const isRun = ["bash", "run_command"].includes(toolNameLower);
 
     let filename: string | undefined = undefined;
@@ -139,8 +142,11 @@ export class ToolResultMessage implements Component {
     const displayResult = this.unwrapOutput(this.result);
     // `looksLikeDiff` only tests for leading +/-, so any markdown bullet list
     // trips it — a README read as "Removed 6 lines". Read-type tools suppress
-    // their body anyway, so they never take the diff branch.
-    const isDiff = !isFileRead && !!displayResult && looksLikeDiff(displayResult);
+    // their body anyway, so they never take the diff branch; skill/webfetch
+    // bodies are usually markdown, so they must never take it either.
+    const isProse = ["skill", "webfetch"].includes(toolNameLower);
+    const isDiff =
+      !isFileRead && !isProse && !!displayResult && looksLikeDiff(displayResult);
     // `isFileRead` output is dropped below, so those never get a caret either.
     this.collapsible = !isDiff && !isFileRead && (!!displayResult || this.success);
     const collapsed = this.collapsible && this.isCollapsed;

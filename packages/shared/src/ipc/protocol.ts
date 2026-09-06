@@ -105,6 +105,12 @@ export type StreamEvent =
   | { type: "thinking_delta"; sessionId?: string; delta: string } // incremental reasoning chunk (streaming path)
   | { type: "done"; sessionId?: string; content: string }
   | { type: "error"; sessionId?: string; content: string }
+  // The turn is dead: every emitter (loop fail(), recovery exhaustion, the
+  // server's escaped-error net) tears the loop down after publishing this.
+  // The escaped-error path never answers the in-flight session.send, so
+  // frontends must treat this event — not the RPC response — as the turn's
+  // failure signal or the spinner sits until the idle deadline.
+  | { type: "session.error"; sessionId?: string; error: string; tool?: string }
   // Follow-up queue (spec 2026-08-05-queued-messages-design): a session.send
   // arrived while a turn was already in progress and was parked instead of
   // racing. `id` matches the `QueuedMessage`; `content` is the original prompt
@@ -264,7 +270,9 @@ export const METHODS = {
     result: [] as import("../types.js").SessionMeta[],
   },
   "session.resume": {
-    params: { sessionId: "" },
+    // agentMode seeds the resumed session's mode (else "build"); a mode sent
+    // with a later session.send still overrides it per turn.
+    params: {} as { sessionId: string; agentMode?: string },
     result: {} as import("../types.js").SessionResumeResult,
   },
   // Lists Claude Code sessions discovered under $CLAUDE_CONFIG_DIR (defaults

@@ -47,6 +47,7 @@ import {
   setCliRestartHandler,
   sessionStart,
   sessionSendStreaming,
+  failActiveStream,
   sessionStop,
   sessionDequeue,
   sessionCompact,
@@ -1230,6 +1231,23 @@ function handleToolEvent(event: StreamEvent) {
       const row = getMessageByQueueId(event.id);
       if (row && row.type === "queued_user") {
         removeMessageById(row.id);
+        tui.requestRender();
+      }
+      break;
+    }
+    // The turn is dead (see the union comment in protocol.ts). Settle the
+    // in-flight session.send now — submitPrompt's catch renders the error and
+    // removes the in-progress row. On the loop's fail() path this races the
+    // RPC's own success:false response and whichever lands first wins; on the
+    // escaped-error path that response never comes and this is the only thing
+    // standing between the user and a spinner stuck on the idle deadline.
+    case "session.error": {
+      const ownSessionId = activeTurnSessionId ?? currentSession?.sessionId;
+      if (event.sessionId && ownSessionId && event.sessionId !== ownSessionId)
+        break;
+      if (!failActiveStream(event.error)) {
+        // No send pending (error arrived between turns) — render it directly.
+        createSystemMessage(`**Error:** ${event.error}`);
         tui.requestRender();
       }
       break;

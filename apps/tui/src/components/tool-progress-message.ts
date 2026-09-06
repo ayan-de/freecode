@@ -24,6 +24,7 @@ const TOOL_COLORS: Record<string, (text: string) => string> = {
   Grep: (t) => chalk.magenta(t),
   Skill: (t) => chalk.white(t),
   Agent: (t) => chalk.white(t),
+  Memory: (t) => chalk.magenta(t),
 };
 
 export class ToolProgressMessage implements Component {
@@ -63,7 +64,16 @@ export class ToolProgressMessage implements Component {
   }
 
   render(width: number): string[] {
-    const colorFn = TOOL_COLORS[this.toolName] || ((t: string) => t);
+    // Core emits lowercase tool ids ("read", "bash") while the map keys are
+    // capitalized — same three-way fallback as ToolResultMessage, without
+    // which no progress row ever got its color.
+    const colorFn =
+      TOOL_COLORS[this.toolName] ||
+      TOOL_COLORS[
+        this.toolName.charAt(0).toUpperCase() +
+          this.toolName.slice(1).toLowerCase()
+      ] ||
+      ((t: string) => t);
     const spinner = ["⠋", "⠙", "⠹", "⠸"][this.animationFrame];
     const argsStr = this.formatArgs();
 
