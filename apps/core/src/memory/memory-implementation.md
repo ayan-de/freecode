@@ -36,7 +36,7 @@ FreeCode implements a **persistent, file-based memory system** inspired by Claud
 │           │   └──<name>.md
 │           ├── feedback/           # Guidance on what to avoid/repeat
 │           │   └── <name>.md
-│           ├── project/            # Non-derivabl context
+│           ├── project/            # Non-derivable context
 │           │   └── <name>.md
 │           └── reference/           # External system pointers
 │               └── <name>.md
@@ -78,7 +78,7 @@ that solves the problem. Avoid unnecessary abstraction layers.
 | ----------- | --------------- | ------------------------------------------- | -------------------------------------- |
 | `user`      | private only    | User's role, goals, preferences, knowledge  | "User is a Go developer"               |
 | `feedback`  | private or team | Guidance on what to avoid/repeat            | "Don't use mocks in integration tests" |
-| `project`   | private or team | Non-derivabl context (deadlines, decisions) | "API v2 launching June 2026"           |
+| `project`   | private or team | Non-derivable context (deadlines, decisions) | "API v2 launching June 2026"           |
 | `reference` | usually team    | External system pointers                    | "Bugs tracked in Linear project ENG"   |
 
 ---
@@ -281,7 +281,7 @@ You have a persistent, file-based memory system at `~/.freecode/projects/<projec
 ## Types of memory
 - **user**: User's role, goals, preferences, knowledge
 - **feedback**: Guidance on what to avoid/repeat
-- **project**: Non-derivabl context
+- **project**: Non-derivable context
 - **reference**: External system pointers
 
 ## When to access memories

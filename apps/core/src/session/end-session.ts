@@ -30,7 +30,13 @@ export type SessionEndReason =
 
 // A process that is leaving cannot fire-and-forget: give the flush a bounded
 // moment to land, then go regardless. Everything else stays non-blocking.
-const EXIT_FLUSH_BUDGET_MS = 2_000;
+// The flush is a full model round trip, so 2s lost it on the most common end
+// (quit); 5s catches most calls while keeping quit tolerable. Overridable for
+// installs that would rather wait (or not wait at all — 0 skips the wait).
+const EXIT_FLUSH_BUDGET_MS = (() => {
+  const raw = Number(process.env.FREECODE_EXIT_FLUSH_BUDGET_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 5_000;
+})();
 
 export interface EndSessionOptions {
   reason: SessionEndReason;
@@ -46,8 +52,9 @@ export interface EndSessionOptions {
 
 // Sessions already ended, so a switch away and back does not flush twice.
 // Bounded: a long-lived daemon must not accumulate one string per session
-// forever, and re-ending a very old session is harmless (the disposers are all
-// idempotent, and its extraction already ran).
+// forever. A session that becomes active again must be reviveSession()d, or
+// its later turns are never flushed — "ended" is a statement about the past,
+// not a permanent property of the id.
 const MAX_REMEMBERED = 256;
 const ended = new Set<string>();
 
@@ -59,6 +66,16 @@ function markEnded(sessionId: string): boolean {
     if (oldest !== undefined) ended.delete(oldest);
   }
   return true;
+}
+
+/**
+ * A previously ended session became active again (switch back, resume). Undo
+ * the ended mark so the session's *next* end runs the disposers and the flush
+ * over the turns it is about to accumulate — without this, a preference stated
+ * after the revival was silently lost (the exact failure D4 exists to prevent).
+ */
+export function reviveSession(sessionId: string): void {
+  ended.delete(sessionId);
 }
 
 /** Test seam: forget which sessions have ended. */

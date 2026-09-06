@@ -27,12 +27,27 @@ const FIELD_WEIGHTS = { name: 3, description: 5, content: 1 } as const;
 // worth more than any amount of term overlap. Carried over from the old scorer.
 const EXACT_NAME_BONUS = 10;
 
+// Function words carry no relevance signal, and because smoothed IDF stays
+// positive even for a term in every document, keeping them meant any prompt
+// sharing "the" or "and" with any memory scored above zero — which is what let
+// a query about nothing in the store seed the cascade. (Words of ≤2 chars are
+// already dropped by the length filter below.)
+const STOPWORDS = new Set([
+  "the", "and", "for", "that", "this", "with", "from", "have", "has", "had",
+  "was", "were", "are", "but", "not", "you", "your", "all", "can", "will",
+  "when", "what", "how", "why", "where", "which", "who", "then", "than",
+  "them", "they", "their", "there", "here", "about", "into", "also", "just",
+  "like", "some", "more", "most", "other", "only", "over", "such", "very",
+  "been", "being", "does", "did", "doing", "would", "could", "should", "our",
+  "out", "its",
+]);
+
 export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((t) => t.length > 2);
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
 }
 
 interface Doc {
@@ -114,7 +129,16 @@ export class Bm25Index {
           this.avgLength === 0 ? 1 : 1 - B + B * (doc.length / this.avgLength);
         score += this.idf(term) * ((freq * (K1 + 1)) / (freq + K1 * norm));
       }
-      if (lowered.length > 0 && doc.name.toLowerCase().includes(lowered)) {
+      // Whole-name match, in either direction: the query IS the name, or the
+      // query (an auto-recall query is the whole user message) mentions the
+      // name. The old `name.includes(query)` awarded +10 to any short query
+      // that happened to be a substring of a longer name.
+      const normName = doc.name.toLowerCase().replace(/[-_]/g, " ").trim();
+      const normQuery = lowered.replace(/[-_]/g, " ");
+      if (
+        normName.length >= 5 &&
+        (normName === normQuery || normQuery.includes(normName))
+      ) {
         score += EXACT_NAME_BONUS;
       }
       if (score > 0) scored.push({ id: doc.id, score });

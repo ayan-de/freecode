@@ -46,7 +46,7 @@ export function buildMemoryPrompt(
     "## Types of memory",
     "- **user**: User's role, goals, preferences, knowledge",
     "- **feedback**: Guidance on what to avoid/repeat. Structure as: rule/fact, then **Why:** and **How to apply:** lines",
-    "- **project**: Non-derivabl context: deadlines, decisions, who's doing what",
+    "- **project**: Non-derivable context: deadlines, decisions, who's doing what",
     "- **reference**: External system pointers (Linear, Grafana, Slack)",
     "",
     "## What NOT to save in memory",

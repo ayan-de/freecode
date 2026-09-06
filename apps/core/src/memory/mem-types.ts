@@ -35,7 +35,7 @@ export const AUTHORABLE_MEMORY_TYPES: readonly MemoryType[] = [
   "reference",
 ];
 
-function isMemoryType(value: string): value is MemoryType {
+export function isMemoryType(value: string): value is MemoryType {
   return (MEMORY_TYPES as readonly string[]).includes(value);
 }
 
@@ -145,19 +145,26 @@ export function parseMemoryFrontmatter(content: string): ParsedMemory {
   };
 }
 
+// Frontmatter values are one line each; a raw newline truncates the value on
+// reparse, and a `---` line would terminate the block early and leak the
+// remaining keys into the body.
+function frontmatterValue(value: string): string {
+  return value.replace(/\s*\r?\n\s*/g, " ").trim();
+}
+
 export function serializeMemoryEntry(entry: MemoryEntry): string {
   const lines = [
     "---",
-    `name: ${entry.name}`,
-    `description: ${entry.description}`,
+    `name: ${frontmatterValue(entry.name)}`,
+    `description: ${frontmatterValue(entry.description)}`,
     `type: ${entry.type}`,
   ];
   // Only emit optional fields when present — keeps existing files unchanged.
   if (entry.tags && entry.tags.length > 0) {
-    lines.push(`tags: ${entry.tags.join(", ")}`);
+    lines.push(`tags: ${frontmatterValue(entry.tags.join(", "))}`);
   }
   if (entry.supersedes && entry.supersedes.length > 0) {
-    lines.push(`supersedes: ${entry.supersedes.join(", ")}`);
+    lines.push(`supersedes: ${frontmatterValue(entry.supersedes.join(", "))}`);
   }
   if (entry.happened_at) {
     lines.push(`happened_at: ${entry.happened_at}`);

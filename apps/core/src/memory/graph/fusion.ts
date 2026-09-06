@@ -20,13 +20,13 @@ import type { RetrievalResult } from "./graph-types.js";
 export const RRF_K = 60;
 
 // Minimum fused score for a candidate to seed the cascade. One retriever
-// ranking something last still clears this; the floor exists to reject the case
-// where *no* retriever returned the document at all, which after fusion is a
-// score of exactly 0.
-//
-// It is expressed relative to RRF_K so the two constants cannot drift apart:
-// a single hit at rank K_INITIAL (the worst possible position a retriever can
-// report) must still pass.
+// ranking something last still clears this — by design, so it filters nothing
+// a retriever actually returned. It is NOT the abstention mechanism: fusion
+// only ever sees documents some retriever returned, so nothing can score 0
+// here. Abstention lives upstream — BM25 drops zero-score documents (and its
+// tokenizer drops stopwords, so trivial overlap scores zero), and the vector
+// path applies SEED_THRESHOLD. The floor survives only as a guard against a
+// future retriever that returns explicit misses.
 export const FUSED_FLOOR = 1 / (RRF_K + 1000);
 
 export function fuseByRank(

@@ -34,6 +34,8 @@ test("acquire returns the prior mtime and advances it", () => {
     const after = readLastConsolidatedAt(dir);
     assert.ok(after > 0, "the mtime IS the timestamp");
 
+    // Finish the first run so its exclusive run marker is released.
+    recordConsolidationOutcome(dir, "succeeded");
     const second = tryAcquireConsolidationLock(dir);
     assert.ok(
       second !== null && Math.abs(second - after) < 1000,
@@ -42,9 +44,24 @@ test("acquire returns the prior mtime and advances it", () => {
   });
 });
 
+test("a second acquire while a run is in flight is refused", () => {
+  withDir((dir) => {
+    assert.notEqual(tryAcquireConsolidationLock(dir), null);
+    assert.equal(
+      tryAcquireConsolidationLock(dir),
+      null,
+      "the exclusive run marker must block a concurrent consolidation",
+    );
+    // Finishing the run frees it again.
+    recordConsolidationOutcome(dir, "succeeded");
+    assert.notEqual(tryAcquireConsolidationLock(dir), null);
+  });
+});
+
 test("rollback restores the prior mtime so the time gate passes again", () => {
   withDir((dir) => {
     tryAcquireConsolidationLock(dir);
+    recordConsolidationOutcome(dir, "succeeded");
     const original = readLastConsolidatedAt(dir);
 
     const prior = tryAcquireConsolidationLock(dir);

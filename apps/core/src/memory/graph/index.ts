@@ -227,6 +227,10 @@ export class MemoryGraphService {
       if (change.deleted) {
         const id = memoryId(change.deleted.type, change.deleted.name);
         await this.enqueue(async () => this.vectors.remove(id));
+        // Counters for a deleted memory are noise to consolidation's candidate
+        // ordering, and nothing else ever removes them (usage-store's own
+        // "cannot grow forever" promise).
+        this.usage.forget([id]);
         this.lastGraphSig = ""; // force graph rebuild next retrieve
         return;
       }
@@ -343,6 +347,9 @@ export class MemoryGraphService {
   // keyword list otherwise, which meant a confident vector miss was silently
   // overridden by the weaker scorer — and, since the lexical floor was "any
   // overlap at all", a query about nothing in the store injected 8 memories.
+  // Abstention is enforced upstream, not by FUSED_FLOOR: BM25's stopword-aware
+  // tokenizer plus its zero-score drop mean trivial overlap returns nothing,
+  // and the vector path applies SEED_THRESHOLD.
   private async seed(query: string): Promise<{
     seeds: RetrievalResult[];
     outcome: RetrievalOutcome;
@@ -360,7 +367,9 @@ export class MemoryGraphService {
             .cosineTopK(qvec, K_INITIAL, SEED_THRESHOLD)
             .map((r) => r.id),
         );
-        vectorRan = true;
+        // An empty vector store means the vector half contributed nothing —
+        // labeling that "fused" hides degradation from the D14 metric.
+        vectorRan = this.vectors.size() > 0;
       } catch {
         // Embedder just died; lexical still carries the query (KG spec D6).
       }
@@ -392,11 +401,13 @@ export class MemoryGraphService {
 
     try {
       const entries = this.store.list();
+      // Sync even when the store is empty: deleting the last memory must clear
+      // the persisted sidecar, or stats and the explorer keep serving ghosts.
+      await this.sync(entries);
       if (entries.length === 0) {
         this.lastOutcome = "empty_store";
         return [];
       }
-      await this.sync(entries);
 
       const { seeds, outcome } = await this.seed(query);
       this.lastOutcome = outcome;
@@ -471,8 +482,8 @@ export class MemoryGraphService {
 
     try {
       const entries = this.store.list();
-      if (entries.length === 0) return { results: [], seedMode: "empty_store" };
       await this.sync(entries);
+      if (entries.length === 0) return { results: [], seedMode: "empty_store" };
 
       const { seeds, outcome } = await this.seed(query);
       if (seeds.length === 0) return fallback();
@@ -494,15 +505,8 @@ export class MemoryGraphService {
     embedderAvailable: boolean;
   }> {
     try {
-      const entries = this.store.list();
-      if (entries.length === 0) {
-        return {
-          nodes: [],
-          edges: [],
-          embedderAvailable: embedder.available(),
-        };
-      }
-      await this.sync(entries);
+      // Sync even for an empty store so a delete-to-empty clears the sidecar.
+      await this.sync(this.store.list());
     } catch {
       // Best-effort sync — fall through to whatever's already on disk.
     }
@@ -558,6 +562,15 @@ export class MemoryGraphService {
     if (node.kind === "Memory" && id.includes("/")) {
       const { type, name } = splitId(id);
       entry = this.store.load(name, type) ?? null;
+      // The write paths refuse secrets, but a file can arrive by other routes
+      // (hand-edited, older IPC saves). Never serve one over the explorer API.
+      if (entry && containsSecret(`${entry.description}\n${entry.content}`)) {
+        entry = {
+          ...entry,
+          description: "[redacted: matches a secret pattern]",
+          content: "[redacted: matches a secret pattern]",
+        };
+      }
     }
 
     return { node, entry, neighbors };
@@ -654,11 +667,15 @@ export class MemoryGraphService {
       try {
         for (let q = st.lastQuery; ; q = st.lastQuery) {
           const results = await this.retrieve(q);
-          if (q === st.lastQuery) {
-            st.stash = await this.applyJudge(st, q, results);
-            st.resolved = true;
-            return;
-          }
+          if (q !== st.lastQuery) continue;
+          const judged = await this.applyJudge(st, q, results);
+          // applyJudge can await a multi-second model call; a topic change
+          // during it must not pin the old topic's memories (or its verdict)
+          // onto the new one.
+          if (q !== st.lastQuery) continue;
+          st.stash = judged;
+          st.resolved = true;
+          return;
         }
       } catch {
         // Keep the previous stash; nothing invalid gets injected. Leave
@@ -705,8 +722,10 @@ export class MemoryGraphService {
     });
     this.lastDecision = decision;
     // Only cache a verdict the judge actually produced. Caching a failure
-    // would carry one transport error across a whole topic.
-    if (decision === "judge_ran") {
+    // would carry one transport error across a whole topic — and a verdict for
+    // a query the session has already moved past must not become the new
+    // topic's cadence carry.
+    if (decision === "judge_ran" && query === st.lastQuery) {
       st.judgedIds = new Set(kept.map((e) => memoryId(e.type, e.name)));
     }
     return kept;
@@ -769,7 +788,20 @@ export class MemoryGraphService {
 
   // Full rebuild from files (maintenance). Clears vectors + graph, re-syncs.
   async rebuild(): Promise<void> {
-    await this.enqueue(async () => this.vectors.clear());
+    // Clearing vectors is only safe when they can be re-embedded. available()
+    // is optimistic until the first embed attempt fails, so probe first — an
+    // install without a working backend must not wipe every vector silently.
+    let canEmbed = embedder.available();
+    if (canEmbed) {
+      try {
+        await embedder.embed("rebuild probe");
+      } catch {
+        canEmbed = false;
+      }
+    }
+    if (canEmbed) {
+      await this.enqueue(async () => this.vectors.clear());
+    }
     this.lastGraphSig = "";
     this.lastVectorSig = "";
     await this.sync(this.store.list());
@@ -788,7 +820,10 @@ export class MemoryGraphService {
       dims: this.vectors.getDims(),
       nodes: this.graph.nodeCount(),
       edges: this.graph.edgeCount(),
-      clusters: this.clusterNodes.length,
+      // Count from the persisted graph, like nodes/edges — the in-memory
+      // cluster layer is empty in a fresh process that never ran a sync.
+      clusters: this.graph.allNodes().filter((n) => n.kind === "Cluster")
+        .length,
       embedder: embedder.available(),
     };
   }

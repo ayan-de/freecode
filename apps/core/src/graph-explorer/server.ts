@@ -71,7 +71,19 @@ function safeJoin(rootDir: string, requestPath: string): string | null {
 interface RunningServer {
   host: string;
   port: number;
+  // What the caller asked for, before port fallback. Reuse must compare
+  // against this: comparing the request to the *bound* port made every
+  // /graph after a fallback spawn a fresh server and leak the old listener.
+  requestedPort: number;
   server: http.Server;
+}
+
+// Guard against DNS rebinding: a page at attacker.com resolving to 127.0.0.1
+// sends its own hostname in Host, and this server serves memory content.
+function hostHeaderAllowed(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  const name = hostHeader.replace(/:\d+$/, "").toLowerCase();
+  return name === "127.0.0.1" || name === "localhost" || name === "[::1]";
 }
 
 let running: RunningServer | null = null;
@@ -151,10 +163,11 @@ export async function startGraphExplorer(
   const host = options.host ?? DEFAULT_HOST;
   const port = options.port ?? DEFAULT_PORT;
 
-  // Reuse the singleton if it's already running on the same host+port. The
-  // (host, port) tuple is unique enough — the only two callers are /graph and
-  // (eventually) tests, and tests get their own service.
-  if (running && running.host === host && running.port === port) {
+  // Reuse the singleton if it's already running for the same request. Compare
+  // the *requested* port, not the bound one — after a port fallback the two
+  // differ, and comparing the bound port spawned a new server (and leaked the
+  // old listener) on every subsequent /graph.
+  if (running && running.host === host && running.requestedPort === port) {
     const url = `http://${host}:${running.port}/`;
     options.openBrowser?.(url);
     return { url };
@@ -178,6 +191,11 @@ export async function startGraphExplorer(
   const deps = { service };
 
   httpServer.on("request", async (req, res) => {
+    if (!hostHeaderAllowed(req.headers.host)) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
     const parsedUrl = new URL(req.url || "/", `http://${host}:${boundPort}`);
     const pathname = parsedUrl.pathname;
 
@@ -239,7 +257,7 @@ export async function startGraphExplorer(
     }
   });
 
-  running = { host, port: boundPort, server: httpServer };
+  running = { host, port: boundPort, requestedPort: port, server: httpServer };
 
   // Log the actual port we landed on (useful when the requested one was busy).
   process.stderr.write(
