@@ -2349,9 +2349,17 @@ tui.addInputListener((data) => {
 });
 
 // Wire stderr to system messages via store — must be the first startCli()
-// call so the handler is attached when the process spawns.
+// call so the handler is attached when the process spawns. Routine INFO/DEBUG
+// logger chatter ("Session started", "Session send") stays out of the
+// transcript — the UI already shows the turn itself — while WARN/ERROR lines
+// and non-logger notices (e.g. "core backend restarted") still surface.
 startCli((stderrMsg) => {
-  createSystemMessage(stderrMsg);
+  const visible = stderrMsg
+    .split("\n")
+    .filter((line) => !/^\[freecode\] (INFO|DEBUG):/.test(line.trim()))
+    .join("\n")
+    .trim();
+  if (visible) createSystemMessage(visible);
 });
 
 // Core keeps its session map in memory, so a respawned backend has never heard
