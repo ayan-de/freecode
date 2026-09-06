@@ -99,6 +99,15 @@ export interface MatrixCell {
   auditOk?: boolean;
   /** Per-row isolation; absent on legacy rows (which predate containers). */
   isolation?: "none" | "container";
+  /** Loop iterations the proxy counted; absent when the trial was unmetered. */
+  turns?: number;
+  /** Which run this row came from — the receipt behind a stitched file. */
+  runId: string;
+  /**
+   * The raw patch fact, kept separate from `ok` so a graded view can tell
+   * "patched but the grader failed it" from "produced nothing at all".
+   */
+  producedPatch: boolean;
 }
 
 /**
@@ -302,6 +311,9 @@ export function deriveView(raw: RawBenchmark): BenchView {
         usd: (r.turns ?? 0) > 0 ? r.usd : undefined,
         auditOk: r.auditOk,
         isolation: r.isolation,
+        turns: (r.turns ?? 0) > 0 ? r.turns : undefined,
+        runId: r.runId,
+        producedPatch: r.producedPatch,
       })),
   }));
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Check, ChevronDown, Minus } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Minus, X } from "lucide-react";
 import { agentColor, type BenchView } from "../data/agent-bench";
 import { BenchBarList, type BenchBar } from "./BenchBarList";
 import { CostScatter } from "./CostScatter";
@@ -197,6 +197,30 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
               ]),
         ]
       : [];
+
+  /**
+   * A cell's run, as the number the Run history card gives it (#1 oldest).
+   * publish.ts keeps `runs` newest-first, so the number counts from the end.
+   */
+  const runNo = (runId: string) => {
+    const i = view.runs.findIndex((r) => r.runId === runId);
+    return i < 0 ? undefined : view.runs.length - i;
+  };
+
+  /**
+   * What a cell actually means, in words. On a graded view "failed" splits in
+   * two — the grader rejecting a patch is a different fact from no patch.
+   */
+  const cellStatus = (c: { ok: boolean; producedPatch: boolean }) =>
+    view.graded
+      ? c.ok
+        ? "resolved"
+        : c.producedPatch
+          ? "patched, not resolved"
+          : "no patch"
+      : c.ok
+        ? "produced a patch"
+        : "no patch";
 
   /** Every trial an agent ran on the shared set, in matrix order. */
   const stripFor = (agentId: string) =>
@@ -490,8 +514,14 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                     {cells.map((c) => (
                       <span
                         key={`${c.instanceId}-${c.trial}`}
-                        title={`${c.instanceId} · t${c.trial} · ${secs(c.durationMs)} · ${c.reason}${view.isolationMix.mixed && c.isolation ? ` · ${c.isolation}` : ""}`}
-                        className={`h-4 w-4 rounded-[3px] border ${c.ok ? "" : "bg-destructive/10 border-destructive/60"}`}
+                        title={`${c.instanceId} · t${c.trial} · ${cellStatus(c)} · ${secs(c.durationMs)} · ${c.reason}${view.isolationMix.mixed && c.isolation ? ` · ${c.isolation}` : ""}${view.runs.length > 1 ? ` · run #${runNo(c.runId) ?? "?"}` : ""}`}
+                        className={`h-4 w-4 rounded-[3px] border ${
+                          c.ok
+                            ? ""
+                            : view.graded && !c.producedPatch
+                              ? "bg-muted/50 border-border"
+                              : "bg-destructive/10 border-destructive/60"
+                        }`}
                         style={
                           c.ok
                             ? { backgroundColor: agentColor(a.id), borderColor: agentColor(a.id) }
@@ -884,43 +914,75 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
 
         <div className="rounded-md border border-border bg-card p-6 md:p-8">
           <h3 className="text-lg font-medium text-foreground">Per instance</h3>
-          <p className="text-sm text-muted-foreground mt-1 mb-6">
+          <p className="text-sm text-muted-foreground mt-1 mb-3">
             One row per bug, one cell per trial. Disagreement between trials of
             the same agent is the interesting signal — it is what a single-run
             benchmark cannot show you.
             {view.isolationMix.mixed &&
               " Dashed cells ran on an open network, outside the container."}
           </p>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mb-6 font-mono text-[11px] text-muted-foreground/70">
+            <span className="inline-flex items-center gap-1.5">
+              <Check className="h-3 w-3" aria-hidden />
+              {view.graded ? "resolved" : "produced a patch"}
+            </span>
+            {view.graded && (
+              <span className="inline-flex items-center gap-1.5 text-destructive/80">
+                <X className="h-3 w-3" aria-hidden />
+                patched, not resolved
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1.5">
+              <Minus className="h-3 w-3" aria-hidden />
+              no patch
+            </span>
+            {view.runs.length > 1 && (
+              <span className="text-muted-foreground/50">
+                rN — which run (see Run history)
+              </span>
+            )}
+          </div>
           <div className="space-y-3">
             {view.matrix.map((row) => (
               <div
                 key={row.instanceId}
                 className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 py-2.5 border-b border-border last:border-0"
               >
-                <span className="font-mono text-xs md:w-56 shrink-0">
-                  <span className="text-foreground/70">{row.instanceId}</span>
-                  {!view.sharedInstances.includes(row.instanceId) && (
-                    <span
-                      className="ml-2 text-muted-foreground/50"
-                      title="Not every agent ran this one, so it is excluded from the rates above."
-                    >
-                      partial
-                    </span>
-                  )}
+                <span className="md:w-64 shrink-0">
+                  <span className="block text-sm text-foreground/90 leading-snug break-words">
+                    {view.taskSet.titles?.[row.instanceId] ?? row.instanceId}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground/50">
+                    {row.instanceId}
+                    {!view.sharedInstances.includes(row.instanceId) && (
+                      <span
+                        className="ml-2 text-muted-foreground/70"
+                        title="Not every agent ran this one, so it is excluded from the rates above."
+                      >
+                        partial
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <div className="flex flex-wrap gap-2">
                   {row.cells.map((cell) => (
                     <span
                       key={`${cell.agent}-${cell.trial}`}
-                      title={`${cell.reason} · ${cell.patchBytes}B${cell.tokens !== undefined ? ` · ${tok(cell.tokens)} tok` : ""}${typeof cell.usd === "number" ? ` · ${usd(cell.usd)}` : ""}${cell.isolation ? ` · ${cell.isolation}` : ""}${cell.auditOk === false ? " · UNMETERED/LEAK" : ""}`}
+                      title={`${cellStatus(cell)} · ${cell.reason} · ${cell.patchBytes}B${cell.turns !== undefined ? ` · ${cell.turns} turns` : ""}${cell.tokens !== undefined ? ` · ${tok(cell.tokens)} tok` : ""}${typeof cell.usd === "number" ? ` · ${usd(cell.usd)}` : ""}${cell.isolation ? ` · ${cell.isolation}` : ""}${view.runs.length > 1 ? ` · run #${runNo(cell.runId) ?? "?"}` : ""}${cell.auditOk === false ? " · UNMETERED/LEAK" : ""}`}
                       className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] ${
                         cell.ok
                           ? "border-border bg-muted text-foreground/80"
-                          : "border-destructive/40 bg-destructive/5 text-destructive"
+                          : view.graded && cell.producedPatch
+                            ? "border-destructive/40 bg-destructive/5 text-destructive"
+                            : view.graded
+                              ? "border-border bg-transparent text-muted-foreground/70"
+                              : "border-destructive/40 bg-destructive/5 text-destructive"
                       } ${view.isolationMix.mixed && cell.isolation !== "container" ? "border-dashed" : ""}`}
                     >
                       {cell.ok ? (
                         <Check className="h-3 w-3" aria-hidden />
+                      ) : view.graded && cell.producedPatch ? (
+                        <X className="h-3 w-3" aria-hidden />
                       ) : (
                         <Minus className="h-3 w-3" aria-hidden />
                       )}
@@ -929,6 +991,12 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
                       </span>
                       <span className="text-muted-foreground/60">
                         t{cell.trial} · {secs(cell.durationMs)}
+                        {view.runs.length > 1 && runNo(cell.runId) !== undefined && (
+                          <span className="text-muted-foreground/40">
+                            {" "}
+                            · r{runNo(cell.runId)}
+                          </span>
+                        )}
                       </span>
                     </span>
                   ))}
