@@ -48,8 +48,15 @@ class MessageStoreImpl {
 
     this.messages.push(message);
 
-    // Cap memory usage if limit set
-    if (this.maxMessages && this.messages.length > this.maxMessages) {
+    // Cap memory usage if limit set. Trimmed with slack: trimming exactly at
+    // the cap re-copied the whole 2000-element array on every add for the
+    // rest of the session; letting it overshoot by a small batch makes the
+    // copy amortized instead. Consumers window the tail anyway.
+    const TRIM_SLACK = 64;
+    if (
+      this.maxMessages &&
+      this.messages.length > this.maxMessages + TRIM_SLACK
+    ) {
       this.messages = this.messages.slice(-this.maxMessages);
     }
 
