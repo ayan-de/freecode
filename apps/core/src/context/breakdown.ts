@@ -148,7 +148,7 @@ export async function buildContextBreakdown(
   push(
     "todos",
     "Todo list",
-    estimateTokenCount(renderTodoPromptBlock(sessionId)),
+    estimateTokenCount(renderTodoPromptBlock(sessionId, projectPath)),
   );
 
   // --- the dynamic first user message --------------------------------------

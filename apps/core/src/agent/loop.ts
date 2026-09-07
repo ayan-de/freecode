@@ -1523,9 +1523,12 @@ export class AgentLoop {
       // can be checked against it rather than trusted (D12).
       this.lastInjectedMemories = retrievedMemories;
       // Persistent task list: re-rendered from the todo store every turn (not
-      // from history), so the plan survives context compaction and the model
-      // never loses track of remaining work on long tasks.
-      const todoBlock = renderTodoPromptBlock(this.state.sessionId);
+      // from history), so the plan survives context compaction and a process
+      // restart / session.resume. The model never loses remaining work.
+      const todoBlock = renderTodoPromptBlock(
+        this.state.sessionId,
+        this.state.projectPath,
+      );
       // Drain any queued <system-reminder> blocks (todo nudge / completion
       // gate) into this turn's prompt. Transient — never persisted to history.
       const reminderText = this.pendingReminders.join("\n\n");
@@ -2863,7 +2866,7 @@ export class AgentLoop {
       events,
       turnCount: this.state.turnCount,
       goal,
-      todos: getTodos(this.state.sessionId).map((t) => ({
+      todos: getTodos(this.state.sessionId, this.state.projectPath).map((t) => ({
         content: t.content,
         status: t.status,
       })),

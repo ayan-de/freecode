@@ -406,11 +406,6 @@ page's **Known gaps**.
       and the `isToolAllowed` branch (`orchestrator.ts:145`, `:286`) never runs.
       `CLAUDE.md` says profiles are "used for subagents" — they are used nowhere.
       Either pass a profile when spawning a subagent or drop `profiles.ts`.
-- [ ] **The todo list is in-memory only** (`todo.ts:25`). It survives compaction
-      (re-rendered from the store each turn rather than read out of history) but
-      not a restart or `session.resume` — and the loop's todo-completion gate
-      reads the same store, so a resumed session's plan is silently empty and the
-      gate can never fire. Persist it next to the session, like the rollout log.
 - [ ] **`executeTool` in `factory.ts:88` is dead code**, exported and re-exported
       from `tools/index.ts` but called by nothing; it also implements a different
       result contract from the orchestrator's.
