@@ -114,7 +114,10 @@ import { getProvider, allowsAuxiliaryCalls } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import { isTimeoutError } from "../providers/fetch-timeout.js";
-import { recordInvalidation } from "../providers/cache-invalidation.js";
+import {
+  noteStaticPrefix,
+  recordInvalidation,
+} from "../providers/cache-invalidation.js";
 import {
   checkCacheUsage,
   describeCacheProblem,
@@ -1453,6 +1456,14 @@ export class AgentLoop {
       const systemBlocks = await this.compiler.compileSystemBlocks(
         provider,
         model,
+      );
+
+      // These are recompiled from disk every turn, so a mid-session CLAUDE.md
+      // edit rewrites the cached prefix. Document it here or D2 reports the
+      // user's own edit as an unexplained harness bust.
+      noteStaticPrefix(
+        this.state.sessionId,
+        systemBlocks.map((b) => b.text).join("\n"),
       );
 
       // The compaction summary — how the model knows what happened before a

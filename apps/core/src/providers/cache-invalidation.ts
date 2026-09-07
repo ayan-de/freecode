@@ -17,6 +17,8 @@
 // Adapted from jcode's crates/jcode-base/src/cache_invalidation.rs.
 // =============================================================================
 
+import { createHash } from "crypto";
+
 import { logger } from "../utils/logger.js";
 
 export interface DocumentedInvalidation {
@@ -68,7 +70,37 @@ export function findRecentInvalidation(
   return undefined;
 }
 
-/** Drop a finished session's journal. */
+/** Fingerprint of the static system block, per session — see noteStaticPrefix. */
+const staticPrefixes = new Map<string, string>();
+
+/**
+ * Record the static system block for `sessionId`, documenting an invalidation
+ * when it differs from the previous turn's.
+ *
+ * That block is recompiled from disk on every turn (compiler
+ * compileSystemBlocks), so editing CLAUDE.md / AGENTS.md mid-session — or
+ * adding a skill — rewrites the first cache breakpoint and therefore every
+ * byte behind it. The resend is legitimate and unavoidable, but until now it
+ * was also undocumented, so D2 reported the user's own edit as an unexplained
+ * harness bust. One false alarm a user caused themselves is enough to teach
+ * them to ignore the real ones, which is the whole asset this journal protects.
+ */
+export function noteStaticPrefix(sessionId: string, text: string): void {
+  const digest = createHash("sha256").update(text).digest("hex");
+  const previous = staticPrefixes.get(sessionId);
+  staticPrefixes.set(sessionId, digest);
+  // The first turn only establishes the baseline: no cached prefix exists yet,
+  // so there is nothing for the change to have invalidated.
+  if (previous === undefined || previous === digest) return;
+  recordInvalidation(
+    sessionId,
+    "system prompt changed",
+    "the static system block changed mid-session (an edited CLAUDE.md/AGENTS.md, or a skill added or removed)",
+  );
+}
+
+/** Drop a finished session's journal and prefix fingerprint. */
 export function clearInvalidations(sessionId: string): void {
   journal.delete(sessionId);
+  staticPrefixes.delete(sessionId);
 }

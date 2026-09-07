@@ -21,6 +21,7 @@ import { disposeReadState } from "../tools/read-state.js";
 import { disposePruneState } from "../agent/prune-state.js";
 import { disposeCacheAwareness } from "../providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "../context/session-context.js";
+import { clearInvalidations } from "../providers/cache-invalidation.js";
 import { logger } from "../utils/logger.js";
 import { envInt } from "../utils/env.js";
 
@@ -117,6 +118,8 @@ export async function endSession(
     ["pruneState", () => disposePruneState(sessionId)],
     ["cacheAwareness", () => disposeCacheAwareness(sessionId)],
     ["sessionContext", () => disposeFrozenSessionContext(sessionId)],
+    // The documented-invalidation journal and its static-prefix fingerprint.
+    ["cacheInvalidation", () => clearInvalidations(sessionId)],
   ];
   for (const [name, dispose] of disposers) {
     try {
