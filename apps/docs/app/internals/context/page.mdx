@@ -257,6 +257,15 @@ there is what the tools are for.
    `session-context.ts` freezes `gitHead` for the session — a live read would
    rewrite position 0 on every commit and re-bill the whole conversation
    behind it.
+1. ~~The git HEAD never reaches the model.~~ **Fixed** by rendering it:
+   `compileProjectSummary` takes the head it was already being handed and emits
+   a `Git HEAD:` line between `Path` and the file tree, so `CLAUDE.md` and the
+   in-code comments now describe what the model actually gets. The line is
+   dropped when `tree-cache` reports `no-git`, which is a sentinel rather than a
+   value. It is safe in that cache-sensitive slot only because
+   `session-context.ts` freezes `gitHead` for the session — a live read would
+   rewrite position 0 on every commit and re-bill the whole conversation
+   behind it.
 2. ~~The compiler's `fileTreeCache` is keyed on something the value doesn't
    depend on.~~ **Fixed** by deleting the cache: `compileProjectSummary` was
    only ever formatting a four-line string, so caching it bought nothing and
@@ -289,10 +298,13 @@ there is what the tools are for.
    `CLAUDE.md` in particular also covers an edited `AGENTS.md`, a skill
    appearing or disappearing, and whatever joins that block later. The MCP
    tool-set gap is a separate site and is still open.
-6. **The 40,000-character instruction cap truncates mid-file, after joining.**
-   Global instructions render first, so a large global `CLAUDE.md` can silently
-   push the project's own file out of the prompt. The truncation marker says the
-   character count but not *which* file was cut.
+6. ~~The 40,000-character instruction cap truncates mid-file, after joining.~~
+   **Fixed** (2026-09-08). `compileInstructionsSection` allocates the budget
+   most specific first, so a fat global `CLAUDE.md` can no longer push the
+   project's own file out. Every casualty is named: a cut file carries
+   `[Truncated: <path> did not fit …]`, one squeezed out entirely is still
+   listed with `[Omitted: …]` rather than vanishing, and both paths `logger.warn`.
+   Prompt order stays global-then-project regardless of allocation order.
 7. **Instruction resolution is root-only.** No walk-up for monorepos, no
    `@imports`, no glob-scoped rules — so a package inside a monorepo cannot ship
    instructions that apply only to it. Deferred deliberately; tracked in
