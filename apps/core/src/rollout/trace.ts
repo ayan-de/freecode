@@ -139,6 +139,17 @@ export interface Trace {
    */
   redirects: number;
   redirectsSkipped: number;
+  /**
+   * Compactions that fired during the run, and the tokens they removed.
+   *
+   * Folded here so the eval harness can ASSERT a compaction rather than hope
+   * for one: `compaction-boundary` was the one failure category with real code
+   * and no case, because reaching the path was an accident and an accident
+   * cannot carry an expectation.
+   */
+  compactions: number;
+  /** Sum of `beforeTokens - afterTokens` across those compactions. */
+  compactedTokens: number;
 }
 
 /**
@@ -158,6 +169,8 @@ export function buildTrace(
   const open: ModelSpan[] = [];
   let redirects = 0;
   let redirectsSkipped = 0;
+  let compactions = 0;
+  let compactedTokens = 0;
   // Two indexes over the same pending calls. `byId` is exact; `byTool` is the
   // fallback for logs written before `callId` existed, and pops OLDEST-FIRST so
   // two concurrent calls to the same tool still yield ascending call order.
@@ -269,6 +282,12 @@ export function buildTrace(
       case "redirect.skipped":
         redirectsSkipped++;
         break;
+      case "compact.occurred":
+        compactions++;
+        // A compaction that grew the transcript is not a thing, but clamp
+        // anyway: a negative would quietly cancel out a real saving.
+        compactedTokens += Math.max(0, event.beforeTokens - event.afterTokens);
+        break;
     }
   }
 
@@ -307,6 +326,8 @@ export function buildTrace(
     inFlight: open.some((s) => s.status === "in_flight"),
     redirects,
     redirectsSkipped,
+    compactions,
+    compactedTokens,
   };
 }
 
