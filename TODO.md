@@ -92,6 +92,46 @@ behind a setting (`shells.notifyOnExit`, plus the usual
 `FREECODE_DISABLE_*` escape hatch), and decide explicitly whether a completion
 may interrupt a turn already in progress or must wait for it.
 
+### Subagent permission profiles still never attach (added 2026-09-08)
+
+**Status:** partly mitigated, the real fix is item 3 above.
+
+`createToolOrchestrator()` is called with `{}` at all three production sites
+(`effect/layers.ts:63`, `:179`, `agent/loop.ts:429`). `OrchestratorOptions.permissionProfile`
+is real and checked (`tools/orchestrator.ts:150`, `:329`), but nothing outside
+`permission/` ever constructs a profile, so `PROFILES`, `PermissionChecker`,
+`TOOL_PERMISSIONS`, `getProfile`, `createProfile` and `validateProfile` are all
+dead — plus there is a duplicate `PermissionProfile` interface in
+`tools/types.ts:39`.
+
+Subagents are **not** unsandboxed, which is the part that is easy to overstate:
+`executeSubagent` maps `defaultReadOnly` to `agentMode: "explore"`
+(`agent/subagent.ts`), and explore hard-denies mutating tools
+(`modeEnforcement`), filters them out of the tool list entirely
+(`tools/defs-cache.ts:59-71`), and never prompts (`modeAllowsAsk`). So
+explorer/reviewer/summarizer/verifier are genuinely confined.
+
+The real gap is that **mode is binary**. There is nothing between explore and
+build, so a subagent that is allowed to write at all runs with the exact
+authority of its parent: no path scoping, no network restriction, no allowlist.
+Two guard rails now stand in for the missing sandbox — `MAX_AGENT_DEPTH`
+(`agent/registry/`) bounds the spawn tree, and `agent(readOnly)` defaults true
+so the common case (analysis, search, review) is confined to `explore` and
+cannot mutate anything. Neither is a substitute for per-agent capabilities: a
+`readOnly: false` subagent under a `danger` parent has the whole toolbox and
+nothing scopes it to the files it was asked about.
+
+Wiring `permissionProfile` in **as it stands would break subagents
+immediately**: the profile axes (`fileRead`/`fileWrite`/`network`/`shell`/
+`subprocess`) are a second, coarser permission model bolted beside
+`permission/rules.ts` + `mode-policy.ts`, and `isToolAllowed` fails closed on
+any tool missing from the hand-maintained `TOOL_PERMISSIONS` map — which today
+lacks `ls`, `grep`, `glob`, `webfetch`, `todowrite`, `lsp`, `bashoutput`,
+`killbash`, and every MCP tool. So before item 3 binds user-defined agents to
+profiles, either complete that map or replace it with a per-subagent tool
+allowlist that rides the existing rules evaluation rather than sitting beside
+it.
+
 ### Settled background shells are retained until dismissed (added 2026-09-08)
 
 **Status:** known, bounded, low priority.
