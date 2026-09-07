@@ -141,10 +141,25 @@ const bytes = (s: string): number => Buffer.byteLength(s, "utf-8");
 export function renderRetrievedMemories(entries: MemoryEntry[]): string {
   if (entries.length === 0) return "";
 
-  const header = [
+  // Measurement escape hatch (same pattern as FREECODE_EPHEMERAL_TAIL):
+  // `FREECODE_MEMORY_PROMPT=legacy` reverts to the pre-2026-09-07 header so
+  // `eval ab` can price the two wordings side by side. Re-read every call —
+  // the ab runner flips it per side after boot.
+  const header =
+    process.env.FREECODE_MEMORY_PROMPT === "legacy"
+      ? [
+          "# Relevant memories",
+          "",
+          "Memories surfaced as relevant to the current request (verify before relying on them):",
+        ]
+      : [
     "# Relevant memories",
     "",
-    "Memories surfaced as relevant to the current request (verify before relying on them):",
+    "Background recall, surfaced automatically. It may be stale — verify against",
+    "the code before relying on it, and when the code disagrees, the code wins.",
+    "Do NOT narrate, restate, or re-acknowledge these in your visible replies:",
+    "this block repeats on every request, so reacting to it each time floods the",
+    "transcript. Act on it silently; mention a memory only if the user asks.",
   ];
 
   // Citation footer (spec D12). Goes on this block, never on the cached

@@ -14,6 +14,16 @@ export interface ToolResultMessageOptions {
   duration_ms?: number;
 }
 
+// Tools whose result is a file diff. Their header reads "Update" and they
+// stand alone in the transcript (never folded into a tool group) so the diff
+// view is visible without a click — see createToolResultMessage.
+export const FILE_UPDATE_TOOLS = new Set([
+  "write",
+  "edit",
+  "replace_file_content",
+  "multi_replace_file_content",
+]);
+
 // Color mapping for different tools
 const TOOL_COLORS: Record<string, (text: string) => string> = {
   Read: (t) => chalk.blueBright(t),
@@ -129,7 +139,7 @@ export class ToolResultMessage implements Component {
     let headerTarget = `(${argsStr})`;
     
     const toolNameLower = this.toolName.toLowerCase();
-    const isFileUpdate = ["write", "edit", "replace_file_content", "multi_replace_file_content"].includes(toolNameLower);
+    const isFileUpdate = FILE_UPDATE_TOOLS.has(toolNameLower);
     // Only actual file reads suppress their body — the content is already on
     // disk. skill/webfetch used to be in this list, which hid their output
     // with no caret to reveal it.

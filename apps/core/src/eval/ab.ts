@@ -54,6 +54,8 @@ export const VARIABLE_ENV_KEYS = [
   "FREECODE_BASH_COMPRESS",
   "FREECODE_READ_LINE_NUMBERS",
   "FREECODE_EPHEMERAL_TAIL",
+  // Read per-call in renderRetrievedMemories (mem-prompt.ts).
+  "FREECODE_MEMORY_PROMPT",
 ] as const;
 
 /**

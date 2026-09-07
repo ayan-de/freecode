@@ -17,7 +17,7 @@ import {
 } from "./message-row.js";
 import type { MessageType, MessageInstance } from "./message-types.js";
 import { ToolProgressMessage } from "./tool-progress-message.js";
-import { ToolResultMessage } from "./tool-result-message.js";
+import { ToolResultMessage, FILE_UPDATE_TOOLS } from "./tool-result-message.js";
 import { ToolGroupMessage } from "./tool-group-message.js";
 
 /**
@@ -279,6 +279,14 @@ export function createToolResultMessage(
   duration_ms?: number,
 ): MessageInstance {
   const options = { toolCallId, toolName, args, result, success, duration_ms };
+
+  // File updates carry the diff view — the one tool body worth showing
+  // unprompted. They stand alone instead of folding into a collapsed group,
+  // and they seal the current run so the next call starts a fresh group.
+  if (FILE_UPDATE_TOOLS.has(toolName.toLowerCase())) {
+    sealToolGroups();
+    return addMessage("tool", toolName, new ToolResultMessage(options));
+  }
 
   const open = findOpenToolGroup();
   if (open) {

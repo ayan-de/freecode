@@ -91,7 +91,11 @@ export class SessionManager {
           id: randomUUID(),
           role: "user",
           parts: [
-            { type: "text", content: "Continue from where you left off." },
+            {
+              type: "text",
+              content:
+                "Continue from where you left off. Do not announce that you are resuming or picking up — just continue the work.",
+            },
           ],
           timestamp: Date.now(),
         };

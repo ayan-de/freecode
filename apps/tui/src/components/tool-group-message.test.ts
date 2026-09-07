@@ -23,21 +23,20 @@ test("consecutive tool results share one message and summarize by tool", () => {
 
   addResult("Read", { file_path: "a.ts" });
   addResult("Read", { file_path: "b.ts" });
-  addResult("Edit", { file_path: "c.ts" });
   addResult("Bash", { command: "ls" });
 
   const messages = getMessages();
   assert.equal(messages.length, 1);
   const group = messages[0]!.component as ToolGroupMessage;
   assert.ok(group instanceof ToolGroupMessage);
-  assert.equal(group.size, 4);
+  assert.equal(group.size, 3);
 
   // Collapsed from the start: the summary is the whole message, live or not.
   assert.doesNotMatch(plain(group.render(80)), /a\.ts/);
 
   sealToolGroups();
   const collapsed = group.render(80);
-  assert.match(plain(collapsed), /Read 2 files, Updated 1 file, Ran 1 command/);
+  assert.match(plain(collapsed), /Read 2 files, Ran 1 command/);
   assert.doesNotMatch(plain(collapsed), /a\.ts/);
   assert.match(plain(collapsed), /▶ /);
 });
@@ -143,4 +142,19 @@ test("expanding a child inside the group adds no blank framing rows", () => {
   const blanks = lines.filter((l) => l === "").length;
   assert.equal(blanks, 1);
   assert.match(plain(lines), /one/);
+});
+
+test("file updates stand alone outside groups and split the run", () => {
+  clearMessages();
+  addResult("Read", { file_path: "a.ts" });
+  addResult("Edit", { file_path: "c.ts" });
+  addResult("Bash", { command: "ls" });
+
+  const messages = getMessages();
+  assert.equal(messages.length, 3);
+  assert.ok(messages[0]!.component instanceof ToolGroupMessage);
+  assert.ok(!(messages[1]!.component instanceof ToolGroupMessage));
+  // The edit sealed the first group, so bash starts a fresh one.
+  assert.ok(messages[2]!.component instanceof ToolGroupMessage);
+  assert.notEqual(messages[0]!.component, messages[2]!.component);
 });
