@@ -132,6 +132,40 @@ profiles, either complete that map or replace it with a per-subagent tool
 allowlist that rides the existing rules evaluation rather than sitting beside
 it.
 
+### The compaction eval case is a 20KB JSONL line (added 2026-09-08)
+
+**Status:** known, cosmetic, needs a paid run to fix.
+
+`compaction-survives-multi-file-edit` is 20,339 characters on one line; every
+other case in `evals/coding.jsonl` is 743-921. The spec chose JSONL because it
+is "diffable, appendable, one case per line", and a 20KB line is not diffable —
+any future edit to that case renders as one unreadable changed line.
+
+The six padded fixture modules are what make it big, and they may now be larger
+than they need to be: the padding was sized to grow the transcript, before the
+calibration runs showed that growth is not what gates compaction (user-turn
+count is). They still have to clear the 16,000-token threshold — the base
+request measured ~12.5k WITH the padding — so shrinking them means either a
+smaller threshold or fewer modules, and either way one more calibration run
+(~$0.025) to confirm it still compacts 3/3. Not worth doing on its own; worth
+folding into the next change that touches the case.
+
+### `/agents (N)` counts running agents, which is almost always 1 (added 2026-09-08)
+
+**Status:** open design question, not a bug.
+
+`AgentTool` declares `isConcurrencySafe: false`, so `planToolBatches` puts every
+`agent` call in its own batch and subagents run strictly one at a time. The
+ModeLine chip counts RUNNING agents, so it reads `(1)` whenever anything is
+delegated and nothing otherwise — the roster accumulates rows, the chip does
+not. Three options, none obviously right:
+
+- leave it (honest about what is running, matches the `/shells` chip);
+- count agents spawned this session, so the chip matches the roster's length;
+- make `agent` concurrency-safe so they genuinely run in parallel. That is the
+  Claude Code behaviour, but the tool is marked `isDestructive` deliberately,
+  and parallel subagents mutating one tree is what that flag guards against.
+
 ### Settled background shells are retained until dismissed (added 2026-09-08)
 
 **Status:** known, bounded, low priority.
