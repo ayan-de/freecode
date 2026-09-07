@@ -6,6 +6,9 @@ import { getModelDisplayString } from "../utils/display.js";
 
 type AgentMode = "plan" | "build" | "review" | "explore" | "danger";
 
+/** Same yellow the /shells card uses for its border, so the two read as one. */
+const SHELLS_CHIP_BG = "#FFD700";
+
 /**
  * ModeLine — the mode/model line rendered just below the input.
  *
@@ -25,6 +28,12 @@ export class ModeLine implements Component {
     private getProvider: () => string,
     private getModel: () => string,
     private getEffort: () => EffortLevel,
+    /**
+     * Background shells still running. Rendered as a chip left of Effort so a
+     * dev server the agent started stays visible without opening /shells —
+     * otherwise a forgotten process is invisible until it holds a port.
+     */
+    private getRunningShells: () => number = () => 0,
   ) {}
 
   render(width: number): string[] {
@@ -42,11 +51,28 @@ export class ModeLine implements Component {
     const effortText = `${chalk.bold.whiteBright("Effort:")} ${chalk.dim(
       this.getEffort(),
     )} `;
-    const gap = Math.max(
-      1,
-      width - visibleWidth(left) - visibleWidth(effortText),
-    );
-    return [`${left}${" ".repeat(gap)}${effortText}`];
+
+    // Only when something is actually running: a permanently-present chip
+    // reading (0) is chrome, not information.
+    const running = this.getRunningShells();
+    const chipLabel = ` /shells (${running}) `;
+    // Mode and model are the line's job; the chip is an extra. On a terminal
+    // too narrow for both it drops out rather than pushing the line past
+    // `width` and wrapping — the count is still one keystroke away in /shells.
+    const roomForChip =
+      width -
+      visibleWidth(left) -
+      visibleWidth(effortText) -
+      chipLabel.length -
+      2;
+    const shellsText =
+      running > 0 && roomForChip >= 1
+        ? chalk.bgHex(SHELLS_CHIP_BG)(chalk.bold.black(chipLabel)) + "  "
+        : "";
+
+    const right = `${shellsText}${effortText}`;
+    const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
+    return [`${left}${" ".repeat(gap)}${right}`];
   }
 
   invalidate(): void {}
