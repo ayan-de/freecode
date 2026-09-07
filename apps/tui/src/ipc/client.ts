@@ -23,6 +23,8 @@ import type {
   CommandInfo,
   StreamEvent,
   EffortLevel,
+  ShellSummary,
+  ShellOutputResult,
 } from "@thisisayande/freecode-shared";
 
 // =============================================================================
@@ -272,9 +274,7 @@ export function startCli(onStderr?: (msg: string) => void): void {
   });
 
   cliProcess.on("exit", (code) => {
-    stderrHandler?.(
-      `[freecode] core process exited (code ${code ?? "null"})`,
-    );
+    stderrHandler?.(`[freecode] core process exited (code ${code ?? "null"})`);
     rejectAllPending(`CLI process exited (code ${code ?? "null"})`);
     cliProcess = null;
     activeStreamId = null;
@@ -788,7 +788,10 @@ export async function sessionResume(
   sessionId: string,
   agentMode?: string,
 ): Promise<SessionResumeResult> {
-  return (await sendRequest("session.resume", { sessionId, agentMode })) as SessionResumeResult;
+  return (await sendRequest("session.resume", {
+    sessionId,
+    agentMode,
+  })) as SessionResumeResult;
 }
 
 // =============================================================================
@@ -796,9 +799,10 @@ export async function sessionResume(
 // docs/superpowers/specs/2026-08-02-resume-modal-claude-code-tab.md)
 // =============================================================================
 
-export async function sessionClaudeList(
-  filter?: { projectPath?: string; limit?: number },
-): Promise<ClaudeSessionMeta[]> {
+export async function sessionClaudeList(filter?: {
+  projectPath?: string;
+  limit?: number;
+}): Promise<ClaudeSessionMeta[]> {
   return (await sendRequest(
     "session.claudeList",
     filter as Record<string, unknown>,
@@ -835,4 +839,53 @@ export async function mcpStatus(name?: string): Promise<McpServerStatus[]> {
     "mcp.status",
     name ? { name } : {},
   )) as McpServerStatus[];
+}
+
+// =============================================================================
+// Background shells (the /shells panel)
+// =============================================================================
+
+/** Every background shell this session started, running or settled. */
+export async function shellsList(sessionId: string): Promise<ShellSummary[]> {
+  return (await sendRequest("shells.list", { sessionId })) as ShellSummary[];
+}
+
+/**
+ * Positional read: pass back the previous result's `nextCursor` to get only
+ * what is new. Deliberately does not disturb the model's own bashoutput
+ * cursor — watching a shell in the panel must not consume output the agent
+ * has not read yet.
+ */
+export async function shellsOutput(
+  sessionId: string,
+  shellId: string,
+  cursor: number,
+): Promise<ShellOutputResult> {
+  return (await sendRequest("shells.output", {
+    sessionId,
+    shellId,
+    cursor,
+  })) as ShellOutputResult;
+}
+
+export async function shellsKill(
+  sessionId: string,
+  shellId: string,
+): Promise<boolean> {
+  const result = (await sendRequest("shells.kill", { sessionId, shellId })) as {
+    killed: boolean;
+  };
+  return result.killed;
+}
+
+/** Forget a settled shell. Refused by core while it is still running. */
+export async function shellsRemove(
+  sessionId: string,
+  shellId: string,
+): Promise<boolean> {
+  const result = (await sendRequest("shells.remove", {
+    sessionId,
+    shellId,
+  })) as { removed: boolean };
+  return result.removed;
 }
