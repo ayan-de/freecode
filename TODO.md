@@ -198,16 +198,15 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Dangling wikilinks are invisible** — skipped correctly (`builder.ts:78`),
       but a typo'd `[[link]]` never surfaces anywhere. The explorer should list
       unresolved links.
-- [ ] **Compaction summaries never see tool activity** — `MemoryService` records
-      only user prompts and assistant text; a tool-calling turn is stored as the
-      stub `[Executed N tools]` (`loop.ts:1567`). The transcript handed to the
-      summarizer contains none of the edits, commands, or errors that were the
-      actual work. **Biggest quality gap in compaction.**
-- [ ] **Two heuristic-summarizer paths are consequently dead** —
-      `extractToolCalls()` scans for `Tool <name>:` (`summarizer.ts:106`) and
-      `normalizeContent()` truncates content starting with `"Tool "`
-      (`service.ts:63`); no message ever has that shape, so the **Decisions**
-      section is always `(none)` and `maxToolOutputChars` never applies.
+- [ ] **`compact.occurred` under-reports what compaction did** — it records
+      `MemoryService`'s ESTIMATED transcript sizes, while the real trim is
+      `keepLastNUserTurns` over the session store. Measured on the new
+      `compaction-boundary` eval case: the event says 872 → 748 tokens for a
+      request that measured 16K. So `freecode trace` and the harness's
+      `Trace.compactedTokens` understate compaction by an order of magnitude.
+      `ApplyCompactionResult` already carries `messagesBefore`/`messagesAfter`
+      and neither is recorded — record those, and the measured count alongside
+      the estimate.
 - [ ] **Dead export: `renderPromptMemoryContext()`** (`selector.ts:64`) —
       referenced only by `loop.ts` comments explaining why it must not be used.
 - [ ] **`getContextLimit(model)` ignores its argument** (`tokens.ts:20`) and
@@ -294,13 +293,17 @@ earlier audit are not repeated here.
 
 ### Real fixes
 
-- [ ] **No eval case can reach the compaction path** — so the head carve-out and
-      the tool transcript (both landed 2026-09-05) are unmeasurable end to end,
-      and a green `eval:gate` is silent about them rather than evidence for them.
-      Already tracked where it belongs: `compaction-boundary` sits in
-      `CATEGORIES_WITHOUT_CASES` (`eval/dataset.test.ts`) and in §9.1 of
-      `specs/2026-08-29-eval-case-registry.md`, which is the spec to change
-      first. Not repeated here — see that row for the mechanism.
+- [x] **No eval case can reach the compaction path** — done 2026-09-08.
+      `evals/coding.jsonl` now carries `compaction-survives-multi-file-edit`;
+      `compaction-boundary` is out of `CATEGORIES_WITHOUT_CASES`. It needed two
+      harness capabilities, not one: a per-case `env` (allowlisted to the
+      compaction thresholds) AND `followUps`, extra user turns on the same
+      session. Spec §9.1 assumed the threshold knob alone was enough, which is
+      **wrong** — `selectForCompaction` returns nothing to compact while
+      `countUserTurns <= preserveRecentTurns` (2), and only a prompt creates a
+      user turn (tool turns are recorded as `assistant`), so a single-`runEffect`
+      case cannot compact at ANY token count. Measured: 3/3 trials, exactly one
+      compaction each. `followUps` is also the substrate `resume` needs.
 - [ ] **`settings.json` has three loaders and three different merge rules.**
       `permissions` concatenates both scopes, `hooks` override by `event + name`,
       `memory` takes the first definition (project → user → default). Nothing states
