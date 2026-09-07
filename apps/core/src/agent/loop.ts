@@ -1279,6 +1279,10 @@ export class AgentLoop {
         outcome.tokensBefore,
         outcome.tokensAfter,
       );
+    } else if (outcome.reason === "nothing to compact") {
+      // Routine: the threshold check is a prediction and often fires with
+      // nothing to do. WARN reaches the TUI transcript; this is not a warning.
+      logger.debug("[AgentLoop] Compaction skipped: nothing to compact");
     } else {
       logger.warn(
         `[AgentLoop] Compaction skipped: ${outcome.reason ?? "unknown reason"}`,
@@ -2571,7 +2575,6 @@ export class AgentLoop {
       toolCall.id,
     );
 
-    console.log(`[AgentLoop] Executing tool: ${toolCall.tool}`);
     const context = {
       cwd: process.cwd(),
       projectPath: this.state.projectPath,

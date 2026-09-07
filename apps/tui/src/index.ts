@@ -1220,15 +1220,9 @@ function handleToolEvent(event: StreamEvent) {
         // Louder than "cold": a cold cache is the clock running out, this is
         // the harness having broken its own prefix (spec 2026-08-09 D2).
         showMessage(`⚠ **${event.message}**`);
-      } else if (event.state === "warm" && (event.cacheReadTokens ?? 0) > 0) {
-        showMessage(
-          `*Prompt cache hit: ${event.cacheReadTokens!.toLocaleString()} tokens read${
-            event.cacheWriteTokens
-              ? `, ${event.cacheWriteTokens.toLocaleString()} written`
-              : ""
-          }*`,
-        );
       }
+      // Warm hits are the expected state — one line per model call said
+      // nothing actionable. The header's token counters already carry usage.
       break;
     }
     // Provider-reported run totals, once per completed internal turn (D7).
