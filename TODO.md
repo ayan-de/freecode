@@ -353,9 +353,19 @@ earlier audit are not repeated here.
       `FREECODE_TOOL_RESULT_BUDGET_CHARS` (`loop.ts:152`) and the five
       `FREECODE_OUTPUT_*` values (`tools/output-store/config.ts`) are module-load
       consts, while the compaction and cache vars are deliberately read per call.
-- [ ] **`FREECODE_TOOL_RESULT_BUDGET_CHARS=""` silently means 0** — `Number("")` is
-      finite, so an empty export sets the budget to zero instead of falling back to
-      the default like every other numeric variable.
+- [x] **`FREECODE_TOOL_RESULT_BUDGET_CHARS=""` silently means 0** — fixed
+      2026-09-08, and it was not one variable. The same shape appeared at four
+      sites: an empty `FREECODE_EVAL_TRIAL_TIMEOUT_MS` or
+      `FREECODE_EVAL_VERIFY_TIMEOUT_MS` clamped to `Math.max(1_000, 0)` — a
+      one-second budget that fails every trial for infrastructure reasons and
+      reads as an agent failure — and an empty `FREECODE_EXIT_FLUSH_BUDGET_MS`
+      meant "never wait for the final memory flush". All four now go through
+      `utils/env.ts` `envInt`, which treats empty/whitespace as unset, accepts
+      decimal integers only (`Number("0x10")` is 16), falls back rather than
+      clamping an out-of-range value, and warns on anything unparseable so a typo
+      is not indistinguishable from the feature being broken. The two sites in
+      `models-dev.ts` and `tools/output-store/config.ts` were already safe — they
+      require `> 0`, which rejects the empty-string zero — and were left alone.
 - [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
       `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
 - [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
@@ -660,11 +670,14 @@ that page's **Known gaps**.
       detector reports an unexplained bust. Same shape as the MCP tool-set gap in
       the provider-layer audit; both want a `recordInvalidation` at the site that
       changes the prefix.
-- [ ] **The 40,000-char instruction cap truncates mid-file, after joining, with
-      global first** (`instructions.ts:46`). A large global `CLAUDE.md` can push
-      the project's own instructions out of the prompt entirely, and the marker
-      names the character count but not which file was cut. Cap per file, or at
-      least name the casualty.
+- [x] **The 40,000-char instruction cap truncates mid-file, after joining, with
+      global first** — fixed 2026-09-08. `compileInstructionsSection` now
+      allocates the budget MOST SPECIFIC FIRST, so a fat `~/.freecode/CLAUDE.md`
+      can no longer push the repo's own instructions out. Every casualty is
+      named: a cut file carries `[Truncated: <path> did not fit …]`, one squeezed
+      out entirely is still listed with `[Omitted: …]` rather than vanishing, and
+      both paths `logger.warn`. Prompt order stays global-then-project regardless
+      of allocation order.
 - [ ] **`invalidateSymbolCache` has no callers** (`repo-map/index.ts:196`). The
       whole-project symbol cache relies on git HEAD + a 5-minute TTL, so
       uncommitted edits inside that window return stale `workspaceSymbol` results.
