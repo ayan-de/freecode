@@ -15,6 +15,7 @@
 import { disposeSessionMemory } from "../memory/index.js";
 import { resetExtractPolicy } from "../memory/extract-policy.js";
 import { disposeOutputStore } from "../tools/output-store/index.js";
+import { disposeShellRegistry } from "../tools/shells/index.js";
 import { disposeReadState } from "../tools/read-state.js";
 import { disposePruneState } from "../agent/prune-state.js";
 import { disposeCacheAwareness } from "../providers/cache-awareness.js";
@@ -102,6 +103,9 @@ export async function endSession(
     ["memory", () => disposeSessionMemory(sessionId)],
     ["extractPolicy", () => resetExtractPolicy(sessionId)],
     ["outputStore", () => disposeOutputStore(sessionId)],
+    // Kills any background shell the session started. Nothing a session
+    // spawned may outlive it — a dev server left running would hold its port.
+    ["shells", () => disposeShellRegistry(sessionId)],
     ["readState", () => disposeReadState(sessionId)],
     ["pruneState", () => disposePruneState(sessionId)],
     ["cacheAwareness", () => disposeCacheAwareness(sessionId)],

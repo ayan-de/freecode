@@ -4,6 +4,8 @@ import { GlobTool } from "./glob.js";
 import { GrepTool } from "./grep.js";
 import { EditTool } from "./edit.js";
 import { BashTool } from "./bash.js";
+import { BashOutputTool } from "./bashoutput.js";
+import { KillBashTool } from "./killbash.js";
 import { SkillTool } from "./skill.js";
 import { AgentTool } from "./agent.js";
 import { QuestionTool } from "./question.js";
@@ -67,6 +69,8 @@ export const tools = {
   grep: GrepTool,
   edit: EditTool,
   bash: BashTool,
+  bashoutput: BashOutputTool,
+  killbash: KillBashTool,
   skill: SkillTool,
   agent: AgentTool,
   question: QuestionTool,
