@@ -89,7 +89,12 @@ export type StreamEvent =
       toolName: string;
       args: Record<string, unknown>;
     }
-  | { type: "tool_output"; sessionId?: string; toolCallId: string; content: string }
+  | {
+      type: "tool_output";
+      sessionId?: string;
+      toolCallId: string;
+      content: string;
+    }
   | {
       type: "tool_complete";
       sessionId?: string;
@@ -156,7 +161,12 @@ export type StreamEvent =
     }
   // Turn-level advisory the user needs to see (e.g. an attachment dropped
   // because the model can't accept it). Does not fail the turn.
-  | { type: "notice"; sessionId?: string; level: "info" | "warn"; content: string }
+  | {
+      type: "notice";
+      sessionId?: string;
+      level: "info" | "warn";
+      content: string;
+    }
   // Running spend for the current run() — emitted once per completed turn so
   // the frontend can render a live per-session counter (spec
   // 2026-08-05-token-efficiency, D7). Core computes; frontends only display.
@@ -180,6 +190,25 @@ export type StreamEvent =
       tokensBefore: number;
       tokensAfter: number;
       reason?: string; // why it didn't compact, when compacted=false
+    }
+  // Background shells (`bash(run_in_background: true)`). The registry lives in
+  // core (`tools/shells/`); these events let the TUI's shells panel render a
+  // live tail without polling. `shell_output` is a raw chunk, not a tail — the
+  // frontend accumulates and decides how much to show.
+  | {
+      type: "shell_start";
+      sessionId?: string;
+      shellId: string;
+      command: string;
+      cwd: string;
+    }
+  | { type: "shell_output"; sessionId?: string; shellId: string; chunk: string }
+  | {
+      type: "shell_exit";
+      sessionId?: string;
+      shellId: string;
+      status: "completed" | "failed" | "killed";
+      exitCode: number | null;
     }
   | {
       type: "question_asked";
@@ -341,6 +370,27 @@ export const METHODS = {
   "usage.get": {
     params: undefined,
     result: [] as { date: string; tokencount: number }[],
+  },
+  // Background shells. `shells.output` is a POSITIONAL read (cursor in, cursor
+  // out) and deliberately does not touch the model's `bashoutput` cursor —
+  // opening the panel must not consume output the model has not seen.
+  "shells.list": {
+    params: { sessionId: "" as string },
+    result: [] as import("../types.js").ShellSummary[],
+  },
+  "shells.output": {
+    params: {} as { sessionId: string; shellId: string; cursor?: number },
+    result: {} as import("../types.js").ShellOutputResult,
+  },
+  "shells.kill": {
+    params: { sessionId: "" as string, shellId: "" as string },
+    result: { killed: false as boolean },
+  },
+  // Drop a SETTLED shell from the roster so a long session's panel does not
+  // fill with finished commands. Refused while it is still running.
+  "shells.remove": {
+    params: { sessionId: "" as string, shellId: "" as string },
+    result: { removed: false as boolean },
   },
   "skills.list": {
     params: { projectPath: undefined as string | undefined },
@@ -591,6 +641,10 @@ export const REQUIRED_PARAMS: Record<
   "permission.reject": { requestId: "string" },
   "context.stats": { sessionId: "string" },
   "usage.get": {},
+  "shells.list": { sessionId: "string" },
+  "shells.output": { sessionId: "string", shellId: "string" },
+  "shells.kill": { sessionId: "string", shellId: "string" },
+  "shells.remove": { sessionId: "string", shellId: "string" },
   "skills.list": {},
   "mcp.status": {},
   "history.list": {},

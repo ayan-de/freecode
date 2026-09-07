@@ -41,6 +41,9 @@ export type {
   RedactedConfig,
   TurnResult,
   ExportedSession,
+  ShellStatus,
+  ShellSummary,
+  ShellOutputResult,
 } from "./types.js";
 
 // IPC Protocol
