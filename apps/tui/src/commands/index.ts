@@ -49,6 +49,12 @@ export interface CommandContext extends MessageCreators {
    * only it holds the session id the registry is keyed by.
    */
   showShellsPanel?(): Promise<void>;
+  /**
+   * The main agent and every subagent it spawned, with a live view of the
+   * selected one (the /agents command). Lives in the shell for the same reason
+   * as the shells panel: only it holds the root session id.
+   */
+  showAgentsPanel?(): Promise<void>;
   /** Trigger manual compaction of the current session (the /compact command). */
   compactSession?(): Promise<void>;
   /**

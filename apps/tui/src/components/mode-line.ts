@@ -8,6 +8,8 @@ type AgentMode = "plan" | "build" | "review" | "explore" | "danger";
 
 /** Same yellow the /shells card uses for its border, so the two read as one. */
 const SHELLS_CHIP_BG = "#FFD700";
+/** Same cyan the /agents card uses, for the same reason. */
+const AGENTS_CHIP_BG = "#5FD7FF";
 
 /**
  * ModeLine — the mode/model line rendered just below the input.
@@ -34,6 +36,12 @@ export class ModeLine implements Component {
      * otherwise a forgotten process is invisible until it holds a port.
      */
     private getRunningShells: () => number = () => 0,
+    /**
+     * Subagents still running. Rendered as a second chip left of the shells
+     * one: delegated work is otherwise invisible until its tool result lands,
+     * so a long-running agent looks like a hung turn.
+     */
+    private getRunningAgents: () => number = () => 0,
   ) {}
 
   render(width: number): string[] {
@@ -54,23 +62,32 @@ export class ModeLine implements Component {
 
     // Only when something is actually running: a permanently-present chip
     // reading (0) is chrome, not information.
-    const running = this.getRunningShells();
-    const chipLabel = ` /shells (${running}) `;
-    // Mode and model are the line's job; the chip is an extra. On a terminal
-    // too narrow for both it drops out rather than pushing the line past
-    // `width` and wrapping — the count is still one keystroke away in /shells.
-    const roomForChip =
-      width -
-      visibleWidth(left) -
-      visibleWidth(effortText) -
-      chipLabel.length -
-      2;
-    const shellsText =
-      running > 0 && roomForChip >= 1
-        ? chalk.bgHex(SHELLS_CHIP_BG)(chalk.bold.black(chipLabel)) + "  "
-        : "";
+    //
+    // Mode and model are the line's job; the chips are an extra. On a terminal
+    // too narrow they drop out rather than pushing the line past `width` and
+    // wrapping — the counts are still one keystroke away in /shells and
+    // /agents. Budget is spent right-to-left, so the shells chip (nearer the
+    // Effort block) survives a squeeze that drops the agents one.
+    let budget = width - visibleWidth(left) - visibleWidth(effortText) - 2;
 
-    const right = `${shellsText}${effortText}`;
+    const chip = (label: string, bg: string, count: number): string => {
+      if (count <= 0 || budget < label.length + 2) return "";
+      budget -= label.length + 2;
+      return chalk.bgHex(bg)(chalk.bold.black(label)) + "  ";
+    };
+
+    const shellsText = chip(
+      ` /shells (${this.getRunningShells()}) `,
+      SHELLS_CHIP_BG,
+      this.getRunningShells(),
+    );
+    const agentsText = chip(
+      ` /agents (${this.getRunningAgents()}) `,
+      AGENTS_CHIP_BG,
+      this.getRunningAgents(),
+    );
+
+    const right = `${agentsText}${shellsText}${effortText}`;
     const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
     return [`${left}${" ".repeat(gap)}${right}`];
   }

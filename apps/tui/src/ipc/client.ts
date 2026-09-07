@@ -25,6 +25,8 @@ import type {
   EffortLevel,
   ShellSummary,
   ShellOutputResult,
+  AgentSummary,
+  AgentOutputResult,
 } from "@thisisayande/freecode-shared";
 
 // =============================================================================
@@ -886,6 +888,55 @@ export async function shellsRemove(
   const result = (await sendRequest("shells.remove", {
     sessionId,
     shellId,
+  })) as { removed: boolean };
+  return result.removed;
+}
+
+// =============================================================================
+// Subagents (the /agents panel)
+// =============================================================================
+
+/**
+ * Every subagent spawned under this session's tree. `sessionId` is the ROOT
+ * session — core resolves the tree, so the TUI never handles a subagent's
+ * synthetic session id except as an opaque row key.
+ */
+export async function agentsList(sessionId: string): Promise<AgentSummary[]> {
+  return (await sendRequest("agents.list", { sessionId })) as AgentSummary[];
+}
+
+/** Positional read: pass back the previous result's `nextCursor`. */
+export async function agentsOutput(
+  sessionId: string,
+  agentId: string,
+  cursor: number,
+): Promise<AgentOutputResult> {
+  return (await sendRequest("agents.output", {
+    sessionId,
+    agentId,
+    cursor,
+  })) as AgentOutputResult;
+}
+
+/** Interrupt a running subagent. The parent still gets a (failed) tool result. */
+export async function agentsStop(
+  sessionId: string,
+  agentId: string,
+): Promise<boolean> {
+  const result = (await sendRequest("agents.stop", { sessionId, agentId })) as {
+    stopped: boolean;
+  };
+  return result.stopped;
+}
+
+/** Forget a settled subagent. Refused by core while it is still running. */
+export async function agentsRemove(
+  sessionId: string,
+  agentId: string,
+): Promise<boolean> {
+  const result = (await sendRequest("agents.remove", {
+    sessionId,
+    agentId,
   })) as { removed: boolean };
   return result.removed;
 }
