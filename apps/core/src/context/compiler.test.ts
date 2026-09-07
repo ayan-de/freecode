@@ -96,3 +96,19 @@ test("an absent section yields an empty segment, not a blank gap", async () => {
   const blocks = await compiler.compileSystemBlocks("mock-provider-a");
   assert.ok(!blocks[0].text.includes("\n\n\n"));
 });
+
+test("compileDynamicContext prints the git head it is given", () => {
+  const compiler = new PromptCompiler("/p", "proj");
+  const out = compiler.compileDynamicContext("src/", "abc123def", "");
+  assert.ok(
+    out.includes("Git HEAD: abc123def"),
+    "the head was computed and frozen every turn but never reached the model",
+  );
+});
+
+test("a project with no git repository gets no git line", () => {
+  const compiler = new PromptCompiler("/p", "proj");
+  const out = compiler.compileDynamicContext("src/", "no-git", "");
+  assert.ok(!out.includes("Git HEAD"), "tree-cache's marker is not a value");
+  assert.ok(!out.includes("no-git"));
+});
