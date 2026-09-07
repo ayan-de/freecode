@@ -81,11 +81,36 @@ export async function runTrial(
   // its project root; an unsandboxed one runs in the real working directory
   // (and `dataset.ts` has already refused to let it mutate anything).
   const sandbox = kase.files ? createSandbox(kase.files) : undefined;
+  // Scoped to the trial and restored after it, including on the throw path.
+  // Safe because `suite.ts` awaits each trial in turn — a parallel runner would
+  // have to carry this into the loop's own configuration instead.
+  const restoreEnv = applyEnv(kase.env);
   try {
     return await runTrialIn(kase, config, sandbox);
   } finally {
+    restoreEnv();
     sandbox?.cleanup();
   }
+}
+
+/**
+ * Set the case's env, returning the undo. Restores an absent variable by
+ * deleting it rather than setting "" — the compaction knobs treat an empty
+ * string as unset, but nothing guarantees the next key added will.
+ */
+export function applyEnv(env: Record<string, string> | undefined): () => void {
+  if (!env) return () => {};
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  return () => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
 }
 
 async function runTrialIn(
@@ -121,6 +146,9 @@ async function runTrialIn(
   // The rollout log deliberately carries no message bodies (spec §5.2), so the
   // reply text is captured live here. Nothing scores it in Phase 1; the judge
   // (Phase 3) is its only consumer.
+  // Reset at the start of each turn rather than accumulated, so a multi-turn
+  // case hands the judge the FINAL reply — which is what a rubric grades — and
+  // not three answers concatenated.
   let response = "";
   const unsubscribe = bus.subscribe("stream", (e) => {
     if (e.sessionId !== sessionId) return;
@@ -178,22 +206,37 @@ async function runTrialIn(
     const loop = await getAppRuntime().runPromise(
       createAgentLoopEffect(sessionId),
     );
+    // One user turn per prompt, on the same session and the same loop. Each
+    // `run()` reloads history from the store, so a follow-up sees everything
+    // the previous turn did — which is what makes a compaction reachable at
+    // all (see `EvalCase.followUps`).
+    const prompts = [kase.prompt, ...(kase.followUps ?? [])];
+    const turns = (async () => {
+      for (const prompt of prompts) {
+        response = "";
+        await getAppRuntime().runPromise(
+          loop.runEffect({
+            prompt,
+            sessionId,
+            provider,
+            model,
+            projectPath,
+            // A sandboxed case defaults to `build` (spec §6) — it has a tmpdir
+            // to write in. An unsandboxed one defaults to read-only and
+            // `dataset.ts` rejects any mutating override, because there
+            // `forbidTools` only SCORES a mutation; it cannot prevent one.
+            // Mode enforcement can.
+            agentMode: kase.agentMode ?? (sandbox ? "build" : "explore"),
+          }),
+        );
+      }
+    })();
     await Promise.race([
-      getAppRuntime().runPromise(
-        loop.runEffect({
-          prompt: kase.prompt,
-          sessionId,
-          provider,
-          model,
-          projectPath,
-          // A sandboxed case defaults to `build` (spec §6) — it has a tmpdir to
-          // write in. An unsandboxed one defaults to read-only and `dataset.ts`
-          // rejects any mutating override, because there `forbidTools` only
-          // SCORES a mutation; it cannot prevent one. Mode enforcement can.
-          agentMode: kase.agentMode ?? (sandbox ? "build" : "explore"),
-        }),
-      ),
+      turns,
       // The backstop for anything that blocks without a timeout of its own.
+      // Deliberately spans the WHOLE trial rather than each turn: the budget is
+      // what a case may cost, and a three-turn case that takes three times as
+      // long is not three times as informative.
       new Promise<never>((_, reject) => {
         const timer = setTimeout(
           () => reject(new Error(`trial exceeded ${TRIAL_TIMEOUT_MS}ms`)),
@@ -321,9 +364,7 @@ async function runTrialIn(
         ? `${judged.score}/5 — ${judged.reason}`
         : (judged?.reason ?? score.reason),
     ...(kase.rubric ? { score: judged?.score ?? null } : {}),
-    ...(judged?.costUsd !== undefined
-      ? { judgeCostUsd: judged.costUsd }
-      : {}),
+    ...(judged?.costUsd !== undefined ? { judgeCostUsd: judged.costUsd } : {}),
     durationMs: Date.now() - startedAt,
     inputTokens: trace.inputTokens,
     outputTokens: trace.outputTokens,

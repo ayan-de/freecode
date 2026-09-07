@@ -50,7 +50,9 @@ export function parseSuite(text: string, source = "<inline>"): EvalCase[] {
     try {
       raw = JSON.parse(line);
     } catch (err) {
-      throw new DatasetError(`${where}: invalid JSON — ${(err as Error).message}`);
+      throw new DatasetError(
+        `${where}: invalid JSON — ${(err as Error).message}`,
+      );
     }
     // A `.jsonl` in `evals/` may carry a results log rather than cases (e.g.
     // A/B comparison output). Skip records that don't have a `prompt` — every
@@ -129,6 +131,7 @@ function validate(raw: unknown, where: string): EvalCase {
     forbidBashMatches !== undefined ||
     o.expectMaxTurns !== undefined ||
     o.expectParallelTools !== undefined ||
+    o.expectCompaction !== undefined ||
     o.verify !== undefined ||
     o.rubric !== undefined ||
     (Array.isArray(o.forbidTools) && o.forbidTools.length > 0);
@@ -138,7 +141,9 @@ function validate(raw: unknown, where: string): EvalCase {
   if (o.expectMaxTurns !== undefined) {
     const n = o.expectMaxTurns;
     if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
-      throw new DatasetError(`${where}: 'expectMaxTurns' must be an integer >= 1`);
+      throw new DatasetError(
+        `${where}: 'expectMaxTurns' must be an integer >= 1`,
+      );
     }
   }
   // < 2 asserts nothing: every response with a tool call is a "batch" of 1.
@@ -149,6 +154,39 @@ function validate(raw: unknown, where: string): EvalCase {
         `${where}: 'expectParallelTools' must be an integer >= 2`,
       );
     }
+  }
+  if (o.expectCompaction !== undefined) {
+    const n = o.expectCompaction;
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
+      throw new DatasetError(
+        `${where}: 'expectCompaction' must be an integer >= 1`,
+      );
+    }
+  }
+  const followUps = validateFollowUps(o.followUps, where);
+  const env = validateEnv(o.env, where);
+  // Structural, not a matter of tuning: `selectForCompaction` refuses while
+  // `countUserTurns <= preserveRecentTurns` (2), and only a prompt creates a
+  // user turn. Two follow-ups is the minimum that can compact at all, so a
+  // case asserting one without them would fail for a reason that has nothing
+  // to do with the agent.
+  if (o.expectCompaction !== undefined && (followUps?.length ?? 0) < 2) {
+    throw new DatasetError(
+      `${where}: 'expectCompaction' needs at least 2 'followUps'. Compaction ` +
+        `preserves the most recent 2 user turns, and one prompt is one user ` +
+        `turn — so a single-turn case cannot compact at any token count.`,
+    );
+  }
+  // Asserting a compaction without lowering a threshold is a case that waits
+  // for an accident: the default trigger sits at 120K tokens, which no eval
+  // case reaches. Caught here rather than at run time, where it would read as
+  // the agent failing.
+  if (o.expectCompaction !== undefined && env === undefined) {
+    throw new DatasetError(
+      `${where}: 'expectCompaction' needs an 'env' lowering a compaction ` +
+        `threshold (${[...EVAL_ENV_ALLOWLIST].join(", ")}); without one the ` +
+        `trigger is out of reach and the case asserts an accident.`,
+    );
   }
   const files = validateFiles(o.files, where);
   const immutable = validateOutcome(o, files, where);
@@ -193,6 +231,9 @@ function validate(raw: unknown, where: string): EvalCase {
     forbidBashMatches,
     expectMaxTurns: o.expectMaxTurns as number | undefined,
     expectParallelTools: o.expectParallelTools as number | undefined,
+    expectCompaction: o.expectCompaction as number | undefined,
+    followUps,
+    env,
     forbidTools: Array.isArray(o.forbidTools)
       ? (o.forbidTools as string[])
       : undefined,
@@ -349,6 +390,69 @@ function validateRubric(raw: unknown, where: string): string | undefined {
   return raw;
 }
 
+/**
+ * Environment keys a case may set. Compaction thresholds only.
+ *
+ * An open `env` key would let a case turn off the thing being measured —
+ * `FREECODE_DISABLE_REDIRECT`, a different judge, a bigger timeout — and the
+ * suite would quietly stop being evidence. Both keys below move WHEN
+ * compaction fires; neither changes what it does, which is the behaviour under
+ * test. Adding a key here needs the same argument made for it.
+ */
+export const EVAL_ENV_ALLOWLIST = new Set([
+  // compaction/tokens.ts getAutoCompactOverride()
+  "FREECODE_AUTO_COMPACT_TOKENS",
+  // compaction/tokens.ts getCompactTarget()
+  "FREECODE_COMPACT_TARGET_TOKENS",
+]);
+
+function validateFollowUps(
+  value: unknown,
+  where: string,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new DatasetError(`${where}: 'followUps' must be a non-empty array`);
+  }
+  for (const entry of value) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      throw new DatasetError(
+        `${where}: every 'followUps' entry must be a non-empty string`,
+      );
+    }
+  }
+  return value as string[];
+}
+
+function validateEnv(
+  value: unknown,
+  where: string,
+): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new DatasetError(`${where}: 'env' must be an object`);
+  }
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!EVAL_ENV_ALLOWLIST.has(key)) {
+      throw new DatasetError(
+        `${where}: 'env' key '${key}' is not allowed. Permitted: ` +
+          `${[...EVAL_ENV_ALLOWLIST].join(", ")}.`,
+      );
+    }
+    if (typeof raw !== "string" || raw.length === 0) {
+      throw new DatasetError(
+        `${where}: 'env.${key}' must be a non-empty string`,
+      );
+    }
+    out[key] = raw;
+  }
+  if (Object.keys(out).length === 0) {
+    throw new DatasetError(`${where}: 'env' is empty`);
+  }
+  return out;
+}
+
 function validateFiles(
   raw: unknown,
   where: string,
@@ -393,7 +497,9 @@ function validateOutcome(
       throw new DatasetError(`${where}: 'verify' must be a non-empty string`);
     }
     if (!files) {
-      throw new DatasetError(`${where}: 'verify' requires 'files' (no sandbox)`);
+      throw new DatasetError(
+        `${where}: 'verify' requires 'files' (no sandbox)`,
+      );
     }
     for (const ref of referencedFiles(verify)) {
       if (!(ref in files)) {
@@ -406,7 +512,10 @@ function validateOutcome(
 
   const immutable = o.immutable;
   if (immutable === undefined) return undefined;
-  if (!Array.isArray(immutable) || immutable.some((x) => typeof x !== "string")) {
+  if (
+    !Array.isArray(immutable) ||
+    immutable.some((x) => typeof x !== "string")
+  ) {
     throw new DatasetError(`${where}: 'immutable' must be an array of strings`);
   }
   for (const rel of immutable as string[]) {

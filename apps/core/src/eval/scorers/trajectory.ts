@@ -70,10 +70,26 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
     }
   }
 
+  // The point of a `compaction-boundary` case. Scored before the tool
+  // expectations on purpose: if compaction never fired, the case measured an
+  // ordinary short run and reporting it as a tool-choice failure — or worse, a
+  // pass — would be the wrong answer twice over.
+  if (kase.expectCompaction !== undefined) {
+    const compactions = run.trace.compactions;
+    if (compactions < kase.expectCompaction) {
+      return fail(
+        `expected >= ${kase.expectCompaction} compaction(s), saw ${compactions}. ` +
+          `The case's env may no longer reach the trigger.`,
+      );
+    }
+  }
+
   // `expectTool: null` asserts that nothing fired — the "just answer, don't
   // go rummaging" case, which is a real regression when it breaks.
   if (kase.expectTool === null) {
-    return fired.length === 0 ? pass : fail(`expected no tool, called ${fired}`);
+    return fired.length === 0
+      ? pass
+      : fail(`expected no tool, called ${fired}`);
   }
 
   // Position, not membership. `expectTool` cannot distinguish "greped" from
@@ -125,7 +141,9 @@ export function scoreTrajectory(run: RunRecord, kase: EvalCase): TrialScore {
       .map((s) => s.args?.command)
       .filter((c): c is string => typeof c === "string");
     if (commands.length === 0) {
-      return fail(`expected a bash command matching /${kase.expectBashMatches}/, ran none`);
+      return fail(
+        `expected a bash command matching /${kase.expectBashMatches}/, ran none`,
+      );
     }
     if (!commands.some((c) => re.test(c))) {
       return fail(

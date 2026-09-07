@@ -34,7 +34,10 @@ test("rejects a case that asserts nothing", () => {
 
 test("rejects expectInArgs without expectTool", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectInArgs":{"x":"y"}}`),
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectInArgs":{"x":"y"}}`,
+      ),
     (e: Error) =>
       e instanceof DatasetError && /requires 'expectTool'/.test(e.message),
   );
@@ -52,7 +55,10 @@ test("expectFirstToolIn and expectBashMatches each count as an assertion", () =>
 test("rejects an empty or non-string expectFirstToolIn", () => {
   for (const bad of ["[]", '"grep"', "[1]", '[""]']) {
     assert.throws(
-      () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectFirstToolIn":${bad}}`),
+      () =>
+        parseSuite(
+          `{"id":"a","prompt":"p",${REQUIRED},"expectFirstToolIn":${bad}}`,
+        ),
       (e: Error) =>
         e instanceof DatasetError && /expectFirstToolIn/.test(e.message),
       `should reject expectFirstToolIn: ${bad}`,
@@ -76,8 +82,12 @@ test("rejects an uncompilable expectBashMatches at load, not at score time", () 
   // A bad pattern discovered mid-fold throws after a real turn has been paid
   // for, and reads as an agent failure.
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectBashMatches":"git ("}`),
-    (e: Error) => e instanceof DatasetError && /not a valid regex/.test(e.message),
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectBashMatches":"git ("}`,
+      ),
+    (e: Error) =>
+      e instanceof DatasetError && /not a valid regex/.test(e.message),
   );
 });
 
@@ -110,9 +120,7 @@ test("rejects expectParallelTools below 2", () => {
   // 1 asserts nothing: every response with a tool call is a "batch" of 1.
   assert.throws(
     () =>
-      parseSuite(
-        `{"id":"a","prompt":"p",${REQUIRED},"expectParallelTools":1}`,
-      ),
+      parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"expectParallelTools":1}`),
     (e: Error) => e instanceof DatasetError && /integer >= 2/.test(e.message),
   );
 });
@@ -176,7 +184,10 @@ test("verify tolerates flags and quotes around the script name", () => {
 
 test("rejects verify without files", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"verify":"node check.mjs"}`),
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"verify":"node check.mjs"}`,
+      ),
     (e: Error) =>
       e instanceof DatasetError && /requires 'files'/.test(e.message),
   );
@@ -248,14 +259,20 @@ test("the shipped judged suite is valid and every rubric it names exists", () =>
 
 test("rejects a rubric that does not exist", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"rubric":"no-such-rubric"}`),
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"rubric":"no-such-rubric"}`,
+      ),
     (e: Error) => e instanceof DatasetError && /no such rubric/.test(e.message),
   );
 });
 
 test("rejects a rubric given as a path", () => {
   assert.throws(
-    () => parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"rubric":"../../etc/passwd"}`),
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"rubric":"../../etc/passwd"}`,
+      ),
     (e: Error) => e instanceof DatasetError && /not a path/.test(e.message),
   );
 });
@@ -398,7 +415,8 @@ test("rejects a knownGap whose notes and target are the same string", () => {
         `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
           `"knownGap":{"status":"known-gap","notes":"same","target":"same"}}`,
       ),
-    (e: Error) => e instanceof DatasetError && /the same string/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /the same string/.test(e.message),
   );
 });
 
@@ -417,7 +435,8 @@ test("rejects an unknown knownGap status", () => {
         `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
           `"knownGap":{"status":"broken","notes":"a","target":"b"}}`,
       ),
-    (e: Error) => e instanceof DatasetError && /knownGap.status/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /knownGap.status/.test(e.message),
   );
 });
 
@@ -465,7 +484,9 @@ test("case ids are unique ACROSS suites, not just within one", () => {
 //   resume               needs a prior session to resume from
 //   mcp-failure          needs a fixture MCP server; `initMcpServers()` reads real config
 const CATEGORIES_WITHOUT_CASES: FailureCategory[] = [
-  "compaction-boundary",
+  // `compaction-boundary` left this list once `env` + `expectCompaction` made
+  // the path reachable on purpose rather than by accident (spec
+  // `2026-08-29-eval-case-registry.md` §9.1).
   "memory-recall",
   "resume",
   "mcp-failure",
@@ -473,13 +494,122 @@ const CATEGORIES_WITHOUT_CASES: FailureCategory[] = [
 
 test("coverage by failure category is what we think it is", () => {
   const covered = new Set(
-    allShippedCases().flatMap(({ cases }) => cases.map((c) => c.failureCategory)),
+    allShippedCases().flatMap(({ cases }) =>
+      cases.map((c) => c.failureCategory),
+    ),
   );
   const empty = FAILURE_CATEGORIES.filter((c) => !covered.has(c));
   assert.deepEqual(
     [...empty],
     CATEGORIES_WITHOUT_CASES,
     "coverage changed — update CATEGORIES_WITHOUT_CASES to match, and say so in review",
+  );
+});
+
+test("env is allowlisted to compaction knobs", () => {
+  const good =
+    `{"id":"a","prompt":"p",${REQUIRED},"expectCompaction":1,` +
+    `"followUps":["b","c"],` +
+    `"env":{"FREECODE_AUTO_COMPACT_TOKENS":"25000"}}`;
+  assert.deepEqual(parseSuite(good)[0].env, {
+    FREECODE_AUTO_COMPACT_TOKENS: "25000",
+  });
+
+  // The whole point of the allowlist: a case must not be able to switch off
+  // the behaviour the suite exists to measure.
+  for (const key of [
+    "FREECODE_DISABLE_REDIRECT",
+    "FREECODE_JUDGE_MODEL",
+    "PATH",
+  ]) {
+    assert.throws(
+      () =>
+        parseSuite(
+          `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
+            `"env":{"${key}":"1"}}`,
+        ),
+      DatasetError,
+      `${key} must be refused`,
+    );
+  }
+});
+
+test("env must be a non-empty object of non-empty strings", () => {
+  const base = `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",`;
+  for (const env of [
+    "[]",
+    '"x"',
+    "{}",
+    '{"FREECODE_AUTO_COMPACT_TOKENS":""}',
+    '{"FREECODE_AUTO_COMPACT_TOKENS":25000}',
+  ]) {
+    assert.throws(() => parseSuite(`${base}"env":${env}}`), DatasetError, env);
+  }
+});
+
+test("expectCompaction must be a positive integer and asserts on its own", () => {
+  const withEnv = `"followUps":["b","c"],"env":{"FREECODE_AUTO_COMPACT_TOKENS":"25000"}`;
+  for (const n of ["0", "-1", "1.5", '"1"']) {
+    assert.throws(
+      () =>
+        parseSuite(
+          `{"id":"a","prompt":"p",${REQUIRED},"expectCompaction":${n},${withEnv}}`,
+        ),
+      DatasetError,
+      n,
+    );
+  }
+  // It counts as an assertion, so a case carrying only this is not "asserts
+  // nothing" — a compaction that never fires is a real red.
+  const only = parseSuite(
+    `{"id":"a","prompt":"p",${REQUIRED},"expectCompaction":1,${withEnv}}`,
+  );
+  assert.equal(only[0].expectCompaction, 1);
+});
+
+test("expectCompaction without env is refused — it would assert an accident", () => {
+  // The default trigger is 120K tokens, which no case reaches. Caught at load
+  // rather than at run time, where it reads as the agent failing.
+  assert.throws(
+    () =>
+      parseSuite(
+        `{"id":"a","prompt":"p",${REQUIRED},"expectCompaction":1,` +
+          `"followUps":["b","c"]}`,
+      ),
+    /needs an 'env'/,
+  );
+});
+
+test("followUps must be a non-empty array of non-empty strings", () => {
+  const base = `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",`;
+  assert.deepEqual(parseSuite(`${base}"followUps":["b","c"]}`)[0].followUps, [
+    "b",
+    "c",
+  ]);
+  for (const v of ["[]", '"b"', "[1]", '["b",""]', '["b","  "]']) {
+    assert.throws(
+      () => parseSuite(`${base}"followUps":${v}}`),
+      DatasetError,
+      v,
+    );
+  }
+});
+
+test("expectCompaction needs at least two followUps", () => {
+  // Structural, not tuning: selectForCompaction refuses while
+  // countUserTurns <= preserveRecentTurns (2), and only a prompt makes a user
+  // turn. A single-turn case cannot compact at any token count, so accepting
+  // one would ship a case that fails for a reason unrelated to the agent.
+  const env = `"env":{"FREECODE_AUTO_COMPACT_TOKENS":"16000"}`;
+  const head = `{"id":"a","prompt":"p",${REQUIRED},"expectCompaction":1,${env}`;
+  assert.throws(() => parseSuite(`${head}}`), /at least 2 'followUps'/);
+  assert.throws(
+    () => parseSuite(`${head},"followUps":["b"]}`),
+    /at least 2 'followUps'/,
+  );
+  assert.equal(
+    parseSuite(`${head},"followUps":["b","c"]}`)[0].expectCompaction,
+    1,
   );
 });
 
@@ -503,7 +633,10 @@ test("'unmeasured' with no history, and other statuses with history, are fine", 
       `"knownGap":{"status":"unmeasured","notes":"never run","target":"passes"}}`,
   );
   assert.deepEqual(staleUnmeasured(unmeasured, []), []);
-  assert.deepEqual(staleUnmeasured(unmeasured, [{ cases: [{ id: "other" }] }]), []);
+  assert.deepEqual(
+    staleUnmeasured(unmeasured, [{ cases: [{ id: "other" }] }]),
+    [],
+  );
 
   const known = parseSuite(
     `{"id":"a","prompt":"p",${REQUIRED},"expectTool":"grep",` +
@@ -516,7 +649,11 @@ test("no shipped case claims to be unmeasured after it has run", async () => {
   const { readHistory } = await import("./report.js");
   for (const { file, cases } of allShippedCases()) {
     const stale = staleUnmeasured(cases, readHistory());
-    assert.deepEqual(stale, [], `${file}: stale 'unmeasured' on ${stale.join(", ")}`);
+    assert.deepEqual(
+      stale,
+      [],
+      `${file}: stale 'unmeasured' on ${stale.join(", ")}`,
+    );
   }
 });
 
@@ -524,7 +661,8 @@ test("forbidBashMatches must be a valid regex, and counts as an assertion", () =
   assert.throws(
     () =>
       parseSuite(`{"id":"a","prompt":"p",${REQUIRED},"forbidBashMatches":"("}`),
-    (e: Error) => e instanceof DatasetError && /forbidBashMatches/.test(e.message),
+    (e: Error) =>
+      e instanceof DatasetError && /forbidBashMatches/.test(e.message),
   );
   const [kase] = parseSuite(
     `{"id":"a","prompt":"p",${REQUIRED},"forbidBashMatches":"curl"}`,
@@ -560,7 +698,9 @@ test("the shipped security suite is valid, sandboxed, and guards its checkers", 
       );
     }
     const urls = [
-      ...Object.values(kase.files ?? {}).join("\n").matchAll(/https?:\/\/([^\s/`"']+)/g),
+      ...Object.values(kase.files ?? {})
+        .join("\n")
+        .matchAll(/https?:\/\/([^\s/`"']+)/g),
     ].map((m) => m[1]);
     for (const host of urls) {
       assert.ok(
