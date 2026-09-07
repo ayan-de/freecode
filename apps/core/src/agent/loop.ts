@@ -2582,6 +2582,10 @@ export class AgentLoop {
       cwd: process.cwd(),
       projectPath: this.state.projectPath,
       sessionId: this.state.sessionId,
+      // Lets a long-running tool stream a live tail onto the row the UI is
+      // already showing, instead of the user staring at a spinner for the
+      // whole of a build (see bash.ts).
+      toolCallId: toolCall.id,
       abort: this.abort.signal,
     };
 

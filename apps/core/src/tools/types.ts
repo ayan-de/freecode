@@ -2,6 +2,12 @@ export interface ToolContext {
   cwd: string;
   sessionId?: string;
   abort?: AbortSignal;
+  /**
+   * Id of the tool call being served. Set by the loop so a long-running tool
+   * can stream partial output back to the frontend against the row the user is
+   * already looking at (see the live tail in `bash.ts`).
+   */
+  toolCallId?: string;
   projectPath?: string;
   fileCache?: FileCache;
   permissionProfile?: PermissionProfile;
