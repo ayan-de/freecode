@@ -22,6 +22,7 @@ import { disposePruneState } from "../agent/prune-state.js";
 import { disposeCacheAwareness } from "../providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "../context/session-context.js";
 import { logger } from "../utils/logger.js";
+import { envInt } from "../utils/env.js";
 
 export type SessionEndReason =
   | "switch"
@@ -35,10 +36,12 @@ export type SessionEndReason =
 // The flush is a full model round trip, so 2s lost it on the most common end
 // (quit); 5s catches most calls while keeping quit tolerable. Overridable for
 // installs that would rather wait (or not wait at all — 0 skips the wait).
-const EXIT_FLUSH_BUDGET_MS = (() => {
-  const raw = Number(process.env.FREECODE_EXIT_FLUSH_BUDGET_MS);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 5_000;
-})();
+// 0 is a documented setting (skip the wait), which is why an EMPTY variable
+// must not read as one: `Number("")` is 0, so exporting this empty used to mean
+// "never wait for the final memory flush" rather than "not configured".
+const EXIT_FLUSH_BUDGET_MS = envInt("FREECODE_EXIT_FLUSH_BUDGET_MS", 5_000, {
+  min: 0,
+});
 
 export interface EndSessionOptions {
   reason: SessionEndReason;

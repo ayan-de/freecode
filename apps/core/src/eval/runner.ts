@@ -15,6 +15,7 @@ import { trialEfficiency } from "./scorers/efficiency.js";
 import { echoedModels } from "./model-echo.js";
 import { scoreOutcome } from "./scorers/outcome.js";
 import { scoreTrajectory } from "./scorers/trajectory.js";
+import { envInt } from "../utils/env.js";
 
 export interface RunnerConfig {
   provider: string;
@@ -30,11 +31,12 @@ export interface RunnerConfig {
  * case observed is ~40s, and a case whose own `expectMaxTurns` is large can
  * legitimately take minutes.
  */
-const TRIAL_TIMEOUT_MS = Number.isFinite(
-  Number(process.env.FREECODE_EVAL_TRIAL_TIMEOUT_MS),
-)
-  ? Math.max(1_000, Number(process.env.FREECODE_EVAL_TRIAL_TIMEOUT_MS))
-  : 300_000;
+const TRIAL_TIMEOUT_MS = envInt("FREECODE_EVAL_TRIAL_TIMEOUT_MS", 300_000, {
+  // A sub-second budget fails every trial for infrastructure reasons and reads
+  // as an agent failure, which is the most expensive wrong answer this harness
+  // can give. An empty variable used to produce exactly that.
+  min: 1_000,
+});
 
 /** Boots providers + MCP once for the whole suite, not once per case. */
 export async function initRunner(

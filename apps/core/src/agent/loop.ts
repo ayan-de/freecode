@@ -56,6 +56,7 @@ import {
   type RedirectReason,
 } from "./redirect/index.js";
 import { logger } from "../utils/logger.js";
+import { envInt } from "../utils/env.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
@@ -173,11 +174,16 @@ const MAX_OVERFLOW_COMPACTIONS = 3;
 // the conversation and it now fires on a cost target (~107K tokens ≈ 428K
 // chars). A 200K-char (~50K token) share for tool results leaves room for the
 // rest of the context under that target.
-const TOOL_RESULT_BUDGET_CHARS = Number.isFinite(
-  Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS),
-)
-  ? Math.max(0, Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS))
-  : 200_000;
+//
+// 0 is a legitimate setting (prune everything), which is exactly why the parse
+// has to distinguish it from an EMPTY variable — `Number("")` is 0, so the
+// previous parse read `FREECODE_TOOL_RESULT_BUDGET_CHARS=""` as "prune every
+// tool result to a marker".
+const TOOL_RESULT_BUDGET_CHARS = envInt(
+  "FREECODE_TOOL_RESULT_BUDGET_CHARS",
+  200_000,
+  { min: 0 },
+);
 
 // The marker that stands in for a replaced tool result. Deterministic in
 // (id, size) so re-deriving it always yields the same bytes — though the
@@ -2039,8 +2045,8 @@ export class AgentLoop {
       model: resolvedModel,
       messageCount: prunedMessages.length,
       toolCount: tools.length,
-      promptChars: estimatePromptChars(prunedMessages, system) +
-        ephemeralTail.length,
+      promptChars:
+        estimatePromptChars(prunedMessages, system) + ephemeralTail.length,
       streamed: Boolean(aiProvider.stream),
     });
 
@@ -2872,10 +2878,12 @@ export class AgentLoop {
       events,
       turnCount: this.state.turnCount,
       goal,
-      todos: getTodos(this.state.sessionId, this.state.projectPath).map((t) => ({
-        content: t.content,
-        status: t.status,
-      })),
+      todos: getTodos(this.state.sessionId, this.state.projectPath).map(
+        (t) => ({
+          content: t.content,
+          status: t.status,
+        }),
+      ),
     });
     // Nothing to reason about: no calls, no errors, no plan. Advice formed on
     // an empty packet would be a guess dressed as evidence.

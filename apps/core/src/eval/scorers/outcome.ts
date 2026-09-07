@@ -11,6 +11,7 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import type { EvalCase, RunRecord, TrialScore } from "../types.js";
+import { envInt } from "../../utils/env.js";
 
 const pass: TrialScore = { passed: true, reason: "ok" };
 const fail = (reason: string): TrialScore => ({ passed: false, reason });
@@ -20,11 +21,9 @@ const fail = (reason: string): TrialScore => ({ passed: false, reason });
  * timeout: the fixture is dependency-free `node`, so anything past a few
  * seconds is a loop, not slow work.
  */
-const VERIFY_TIMEOUT_MS = Number.isFinite(
-  Number(process.env.FREECODE_EVAL_VERIFY_TIMEOUT_MS),
-)
-  ? Math.max(1_000, Number(process.env.FREECODE_EVAL_VERIFY_TIMEOUT_MS))
-  : 60_000;
+const VERIFY_TIMEOUT_MS = envInt("FREECODE_EVAL_VERIFY_TIMEOUT_MS", 60_000, {
+  min: 1_000,
+});
 
 export function scoreOutcome(run: RunRecord, kase: EvalCase): TrialScore {
   if (!kase.verify) return pass;
@@ -59,7 +58,9 @@ export function scoreOutcome(run: RunRecord, kase: EvalCase): TrialScore {
     return fail(`verify could not run: ${result.error.message}`.slice(0, 200));
   }
   if (result.signal) {
-    return fail(`verify killed (${result.signal}) after ${VERIFY_TIMEOUT_MS}ms`);
+    return fail(
+      `verify killed (${result.signal}) after ${VERIFY_TIMEOUT_MS}ms`,
+    );
   }
   if (result.status === 0) return pass;
 
@@ -86,5 +87,7 @@ function salientLine(output: string | null): string {
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("at ") && !/^Node\.js v[\d.]+$/.test(l));
-  return lines.find((l) => /Error\b.*:/.test(l)) ?? lines[lines.length - 1] ?? "";
+  return (
+    lines.find((l) => /Error\b.*:/.test(l)) ?? lines[lines.length - 1] ?? ""
+  );
 }
