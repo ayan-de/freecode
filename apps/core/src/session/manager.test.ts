@@ -85,7 +85,7 @@ describe("SessionManager", () => {
       assert.equal(lastMsg.role, "user");
       assert.equal(
         lastMsg.parts[0].content,
-        "Continue from where you left off.",
+        "Continue from where you left off. Do not announce that you are resuming or picking up — just continue the work.",
       );
     });
   });
