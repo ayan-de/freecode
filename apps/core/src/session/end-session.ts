@@ -13,6 +13,7 @@
 // =============================================================================
 
 import { disposeSessionMemory } from "../memory/index.js";
+import { disposeAgentsForRoot } from "../agent/registry/index.js";
 import { resetExtractPolicy } from "../memory/extract-policy.js";
 import { disposeOutputStore } from "../tools/output-store/index.js";
 import { disposeShellRegistry } from "../tools/shells/index.js";
@@ -106,6 +107,9 @@ export async function endSession(
     // Kills any background shell the session started. Nothing a session
     // spawned may outlive it — a dev server left running would hold its port.
     ["shells", () => disposeShellRegistry(sessionId)],
+    // Stops and forgets every subagent this session's tree spawned. Their own
+    // shells are disposed by the agent tool as each one settles.
+    ["agents", () => disposeAgentsForRoot(sessionId)],
     ["readState", () => disposeReadState(sessionId)],
     ["pruneState", () => disposePruneState(sessionId)],
     ["cacheAwareness", () => disposeCacheAwareness(sessionId)],

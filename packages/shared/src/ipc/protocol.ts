@@ -210,6 +210,26 @@ export type StreamEvent =
       status: "completed" | "failed" | "killed";
       exitCode: number | null;
     }
+  // Subagents (`agent` tool). The roster lives in core
+  // (`agent/registry/`); these events are stamped with the ROOT session id, not
+  // the subagent's own — the frontend is only subscribed to the root, which is
+  // why a subagent's ordinary stream events never reach it.
+  | {
+      type: "agent_start";
+      sessionId?: string;
+      agentId: string;
+      parentId: string;
+      task: string;
+      agentType: string;
+      depth: number;
+    }
+  | { type: "agent_output"; sessionId?: string; agentId: string; chunk: string }
+  | {
+      type: "agent_exit";
+      sessionId?: string;
+      agentId: string;
+      status: "completed" | "failed" | "killed";
+    }
   | {
       type: "question_asked";
       requestId: string;
@@ -390,6 +410,28 @@ export const METHODS = {
   // fill with finished commands. Refused while it is still running.
   "shells.remove": {
     params: { sessionId: "" as string, shellId: "" as string },
+    result: { removed: false as boolean },
+  },
+  // Subagents. `sessionId` is the ROOT session; core resolves the tree, so a
+  // frontend never has to know a subagent's synthetic id to list it.
+  // `agents.output` is positional, exactly like `shells.output`.
+  "agents.list": {
+    params: { sessionId: "" as string },
+    result: [] as import("../types.js").AgentSummary[],
+  },
+  "agents.output": {
+    params: {} as { sessionId: string; agentId: string; cursor?: number },
+    result: {} as import("../types.js").AgentOutputResult,
+  },
+  // Interrupts the subagent's loop. The parent still gets a tool result — an
+  // aborted subagent reports failure rather than vanishing.
+  "agents.stop": {
+    params: { sessionId: "" as string, agentId: "" as string },
+    result: { stopped: false as boolean },
+  },
+  // Drop a SETTLED agent from the roster. Refused while it is still running.
+  "agents.remove": {
+    params: { sessionId: "" as string, agentId: "" as string },
     result: { removed: false as boolean },
   },
   "skills.list": {
@@ -645,6 +687,10 @@ export const REQUIRED_PARAMS: Record<
   "shells.output": { sessionId: "string", shellId: "string" },
   "shells.kill": { sessionId: "string", shellId: "string" },
   "shells.remove": { sessionId: "string", shellId: "string" },
+  "agents.list": { sessionId: "string" },
+  "agents.output": { sessionId: "string", agentId: "string" },
+  "agents.stop": { sessionId: "string", agentId: "string" },
+  "agents.remove": { sessionId: "string", agentId: "string" },
   "skills.list": {},
   "mcp.status": {},
   "history.list": {},

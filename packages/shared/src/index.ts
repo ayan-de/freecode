@@ -44,6 +44,9 @@ export type {
   ShellStatus,
   ShellSummary,
   ShellOutputResult,
+  AgentStatus,
+  AgentSummary,
+  AgentOutputResult,
 } from "./types.js";
 
 // IPC Protocol

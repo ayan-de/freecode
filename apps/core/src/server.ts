@@ -67,6 +67,7 @@ import {
   disposeAllShellRegistries,
 } from "./tools/shells/index.js";
 import { disposeReadState } from "./tools/read-state.js";
+import { getAgentRegistry, disposeAllAgents } from "./agent/registry/index.js";
 import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "./context/session-context.js";
 import { buildContextBreakdown } from "./context/breakdown.js";
@@ -856,6 +857,43 @@ export const methodHandlers: Record<
     return { removed: peekShellRegistry(sessionId)?.remove(shellId) ?? false };
   },
 
+  // --- Subagents (TUI agents panel) ----------------------------------------
+  // `sessionId` is the ROOT session; the registry resolves the tree, so a
+  // frontend never has to learn a subagent's synthetic id to list one.
+  "agents.list": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    const { sessionId } = params as { sessionId: string };
+    return getAgentRegistry().listForRoot(sessionId);
+  },
+
+  // Positional read, like shells.output. Nothing else reads a subagent's
+  // activity buffer, so there is no model cursor to disturb.
+  "agents.output": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { agentId, cursor } = params as {
+      sessionId: string;
+      agentId: string;
+      cursor?: number;
+    };
+    return getAgentRegistry().readFrom(agentId, cursor ?? 0);
+  },
+
+  "agents.stop": async (
+    params: Record<string, unknown>,
+  ): Promise<{ stopped: boolean }> => {
+    const { agentId } = params as { sessionId: string; agentId: string };
+    return { stopped: getAgentRegistry().stop(agentId) };
+  },
+
+  "agents.remove": async (
+    params: Record<string, unknown>,
+  ): Promise<{ removed: boolean }> => {
+    const { agentId } = params as { sessionId: string; agentId: string };
+    return { removed: getAgentRegistry().remove(agentId) };
+  },
+
   // Persisted prompt history for up-arrow recall. Core owns
   // ~/.freecode/history.jsonl; the editor's in-memory ring is seeded at
   // startup and appended on every submit.
@@ -1384,6 +1422,9 @@ export async function startServer() {
     // Synchronous backstop: a background shell must not outlive the daemon
     // even on an exit path that never ran endSession (crash, plain exit).
     disposeAllShellRegistries();
+    // Same backstop for subagents: interrupting the loops also releases the
+    // provider streams they are holding open.
+    disposeAllAgents();
   });
 
   let shuttingDown = false;
