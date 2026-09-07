@@ -26,9 +26,6 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
       text/code/tool only, and `read` cannot return an image. Blocks screenshots, design
       mocks, and diagram debugging. Touches the shared protocol + every provider adapter.
 
-- [ ] **6. Background bash** — no `run_in_background` in `tools/bash.ts`, so a dev server
-      or long build blocks the turn.
-
 - [ ] **7. MCP server (expose)** — serve FreeCode's tools *as* an MCP server. The client
       side is done. Already listed as deferred in `CLAUDE.md`.
 
@@ -38,7 +35,76 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
 
 
 **Suggested order:** 3, then 4. Items 5 and 8 are larger, self-contained
-projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.)
+projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.
+Item 6, background bash, shipped as `tools/shells/` + `bashoutput`/`killbash`
+and the TUI's `/shells` panel.)
+
+### Background shell completion notifications (added 2026-09-08)
+
+**Status:** designed, not built. Follow-up to the background-bash work (ex-item 6).
+
+Today a background shell is **pull-only**: the model learns a command finished
+only by calling `bashoutput`, and it has no reason to call it once the turn has
+ended. So "run the eval, tell me when it's done" works if the user asks again
+30 minutes later, and never volunteers the result. Claude Code does volunteer
+it, and the mechanism is worth copying rather than inventing:
+`tasks/LocalShellTask` calls `enqueuePendingNotification({ mode:
+'task-notification' })` on exit, which pushes a synthetic user message
+(`<task-notification><status>completed</status><summary>Background command "X"
+completed (exit code 0)</summary>`) onto the message queue; the REPL drains
+that queue between turns **including when idle**, so the model is re-invoked
+and reports back on its own. `utils/collapseBackgroundBashNotifications.ts`
+exists only to squash a burst of those into one line.
+
+What FreeCode already has:
+
+- exit detection with a callback — `ShellRegistry.start({ onExit })`
+  (`tools/shells/registry.ts:31`), already fired on natural exit and on
+  `kill`/`killAll` (`:190`).
+- a follow-up message queue — `queue-store.ts`, `server.ts:476`.
+- per-turn reminder injection — `AgentLoop.pendingReminders`.
+
+The two gaps:
+
+- [ ] **Nothing tells the model.** `shell_exit` is a `StreamEvent` consumed by
+      the TUI only. `pendingReminders` cannot carry it as-is: `loop.ts:648`
+      resets the array at the start of every `run()`, so anything pushed after
+      a turn ends is discarded. Needs a cross-turn queue (or an enqueue into
+      the existing message queue, which is closer to Claude Code's shape).
+- [ ] **The queue never drains while idle.** `server.ts:267` drains it in the
+      `finally` of a *running* turn, and `:284` deletes the session from
+      `activeLoops` when there is nothing queued. With no turn in flight
+      nothing ever looks at the queue again, so an enqueued notification would
+      sit there until the user typed. **This is the actual work**: an idle
+      watcher that starts a turn when the queue gains an item and
+      `!activeLoops.has(sessionId)`.
+
+Also needed once those land: collapse a burst (five shells finishing at once is
+one notification, not five turns), and suppress the notification when the model
+already drained that shell to completion via `bashoutput` — otherwise the
+notification buys a redundant paid turn.
+
+**Why it is not built yet:** gap 2 means the agent starts *billable turns with
+no user input*. A misfiring watcher burns tokens while nobody is watching, and
+it overlaps the deliberately-Phase-0-only `autonomous/` work, whose whole point
+is that unattended execution gets signed off per phase. Ship it default-**off**
+behind a setting (`shells.notifyOnExit`, plus the usual
+`FREECODE_DISABLE_*` escape hatch), and decide explicitly whether a completion
+may interrupt a turn already in progress or must wait for it.
+
+### Settled background shells are retained until dismissed (added 2026-09-08)
+
+**Status:** known, bounded, low priority.
+
+`ShellRegistry` caps *running* shells at `MAX_SHELLS_PER_SESSION` (16) but does
+not cap settled ones — a completed shell keeps its record and up to
+`SHELL_BUFFER_CHARS` (256k) of output until the user presses `d` in `/shells`
+or the session ends. A long session that backgrounds many short commands
+therefore creeps: ~0.5 MB per settled shell, worst case. Deliberate for now —
+keeping the output is the point, and `d` plus session teardown both free it —
+but if it bites, evict the oldest settled shells past a retention count in
+`ShellRegistry.start()`. Do NOT evict running ones: nothing else holds a handle
+that can kill the process (same reason `remove()` refuses a running shell).
 
 ### `@` mention fallback ignores .gitignore
 
