@@ -43,6 +43,12 @@ export interface CommandContext extends MessageCreators {
   showResumePicker?(): void;
   /** Interactive MCP server list with live connection status (the /mcp command). */
   showMcpPicker?(): Promise<void>;
+  /**
+   * Background shells started by `bash(run_in_background: true)`, with a live
+   * tail of the selected one (the /shells command). Lives in the shell because
+   * only it holds the session id the registry is keyed by.
+   */
+  showShellsPanel?(): Promise<void>;
   /** Trigger manual compaction of the current session (the /compact command). */
   compactSession?(): Promise<void>;
   /**

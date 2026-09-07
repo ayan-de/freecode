@@ -81,6 +81,18 @@ const mcpCommand: Command = {
   },
 };
 
+const shellsCommand: Command = {
+  name: "shells",
+  description: "Background shells — live output, kill a running one",
+  execute: async (_args, ctx) => {
+    if (ctx.showShellsPanel) {
+      await ctx.showShellsPanel();
+    } else {
+      ctx.showMessage("Shells panel unavailable in this context.");
+    }
+  },
+};
+
 const effortCommand: Command = {
   name: "effort",
   description: "Set reasoning effort (low/medium/high/xhigh/max)",
@@ -256,6 +268,7 @@ export function registerBuiltInCommands(): void {
   registerCommand(modelCommand);
   registerCommand(webCommand);
   registerCommand(mcpCommand);
+  registerCommand(shellsCommand);
   registerCommand(effortCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);

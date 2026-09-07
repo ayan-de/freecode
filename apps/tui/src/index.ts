@@ -63,6 +63,10 @@ import {
   resolveCommand,
   listTools,
   mcpStatus,
+  shellsList,
+  shellsOutput,
+  shellsKill,
+  shellsRemove,
   getCurrentModel,
   setCurrentModel,
   getLastAgentMode,
@@ -132,6 +136,7 @@ import {
   createModelSelector,
 } from "./components/model-picker.js";
 import { createMcpSelector } from "./components/mcp-picker.js";
+import { ShellsPanel } from "./components/shells-panel.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
@@ -252,6 +257,15 @@ let providerSelector: SearchableSelectList | null = null;
 let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let mcpSelector: SearchableSelectList | null = null;
+/**
+ * The /shells card. Also kept up to date while CLOSED — shell_* stream events
+ * land in it regardless — so opening it shows history rather than only what
+ * happened after the keypress.
+ */
+let shellsPanel: ShellsPanel | null = null;
+let shellsPanelOpen = false;
+/** Poll handle for status/elapsed refresh while the card is on screen. */
+let shellsTimer: NodeJS.Timeout | null = null;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
@@ -374,6 +388,7 @@ modeLine = new ModeLine(
   () => currentProvider,
   () => currentModel,
   () => currentEffort,
+  () => shellsPanel?.runningCount() ?? 0,
 );
 tui.addChild(modeLine);
 
@@ -576,6 +591,108 @@ async function showProviderSelector(kind: "api" | "web" = "api"): Promise<void> 
   } catch (err) {
     showMessage(`**Error:** Failed to load providers: ${err}`);
   }
+}
+
+/**
+ * The panel is a view over state the shell already tracks, so it exists from
+ * the first shell_start event whether or not the card is open. Created lazily
+ * because most sessions never start a background shell.
+ */
+function ensureShellsPanel(): ShellsPanel {
+  if (!shellsPanel) {
+    shellsPanel = new ShellsPanel({
+      onKill: (shellId) => {
+        const sessionId = currentSession?.sessionId;
+        if (!sessionId) return;
+        void shellsKill(sessionId, shellId).then(() => refreshShells());
+      },
+      onRemove: (shellId) => {
+        const sessionId = currentSession?.sessionId;
+        if (!sessionId) return;
+        void shellsRemove(sessionId, shellId).then(() => refreshShells());
+      },
+      onClose: () => hideShellsPanel(),
+    });
+    shellsPanel.setMaxRows(() => Math.max(10, Math.floor(terminal.rows * 0.6)));
+  }
+  return shellsPanel;
+}
+
+/** Re-read the roster so status, exit codes and elapsed times stay honest. */
+async function refreshShells(): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId || !shellsPanel) return;
+  try {
+    shellsPanel.setShells(await shellsList(sessionId));
+    tui.requestRender();
+  } catch {
+    // A backend hiccup must not tear down the card the user is reading.
+  }
+}
+
+function hideShellsPanel(): void {
+  if (shellsTimer) {
+    clearInterval(shellsTimer);
+    shellsTimer = null;
+  }
+  if (shellsPanel) {
+    const idx = tui.children.indexOf(shellsPanel);
+    if (idx !== -1) tui.children.splice(idx, 1);
+  }
+  shellsPanelOpen = false;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
+/** Background shells with a live tail of the selected one (the /shells command). */
+async function showShellsPanel(): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId) {
+    showMessage("**No active session.** Send a message first.");
+    return;
+  }
+  hideMcpSelector();
+  hideModelSelector();
+  hideResumeSelector();
+
+  const panel = ensureShellsPanel();
+  try {
+    panel.setShells(await shellsList(sessionId));
+  } catch (err) {
+    showMessage(`**Error:** Failed to list background shells: ${err}`);
+    return;
+  }
+
+  if (panel.isEmpty()) {
+    showMessage(
+      "**No background shells in this session.**\n\n" +
+        "The agent starts one with `bash(run_in_background: true)` — ask it to " +
+        "run a dev server or a long build in the background.",
+    );
+    return;
+  }
+
+  // Seed the selected shell's buffer from core: stream events only cover what
+  // arrived while this TUI was listening, and the panel may be opening on a
+  // shell that has been running since before it existed.
+  const selected = panel.selectedShellId();
+  if (selected) {
+    try {
+      const output = await shellsOutput(sessionId, selected, 0);
+      if (output.found) panel.setOutput(selected, output.text);
+    } catch {
+      // Fall back to whatever the stream events already delivered.
+    }
+  }
+
+  shellsPanelOpen = true;
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, panel);
+  tui.setFocus(panel);
+  // Status and elapsed time move on their own; output arrives via stream
+  // events, so this poll is only for the roster.
+  shellsTimer = setInterval(() => void refreshShells(), 1000);
+  tui.requestRender();
 }
 
 /** Interactive MCP server list with live connection status (the /mcp command). */
@@ -1014,6 +1131,23 @@ function handleToolEvent(event: StreamEvent) {
         id: toolMsg.id,
         args: event.args,
       });
+      break;
+    }
+    // Background shells. Handled whether or not the /shells card is open so
+    // that opening it later shows the whole run, not just the tail since the
+    // keypress.
+    case "shell_start": {
+      ensureShellsPanel();
+      void refreshShells();
+      break;
+    }
+    case "shell_output": {
+      ensureShellsPanel().appendOutput(event.shellId, event.chunk);
+      if (shellsPanelOpen) tui.requestRender();
+      break;
+    }
+    case "shell_exit": {
+      void refreshShells();
       break;
     }
     case "tool_output": {
@@ -1567,6 +1701,7 @@ editor.onSubmit = async (value: string) => {
           showModelSelector: () => showProviderSelector("api"),
           showWebSelector: () => showProviderSelector("web"),
           showMcpPicker: () => showMcpPicker(),
+          showShellsPanel: () => showShellsPanel(),
           showEffortPicker,
           showResumePicker: showResumePicker,
           // Undefined until a run completes, so /cost omits the Session row
