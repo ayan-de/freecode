@@ -224,9 +224,6 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Cluster ids are positional** — adding one memory can renumber every
       cluster (`clusters.ts:139`), so cluster identity doesn't survive a rebuild and
       anything the explorer persists about one is meaningless afterwards.
-- [ ] **Embedder never retries** — one failure sets `broken = true` for the process
-      lifetime (`embedder.ts:66`). Right for a missing native lib; wrong for a
-      transient failure, which silently downgrades the rest of the run to keyword.
 - [ ] **`nodeDetailForExplorer` is O(nodes + edges) per click** —
       rebuilds a node map and scans all edges per request (`graph/index.ts:394`).
 - [ ] **Dangling wikilinks are invisible** — skipped correctly (`builder.ts:78`),
@@ -327,17 +324,6 @@ earlier audit are not repeated here.
 
 ### Real fixes
 
-- [x] **No eval case can reach the compaction path** — done 2026-09-08.
-      `evals/coding.jsonl` now carries `compaction-survives-multi-file-edit`;
-      `compaction-boundary` is out of `CATEGORIES_WITHOUT_CASES`. It needed two
-      harness capabilities, not one: a per-case `env` (allowlisted to the
-      compaction thresholds) AND `followUps`, extra user turns on the same
-      session. Spec §9.1 assumed the threshold knob alone was enough, which is
-      **wrong** — `selectForCompaction` returns nothing to compact while
-      `countUserTurns <= preserveRecentTurns` (2), and only a prompt creates a
-      user turn (tool turns are recorded as `assistant`), so a single-`runEffect`
-      case cannot compact at ANY token count. Measured: 3/3 trials, exactly one
-      compaction each. `followUps` is also the substrate `resume` needs.
 - [ ] **`settings.json` has three loaders and three different merge rules.**
       `permissions` concatenates both scopes, `hooks` override by `event + name`,
       `memory` takes the first definition (project → user → default). Nothing states
@@ -353,19 +339,6 @@ earlier audit are not repeated here.
       `FREECODE_TOOL_RESULT_BUDGET_CHARS` (`loop.ts:152`) and the five
       `FREECODE_OUTPUT_*` values (`tools/output-store/config.ts`) are module-load
       consts, while the compaction and cache vars are deliberately read per call.
-- [x] **`FREECODE_TOOL_RESULT_BUDGET_CHARS=""` silently means 0** — fixed
-      2026-09-08, and it was not one variable. The same shape appeared at four
-      sites: an empty `FREECODE_EVAL_TRIAL_TIMEOUT_MS` or
-      `FREECODE_EVAL_VERIFY_TIMEOUT_MS` clamped to `Math.max(1_000, 0)` — a
-      one-second budget that fails every trial for infrastructure reasons and
-      reads as an agent failure — and an empty `FREECODE_EXIT_FLUSH_BUDGET_MS`
-      meant "never wait for the final memory flush". All four now go through
-      `utils/env.ts` `envInt`, which treats empty/whitespace as unset, accepts
-      decimal integers only (`Number("0x10")` is 16), falls back rather than
-      clamping an out-of-range value, and warns on anything unparseable so a typo
-      is not indistinguishable from the feature being broken. The two sites in
-      `models-dev.ts` and `tools/output-store/config.ts` were already safe — they
-      require `> 0`, which rejects the empty-string zero — and were left alone.
 - [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
       `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
 - [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
@@ -638,14 +611,6 @@ that page's **Known gaps**.
 
 ### Real fixes
 
-- [ ] **The git HEAD never reaches the model.** It is computed with an `execSync`
-      per cache miss (`tree-cache.ts:38`), carried on `ProjectContext`, frozen per
-      session, threaded through `run()` → `callProviderOnce` →
-      `compileDynamicContext` — and `compileProjectSummary` uses it only as a
-      **cache key**. The rendered section is `Project` / `Path` / `File tree` and
-      nothing else (`compiler.ts:115`). `CLAUDE.md` ("file tree, git head") and
-      several in-code comments claim otherwise. Either render it or stop computing
-      it.
 - [ ] **`collector.ts` + `context/types.ts` + `context/strategies/` are
       unreachable.** `collectContext()` resolves a strategy from a registry that
       only `createDefaultStrategies()` fills, and that function has no callers — so
@@ -663,21 +628,6 @@ that page's **Known gaps**.
 - [ ] **`ProjectContext` is declared twice with different fields** —
       `context/types.ts:5` (dead: `{ projectPath, name, tree, files, metadata }`)
       and `context/tree-cache.ts:14` (live: `{ name, projectPath, tree, gitHead }`).
-- [ ] **Editing `CLAUDE.md` mid-session busts the prompt cache with nothing in
-      the invalidation journal.** `compileInstructionsSection` re-reads from disk
-      every turn and feeds the `cache: true` block, so an edit moves the first
-      breakpoint. Legitimate, but no `recordInvalidation` call — so the miss
-      detector reports an unexplained bust. Same shape as the MCP tool-set gap in
-      the provider-layer audit; both want a `recordInvalidation` at the site that
-      changes the prefix.
-- [x] **The 40,000-char instruction cap truncates mid-file, after joining, with
-      global first** — fixed 2026-09-08. `compileInstructionsSection` now
-      allocates the budget MOST SPECIFIC FIRST, so a fat `~/.freecode/CLAUDE.md`
-      can no longer push the repo's own instructions out. Every casualty is
-      named: a cut file carries `[Truncated: <path> did not fit …]`, one squeezed
-      out entirely is still listed with `[Omitted: …]` rather than vanishing, and
-      both paths `logger.warn`. Prompt order stays global-then-project regardless
-      of allocation order.
 - [ ] **`invalidateSymbolCache` has no callers** (`repo-map/index.ts:196`). The
       whole-project symbol cache relies on git HEAD + a 5-minute TTL, so
       uncommitted edits inside that window return stale `workspaceSymbol` results.
@@ -933,16 +883,12 @@ Three findings worth keeping, because each contradicts something the spec said:
 
 ### Found by the smoke test (2026-08-23, real MiniMax turns)
 
-Two bugs that every unit test passed through, plus one limitation:
+It also found two bugs every unit test passed through — a citation tag that
+streamed to the user, and citations parsed and then dropped by an `unref`'d
+debounce on a short-lived process. Both are fixed; the fixes are in
+`CitationStreamFilter` and `UsageStore`'s synchronous exit flush. One
+limitation is still open:
 
-- **Fixed — the citation tag streamed to the user.** Stripping the *final* text
-  is too late: `text_delta` reaches the frontend token by token, so the tag was
-  plainly visible in `freecode run` output. `CitationStreamFilter` now holds back
-  any trailing text that could still become the marker.
-- **Fixed — citations were parsed and then dropped.** They are recorded at the
-  *end* of a turn, `UsageStore` debounces 2s, and the timer is `unref`'d, so a
-  short-lived process exits first. `injectedCount` had persisted while
-  `useCount` had not. Now flushed synchronously on `process.on("exit")`.
 - [ ] **Headless runs never complete background memory work.** `freecode run`
       exits before fire-and-forget extraction or consolidation lands. Fine for
       the daemon (the TUI stays alive), but it means scripted runs never
