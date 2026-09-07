@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.30.3
+
+A small release covering the agent-comparison benchmark and a few prompt/transcript refinements. `opencode` is now isolatable, which made the first fully metered and officially graded freecode-vs-opencode matchup possible; alongside that, memory prompt rendering became configurable, session continuation stopped announcing itself, and standalone file updates render on their own instead of inside an empty tool group.
+
+### Added
+
+- **`FREECODE_MEMORY_PROMPT` for legacy memory rendering** (`94bbc8b`). Opt back into the previous memory prompt shape, with a new anti-narration experiment in the eval set to measure the difference.
+- **`FILE_UPDATE_TOOLS` for standalone file updates** (`94bbc8b`). File-update results render on their own rather than being wrapped in a tool group, with tool-group tests updated to match.
+
+### Changed
+
+- **`opencode` is isolatable** (`d5437eb`, `a043b25`, `16eda25`). Its config file is rendered per trial to pin the provider baseURL at the sidecar proxy's IP, and the config dir is seeded ahead of time because opencode npm-installs 62 MB on first run and an isolated container has no network. This retires `empty-config/`; `AGENT-BENCH.md` documents `configFile`, `configSeed`, and the one-time seed command.
+- **Published freecode vs opencode, isolated and graded** (`19d0b5a`). 10 django SWE-bench Lite instances x 3 trials, both agents on MiniMax-M3, one container per trial on an `--internal` network, graded by the official swebench 3.0.17 harness: freecode 0.30.1 at 24/30 (80%, $0.75, 8.2M tok) vs opencode 1.18.25 at 23/30 (77%, $2.25, 27.3M tok), `auditOk` on 60/60 trials. Published with `--fresh` — it replaces three stitched ungraded Sep-3 runs at `isolation=none`.
+- **Session continuation no longer announces resumption** (`94bbc8b`).
+
+### Fixed
+
+- **Compaction skip reason is logged** (`fa28ff7`); the redundant tool-execution log line is gone.
+
 ## v0.30.2
 
 A hardening release focused on the memory system, TUI transcript rendering, and eval fixture accuracy. It fixes findings from the memory-system review, improves live assistant text and reasoning streaming, removes debug chatter and blank tool-group framing from the transcript, and updates eval samples so recorded outcomes and judge feedback match the intended cases.
