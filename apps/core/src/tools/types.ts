@@ -9,6 +9,13 @@ export interface ToolContext {
    */
   toolCallId?: string;
   projectPath?: string;
+  /**
+   * The spawning loop's agent mode. Only the `agent` tool reads it, to decide
+   * what a subagent inherits — a subagent that silently dropped to `build`
+   * under a `danger` parent prompted for permissions the user had already
+   * turned off, in the middle of somebody else's turn.
+   */
+  agentMode?: import("../agent/types.js").AgentMode;
   fileCache?: FileCache;
   permissionProfile?: PermissionProfile;
   hooks?: unknown;

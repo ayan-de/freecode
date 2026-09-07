@@ -1040,6 +1040,7 @@ export class AgentLoop {
               originalRequest: input.prompt,
               changedFiles: [...this.mutatedFiles],
               priorReport: this.lastVerifierReport,
+              parentSessionId: this.state.sessionId,
             });
             if (this.abort.signal.aborted)
               return await this.complete(
@@ -2586,6 +2587,7 @@ export class AgentLoop {
       // already showing, instead of the user staring at a spinner for the
       // whole of a build (see bash.ts).
       toolCallId: toolCall.id,
+      agentMode: this.state.agentMode,
       abort: this.abort.signal,
     };
 
