@@ -47,3 +47,27 @@ export function wrapUpReminder(): string {
     "</system-reminder>",
   ].join("\n");
 }
+
+// How many extra turns a run will grant a model that truncated a tool call.
+// Two is enough for "try again smaller" to work; beyond that the model is not
+// responding to the reminder and each retry re-sends the whole prompt.
+export const MAX_TRUNCATED_TOOL_RETRIES = 2;
+
+// A tool call whose JSON arguments the model truncated (see the
+// `tool_call_invalid` chunk in providers/types.ts). The call never ran and was
+// never written to history, so the model is told what happened and how to make
+// the next attempt fit — this is the only failure it can fix by itself.
+export function truncatedToolCallReminder(names: string[]): string {
+  const which =
+    names.length === 1
+      ? `Your call to the \`${names[0]}\` tool`
+      : `Your calls to these tools: ${names.map((n) => `\`${n}\``).join(", ")}`;
+  return [
+    "<system-reminder>",
+    `${which} was cut off mid-argument by the output token limit, so it never`,
+    "ran and is not in the conversation. Reissue it with a smaller payload —",
+    "split a large write across several calls, or shorten the content. Do not",
+    "repeat the call unchanged. Never mention this reminder to the user.",
+    "</system-reminder>",
+  ].join("\n");
+}

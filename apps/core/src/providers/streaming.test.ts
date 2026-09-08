@@ -118,6 +118,9 @@ test("normalizeAiSdkStream falls back to the deprecated cachedInputTokens", asyn
 // string rather than an object. Passing it through stored a string in history
 // that every later request re-sent as tool_use.input, which providers reject
 // with "Input should be a valid dictionary" — permanently bricking the session.
+// It is reported as `tool_call_invalid` rather than `error`: the string must
+// never reach history, but the rest of the turn is fine and the model can
+// reissue the call smaller once the loop tells it what happened.
 test("normalizeAiSdkStream rejects a tool call whose input is not an object", async () => {
   const chunks = await collect(
     normalizeAiSdkStream(
@@ -137,12 +140,62 @@ test("normalizeAiSdkStream rejects a tool call whose input is not an object", as
     !chunks.some((c) => (c as { type: string }).type === "tool_call"),
     "malformed tool call must not reach the agent loop",
   );
-  const err = chunks.find(
-    (c): c is { type: "error"; error: string } =>
-      (c as { type: string }).type === "error",
+  assert.ok(
+    !chunks.some((c) => (c as { type: string }).type === "error"),
+    "a truncated call must not fail the whole turn",
   );
-  assert.ok(err, "expected an error chunk");
-  assert.match(err.error, /write/);
+  const invalid = chunks.find(
+    (c): c is { type: "tool_call_invalid"; name?: string } =>
+      (c as { type: string }).type === "tool_call_invalid",
+  );
+  assert.ok(invalid, "expected a tool_call_invalid chunk");
+  assert.equal(invalid.name, "write");
+});
+
+// Only the truncated call is lost. Failing the turn used to discard the text
+// and any valid tool calls that arrived alongside it.
+test("normalizeAiSdkStream keeps the rest of a turn containing a truncated call", async () => {
+  const chunks = await collect(
+    normalizeAiSdkStream(
+      fakeStream([
+        { type: "text-delta", text: "working on it" },
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "read",
+          input: { filePath: "/tmp/a.md" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call-2",
+          toolName: "memory",
+          input: '{"action":"save","content":"half a mem',
+          invalid: true,
+        },
+        { type: "finish", finishReason: "tool-calls" },
+      ]),
+    ),
+  );
+  assert.deepEqual(
+    chunks
+      .filter((c) => (c as { type: string }).type === "tool_call")
+      .map((c) => (c as { name: string }).name),
+    ["read"],
+  );
+  assert.deepEqual(
+    chunks
+      .filter((c) => (c as { type: string }).type === "tool_call_invalid")
+      .map((c) => (c as { name?: string }).name),
+    ["memory"],
+  );
+  assert.ok(
+    chunks.some(
+      (c) =>
+        (c as { type: string }).type === "text_delta" &&
+        (c as { delta: string }).delta === "working on it",
+    ),
+    "the turn's text must survive",
+  );
 });
 
 test("normalizeAiSdkStream passes through a well-formed tool call", async () => {

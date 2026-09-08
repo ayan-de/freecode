@@ -66,14 +66,13 @@ export async function* normalizeAiSdkStream(
         // is stored in history, reloaded on resume, and re-sent every turn as
         // `tool_use.input`, which providers reject ("Input should be a valid
         // dictionary") — every subsequent request fails before reaching the
-        // model. Fail the turn here instead, while the damage is recoverable.
+        // model. Drop the call here, while the damage is recoverable, and tell
+        // the caller which tool it was: truncation is the one failure the model
+        // can fix itself by reissuing a smaller call, so the loop feeds it back
+        // rather than failing the turn (which discarded the turn's text and any
+        // *valid* tool calls alongside it).
         if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-          yield {
-            type: "error",
-            error:
-              `Tool call "${name ?? "unknown"}" had malformed arguments (likely truncated by the ` +
-              `output token limit). Retry with a smaller change, or raise maxTokens.`,
-          };
+          yield { type: "tool_call_invalid", id, name };
           break;
         }
         const args = raw as Record<string, unknown>;

@@ -283,12 +283,29 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
     }
     const result = await call();
 
-    const toolCalls = result.toolCalls?.map(
-      (tc): { name: string; args: Record<string, unknown>; id: string } => {
-        const input = (tc as unknown as { input: Record<string, unknown> }).input;
-        return { name: tc.toolName, args: input, id: tc.toolCallId };
-      },
-    );
+    // Same hazard as the streaming path (see normalizeAiSdkStream): when the
+    // model truncates a tool call's JSON, the SDK hands back the RAW STRING as
+    // `input` rather than throwing. Casting that to a Record writes a string
+    // into `tool_use.input`, which every later request re-sends and every
+    // provider rejects. Drop those calls and name them instead.
+    const truncatedToolCalls: string[] = [];
+    const toolCalls: Array<{
+      name: string;
+      args: Record<string, unknown>;
+      id: string;
+    }> = [];
+    for (const tc of result.toolCalls ?? []) {
+      const input = (tc as unknown as { input: unknown }).input;
+      if (typeof input !== "object" || input === null || Array.isArray(input)) {
+        truncatedToolCalls.push(tc.toolName);
+        continue;
+      }
+      toolCalls.push({
+        name: tc.toolName,
+        args: input as Record<string, unknown>,
+        id: tc.toolCallId,
+      });
+    }
 
     const usage: ExecuteUsage | undefined = result.usage
       ? mapUsage(result.usage, result.providerMetadata) ?? undefined
@@ -297,7 +314,10 @@ export function createGenericProvider(entry: ProviderCatalogueEntry): AIProvider
     return {
       content: result.text || "",
       thinking: undefined,
-      toolCalls: toolCalls?.length ? toolCalls : undefined,
+      toolCalls: toolCalls.length ? toolCalls : undefined,
+      truncatedToolCalls: truncatedToolCalls.length
+        ? truncatedToolCalls
+        : undefined,
       usage,
       stopReason:
         result.finishReason === "tool-calls"

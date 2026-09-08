@@ -132,6 +132,9 @@ export interface ExecuteResult {
     args: Record<string, unknown>;
     id: string;
   }>;
+  /** Names of tool calls dropped because the model truncated their JSON
+   *  arguments — the non-streaming twin of the `tool_call_invalid` chunk. */
+  truncatedToolCalls?: string[];
   usage?: ExecuteUsage;
   stopReason: "stop" | "tool_use" | "max_tokens" | "unknown";
   provider: string;
@@ -169,6 +172,15 @@ export type ProviderChunk =
        *  own chunk so no consumer has to learn a new case to ignore. */
       echoedModel?: string;
     }
+  /**
+   * A tool call whose arguments the model truncated (usually by running out of
+   * output tokens), so they never parsed as JSON. Distinct from `error`: the
+   * turn is intact and every other part of it is usable — only this one call
+   * is unrecoverable, and the model can reissue it smaller. The raw string is
+   * deliberately NOT carried: storing it as `tool_use.input` is what poisons a
+   * session permanently (see normalizeAiSdkStream).
+   */
+  | { type: "tool_call_invalid"; id?: string; name?: string }
   | { type: "error"; error: string };
 
 export interface AIProvider {

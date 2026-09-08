@@ -61,8 +61,10 @@ import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
 import {
+  MAX_TRUNCATED_TOOL_RETRIES,
   shouldNudgeTodo,
   todoNudgeReminder,
+  truncatedToolCallReminder,
   wrapUpReminder,
 } from "./reminders.js";
 import {
@@ -397,6 +399,10 @@ export class AgentLoop {
   // driving the adversarial verification gate for non-trivial changes.
   private mutatedFiles = new Set<string>();
   private verifierAttempts = 0;
+  // How many times this run has given the model another turn after it
+  // truncated a tool call. Capped: a model that keeps overflowing the output
+  // limit must end the run, not retry forever at full prompt cost.
+  private truncatedRetries = 0;
   private lastVerifierReport: string | undefined;
   // Last rendered memory block, so a run reset clears stale injected memory.
   private lastMemoryBlock: string | undefined = undefined;
@@ -661,6 +667,7 @@ export class AgentLoop {
     this.verifyAttempts = 0;
     this.mutatedFiles = new Set<string>();
     this.verifierAttempts = 0;
+    this.truncatedRetries = 0;
     this.lastVerifierReport = undefined;
     this.lastMemoryBlock = undefined;
     this.lastMemoryEmittedFor = undefined;
@@ -990,6 +997,38 @@ export class AgentLoop {
         // every item pending, and a forced continuation turns a requested
         // plan into unsolicited implementation work.
         if (turnResult.toolResults.length === 0) {
+          // The model cut a tool call off mid-argument and nothing else ran,
+          // so this is not "the model wants to stop" — it is a failure the
+          // model can fix by reissuing the call smaller. executeTurn has
+          // already queued the reminder that says so; give it the turn.
+          if (
+            turnResult.truncatedToolCall &&
+            this.truncatedRetries < MAX_TRUNCATED_TOOL_RETRIES
+          ) {
+            this.truncatedRetries += 1;
+            this.state = {
+              ...this.state,
+              iterationCount: this.state.iterationCount + 1,
+              turnCount: this.state.turnCount + 1,
+            };
+            continue;
+          }
+          if (turnResult.truncatedToolCall) {
+            // Out of retries: say what stopped the run. Reported as a
+            // completion, not a session error — the transcript up to here is
+            // valid work, and the fix is the user's (a smaller ask, or a
+            // larger output budget).
+            await this.stop("tool_call_truncated");
+            return await this.complete(
+              "Stopped: the model kept running out of output tokens mid-tool-call " +
+                `(${MAX_TRUNCATED_TOOL_RETRIES} retries). Ask for a smaller change, or raise the ` +
+                "output limit.",
+              turnResult.responseText,
+              turnResult.thinking,
+              usageSoFar(),
+            );
+          }
+
           // Verification gate: if this run changed files, run the project's
           // typecheck/build before finishing. On failure, feed the output back
           // and force another turn — capped so a red project still terminates.
@@ -1446,6 +1485,12 @@ export class AgentLoop {
      * counter, which is per turn (see advanceStagnation).
      */
     madeFileChange?: boolean;
+    /**
+     * The model truncated one or more tool calls mid-argument this turn. The
+     * calls were dropped; run() forces another turn so the model can reissue
+     * them, instead of ending the run on a failure it can fix itself.
+     */
+    truncatedToolCall?: boolean;
     usage?: ExecuteUsage;
   }> {
     // Recorded here, before any provider call, so the event actually brackets
@@ -1730,6 +1775,20 @@ export class AgentLoop {
         });
       }
 
+      // A tool call the model cut off mid-argument. It never parsed, so it is
+      // not in `toolCalls` and never reaches history; the model is told to
+      // reissue it smaller on the next turn.
+      const truncatedToolCalls = providerResult.truncatedToolCalls ?? [];
+      if (truncatedToolCalls.length > 0) {
+        logger.warn(
+          `[AgentLoop] dropped ${truncatedToolCalls.length} truncated tool call(s): ` +
+            `${truncatedToolCalls.join(", ")} — output token limit reached`,
+        );
+        this.pendingReminders.push(
+          truncatedToolCallReminder(truncatedToolCalls),
+        );
+      }
+
       const usedTodoWrite = toolCalls.some((tc) => tc.tool === "todowrite");
       // Only a mutating action counts as "the model already curated memory
       // this run" for extraction gate 3. `list` — which the tool's own
@@ -1780,6 +1839,7 @@ export class AgentLoop {
           responseText: providerResult.content,
           thinking: providerResult.thinking,
           madeFileChange: false,
+          truncatedToolCall: truncatedToolCalls.length > 0,
           usage: providerResult.usage,
         };
       }
@@ -1938,6 +1998,9 @@ export class AgentLoop {
       args: Record<string, unknown>;
       id: string;
     }>;
+    /** Names of tool calls the model truncated mid-argument; see
+     *  `tool_call_invalid` in providers/types.ts. */
+    truncatedToolCalls?: string[];
     usage?: ExecuteUsage;
     streamed?: boolean;
   }> {
@@ -1976,6 +2039,9 @@ export class AgentLoop {
       args: Record<string, unknown>;
       id: string;
     }>;
+    /** Names of tool calls the model truncated mid-argument; see
+     *  `tool_call_invalid` in providers/types.ts. */
+    truncatedToolCalls?: string[];
     usage?: ExecuteUsage;
     streamed?: boolean;
   }> {
@@ -2090,6 +2156,7 @@ export class AgentLoop {
         let toolCalls:
           | Array<{ name: string; args: Record<string, unknown>; id: string }>
           | undefined;
+        let truncatedToolCalls: string[] | undefined;
         let usage: ExecuteUsage | undefined;
 
         let ttft_ms: number | undefined;
@@ -2142,6 +2209,12 @@ export class AgentLoop {
                 name: chunk.name,
                 args: chunk.args,
               });
+              break;
+            // Not fatal: the call is dropped (its arguments never parsed and
+            // must never reach history) but the rest of the turn stands, and
+            // executeTurn tells the model to reissue it smaller.
+            case "tool_call_invalid":
+              (truncatedToolCalls ??= []).push(chunk.name ?? "unknown");
               break;
             case "usage": {
               // Streaming uses the same payload shape as execute() — the
@@ -2204,6 +2277,7 @@ export class AgentLoop {
           content,
           thinking: thinking ? thinking : undefined,
           toolCalls,
+          truncatedToolCalls,
           usage,
           streamed: true,
         };
@@ -2245,6 +2319,7 @@ export class AgentLoop {
         content: result.content,
         thinking: result.thinking,
         toolCalls: result.toolCalls,
+        truncatedToolCalls: result.truncatedToolCalls,
         usage: result.usage,
       };
     } catch (err) {
