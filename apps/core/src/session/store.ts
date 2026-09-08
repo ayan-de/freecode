@@ -5,7 +5,7 @@
 // PROJECT DIR: Project path is formatted using path-formatter (e.g., /home/ayande/Project → home__ayande__Project)
 // =============================================================================
 
-import { mkdir, readFile, writeFile, readdir, rm } from "fs/promises";
+import { mkdir, readFile, writeFile, readdir, rm, copyFile } from "fs/promises";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -160,6 +160,7 @@ const SESSION_DIR = "sessions";
 const META_FILE = "meta.json";
 const MESSAGES_FILE = "messages.jsonl";
 const CONTEXT_CACHE_FILE = "context-cache.json";
+const TODOS_FILE = "todos.json";
 
 // ============================================================================
 // Helpers
@@ -466,6 +467,16 @@ class SessionStoreImpl implements SessionStore {
     const messages = await this.getMessages(sessionId, meta.projectPath);
     for (const msg of messages) {
       await this.appendMessage(newId, msg, targetProjectPath);
+    }
+    const todosSrc = join(
+      this.sessionDir(sessionId, meta.projectPath),
+      TODOS_FILE,
+    );
+    if (existsSync(todosSrc)) {
+      await copyFile(
+        todosSrc,
+        join(this.sessionDir(newId, targetProjectPath), TODOS_FILE),
+      );
     }
     return newId;
   }

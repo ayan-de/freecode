@@ -11,6 +11,9 @@ import { SUBAGENT_DEFINITIONS } from "./types.js";
 import { createAgentLoop } from "./loop.js";
 import { BusEvents } from "../bus/index.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
+import { getAgentRegistry } from "./registry/index.js";
+import { disposeShellRegistry } from "../tools/shells/index.js";
+import { logger } from "../utils/logger.js";
 
 export interface SubagentResult {
   success: boolean;
@@ -47,6 +50,13 @@ export async function executeSubagent(
   projectPath: string,
   provider: string,
   model?: string,
+  /**
+   * Session that asked for this subagent. Optional only because the exported
+   * helpers below predate the roster; when it is supplied the subagent shows up
+   * in /agents like any other, which is how the verify gate stopped being an
+   * invisible pause mid-turn.
+   */
+  parentSessionId?: string,
 ): Promise<SubagentResult> {
   let id: string = randomUUID();
   let sessionStore: SessionStore | undefined;
@@ -58,8 +68,52 @@ export async function executeSubagent(
   }
 
   // Emit subagent started event
-  BusEvents.subagentStarted(id, config.type, "", config.taskPrompt);
+  BusEvents.subagentStarted(
+    id,
+    config.type,
+    parentSessionId ?? "",
+    config.taskPrompt,
+  );
 
+  const agents = getAgentRegistry();
+  const rootId = parentSessionId ? agents.rootOf(parentSessionId) : undefined;
+  if (parentSessionId && rootId) {
+    try {
+      agents.register({
+        id,
+        parentId: parentSessionId,
+        task: config.type === "verifier" ? "Verify changes" : config.taskPrompt,
+        agentType: config.type,
+        onActivity: (agentId, chunk) =>
+          BusEvents.stream(rootId, {
+            type: "agent_output",
+            agentId,
+            chunk,
+          }),
+        onExit: (agentId, status) => {
+          if (status === "running") return;
+          BusEvents.stream(rootId, { type: "agent_exit", agentId, status });
+        },
+      });
+      BusEvents.stream(rootId, {
+        type: "agent_start",
+        agentId: id,
+        parentId: parentSessionId,
+        task: config.type === "verifier" ? "Verify changes" : config.taskPrompt,
+        agentType: config.type,
+        depth: agents.depthOf(id),
+      });
+    } catch (error) {
+      // The caps are advisory on this path: these subagents are spawned by the
+      // loop itself (the verify gate), not by a model that could be told to
+      // stop delegating, so refusing here would break the gate rather than
+      // discipline anyone. Run it unlisted — the roster loses a row, the work
+      // still happens.
+      logger.debug("[Subagent] not listed in /agents", { id, error });
+    }
+  }
+
+  let settleStatus: "completed" | "failed" = "failed";
   try {
     const loop = createAgentLoop(id, {
       maxIterations: config.maxIterations ?? 20,
@@ -73,6 +127,7 @@ export async function executeSubagent(
       redirect: false,
       sessionStore,
     });
+    if (parentSessionId) agents.attachInterrupt(id, () => loop.interrupt());
 
     const prompt = buildSubagentPrompt(config);
     const readOnly =
@@ -86,6 +141,7 @@ export async function executeSubagent(
       model: config.model ?? model,
       agentMode: readOnly ? "explore" : "build",
     });
+    settleStatus = result.success ? "completed" : "failed";
 
     // Emit subagent completed event
     BusEvents.subagentCompleted(
@@ -117,6 +173,12 @@ export async function executeSubagent(
       turnCount: 0,
       iterationCount: 0,
     };
+  } finally {
+    agents.settle(id, settleStatus);
+    // A subagent's session id is synthetic and `endSession` never sees it, so
+    // a background shell it started would outlive it with nothing holding a
+    // handle to kill it — and be invisible in /shells, which keys on the root.
+    disposeShellRegistry(id);
   }
 }
 
@@ -171,6 +233,8 @@ export async function verifyChanges(input: {
   originalRequest: string;
   changedFiles: string[];
   priorReport?: string;
+  /** The session being verified, so the verifier shows up in /agents. */
+  parentSessionId?: string;
 }): Promise<VerificationResult> {
   const task = [
     "Independently and adversarially verify the work that was just completed.",
@@ -221,6 +285,7 @@ export async function verifyChanges(input: {
     input.projectPath,
     input.provider,
     input.model,
+    input.parentSessionId,
   );
 
   const report = result.content || result.message || "(no verifier output)";

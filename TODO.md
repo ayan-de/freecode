@@ -26,9 +26,6 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
       text/code/tool only, and `read` cannot return an image. Blocks screenshots, design
       mocks, and diagram debugging. Touches the shared protocol + every provider adapter.
 
-- [ ] **6. Background bash** — no `run_in_background` in `tools/bash.ts`, so a dev server
-      or long build blocks the turn.
-
 - [ ] **7. MCP server (expose)** — serve FreeCode's tools *as* an MCP server. The client
       side is done. Already listed as deferred in `CLAUDE.md`.
 
@@ -38,7 +35,150 @@ and `CLAUDE.md`/`AGENTS.md` instructions. Ranked by value per line of work.
 
 
 **Suggested order:** 3, then 4. Items 5 and 8 are larger, self-contained
-projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.)
+projects. (Item 2, user-defined slash commands, shipped as `commands/loader.ts`.
+Item 6, background bash, shipped as `tools/shells/` + `bashoutput`/`killbash`
+and the TUI's `/shells` panel.)
+
+### Background shell completion notifications (added 2026-09-08)
+
+**Status:** designed, not built. Follow-up to the background-bash work (ex-item 6).
+
+Today a background shell is **pull-only**: the model learns a command finished
+only by calling `bashoutput`, and it has no reason to call it once the turn has
+ended. So "run the eval, tell me when it's done" works if the user asks again
+30 minutes later, and never volunteers the result. Claude Code does volunteer
+it, and the mechanism is worth copying rather than inventing:
+`tasks/LocalShellTask` calls `enqueuePendingNotification({ mode:
+'task-notification' })` on exit, which pushes a synthetic user message
+(`<task-notification><status>completed</status><summary>Background command "X"
+completed (exit code 0)</summary>`) onto the message queue; the REPL drains
+that queue between turns **including when idle**, so the model is re-invoked
+and reports back on its own. `utils/collapseBackgroundBashNotifications.ts`
+exists only to squash a burst of those into one line.
+
+What FreeCode already has:
+
+- exit detection with a callback — `ShellRegistry.start({ onExit })`
+  (`tools/shells/registry.ts:31`), already fired on natural exit and on
+  `kill`/`killAll` (`:190`).
+- a follow-up message queue — `queue-store.ts`, `server.ts:476`.
+- per-turn reminder injection — `AgentLoop.pendingReminders`.
+
+The two gaps:
+
+- [ ] **Nothing tells the model.** `shell_exit` is a `StreamEvent` consumed by
+      the TUI only. `pendingReminders` cannot carry it as-is: `loop.ts:648`
+      resets the array at the start of every `run()`, so anything pushed after
+      a turn ends is discarded. Needs a cross-turn queue (or an enqueue into
+      the existing message queue, which is closer to Claude Code's shape).
+- [ ] **The queue never drains while idle.** `server.ts:267` drains it in the
+      `finally` of a *running* turn, and `:284` deletes the session from
+      `activeLoops` when there is nothing queued. With no turn in flight
+      nothing ever looks at the queue again, so an enqueued notification would
+      sit there until the user typed. **This is the actual work**: an idle
+      watcher that starts a turn when the queue gains an item and
+      `!activeLoops.has(sessionId)`.
+
+Also needed once those land: collapse a burst (five shells finishing at once is
+one notification, not five turns), and suppress the notification when the model
+already drained that shell to completion via `bashoutput` — otherwise the
+notification buys a redundant paid turn.
+
+**Why it is not built yet:** gap 2 means the agent starts *billable turns with
+no user input*. A misfiring watcher burns tokens while nobody is watching, and
+it overlaps the deliberately-Phase-0-only `autonomous/` work, whose whole point
+is that unattended execution gets signed off per phase. Ship it default-**off**
+behind a setting (`shells.notifyOnExit`, plus the usual
+`FREECODE_DISABLE_*` escape hatch), and decide explicitly whether a completion
+may interrupt a turn already in progress or must wait for it.
+
+### Subagent permission profiles still never attach (added 2026-09-08)
+
+**Status:** partly mitigated, the real fix is item 3 above.
+
+`createToolOrchestrator()` is called with `{}` at all three production sites
+(`effect/layers.ts:63`, `:179`, `agent/loop.ts:429`). `OrchestratorOptions.permissionProfile`
+is real and checked (`tools/orchestrator.ts:150`, `:329`), but nothing outside
+`permission/` ever constructs a profile, so `PROFILES`, `PermissionChecker`,
+`TOOL_PERMISSIONS`, `getProfile`, `createProfile` and `validateProfile` are all
+dead — plus there is a duplicate `PermissionProfile` interface in
+`tools/types.ts:39`.
+
+Subagents are **not** unsandboxed, which is the part that is easy to overstate:
+`executeSubagent` maps `defaultReadOnly` to `agentMode: "explore"`
+(`agent/subagent.ts`), and explore hard-denies mutating tools
+(`modeEnforcement`), filters them out of the tool list entirely
+(`tools/defs-cache.ts:59-71`), and never prompts (`modeAllowsAsk`). So
+explorer/reviewer/summarizer/verifier are genuinely confined.
+
+The real gap is that **mode is binary**. There is nothing between explore and
+build, so a subagent that is allowed to write at all runs with the exact
+authority of its parent: no path scoping, no network restriction, no allowlist.
+Two guard rails now stand in for the missing sandbox — `MAX_AGENT_DEPTH`
+(`agent/registry/`) bounds the spawn tree, and `agent(readOnly)` defaults true
+so the common case (analysis, search, review) is confined to `explore` and
+cannot mutate anything. Neither is a substitute for per-agent capabilities: a
+`readOnly: false` subagent under a `danger` parent has the whole toolbox and
+nothing scopes it to the files it was asked about.
+
+Wiring `permissionProfile` in **as it stands would break subagents
+immediately**: the profile axes (`fileRead`/`fileWrite`/`network`/`shell`/
+`subprocess`) are a second, coarser permission model bolted beside
+`permission/rules.ts` + `mode-policy.ts`, and `isToolAllowed` fails closed on
+any tool missing from the hand-maintained `TOOL_PERMISSIONS` map — which today
+lacks `ls`, `grep`, `glob`, `webfetch`, `todowrite`, `lsp`, `bashoutput`,
+`killbash`, and every MCP tool. So before item 3 binds user-defined agents to
+profiles, either complete that map or replace it with a per-subagent tool
+allowlist that rides the existing rules evaluation rather than sitting beside
+it.
+
+### The compaction eval case is a 20KB JSONL line (added 2026-09-08)
+
+**Status:** known, cosmetic, needs a paid run to fix.
+
+`compaction-survives-multi-file-edit` is 20,339 characters on one line; every
+other case in `evals/coding.jsonl` is 743-921. The spec chose JSONL because it
+is "diffable, appendable, one case per line", and a 20KB line is not diffable —
+any future edit to that case renders as one unreadable changed line.
+
+The six padded fixture modules are what make it big, and they may now be larger
+than they need to be: the padding was sized to grow the transcript, before the
+calibration runs showed that growth is not what gates compaction (user-turn
+count is). They still have to clear the 16,000-token threshold — the base
+request measured ~12.5k WITH the padding — so shrinking them means either a
+smaller threshold or fewer modules, and either way one more calibration run
+(~$0.025) to confirm it still compacts 3/3. Not worth doing on its own; worth
+folding into the next change that touches the case.
+
+### `/agents (N)` counts running agents, which is almost always 1 (added 2026-09-08)
+
+**Status:** open design question, not a bug.
+
+`AgentTool` declares `isConcurrencySafe: false`, so `planToolBatches` puts every
+`agent` call in its own batch and subagents run strictly one at a time. The
+ModeLine chip counts RUNNING agents, so it reads `(1)` whenever anything is
+delegated and nothing otherwise — the roster accumulates rows, the chip does
+not. Three options, none obviously right:
+
+- leave it (honest about what is running, matches the `/shells` chip);
+- count agents spawned this session, so the chip matches the roster's length;
+- make `agent` concurrency-safe so they genuinely run in parallel. That is the
+  Claude Code behaviour, but the tool is marked `isDestructive` deliberately,
+  and parallel subagents mutating one tree is what that flag guards against.
+
+### Settled background shells are retained until dismissed (added 2026-09-08)
+
+**Status:** known, bounded, low priority.
+
+`ShellRegistry` caps *running* shells at `MAX_SHELLS_PER_SESSION` (16) but does
+not cap settled ones — a completed shell keeps its record and up to
+`SHELL_BUFFER_CHARS` (256k) of output until the user presses `d` in `/shells`
+or the session ends. A long session that backgrounds many short commands
+therefore creeps: ~0.5 MB per settled shell, worst case. Deliberate for now —
+keeping the output is the point, and `d` plus session teardown both free it —
+but if it bites, evict the oldest settled shells past a retention count in
+`ShellRegistry.start()`. Do NOT evict running ones: nothing else holds a handle
+that can kill the process (same reason `remove()` refuses a running shell).
 
 ### `@` mention fallback ignores .gitignore
 
@@ -84,24 +224,20 @@ second group must NOT be "fixed" — they are deliberate and load-bearing.
 - [ ] **Cluster ids are positional** — adding one memory can renumber every
       cluster (`clusters.ts:139`), so cluster identity doesn't survive a rebuild and
       anything the explorer persists about one is meaningless afterwards.
-- [ ] **Embedder never retries** — one failure sets `broken = true` for the process
-      lifetime (`embedder.ts:66`). Right for a missing native lib; wrong for a
-      transient failure, which silently downgrades the rest of the run to keyword.
 - [ ] **`nodeDetailForExplorer` is O(nodes + edges) per click** —
       rebuilds a node map and scans all edges per request (`graph/index.ts:394`).
 - [ ] **Dangling wikilinks are invisible** — skipped correctly (`builder.ts:78`),
       but a typo'd `[[link]]` never surfaces anywhere. The explorer should list
       unresolved links.
-- [ ] **Compaction summaries never see tool activity** — `MemoryService` records
-      only user prompts and assistant text; a tool-calling turn is stored as the
-      stub `[Executed N tools]` (`loop.ts:1567`). The transcript handed to the
-      summarizer contains none of the edits, commands, or errors that were the
-      actual work. **Biggest quality gap in compaction.**
-- [ ] **Two heuristic-summarizer paths are consequently dead** —
-      `extractToolCalls()` scans for `Tool <name>:` (`summarizer.ts:106`) and
-      `normalizeContent()` truncates content starting with `"Tool "`
-      (`service.ts:63`); no message ever has that shape, so the **Decisions**
-      section is always `(none)` and `maxToolOutputChars` never applies.
+- [ ] **`compact.occurred` under-reports what compaction did** — it records
+      `MemoryService`'s ESTIMATED transcript sizes, while the real trim is
+      `keepLastNUserTurns` over the session store. Measured on the new
+      `compaction-boundary` eval case: the event says 872 → 748 tokens for a
+      request that measured 16K. So `freecode trace` and the harness's
+      `Trace.compactedTokens` understate compaction by an order of magnitude.
+      `ApplyCompactionResult` already carries `messagesBefore`/`messagesAfter`
+      and neither is recorded — record those, and the measured count alongside
+      the estimate.
 - [ ] **Dead export: `renderPromptMemoryContext()`** (`selector.ts:64`) —
       referenced only by `loop.ts` comments explaining why it must not be used.
 - [ ] **`getContextLimit(model)` ignores its argument** (`tokens.ts:20`) and
@@ -188,13 +324,6 @@ earlier audit are not repeated here.
 
 ### Real fixes
 
-- [ ] **No eval case can reach the compaction path** — so the head carve-out and
-      the tool transcript (both landed 2026-09-05) are unmeasurable end to end,
-      and a green `eval:gate` is silent about them rather than evidence for them.
-      Already tracked where it belongs: `compaction-boundary` sits in
-      `CATEGORIES_WITHOUT_CASES` (`eval/dataset.test.ts`) and in §9.1 of
-      `specs/2026-08-29-eval-case-registry.md`, which is the spec to change
-      first. Not repeated here — see that row for the mechanism.
 - [ ] **`settings.json` has three loaders and three different merge rules.**
       `permissions` concatenates both scopes, `hooks` override by `event + name`,
       `memory` takes the first definition (project → user → default). Nothing states
@@ -210,9 +339,6 @@ earlier audit are not repeated here.
       `FREECODE_TOOL_RESULT_BUDGET_CHARS` (`loop.ts:152`) and the five
       `FREECODE_OUTPUT_*` values (`tools/output-store/config.ts`) are module-load
       consts, while the compaction and cache vars are deliberately read per call.
-- [ ] **`FREECODE_TOOL_RESULT_BUDGET_CHARS=""` silently means 0** — `Number("")` is
-      finite, so an empty export sets the budget to zero instead of falling back to
-      the default like every other numeric variable.
 - [ ] **`graph.explore` breaks the memory naming convention** and hard-codes
       `process.cwd()` while every neighbouring `memory.*` method takes `projectPath`.
 - [ ] **MCP servers are user-scope only.** `getConfigDir()` is hard-wired to
@@ -406,11 +532,6 @@ page's **Known gaps**.
       and the `isToolAllowed` branch (`orchestrator.ts:145`, `:286`) never runs.
       `CLAUDE.md` says profiles are "used for subagents" — they are used nowhere.
       Either pass a profile when spawning a subagent or drop `profiles.ts`.
-- [ ] **The todo list is in-memory only** (`todo.ts:25`). It survives compaction
-      (re-rendered from the store each turn rather than read out of history) but
-      not a restart or `session.resume` — and the loop's todo-completion gate
-      reads the same store, so a resumed session's plan is silently empty and the
-      gate can never fire. Persist it next to the session, like the rollout log.
 - [ ] **`executeTool` in `factory.ts:88` is dead code**, exported and re-exported
       from `tools/index.ts` but called by nothing; it also implements a different
       result contract from the orchestrator's.
@@ -490,14 +611,6 @@ that page's **Known gaps**.
 
 ### Real fixes
 
-- [ ] **The git HEAD never reaches the model.** It is computed with an `execSync`
-      per cache miss (`tree-cache.ts:38`), carried on `ProjectContext`, frozen per
-      session, threaded through `run()` → `callProviderOnce` →
-      `compileDynamicContext` — and `compileProjectSummary` uses it only as a
-      **cache key**. The rendered section is `Project` / `Path` / `File tree` and
-      nothing else (`compiler.ts:115`). `CLAUDE.md` ("file tree, git head") and
-      several in-code comments claim otherwise. Either render it or stop computing
-      it.
 - [ ] **`collector.ts` + `context/types.ts` + `context/strategies/` are
       unreachable.** `collectContext()` resolves a strategy from a registry that
       only `createDefaultStrategies()` fills, and that function has no callers — so
@@ -515,18 +628,6 @@ that page's **Known gaps**.
 - [ ] **`ProjectContext` is declared twice with different fields** —
       `context/types.ts:5` (dead: `{ projectPath, name, tree, files, metadata }`)
       and `context/tree-cache.ts:14` (live: `{ name, projectPath, tree, gitHead }`).
-- [ ] **Editing `CLAUDE.md` mid-session busts the prompt cache with nothing in
-      the invalidation journal.** `compileInstructionsSection` re-reads from disk
-      every turn and feeds the `cache: true` block, so an edit moves the first
-      breakpoint. Legitimate, but no `recordInvalidation` call — so the miss
-      detector reports an unexplained bust. Same shape as the MCP tool-set gap in
-      the provider-layer audit; both want a `recordInvalidation` at the site that
-      changes the prefix.
-- [ ] **The 40,000-char instruction cap truncates mid-file, after joining, with
-      global first** (`instructions.ts:46`). A large global `CLAUDE.md` can push
-      the project's own instructions out of the prompt entirely, and the marker
-      names the character count but not which file was cut. Cap per file, or at
-      least name the casualty.
 - [ ] **`invalidateSymbolCache` has no callers** (`repo-map/index.ts:196`). The
       whole-project symbol cache relies on git HEAD + a 5-minute TTL, so
       uncommitted edits inside that window return stale `workspaceSymbol` results.
@@ -782,16 +883,12 @@ Three findings worth keeping, because each contradicts something the spec said:
 
 ### Found by the smoke test (2026-08-23, real MiniMax turns)
 
-Two bugs that every unit test passed through, plus one limitation:
+It also found two bugs every unit test passed through — a citation tag that
+streamed to the user, and citations parsed and then dropped by an `unref`'d
+debounce on a short-lived process. Both are fixed; the fixes are in
+`CitationStreamFilter` and `UsageStore`'s synchronous exit flush. One
+limitation is still open:
 
-- **Fixed — the citation tag streamed to the user.** Stripping the *final* text
-  is too late: `text_delta` reaches the frontend token by token, so the tag was
-  plainly visible in `freecode run` output. `CitationStreamFilter` now holds back
-  any trailing text that could still become the marker.
-- **Fixed — citations were parsed and then dropped.** They are recorded at the
-  *end* of a turn, `UsageStore` debounces 2s, and the timer is `unref`'d, so a
-  short-lived process exits first. `injectedCount` had persisted while
-  `useCount` had not. Now flushed synchronously on `process.on("exit")`.
 - [ ] **Headless runs never complete background memory work.** `freecode run`
       exits before fire-and-forget extraction or consolidation lands. Fine for
       the daemon (the TUI stays alive), but it means scripted runs never

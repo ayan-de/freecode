@@ -81,6 +81,30 @@ const mcpCommand: Command = {
   },
 };
 
+const shellsCommand: Command = {
+  name: "shells",
+  description: "Background shells — live output, kill a running one",
+  execute: async (_args, ctx) => {
+    if (ctx.showShellsPanel) {
+      await ctx.showShellsPanel();
+    } else {
+      ctx.showMessage("Shells panel unavailable in this context.");
+    }
+  },
+};
+
+const agentsCommand: Command = {
+  name: "agents",
+  description: "Subagents — watch one work, stop a running one",
+  execute: async (_args, ctx) => {
+    if (ctx.showAgentsPanel) {
+      await ctx.showAgentsPanel();
+    } else {
+      ctx.showMessage("Agents panel unavailable in this context.");
+    }
+  },
+};
+
 const effortCommand: Command = {
   name: "effort",
   description: "Set reasoning effort (low/medium/high/xhigh/max)",
@@ -138,9 +162,8 @@ const usageCommand: Command = {
       ctx.showMessage(`*No usage recorded yet. Showing an empty heatmap.*`);
     }
 
-    const { startInteractiveHeatmap } = await import(
-      "@thisisayande/terminal-heatmap"
-    );
+    const { startInteractiveHeatmap } =
+      await import("@thisisayande/terminal-heatmap");
 
     const launch = () =>
       startInteractiveHeatmap(data, {
@@ -166,7 +189,13 @@ const usageCommand: Command = {
 };
 
 // Human-friendly grouping order + labels for skill scopes.
-const SKILL_SCOPE_ORDER = ["repo", "user", "plugin", "system", "admin"] as const;
+const SKILL_SCOPE_ORDER = [
+  "repo",
+  "user",
+  "plugin",
+  "system",
+  "admin",
+] as const;
 const SKILL_SCOPE_LABELS: Record<string, string> = {
   repo: "Project",
   user: "Global",
@@ -256,6 +285,8 @@ export function registerBuiltInCommands(): void {
   registerCommand(modelCommand);
   registerCommand(webCommand);
   registerCommand(mcpCommand);
+  registerCommand(shellsCommand);
+  registerCommand(agentsCommand);
   registerCommand(effortCommand);
   registerCommand(resumeCommand);
   registerCommand(compactCommand);

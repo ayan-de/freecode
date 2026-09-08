@@ -1,11 +1,17 @@
 // =============================================================================
 // TodoWrite Tool - Maintain a structured task checklist for the current session
-// State is kept in-memory keyed by sessionId. Each call replaces the full list.
+// Hot path is an in-memory Map keyed by sessionId. Each call replaces the
+// full list. The same list is written to todos.json in the session directory
+// so a process restart / session.resume still sees the plan.
 // =============================================================================
 
+import { existsSync, readFileSync, writeFileSync, readdirSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
+import { formatSessionDirName } from "../store/path-formatter.js";
 
 export type TodoStatus = "pending" | "in_progress" | "completed";
 
@@ -20,23 +26,130 @@ interface TodoWriteParams {
 }
 
 const STATUSES: TodoStatus[] = ["pending", "in_progress", "completed"];
+const TODOS_FILE = "todos.json";
 
-// Per-session store. Other modules can read via getTodos().
+// Per-session cache. Disk is the source of truth after a restart; this Map
+// avoids a read on every prompt render. Other modules can read via getTodos().
 const store = new Map<string, TodoItem[]>();
 
-export function getTodos(sessionId: string): TodoItem[] {
-  return store.get(sessionId) ?? [];
+// Same root SessionStore uses (`~/.freecode`). Tests point this at a tmpdir
+// so they never write into the developer's real sessions tree.
+let persistenceBaseDir = join(homedir(), ".freecode");
+
+export function setTodoPersistenceBaseDir(dir: string): void {
+  persistenceBaseDir = dir;
 }
 
+export function resetTodoPersistenceBaseDir(): void {
+  persistenceBaseDir = join(homedir(), ".freecode");
+}
+
+function findSessionDir(
+  sessionId: string,
+  projectPath?: string,
+): string | undefined {
+  const sessionsRoot = join(persistenceBaseDir, "sessions");
+  if (projectPath) {
+    const dir = join(
+      sessionsRoot,
+      formatSessionDirName(projectPath),
+      sessionId,
+    );
+    return existsSync(dir) ? dir : undefined;
+  }
+  if (!existsSync(sessionsRoot)) return undefined;
+  try {
+    for (const entry of readdirSync(sessionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = join(sessionsRoot, entry.name, sessionId);
+      if (existsSync(candidate)) return candidate;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function parseTodos(raw: unknown): TodoItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const todos: TodoItem[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return undefined;
+    const t = item as Record<string, unknown>;
+    if (typeof t.content !== "string" || t.content.length === 0) {
+      return undefined;
+    }
+    if (typeof t.status !== "string" || !STATUSES.includes(t.status as TodoStatus)) {
+      return undefined;
+    }
+    todos.push({
+      id:
+        typeof t.id === "string" && t.id.length > 0
+          ? t.id
+          : String(todos.length + 1),
+      content: t.content,
+      status: t.status as TodoStatus,
+    });
+  }
+  return todos;
+}
+
+function loadFromDisk(
+  sessionId: string,
+  projectPath?: string,
+): TodoItem[] | undefined {
+  const dir = findSessionDir(sessionId, projectPath);
+  if (!dir) return undefined;
+  const path = join(dir, TODOS_FILE);
+  if (!existsSync(path)) return undefined;
+  try {
+    return parseTodos(JSON.parse(readFileSync(path, "utf-8")));
+  } catch {
+    return undefined;
+  }
+}
+
+function saveToDisk(
+  sessionId: string,
+  todos: TodoItem[],
+  projectPath?: string,
+): void {
+  // Only write into an existing session directory — never mkdir a stray
+  // session from a unit test that only passed a sessionId.
+  const dir = findSessionDir(sessionId, projectPath);
+  if (!dir) return;
+  try {
+    writeFileSync(join(dir, TODOS_FILE), JSON.stringify(todos), "utf-8");
+  } catch {
+    // Persistence is best-effort: a full disk must not fail the tool call.
+  }
+}
+
+export function getTodos(sessionId: string, projectPath?: string): TodoItem[] {
+  const cached = store.get(sessionId);
+  if (cached) return cached;
+  const disk = loadFromDisk(sessionId, projectPath);
+  if (disk) {
+    store.set(sessionId, disk);
+    return disk;
+  }
+  return [];
+}
+
+// Drops the in-memory copy; the on-disk list survives.
 export function clearTodos(sessionId: string): void {
   store.delete(sessionId);
 }
 
 // Render the session's active todo list as a system-prompt block. Re-built from
 // the store every turn (not from history), so the plan survives context
-// compaction. Returns "" when there is no list so the loop can skip the block.
-export function renderTodoPromptBlock(sessionId: string): string {
-  const todos = getTodos(sessionId);
+// compaction and a session resume. Returns "" when there is no list so the
+// loop can skip the block.
+export function renderTodoPromptBlock(
+  sessionId: string,
+  projectPath?: string,
+): string {
+  const todos = getTodos(sessionId, projectPath);
   if (todos.length === 0) return "";
   const marks: Record<TodoStatus, string> = {
     completed: "[x]",
@@ -48,8 +161,8 @@ export function renderTodoPromptBlock(sessionId: string): string {
     "## Current Task List",
     "",
     "Your active plan (from the todowrite tool). This list persists across " +
-      "context compaction — treat it as the source of truth for remaining work, " +
-      "and keep it updated with todowrite as tasks change status.",
+      "context compaction and session resume — treat it as the source of truth " +
+      "for remaining work, and keep it updated with todowrite as tasks change status.",
     "",
     ...lines,
   ].join("\n");
@@ -163,6 +276,7 @@ async function executeTodoWrite(
 
   const sessionId = ctx.sessionId ?? "default";
   store.set(sessionId, todos);
+  saveToDisk(sessionId, todos, ctx.projectPath ?? ctx.cwd);
 
   const remaining = todos.filter((t) => t.status !== "completed").length;
 

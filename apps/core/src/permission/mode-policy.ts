@@ -25,6 +25,9 @@ const READONLY_TOOLS = new Set([
   "webfetch",
   "websearch",
   "output",
+  // Polling a background shell only reads a buffer core already holds.
+  // killbash is deliberately absent: stopping a process is a side effect.
+  "bashoutput",
 ]);
 
 const NETWORK_TOOLS = new Set(["webfetch", "websearch"]);

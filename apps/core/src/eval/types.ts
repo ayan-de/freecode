@@ -148,6 +148,46 @@ export interface EvalCase {
    */
   expectParallelTools?: number;
   forbidTools?: string[];
+  /**
+   * Minimum number of compactions the run must perform. Pair it with `env`
+   * lowering a compaction threshold — otherwise the trigger sits near the
+   * model's window and no ordinary case reaches it.
+   *
+   * This is what makes `compaction-boundary` a category with cases rather than
+   * a category with an excuse: the interesting question is not "did compaction
+   * fire" but "did the agent still finish the task afterwards", so a case
+   * asserting this should also carry a `verify` or a tool expectation that only
+   * holds if the founding instruction survived the summary.
+   */
+  expectCompaction?: number;
+
+  /**
+   * Further user turns, sent on the SAME session after the first one settles.
+   *
+   * The harness ran exactly one `runEffect` per trial, which made two whole
+   * failure categories unreachable. For `compaction-boundary` the reason is
+   * structural rather than a matter of size: `selectForCompaction` returns
+   * nothing to compact while `countUserTurns <= preserveRecentTurns` (2), and
+   * only the initial prompt ever creates a user turn — tool turns are recorded
+   * as `assistant`. So a single-prompt case cannot compact at ANY token count,
+   * and lowering a threshold alone does not help.
+   *
+   * Each entry is one more user turn, so three prompts total is the minimum
+   * that can compact. Also the substrate `resume` needs.
+   */
+  followUps?: string[];
+
+  // --- environment (spec `2026-08-29-eval-case-registry.md` §9.1) ---------
+  /**
+   * Environment applied for the duration of this trial and restored after it.
+   *
+   * Allowlisted to compaction thresholds (`EVAL_ENV_ALLOWLIST` in
+   * `dataset.ts`), deliberately: a case that may set arbitrary env can disable
+   * the very behaviour the suite exists to measure, and `env` would become a
+   * way to make a red case green. Trials run sequentially (`suite.ts`), which
+   * is what makes mutating `process.env` per trial safe.
+   */
+  env?: Record<string, string>;
 
   // --- outcome expectations (spec §4, §6.1) -------------------------------
   /**

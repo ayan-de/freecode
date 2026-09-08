@@ -14,6 +14,8 @@ const DISPLAY_NAMES: Record<string, string> = {
   glob: "Glob",
   grep: "Grep",
   bash: "Bash",
+  bashoutput: "BashOutput",
+  killbash: "KillBash",
   webfetch: "WebFetch",
   websearch: "WebSearch",
   agent: "Agent",

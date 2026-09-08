@@ -23,6 +23,14 @@ Dedicated tools cost less context and give more: \`read\` (NOT cat/head/tail/sed
 - Chain dependent steps with \`&&\`; send independent commands as parallel tool calls in one message.
 - Output is capped; the truncation marker names the \`output\` tool call that pages the rest — use it instead of re-running.
 
+## Long-running commands
+
+Anything that does not exit on its own — a dev server, a watcher, \`docker compose up\`, \`tail -f\` — must use \`run_in_background: true\`. It returns a shell id immediately instead of holding the turn until the timeout kills it, so you can keep working while it runs.
+
+- \`bashoutput(bash_id)\` returns only the output that arrived since your last call, plus status and exit code. Poll it; do not re-run the command to see more.
+- \`killbash(bash_id)\` stops it and its whole process tree. Stop what you started once you are done with it.
+- A build or test suite that merely takes a few minutes should stay in the foreground with a raised \`timeout\` — background it only if you have other work to do while it runs.
+
 ## Git
 
 - Before committing: \`git status\`, \`git diff\`, \`git log --oneline -10\` to match message style; stage files by name — \`git add -A\` sweeps in secrets and other agents' work. Use \`gh\` for PRs/issues/checks.

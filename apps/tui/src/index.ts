@@ -18,7 +18,7 @@ import { renderContextReport } from "./utils/context-report.js";
 import { renderCostReportLines } from "./utils/cost-report.js";
 import { commandRegistry, registerCommand } from "./commands/index.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
-import { Input } from "@earendil-works/pi-tui";
+import { Input, type Component } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { defaultEditorTheme, MODE_COLORS } from "./themes.js";
@@ -63,6 +63,14 @@ import {
   resolveCommand,
   listTools,
   mcpStatus,
+  shellsList,
+  shellsOutput,
+  shellsKill,
+  shellsRemove,
+  agentsList,
+  agentsOutput,
+  agentsStop,
+  agentsRemove,
   getCurrentModel,
   setCurrentModel,
   getLastAgentMode,
@@ -112,10 +120,7 @@ import {
 } from "./components/message-row.js";
 import { getMessages, clearMessages } from "./state/message-store.js";
 import { VirtualMessageList } from "./components/virtual-message-list.js";
-import {
-  PromptEditor,
-  stripImageTokens,
-} from "./components/prompt-editor.js";
+import { PromptEditor, stripImageTokens } from "./components/prompt-editor.js";
 import { ResumePicker } from "./components/resume-picker.js";
 import { MaskedInput } from "./components/masked-input.js";
 import { InterruptController } from "./interrupt-controller.js";
@@ -132,6 +137,9 @@ import {
   createModelSelector,
 } from "./components/model-picker.js";
 import { createMcpSelector } from "./components/mcp-picker.js";
+import { ShellsPanel } from "./components/shells-panel.js";
+import { AgentsPanel } from "./components/agents-panel.js";
+import { AgentViewer } from "./components/agent-viewer.js";
 import { SearchableSelectList } from "./components/searchable-select-list.js";
 import { QuestionModal } from "./components/question-modal.js";
 import { createPermissionPicker } from "./components/permission-picker.js";
@@ -252,6 +260,28 @@ let providerSelector: SearchableSelectList | null = null;
 let effortPicker: EffortPicker | null = null;
 let resumeSelector: ResumePicker | null = null;
 let mcpSelector: SearchableSelectList | null = null;
+/**
+ * The /shells card. Also kept up to date while CLOSED — shell_* stream events
+ * land in it regardless — so opening it shows history rather than only what
+ * happened after the keypress.
+ */
+let shellsPanel: ShellsPanel | null = null;
+let shellsPanelOpen = false;
+/** Poll handle for status/elapsed refresh while the card is on screen. */
+let shellsTimer: NodeJS.Timeout | null = null;
+/**
+ * The /agents card. Same contract as the shells one: kept current while CLOSED
+ * so the ModeLine chip is honest and opening it shows history.
+ */
+let agentsPanel: AgentsPanel | null = null;
+let agentsPanelOpen = false;
+let agentsTimer: NodeJS.Timeout | null = null;
+/**
+ * Takes the message list's slot in `tui.children` while a subagent is being
+ * watched, so the subagent replaces the conversation rather than covering it.
+ * Null whenever the main agent owns the main area.
+ */
+let agentViewer: AgentViewer | null = null;
 let apiKeyEditor: Input | null = null;
 let apiKeyPrompt: Text | null = null;
 
@@ -374,6 +404,8 @@ modeLine = new ModeLine(
   () => currentProvider,
   () => currentModel,
   () => currentEffort,
+  () => shellsPanel?.runningCount() ?? 0,
+  () => agentsPanel?.runningCount() ?? 0,
 );
 tui.addChild(modeLine);
 
@@ -421,6 +453,22 @@ function showMessage(content: string): void {
 // (two greps, two reads) each raises its own ask nearly simultaneously. The
 // TUI shows one picker at a time; extra asks queue here and surface in order as
 // each is answered, so none is left orphaned and unfocused (which read as a hang).
+/**
+ * Who should own the keyboard once a modal closes.
+ *
+ * Every overlay used to hand focus straight back to the editor, so a
+ * permission or question prompt arriving while /agents or /shells was open left
+ * that card drawn but unfocused — escape went nowhere and the only way out was
+ * to answer another prompt. Subagents made this routine: they ask for
+ * permission mid-turn while you are reading a roster.
+ */
+function focusTarget(): Component {
+  if (agentsPanelOpen && agentsPanel) return agentsPanel;
+  if (shellsPanelOpen && shellsPanel) return shellsPanel;
+  if (agentViewer) return agentViewer;
+  return editor;
+}
+
 type PermissionAsk = Extract<StreamEvent, { type: "permission_asked" }>;
 const permissionQueue: PermissionAsk[] = [];
 let activePermissionPicker: SelectList | null = null;
@@ -444,7 +492,7 @@ function showNextPermission(): void {
   const event = permissionQueue.shift();
   if (!event) {
     activePermissionPicker = null;
-    tui.setFocus(editor);
+    tui.setFocus(focusTarget());
     tui.requestRender();
     return;
   }
@@ -492,14 +540,14 @@ function hideModelSelector(): void {
   // picking a model did not, which is the path everyone actually takes.
   // Callers that want focus elsewhere (the provider list, the model list, the
   // credential prompt) set it immediately after this returns.
-  tui.setFocus(editor);
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
 function hideMcpSelector(): void {
   removeSelector(mcpSelector);
   mcpSelector = null;
-  tui.setFocus(editor);
+  tui.setFocus(focusTarget());
   tui.requestRender();
 }
 
@@ -536,7 +584,9 @@ function removeApiKeyEditor(): void {
  * sessions). One flow, two lists: they differ only in which providers core
  * returns and which credential the picker offers to store.
  */
-async function showProviderSelector(kind: "api" | "web" = "api"): Promise<void> {
+async function showProviderSelector(
+  kind: "api" | "web" = "api",
+): Promise<void> {
   hideModelSelector();
   hideMcpSelector();
   removeApiKeyEditor();
@@ -576,6 +626,259 @@ async function showProviderSelector(kind: "api" | "web" = "api"): Promise<void> 
   } catch (err) {
     showMessage(`**Error:** Failed to load providers: ${err}`);
   }
+}
+
+/**
+ * The panel is a view over state the shell already tracks, so it exists from
+ * the first shell_start event whether or not the card is open. Created lazily
+ * because most sessions never start a background shell.
+ */
+function ensureShellsPanel(): ShellsPanel {
+  if (!shellsPanel) {
+    shellsPanel = new ShellsPanel({
+      onKill: (shellId) => {
+        const sessionId = currentSession?.sessionId;
+        if (!sessionId) return;
+        void shellsKill(sessionId, shellId).then(() => refreshShells());
+      },
+      onRemove: (shellId) => {
+        const sessionId = currentSession?.sessionId;
+        if (!sessionId) return;
+        void shellsRemove(sessionId, shellId).then(() => refreshShells());
+      },
+      onClose: () => hideShellsPanel(),
+    });
+    shellsPanel.setMaxRows(() => Math.max(10, Math.floor(terminal.rows * 0.6)));
+  }
+  return shellsPanel;
+}
+
+/** Re-read the roster so status, exit codes and elapsed times stay honest. */
+async function refreshShells(): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId || !shellsPanel) return;
+  try {
+    shellsPanel.setShells(await shellsList(sessionId));
+    tui.requestRender();
+  } catch {
+    // A backend hiccup must not tear down the card the user is reading.
+  }
+}
+
+function hideShellsPanel(): void {
+  if (shellsTimer) {
+    clearInterval(shellsTimer);
+    shellsTimer = null;
+  }
+  if (shellsPanel) {
+    const idx = tui.children.indexOf(shellsPanel);
+    if (idx !== -1) tui.children.splice(idx, 1);
+  }
+  shellsPanelOpen = false;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
+/** Background shells with a live tail of the selected one (the /shells command). */
+async function showShellsPanel(): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId) {
+    showMessage("**No active session.** Send a message first.");
+    return;
+  }
+  hideMcpSelector();
+  hideModelSelector();
+  hideResumeSelector();
+  hideAgentsPanel();
+
+  const panel = ensureShellsPanel();
+  try {
+    panel.setShells(await shellsList(sessionId));
+  } catch (err) {
+    showMessage(`**Error:** Failed to list background shells: ${err}`);
+    return;
+  }
+
+  if (panel.isEmpty()) {
+    showMessage(
+      "**No background shells in this session.**\n\n" +
+        "The agent starts one with `bash(run_in_background: true)` — ask it to " +
+        "run a dev server or a long build in the background.",
+    );
+    return;
+  }
+
+  // Seed the selected shell's buffer from core: stream events only cover what
+  // arrived while this TUI was listening, and the panel may be opening on a
+  // shell that has been running since before it existed.
+  const selected = panel.selectedShellId();
+  if (selected) {
+    try {
+      const output = await shellsOutput(sessionId, selected, 0);
+      if (output.found) panel.setOutput(selected, output.text);
+    } catch {
+      // Fall back to whatever the stream events already delivered.
+    }
+  }
+
+  shellsPanelOpen = true;
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, panel);
+  tui.setFocus(panel);
+  // Status and elapsed time move on their own; output arrives via stream
+  // events, so this poll is only for the roster.
+  shellsTimer = setInterval(() => void refreshShells(), 1000);
+  tui.requestRender();
+}
+
+/**
+ * Like the shells panel, this exists from the first agent_start event whether
+ * or not the card is open. Created lazily because most turns never delegate.
+ */
+function ensureAgentsPanel(): AgentsPanel {
+  if (!agentsPanel) {
+    agentsPanel = new AgentsPanel({
+      onOpen: (agentId) => {
+        hideAgentsPanel();
+        if (agentId === null) closeAgentView();
+        else void openAgentView(agentId);
+      },
+      onStop: (agentId) => {
+        const sessionId = currentSession?.sessionId;
+        if (!sessionId) return;
+        void agentsStop(sessionId, agentId).then(() => refreshAgents());
+      },
+      onRemove: (agentId) => {
+        const sessionId = currentSession?.sessionId;
+        if (!sessionId) return;
+        void agentsRemove(sessionId, agentId).then(() => refreshAgents());
+      },
+      onClose: () => hideAgentsPanel(),
+    });
+    agentsPanel.setMaxRows(() => Math.max(6, Math.floor(terminal.rows * 0.6)));
+  }
+  return agentsPanel;
+}
+
+/**
+ * Hand the main area to a subagent. The message list is spliced OUT rather than
+ * drawn over: the two would otherwise both render, which is the duplication
+ * that made watching an agent feel slow.
+ */
+async function openAgentView(agentId: string): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  const agent = agentsPanel?.find(agentId);
+  if (!sessionId || !agent) return;
+
+  if (!agentViewer) {
+    agentViewer = new AgentViewer({
+      onStop: (id) => {
+        void agentsStop(sessionId, id).then(() => refreshAgents());
+      },
+      onBack: () => closeAgentView(),
+    });
+    agentViewer.setMaxRows(() => Math.max(6, terminal.rows - 8));
+  }
+
+  // Seed from core: stream events only cover what arrived while this TUI was
+  // listening, and the agent may have been working since before that.
+  let activity = "";
+  try {
+    const output = await agentsOutput(sessionId, agentId, 0);
+    if (output.found) activity = output.text;
+  } catch {
+    // Fall back to an empty buffer; live chunks still arrive.
+  }
+  agentViewer.open(agent, activity);
+
+  const listIdx = tui.children.indexOf(messageList);
+  if (listIdx !== -1) tui.children.splice(listIdx, 1, agentViewer);
+  tui.setFocus(agentViewer);
+  tui.requestRender();
+}
+
+/** Give the main area back to the conversation. Safe to call when not viewing. */
+function closeAgentView(): void {
+  if (!agentViewer) return;
+  const idx = tui.children.indexOf(agentViewer);
+  if (idx !== -1) tui.children.splice(idx, 1, messageList);
+  agentViewer = null;
+  tui.setFocus(editor);
+  tui.requestRender();
+}
+
+/** Re-read the roster so status and elapsed times stay honest. */
+async function refreshAgents(): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId || !agentsPanel) return;
+  try {
+    const agents = await agentsList(sessionId);
+    agentsPanel.setAgents(agents);
+    const watching = agentViewer?.agentId();
+    if (watching) {
+      const agent = agents.find((a) => a.id === watching);
+      agentViewer?.update(agent);
+      // The agent being watched just finished: hand the main area back, since
+      // the work has returned to the conversation this replaced.
+      if (!agent || agent.status !== "running") closeAgentView();
+    }
+    tui.requestRender();
+  } catch {
+    // A backend hiccup must not tear down what the user is reading.
+  }
+}
+
+function hideAgentsPanel(): void {
+  if (agentsTimer) {
+    clearInterval(agentsTimer);
+    agentsTimer = null;
+  }
+  if (agentsPanel) {
+    const idx = tui.children.indexOf(agentsPanel);
+    if (idx !== -1) tui.children.splice(idx, 1);
+  }
+  agentsPanelOpen = false;
+  tui.setFocus(agentViewer ?? editor);
+  tui.requestRender();
+}
+
+/** The roster of subagents (the /agents command). Enter opens one in the main area. */
+async function showAgentsPanel(): Promise<void> {
+  const sessionId = currentSession?.sessionId;
+  if (!sessionId) {
+    showMessage("**No active session.** Send a message first.");
+    return;
+  }
+  hideMcpSelector();
+  hideModelSelector();
+  hideResumeSelector();
+  hideShellsPanel();
+
+  const panel = ensureAgentsPanel();
+  try {
+    panel.setAgents(await agentsList(sessionId));
+  } catch (err) {
+    showMessage(`**Error:** Failed to list subagents: ${err}`);
+    return;
+  }
+
+  if (panel.isEmpty()) {
+    showMessage(
+      "**No subagents in this session.**\n\n" +
+        "The main agent spawns one with the `agent` tool — ask it to delegate " +
+        "an investigation, or to review its own changes.",
+    );
+    return;
+  }
+
+  agentsPanelOpen = true;
+  const editorIdx = tui.children.indexOf(editor);
+  tui.children.splice(editorIdx + 1, 0, panel);
+  tui.setFocus(panel);
+  // Status and elapsed time move on their own; activity arrives via stream
+  // events, so this poll is only for the roster.
+  agentsTimer = setInterval(() => void refreshAgents(), 1000);
+  tui.requestRender();
 }
 
 /** Interactive MCP server list with live connection status (the /mcp command). */
@@ -861,8 +1164,8 @@ async function showResumePicker(): Promise<void> {
       try {
         const messages =
           tab === "freecode"
-            ? (await sessionResume(sessionId)).messages ?? []
-            : (await sessionClaudeTranscript(sessionId)).messages ?? [];
+            ? ((await sessionResume(sessionId)).messages ?? [])
+            : ((await sessionClaudeTranscript(sessionId)).messages ?? []);
         previewCache.set(sessionId, messages);
         if (
           resumeSelector &&
@@ -981,6 +1284,29 @@ async function loadCurrentModel(): Promise<void> {
 let globalThinkingStartTime: number | null = null;
 
 function handleToolEvent(event: StreamEvent) {
+  // Core broadcasts EVERY bus event on stdout (server.ts) and the client hands
+  // all of them here, so without this a subagent's text, reasoning and tool
+  // calls were drawn straight into the main transcript, interleaved with the
+  // parent's — the transcript you are reading was two agents at once, and the
+  // duplicated render work was most of the panel's lag. Subagent activity has
+  // its own channel (`agent_output`, stamped with the ROOT session id), which
+  // is why those events pass this guard.
+  //
+  // Blocking prompts are exempt: they are addressed to the human, not to a
+  // transcript, and dropping one would leave the subagent waiting out the
+  // 30-minute prompt timeout — which callers treat as DENY.
+  const ownSessionId = activeTurnSessionId ?? currentSession?.sessionId;
+  const isBlockingPrompt =
+    event.type === "permission_asked" || event.type === "question_asked";
+  if (
+    !isBlockingPrompt &&
+    event.sessionId &&
+    ownSessionId &&
+    event.sessionId !== ownSessionId
+  ) {
+    return;
+  }
+
   const isThinking =
     event.type === "thinking" || event.type === "thinking_delta";
 
@@ -1016,13 +1342,53 @@ function handleToolEvent(event: StreamEvent) {
       });
       break;
     }
+    // Background shells. Handled whether or not the /shells card is open so
+    // that opening it later shows the whole run, not just the tail since the
+    // keypress.
+    case "shell_start": {
+      ensureShellsPanel();
+      void refreshShells();
+      break;
+    }
+    case "shell_output": {
+      ensureShellsPanel().appendOutput(event.shellId, event.chunk);
+      if (shellsPanelOpen) tui.requestRender();
+      break;
+    }
+    // Subagents. Handled whether or not the /agents card is open so the
+    // ModeLine chip and the roster stay correct.
+    case "agent_start": {
+      ensureAgentsPanel();
+      void refreshAgents();
+      break;
+    }
+    case "agent_output": {
+      // Only the agent actually being watched is buffered in the TUI. Core's
+      // ring buffer holds the rest and `agents.output` seeds it on open, so
+      // there is nothing to gain from mirroring every agent here.
+      if (agentViewer?.agentId() === event.agentId) {
+        agentViewer.append(event.chunk);
+        tui.requestRender();
+      }
+      break;
+    }
+    case "agent_exit": {
+      void refreshAgents();
+      break;
+    }
+    case "shell_exit": {
+      void refreshShells();
+      break;
+    }
     case "tool_output": {
       const entry = toolMessageComponents.get(event.toolCallId);
       if (entry) {
         // Only the last 5 lines are ever shown, so don't split a large
         // output in full — a 4KB tail is more than 5 terminal rows.
         const tail =
-          event.content.length > 4096 ? event.content.slice(-4096) : event.content;
+          event.content.length > 4096
+            ? event.content.slice(-4096)
+            : event.content;
         entry.progress.updateOutput(tail.split("\n").slice(-5));
       }
       tui.requestRender();
@@ -1056,7 +1422,10 @@ function handleToolEvent(event: StreamEvent) {
     case "thinking": {
       // Turn-end reasoning snapshot — authoritative, replaces whatever the
       // thinking_delta stream accumulated (it wins over any dropped chunk).
-      createThinkingMessage(event.content, globalThinkingStartTime || Date.now());
+      createThinkingMessage(
+        event.content,
+        globalThinkingStartTime || Date.now(),
+      );
       tui.requestRender();
       break;
     }
@@ -1127,7 +1496,7 @@ function handleToolEvent(event: StreamEvent) {
       const closeOverlay = () => {
         overlay?.hide();
         overlay = null;
-        tui.setFocus(editor);
+        tui.setFocus(focusTarget());
         tui.requestRender();
       };
       // Next question still missing an answer, searching forward and wrapping.
@@ -1480,7 +1849,8 @@ async function submitPrompt(
         tokenInfo += ` cache ${hitRate}% (${formatTokenCount(cachedTokens)} read`;
         // Writes bill at ~1.25x, so a high read rate bought by constant
         // rewriting is not the win it looks like. Only shown when non-zero.
-        tokenInfo += writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
+        tokenInfo +=
+          writeTokens > 0 ? `, ${formatTokenCount(writeTokens)} write)` : ")";
       }
       if (contextLimit > 0) {
         tokenInfo += ` [${formatTokenCount(contextTokens)}/${formatTokenCount(contextLimit)}]`;
@@ -1567,6 +1937,8 @@ editor.onSubmit = async (value: string) => {
           showModelSelector: () => showProviderSelector("api"),
           showWebSelector: () => showProviderSelector("web"),
           showMcpPicker: () => showMcpPicker(),
+          showShellsPanel: () => showShellsPanel(),
+          showAgentsPanel: () => showAgentsPanel(),
           showEffortPicker,
           showResumePicker: showResumePicker,
           // Undefined until a run completes, so /cost omits the Session row
@@ -1612,10 +1984,7 @@ editor.onSubmit = async (value: string) => {
           showCostReport: async () => {
             try {
               const data = await getUsage();
-              showCostModal(
-                data,
-                sessionRuns > 0 ? sessionUsage : undefined,
-              );
+              showCostModal(data, sessionRuns > 0 ? sessionUsage : undefined);
             } catch (err) {
               showMessage(
                 `*Error fetching usage: ${err instanceof Error ? err.message : String(err)}*`,
@@ -1873,7 +2242,10 @@ function hideContextModal(): void {
 // ---------------------------------------------------------------------------
 let costOverlay: OverlayHandle | null = null;
 
-function showCostModal(data: DailyUsage[], session: UsageTotals | undefined): void {
+function showCostModal(
+  data: DailyUsage[],
+  session: UsageTotals | undefined,
+): void {
   hideCostModal();
 
   const width = Math.min(

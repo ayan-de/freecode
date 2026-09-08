@@ -55,15 +55,22 @@ flowchart TD
 
 ### Measured beats estimated
 
-The service keeps its own running token count, but it only records prompts and
-assistant *text*. A turn that calls tools is recorded as the four-token stub
-`[Executed N tools]` (`loop.ts:1567`), so tool arguments and results — the bulk of
-a coding session — are invisible to it.
+The service keeps its own running token count, and it is an *estimate over the
+memory transcript* — not a measurement of the request. A turn that calls tools
+used to be recorded as the four-token stub `[Executed N tools]`, so tool
+arguments and results — the bulk of a coding session — were invisible to it.
 
 The consequence was not subtle: it under-reported a real **196K** context as
-**14.5K**, and auto-compaction never fired before the window overflowed. The fix
-is to prefer the provider's own count of the last request's input
-(`service.ts:83`), falling back to the estimate only when no measurement exists.
+**14.5K**, and auto-compaction never fired before the window overflowed. Two
+things fixed it. `addToolTurn` now writes a real transcript of the turn
+(`tool-transcript.ts`), and `shouldCompact` prefers the provider's own count of
+the last request's input (`service.ts`), falling back to the estimate only when
+no measurement exists.
+
+The two numbers stay far apart even so, and that is worth knowing when reading a
+trace: on a measured run of the `compaction-boundary` eval case the request was
+**16K** tokens while the memory transcript the summarizer works over was **872**.
+The trigger is judged on the former; `compact.occurred` records the latter.
 
 ### Cost is the real trigger, not fit
 
@@ -230,34 +237,29 @@ separate instance) and the loop's own instance stay consistent across turns.
 
 ## Known gaps
 
-1. **The summarizer never sees tool activity.** `MemoryService` only records user
-   prompts and assistant text; a tool-calling turn is stored as
-   `[Executed N tools]` (`loop.ts:1567`). So the transcript handed to the
-   summarizer — LLM or heuristic — contains none of the file edits, commands, or
-   errors that made up the work. "Preserve exact file paths and unresolved
-   errors" has very little to preserve. This is the biggest quality gap in the
-   subsystem.
-2. **Two heuristic code paths are dead as a result.** `extractToolCalls()` scans
-   for `Tool <name>:` (`summarizer.ts:106`) and `normalizeContent()` truncates
-   content starting with `"Tool "` (`service.ts:63`) — no message ever has that
-   shape, so the heuristic summary's **Decisions** section is always `(none)` and
-   `maxToolOutputChars` never applies.
-3. **`renderPromptMemoryContext()` is dead code.** Exported from `selector.ts:64`,
+1. **`compact.occurred` under-reports what compaction did.** It records
+   `MemoryService`'s estimated transcript sizes — 872 → 748 tokens on a measured
+   run — while the actual trim is `keepLastNUserTurns` over the session store,
+   against a request that measured 16K. So `freecode trace` and the eval
+   harness's `Trace.compactedTokens` understate the saving by an order of
+   magnitude. `ApplyCompactionResult` already carries `messagesBefore` /
+   `messagesAfter`; neither is recorded.
+2. **`renderPromptMemoryContext()` is dead code.** Exported from `selector.ts:64`,
    referenced only by comments in `loop.ts` explaining why it must *not* be used
    (it renders `recentMessages`, which are already in history verbatim and would
    rewrite the prefix every turn).
-4. **`getContextLimit(model)` ignores its argument** and returns the constant
+3. **`getContextLimit(model)` ignores its argument** and returns the constant
    floor (`tokens.ts:20`). Harmless, but the name promises a per-model table that
    no longer exists.
-5. **The estimator is `chars ÷ 4` for every model and provider**
+4. **The estimator is `chars ÷ 4` for every model and provider**
    (`tokens.ts:13`) — no tokenizer, no per-provider adjustment. Acceptable only
    because the measured count is preferred; it is the fallback that under-reports.
-6. **`context.overflow` is never recorded.** The loop detects overflow and retries
+5. **`context.overflow` is never recorded.** The loop detects overflow and retries
    (`loop.ts:1003`) but never calls `recorder.recordContextOverflow()`, so the one
    event designed to make this visible in replay is absent. It is one of seven
    rollout event types with no emitter — see
    [Sessions, store & rollout](/internals/sessions#known-gaps).
-7. **The blocked-retry threshold is a fixed 5,000 tokens** (`service.ts:34`) and
+6. **The blocked-retry threshold is a fixed 5,000 tokens** (`service.ts:34`) and
    not part of `CompactionConfig`, so a hook that wants tighter control can't have
    it.
 

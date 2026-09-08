@@ -1,22 +1,49 @@
 // =============================================================================
 // Bash Tool - Shell command execution with UI rendering
+//
+// Two modes:
+//   foreground (default) — awaits the command, streaming a live tail to the
+//     frontend as it runs so a long build isn't a silent spinner.
+//   background (`run_in_background: true`) — registers the process in the
+//     session's ShellRegistry and returns an id immediately, so a dev server or
+//     a long test run stops holding the turn. Drain it with `bashoutput`, stop
+//     it with `killbash`.
 // =============================================================================
 
-import { spawn } from "child_process";
 import * as path from "path";
 import type { ToolContext } from "./types.js";
 import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import { BASH_DESCRIPTION } from "./bash-prompt.js";
 import { classifyCommand } from "./output-compress.js";
+import { spawnShell } from "./shells/spawn.js";
+import { getShellRegistry } from "./shells/index.js";
+import { BusEvents } from "../bus/index.js";
 
 interface BashParams {
   command: string;
   timeout?: number;
   workdir?: string;
+  run_in_background?: boolean;
 }
 
 const DEFAULT_TIMEOUT = 60_000;
+
+/**
+ * How often a running foreground command flushes its tail to the frontend.
+ * Coalesced rather than per-chunk: a verbose build emits thousands of writes a
+ * second and each one would be an IPC frame plus a TUI re-render.
+ */
+const LIVE_TAIL_INTERVAL_MS = 200;
+/** Lines of tail the frontend shows; matches the loop's post-hoc emit. */
+const LIVE_TAIL_LINES = 5;
+const MAX_LINE_LEN = 200;
+
+type BashResult = ToolExecutionResult<{
+  title: string;
+  output: string;
+  metadata?: Record<string, unknown>;
+}>;
 
 // =============================================================================
 // Bash Schema
@@ -26,8 +53,19 @@ const bashSchema: JsonSchema = {
   type: "object",
   properties: {
     command: { type: "string", description: "The shell command to execute" },
-    timeout: { type: "number", description: "Timeout in milliseconds (default: 60000)" },
-    workdir: { type: "string", description: "Working directory for the command" },
+    timeout: {
+      type: "number",
+      description: "Timeout in milliseconds (default: 60000)",
+    },
+    workdir: {
+      type: "string",
+      description: "Working directory for the command",
+    },
+    run_in_background: {
+      type: "boolean",
+      description:
+        "Run the command in the background and return a shell id immediately instead of waiting. Use for dev servers, watchers, and anything longer than the timeout; read its output with bashoutput and stop it with killbash.",
+    },
   },
   required: ["command"],
 };
@@ -59,85 +97,152 @@ function validateBashInput(
 async function executeBash(
   params: BashParams,
   ctx: ToolContext,
-): Promise<
-  ToolExecutionResult<{
-    title: string;
-    output: string;
-    metadata?: Record<string, unknown>;
-  }>
-> {
+): Promise<BashResult> {
   // Executed via the BashTool definition below; exported separately only for
   // regression tests in `bash.test.ts` so they can call it without building a
   // full ToolContext for the harness.
   return _executeBash(params, ctx);
 }
 
+function resolveCwd(params: BashParams, ctx: ToolContext): string {
+  if (!params.workdir) return ctx.cwd;
+  return path.isAbsolute(params.workdir)
+    ? params.workdir
+    : path.resolve(ctx.cwd, params.workdir);
+}
+
 export async function _executeBash(
   params: BashParams,
   ctx: ToolContext,
-): Promise<
-  ToolExecutionResult<{
-    title: string;
-    output: string;
-    metadata?: Record<string, unknown>;
-  }>
-> {
-  return new Promise((resolve) => {
-    const cwd = params.workdir
-      ? path.isAbsolute(params.workdir)
-        ? params.workdir
-        : path.resolve(ctx.cwd, params.workdir)
-      : ctx.cwd;
+): Promise<BashResult> {
+  const cwd = resolveCwd(params, ctx);
+  // Providers send booleans as strings (see the coercion note in the tool
+  // registration checklist), so accept both spellings of true.
+  const background =
+    params.run_in_background === true ||
+    (params.run_in_background as unknown) === "true";
 
-    const timeout = params.timeout ?? DEFAULT_TIMEOUT;
+  return background
+    ? startBackground(params, ctx, cwd)
+    : runForeground(params, ctx, cwd);
+}
 
-    const isWindows = process.platform === "win32";
-    const shell = isWindows ? "cmd.exe" : "/bin/bash";
-    const shellArgs = isWindows
-      ? ["/c", params.command]
-      : ["-c", params.command];
+// =============================================================================
+// Background mode
+// =============================================================================
 
-    // Disable prompts (GIT_TERMINAL_PROMPT, apt/dpkg). stdio[0] is "ignore" so
-    // the child gets EOF on stdin immediately — anything that would block on
-    // a password prompt (git push over HTTPS, sudo, apt, etc.) will exit with
-    // an error instead of hanging past the timeout.
-    //
-    // `detached` puts the shell in its own process group so the timeout can
-    // signal the whole tree. Without it, `npm test` (npm -> vitest -> workers)
-    // leaves grandchildren alive after the shell dies.
-    const child = spawn(shell, shellArgs, {
+function startBackground(
+  params: BashParams,
+  ctx: ToolContext,
+  cwd: string,
+): BashResult {
+  const sessionId = ctx.sessionId;
+  if (!sessionId) {
+    return {
+      success: false,
+      error:
+        "run_in_background requires a session; re-run the command in the foreground.",
+    };
+  }
+
+  const registry = getShellRegistry(sessionId);
+  let shell;
+  try {
+    shell = registry.start({
+      command: params.command,
       cwd,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        DEBIAN_FRONTEND: "noninteractive",
-        APT_LISTCHANGES_FRONTEND: "none",
+      onData: (id, chunk) => {
+        BusEvents.stream(sessionId, {
+          type: "shell_output",
+          shellId: id,
+          chunk,
+        });
       },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: !isWindows,
+      onExit: (id, status, exitCode) => {
+        if (status === "running") return;
+        BusEvents.stream(sessionId, {
+          type: "shell_exit",
+          shellId: id,
+          status,
+          exitCode,
+        });
+      },
     });
+  } catch (error) {
+    return { success: false, error: String((error as Error).message ?? error) };
+  }
+
+  BusEvents.stream(sessionId, {
+    type: "shell_start",
+    shellId: shell.id,
+    command: shell.command,
+    cwd: shell.cwd,
+  });
+
+  return {
+    success: true,
+    result: {
+      title: params.command.split("\n")[0].slice(0, 50),
+      output: [
+        `Started in the background as ${shell.id}.`,
+        "",
+        `Read new output with bashoutput(bash_id: "${shell.id}") — each call returns only what is new.`,
+        `Stop it with killbash(bash_id: "${shell.id}").`,
+      ].join("\n"),
+      metadata: {
+        background: true,
+        shellId: shell.id,
+        command: params.command,
+        cwd,
+        outputKind: classifyCommand(params.command),
+      },
+    },
+  };
+}
+
+// =============================================================================
+// Foreground mode
+// =============================================================================
+
+function runForeground(
+  params: BashParams,
+  ctx: ToolContext,
+  cwd: string,
+): Promise<BashResult> {
+  return new Promise((resolve) => {
+    const timeout = params.timeout ?? DEFAULT_TIMEOUT;
+    const { child, killTree } = spawnShell(params.command, cwd);
 
     let stdout = "";
     let stderr = "";
     let killed = false;
     let settled = false;
 
-    // Signal the process group, not just the shell, so descendants that
-    // outlive it (test runners, dev servers) go down with it. Falls back to
-    // the direct child if the group is already gone.
-    const killTree = (signal: NodeJS.Signals) => {
-      if (child.pid === undefined) return;
-      try {
-        if (isWindows) child.kill(signal);
-        else process.kill(-child.pid, signal);
-      } catch {
-        try {
-          child.kill(signal);
-        } catch {
-          /* already gone */
-        }
-      }
+    // Live tail: the frontend shows the last few lines while the command runs,
+    // so a three-minute build reports progress instead of looking hung. Only
+    // the tail is sent — the full output still goes back at completion.
+    const canStream = Boolean(ctx.sessionId && ctx.toolCallId);
+    let tailDirty = false;
+    const flushTail = (): void => {
+      if (!tailDirty || !ctx.sessionId || !ctx.toolCallId) return;
+      tailDirty = false;
+      const lines = (stdout + stderr)
+        .split("\n")
+        .filter((l) => l.trim())
+        .slice(-LIVE_TAIL_LINES)
+        .map((l) =>
+          l.length > MAX_LINE_LEN ? l.slice(0, MAX_LINE_LEN) + "..." : l,
+        );
+      if (lines.length === 0) return;
+      BusEvents.stream(ctx.sessionId, {
+        type: "tool_output",
+        toolCallId: ctx.toolCallId,
+        content: lines.join("\n"),
+      });
     };
+    const tailTimer = canStream
+      ? setInterval(flushTail, LIVE_TAIL_INTERVAL_MS)
+      : undefined;
 
     const killTimer = setTimeout(() => {
       killTree("SIGKILL");
@@ -154,14 +259,17 @@ export async function _executeBash(
       clearTimeout(timer);
       clearTimeout(killTimer);
       if (exitGrace) clearTimeout(exitGrace);
+      if (tailTimer) clearInterval(tailTimer);
     };
 
     child.stdout?.on("data", (data) => {
       stdout += data.toString();
+      tailDirty = true;
     });
 
     child.stderr?.on("data", (data) => {
       stderr += data.toString();
+      tailDirty = true;
     });
 
     // `close` fires only once every stdio pipe is closed — and a surviving
@@ -209,7 +317,7 @@ export async function _executeBash(
       };
 
       if (killed) {
-        result.output += `\n\n<bash_metadata>\nCommand timed out after ${timeout}ms (signal sent)\n</bash_metadata>`;
+        result.output += `\n\n<bash_metadata>\nCommand timed out after ${timeout}ms (signal sent). If this command is long-running by design, re-run it with run_in_background: true.\n</bash_metadata>`;
         // Surface the timeout as a failure so the loop sees it as such and
         // doesn't conclude "the command ran successfully, just slowly." The
         // partial output (stdout/stderr captured before the kill) goes into

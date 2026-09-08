@@ -283,9 +283,12 @@ test("the rendered trace names refused calls and counts them", () => {
 });
 
 test("a trace with no denials says nothing about them", () => {
-  const text = renderTrace(buildTrace("s1", [request(1000), response(2000, 1000)]), {
-    showTools: true,
-  });
+  const text = renderTrace(
+    buildTrace("s1", [request(1000), response(2000, 1000)]),
+    {
+      showTools: true,
+    },
+  );
   assert.ok(!/denied/.test(text));
 });
 
@@ -330,14 +333,32 @@ test("a parallel batch is ordered by CALL, not by which finished first", () => {
   // `Promise.all` in loop.ts lets a later call finish first. `expectFirstToolIn`
   // then scored the fast tool as the opening move.
   const trace = buildTrace("s1", [
-    event("function.call", 1000, { turnId: "t", tool: "grep", args: {}, callId: "c1" }),
-    event("function.call", 1001, { turnId: "t", tool: "read", args: {}, callId: "c2" }),
+    event("function.call", 1000, {
+      turnId: "t",
+      tool: "grep",
+      args: {},
+      callId: "c1",
+    }),
+    event("function.call", 1001, {
+      turnId: "t",
+      tool: "read",
+      args: {},
+      callId: "c2",
+    }),
     // `read` finishes first.
     event("function.output", 1100, {
-      turnId: "t", tool: "read", output: "", duration_ms: 99, callId: "c2",
+      turnId: "t",
+      tool: "read",
+      output: "",
+      duration_ms: 99,
+      callId: "c2",
     }),
     event("function.output", 1500, {
-      turnId: "t", tool: "grep", output: "", duration_ms: 500, callId: "c1",
+      turnId: "t",
+      tool: "grep",
+      output: "",
+      duration_ms: 500,
+      callId: "c1",
     }),
   ]);
   assert.deepEqual(
@@ -351,16 +372,30 @@ test("concurrent calls to the SAME tool keep their own arguments", () => {
   // first's pending entry and both outputs read the surviving args.
   const trace = buildTrace("s1", [
     event("function.call", 1000, {
-      turnId: "t", tool: "read", args: { filePath: "first.ts" }, callId: "a",
+      turnId: "t",
+      tool: "read",
+      args: { filePath: "first.ts" },
+      callId: "a",
     }),
     event("function.call", 1001, {
-      turnId: "t", tool: "read", args: { filePath: "second.ts" }, callId: "b",
+      turnId: "t",
+      tool: "read",
+      args: { filePath: "second.ts" },
+      callId: "b",
     }),
     event("function.output", 1100, {
-      turnId: "t", tool: "read", output: "", duration_ms: 5, callId: "b",
+      turnId: "t",
+      tool: "read",
+      output: "",
+      duration_ms: 5,
+      callId: "b",
     }),
     event("function.output", 1200, {
-      turnId: "t", tool: "read", output: "", duration_ms: 9, callId: "a",
+      turnId: "t",
+      tool: "read",
+      output: "",
+      duration_ms: 9,
+      callId: "a",
     }),
   ]);
   assert.deepEqual(
@@ -376,25 +411,94 @@ test("a log with no callId still yields ascending call order", () => {
     event("function.call", 1000, { turnId: "t", tool: "grep", args: {} }),
     event("function.call", 1001, { turnId: "t", tool: "read", args: {} }),
     event("function.output", 1100, {
-      turnId: "t", tool: "read", output: "", duration_ms: 5,
+      turnId: "t",
+      tool: "read",
+      output: "",
+      duration_ms: 5,
     }),
     event("function.output", 1500, {
-      turnId: "t", tool: "grep", output: "", duration_ms: 400,
+      turnId: "t",
+      tool: "grep",
+      output: "",
+      duration_ms: 400,
     }),
   ]);
-  assert.deepEqual(trace.toolSpans.map((s) => s.tool), ["grep", "read"]);
+  assert.deepEqual(
+    trace.toolSpans.map((s) => s.tool),
+    ["grep", "read"],
+  );
 });
 
 test("an output whose opening call was lost is still ordered sanely", () => {
   const trace = buildTrace("s1", [
-    event("function.call", 1000, { turnId: "t", tool: "grep", args: {}, callId: "c1" }),
+    event("function.call", 1000, {
+      turnId: "t",
+      tool: "grep",
+      args: {},
+      callId: "c1",
+    }),
     event("function.output", 1100, {
-      turnId: "t", tool: "grep", output: "", duration_ms: 5, callId: "c1",
+      turnId: "t",
+      tool: "grep",
+      output: "",
+      duration_ms: 5,
+      callId: "c1",
     }),
     // No matching call — truncated log, or resumed mid-turn.
     event("function.output", 1200, {
-      turnId: "t", tool: "write", output: "", duration_ms: 5, callId: "gone",
+      turnId: "t",
+      tool: "write",
+      output: "",
+      duration_ms: 5,
+      callId: "gone",
     }),
   ]);
-  assert.deepEqual(trace.toolSpans.map((s) => s.tool), ["grep", "write"]);
+  assert.deepEqual(
+    trace.toolSpans.map((s) => s.tool),
+    ["grep", "write"],
+  );
+});
+
+test("compactions are folded, with the tokens they removed", () => {
+  const trace = buildTrace("s1", [
+    request(0),
+    response(1_000, 1_000),
+    event("compact.occurred", 1_100, {
+      beforeTokens: 30_000,
+      afterTokens: 8_000,
+    }),
+    request(1_200),
+    response(2_000, 800),
+    event("compact.occurred", 2_100, {
+      beforeTokens: 26_000,
+      afterTokens: 9_000,
+    }),
+  ]);
+  assert.equal(trace.compactions, 2);
+  assert.equal(trace.compactedTokens, 22_000 + 17_000);
+});
+
+test("a run that never compacted reports zero, not undefined", () => {
+  // `expectCompaction` compares against this, so an absent field would read as
+  // NaN and quietly pass every comparison.
+  const trace = buildTrace("s1", [request(0), response(1_000, 1_000)]);
+  assert.equal(trace.compactions, 0);
+  assert.equal(trace.compactedTokens, 0);
+});
+
+test("a compaction that grew the transcript cannot cancel out a real saving", () => {
+  const trace = buildTrace("s1", [
+    request(0),
+    response(1_000, 1_000),
+    event("compact.occurred", 1_100, {
+      beforeTokens: 30_000,
+      afterTokens: 8_000,
+    }),
+    event("compact.occurred", 1_200, {
+      beforeTokens: 8_000,
+      afterTokens: 12_000,
+    }),
+  ]);
+  assert.equal(trace.compactions, 2);
+  assert.equal(trace.compactedTokens, 22_000);
 });

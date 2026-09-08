@@ -101,10 +101,17 @@ export class PromptCompiler {
    * tree changed without HEAD moving (an uncommitted edit). This is a plain
    * string template, cheap enough that caching it bought nothing.
    */
-  compileProjectSummary(tree: string): string {
+  compileProjectSummary(tree: string, gitHead?: string): string {
+    // "no-git" is tree-cache's marker for "not a repository"; a line saying so
+    // is noise, so the line is dropped entirely rather than printed empty.
+    // Safe in this cache-sensitive slot only because session-context freezes
+    // gitHead for the session — a live value would rewrite position 0 on every
+    // commit and bust the whole conversation prefix behind it.
+    const head =
+      gitHead && gitHead !== "no-git" ? `Git HEAD: ${gitHead}\n` : "";
     return `Project: ${this.projectName}
 Path: ${this.projectPath}
-
+${head}
 File tree:
 ${tree}`;
   }
@@ -178,9 +185,7 @@ ${tree}`;
       model,
       skillsSection,
     );
-    return [
-      { text: joinSections(segments.map((s) => s.text)), cache: true },
-    ];
+    return [{ text: joinSections(segments.map((s) => s.text)), cache: true }];
   }
 
   /**
@@ -210,7 +215,7 @@ ${tree}`;
     const roundedTime =
       clock ?? new Date().toISOString().slice(0, 13) + ":00:00Z";
     return [
-      this.compileProjectSummary(tree),
+      this.compileProjectSummary(tree, gitHead),
       "",
       memoryContext ? `Session context:\n${memoryContext}` : "",
       `Current Time: ${roundedTime}`,

@@ -311,10 +311,13 @@ explains fuzzy matching that stopped working.
    embedding set, but adding one memory can renumber every cluster, so cluster
    identity doesn't survive a rebuild. Anything the UI persists about a cluster is
    meaningless afterwards.
-6. **The embedder never retries.** One failure sets `broken = true` for the
-   process lifetime (`embedder.ts:66`). Correct for a missing native library —
-   which is fatal and permanent — but a transient failure also downgrades the rest
-   of the run to keyword search until restart.
+6. ~~The embedder never retries.~~ **Fixed** by making the latch depend on the
+   failure. A missing native library still disables the backend on sight: it
+   fails at the dynamic `import("fastembed")` and never recovers inside a
+   running process. Anything past the import — above all the first-run model
+   download — is retried, and only three consecutive failures declare the
+   backend dead, with one success clearing the count. A single flaky moment no
+   longer downgrades the rest of the process to keyword search.
 7. **Dangling wikilinks are invisible.** Skipping them is right; never surfacing
    them means a typo'd `[[link]]` silently never connects anything. The explorer
    is the natural place to list unresolved links.

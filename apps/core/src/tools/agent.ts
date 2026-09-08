@@ -9,18 +9,21 @@ import type { Tool, ToolExecutionResult, JsonSchema } from "./tool.types.js";
 import { buildTool } from "./factory.js";
 import { AgentLoop } from "../agent/loop.js";
 import { BusEvents } from "../bus/index.js";
-import type { HookContext } from "../agent/types.js";
+import type { AgentMode, HookContext } from "../agent/types.js";
 import type { HookRuntime } from "../hooks/runtime.js";
 import { createSessionStore, type SessionStore } from "../session/store.js";
 import { coerceBoolean } from "./coerce-args.js";
 import { createRecorder } from "../rollout/recorder.js";
 import { listProviders } from "../providers/registry.js";
+import { getAgentRegistry } from "../agent/registry/index.js";
+import { disposeShellRegistry } from "./shells/index.js";
 
 interface AgentParams {
   task: string;
   prompt: string;
   agentType?: string;
   forkContext?: boolean;
+  readOnly?: boolean;
 }
 
 // =============================================================================
@@ -30,8 +33,14 @@ interface AgentParams {
 const agentSchema: JsonSchema = {
   type: "object",
   properties: {
-    task: { type: "string", description: "Brief description of the task for the sub-agent" },
-    prompt: { type: "string", description: "The actual prompt/instruction for the sub-agent" },
+    task: {
+      type: "string",
+      description: "Brief description of the task for the sub-agent",
+    },
+    prompt: {
+      type: "string",
+      description: "The actual prompt/instruction for the sub-agent",
+    },
     agentType: {
       type: "string",
       description: "Optional: AI provider to use (e.g., 'chatgpt', 'claude')",
@@ -40,6 +49,11 @@ const agentSchema: JsonSchema = {
       type: "boolean",
       description:
         "If true, the sub-agent starts with the full parent conversation forked into its own session, instead of only the task prompt. Use when the sub-agent needs this conversation's context (e.g. continuing complex work) rather than a fresh, isolated investigation.",
+    },
+    readOnly: {
+      type: "boolean",
+      description:
+        "Defaults to true: the sub-agent runs read-only and physically cannot see write/edit/bash, so it cannot change anything. Set false ONLY when the task is to modify code — the sub-agent then inherits this session's permission mode.",
     },
   },
   required: ["task", "prompt"],
@@ -68,6 +82,9 @@ function validateAgentInput(
   ) {
     return { valid: false, error: "forkContext must be a boolean" };
   }
+  if (p.readOnly !== undefined && coerceBoolean(p.readOnly) === undefined) {
+    return { valid: false, error: "readOnly must be a boolean" };
+  }
   return { valid: true };
 }
 
@@ -95,8 +112,9 @@ async function executeSubagent(
 
   const baseDir = path.join(os.homedir(), ".freecode");
   sessionStore = await createSessionStore(baseDir);
-  if (coerceBoolean(params.forkContext) && ctx.sessionId) {
-    subagentId = await sessionStore.fork(ctx.sessionId);
+  const forking = coerceBoolean(params.forkContext) && !!ctx.sessionId;
+  if (forking) {
+    subagentId = await sessionStore.fork(ctx.sessionId!);
   }
 
   // `agentType` is documented as an optional provider override, not a real
@@ -105,12 +123,16 @@ async function executeSubagent(
   // unregistered "chatgpt" and throw on the subagent's first turn (known gap
   // #6). Fall back to the parent session's own provider/model instead.
   const registeredIds = new Set(listProviders().map((p) => p.id));
-  let provider = params.agentType && registeredIds.has(params.agentType)
-    ? params.agentType
-    : undefined;
+  let provider =
+    params.agentType && registeredIds.has(params.agentType)
+      ? params.agentType
+      : undefined;
   let model: string | undefined;
   if (!provider && ctx.sessionId) {
-    const parentMeta = await sessionStore.getMeta(ctx.sessionId, ctx.projectPath ?? ctx.cwd);
+    const parentMeta = await sessionStore.getMeta(
+      ctx.sessionId,
+      ctx.projectPath ?? ctx.cwd,
+    );
     provider = parentMeta?.provider;
     model = parentMeta?.model;
   }
@@ -121,11 +143,77 @@ async function executeSubagent(
     };
   }
 
+  // The store is handed to the subagent's loop, and `appendMessage` is a bare
+  // append with no mkdir — so without a session on disk the loop threw ENOENT
+  // writing its FIRST user message and died at ~8ms with 0 turns, reported to
+  // the model only as "Status: FAILED". `fork()` creates the directory itself,
+  // which is why forkContext: true was the only mode that ever worked.
+  if (!forking) {
+    await sessionStore.createSession(
+      {
+        title: params.task,
+        projectPath: ctx.projectPath ?? ctx.cwd,
+        provider,
+        model,
+      },
+      subagentId,
+    );
+  }
+
   const hookCtx: HookContext = {
     sessionId: subagentId,
     turnCount: 0,
     toolName: "agent",
   };
+
+  // Register BEFORE anything is constructed: the depth and concurrency caps
+  // have to be able to refuse the spawn, and the registry is what knows how
+  // deep in the tree this parent already is. A refusal is a tool error the
+  // model reads and acts on, not an exception.
+  const agents = getAgentRegistry();
+  const rootId = agents.rootOf(parentSessionId);
+  try {
+    agents.register({
+      id: subagentId,
+      parentId: parentSessionId,
+      task: params.task,
+      agentType: params.agentType || "agent",
+      // Stamped with the ROOT session id: the frontend subscribes to the root
+      // and would never see an event addressed to the subagent's own id.
+      onActivity: (id, chunk) =>
+        BusEvents.stream(rootId, { type: "agent_output", agentId: id, chunk }),
+      onExit: (id, status) => {
+        if (status === "running") return;
+        BusEvents.stream(rootId, { type: "agent_exit", agentId: id, status });
+      },
+    });
+  } catch (error) {
+    return { success: false, error: String((error as Error).message ?? error) };
+  }
+
+  // Read-only unless the spawner opts out. `explore` is not advisory: mutating
+  // tools are filtered out of the tool list entirely (tools/defs-cache.ts), so
+  // an analysis subagent cannot delete anything even if it decides to try.
+  //
+  // When it IS allowed to write it inherits the parent's mode rather than
+  // hardcoding `build` — under a `danger` parent that used to mean the
+  // subagent prompted for permissions the user had already switched off, and
+  // the prompt surfaced mid-turn with nothing saying which agent asked.
+  const readOnly = coerceBoolean(params.readOnly) ?? true;
+  const subagentMode: AgentMode = readOnly
+    ? "explore"
+    : (ctx.agentMode ?? "build");
+
+  let settleStatus: "completed" | "failed" = "failed";
+
+  BusEvents.stream(rootId, {
+    type: "agent_start",
+    agentId: subagentId,
+    parentId: parentSessionId,
+    task: params.task,
+    agentType: params.agentType || "agent",
+    depth: agents.depthOf(subagentId),
+  });
 
   try {
     const startResult = await hooks.runSubagentStart(params.task, hookCtx);
@@ -150,6 +238,9 @@ async function executeSubagent(
       // reasoning as agent/subagent.ts.
       memoryExtraction: false,
     });
+    // Late-bound because the loop cannot exist until the spawn has been
+    // allowed; this is what makes `k` in the /agents panel able to stop it.
+    agents.attachInterrupt(subagentId, () => subAgentLoop.interrupt());
 
     const result = await subAgentLoop.run({
       prompt: params.prompt,
@@ -157,6 +248,7 @@ async function executeSubagent(
       provider,
       model,
       projectPath: ctx.projectPath ?? ctx.cwd,
+      agentMode: subagentMode,
     });
 
     BusEvents.subagentCompleted(
@@ -167,14 +259,24 @@ async function executeSubagent(
       result.message,
     );
     parentRecorder?.recordSubagentStop(subagentId, result.message ?? "");
+    settleStatus = result.success ? "completed" : "failed";
 
     await hooks.runSubagentStop(params.task, hookCtx);
 
+    // A failure has to carry its reason. Without this the model is handed a
+    // bare "Status: FAILED" and can only guess — which is exactly what it did
+    // when the missing-session ENOENT above was still live.
+    if (!result.success) {
+      console.error(
+        `[agent] Subagent ${subagentId} returned failure: ${result.message ?? "(no message)"}`,
+      );
+    }
     const output = [
       `Subagent: ${params.task}`,
       `Status: ${result.success ? "SUCCESS" : "FAILED"}`,
       `Turns: ${result.turnCount}`,
       `Iterations: ${result.iterationCount}`,
+      !result.success && result.message ? `Reason: ${result.message}` : "",
       result.content ? `\nOutput:\n${result.content}` : "",
     ]
       .filter(Boolean)
@@ -195,6 +297,7 @@ async function executeSubagent(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[agent] Subagent ${subagentId} failed: ${errorMsg}`);
+    settleStatus = "failed";
 
     BusEvents.subagentCompleted(
       subagentId,
@@ -214,6 +317,15 @@ async function executeSubagent(
       success: false,
       error: errorMsg,
     };
+  } finally {
+    // Idempotent, and a no-op when the panel already stopped this agent —
+    // `stop()` settles the record itself so the row flips without waiting for
+    // the loop to unwind.
+    agents.settle(subagentId, settleStatus);
+    // A subagent runs under a synthetic session id that `endSession` never
+    // sees, so a background shell it started would otherwise outlive it and
+    // stay unkillable — invisible to /shells, which is keyed by the root.
+    disposeShellRegistry(subagentId);
   }
 }
 
@@ -252,7 +364,9 @@ export const AgentTool: Tool<AgentParams> = buildTool({
 
 Use it when the work would burn context you have no further use for ("find everywhere X is wired up", "why is this test flaky"). Don't use it for work you can do directly — a known read, a single grep, an understood edit is faster inline.
 
-- Put everything it needs in \`prompt\`: it starts cold unless forkContext: true (forks this session into it). Say exactly what you want back, and whether to investigate only or change code.
+- Put everything it needs in \`prompt\`: it starts cold unless forkContext: true (forks this session into it). Say exactly what you want back.
+- It is READ-ONLY by default and cannot write, edit, or run bash. Pass readOnly: false only when the task is to change code; it then runs with this session's permissions.
+- It cannot spawn sub-agents of its own. If your task needs delegating twice, do the outer half yourself.
 - Its result is not shown to the user — relay what matters yourself.`,
   schemas: {
     parameters: agentSchema,

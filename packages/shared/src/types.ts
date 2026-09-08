@@ -480,3 +480,68 @@ export interface ExportedSession {
   exportedAt: number;
   expiresAt?: number;
 }
+
+// =============================================================================
+// Background shells (`bash(run_in_background: true)`)
+// =============================================================================
+
+export type ShellStatus = "running" | "completed" | "failed" | "killed";
+
+/** One row of the TUI's shells panel. Carries no output payload. */
+export interface ShellSummary {
+  id: string;
+  command: string;
+  cwd: string;
+  status: ShellStatus;
+  exitCode: number | null;
+  startedAt: number;
+  endedAt?: number;
+  /** Characters still buffered — not the total the process ever produced. */
+  bufferedChars: number;
+  /** True once the ring buffer dropped output off the front. */
+  truncated: boolean;
+}
+
+export type AgentStatus = "running" | "completed" | "failed" | "killed";
+
+/** One spawned subagent, as the /agents panel renders it. */
+export interface AgentSummary {
+  id: string;
+  /** Session that spawned it: the root session, or another agent. */
+  parentId: string;
+  /** Root session the tree hangs off. */
+  rootId: string;
+  /** The task description, shown as the row title. */
+  task: string;
+  agentType: string;
+  /** 1 for an agent the main session spawned. */
+  depth: number;
+  status: AgentStatus;
+  startedAt: number;
+  endedAt?: number;
+  /** Characters still buffered — not the total the agent ever produced. */
+  bufferedChars: number;
+  /** True once the ring buffer dropped activity off the front. */
+  truncated: boolean;
+}
+
+export interface AgentOutputResult {
+  found: boolean;
+  text: string;
+  status: AgentStatus;
+  /** Characters discarded before this reader's cursor could reach them. */
+  droppedChars: number;
+  /** Pass back as `cursor` on the next poll to get only what is new. */
+  nextCursor: number;
+}
+
+export interface ShellOutputResult {
+  found: boolean;
+  text: string;
+  status: ShellStatus;
+  exitCode: number | null;
+  /** Characters discarded before this reader's cursor could reach them. */
+  droppedChars: number;
+  /** Pass back as `cursor` on the next poll to get only what is new. */
+  nextCursor: number;
+}

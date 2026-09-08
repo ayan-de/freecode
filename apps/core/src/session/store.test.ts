@@ -1,7 +1,9 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { SessionStore, createSessionStore } from "./store.js";
-import { rm } from "fs/promises";
+import { rm, writeFile, readFile } from "fs/promises";
+import { join } from "path";
+import { formatSessionDirName } from "../store/path-formatter.js";
 
 describe("SessionStore", () => {
   const testDir = "/tmp/freecode-test-session-store";
@@ -180,5 +182,28 @@ describe("SessionStore", () => {
       undefined,
       "usage must not be duplicated across the messages of one response",
     );
+  });
+
+  it("copies todos.json onto a fork", async () => {
+    const projectPath = "/tmp/test";
+    const sessionId = await store.createSession({
+      title: "Test",
+      projectPath,
+      provider: "claude",
+    });
+    const sessionRoot = join(
+      testDir,
+      "sessions",
+      formatSessionDirName(projectPath),
+    );
+    await writeFile(
+      join(sessionRoot, sessionId, "todos.json"),
+      JSON.stringify([{ id: "1", content: "keep me", status: "pending" }]),
+    );
+    const forkId = await store.fork(sessionId, projectPath);
+    const copied = JSON.parse(
+      await readFile(join(sessionRoot, forkId, "todos.json"), "utf-8"),
+    ) as Array<{ content: string }>;
+    assert.equal(copied[0].content, "keep me");
   });
 });

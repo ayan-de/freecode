@@ -15,10 +15,7 @@ import {
   getProvider,
   providerRequiresApiKey,
 } from "./providers/index.js";
-import {
-  LOCAL_PROVIDERS,
-  localProvider,
-} from "./providers/local-catalogue.js";
+import { LOCAL_PROVIDERS, localProvider } from "./providers/local-catalogue.js";
 import { MemoryService } from "./compaction/service.js";
 import { createLlmSummarizer } from "./compaction/llm-summarizer.js";
 import { applyCompaction } from "./session/compact-apply.js";
@@ -65,7 +62,12 @@ import {
 import { containsSecret } from "./memory/graph/secret-filter.js";
 import { buildMemoryPrompt } from "./memory/mem-prompt.js";
 import { disposeOutputStore } from "./tools/output-store/index.js";
+import {
+  peekShellRegistry,
+  disposeAllShellRegistries,
+} from "./tools/shells/index.js";
 import { disposeReadState } from "./tools/read-state.js";
+import { getAgentRegistry, disposeAllAgents } from "./agent/registry/index.js";
 import { disposeCacheAwareness } from "./providers/cache-awareness.js";
 import { disposeFrozenSessionContext } from "./context/session-context.js";
 import { buildContextBreakdown } from "./context/breakdown.js";
@@ -129,7 +131,10 @@ async function getSessionStore(): Promise<SessionStore> {
 const REQUEST_ALREADY_RESOLVED = -32002;
 
 class JsonRpcError extends Error {
-  constructor(public readonly code: number, message: string) {
+  constructor(
+    public readonly code: number,
+    message: string,
+  ) {
     super(message);
     this.name = "JsonRpcError";
   }
@@ -188,12 +193,7 @@ interface TurnInput {
   provider: string;
   model?: string;
   effort?: EffortLevel;
-  agentMode?:
-    | "plan"
-    | "build"
-    | "review"
-    | "explore"
-    | "danger";
+  agentMode?: "plan" | "build" | "review" | "explore" | "danger";
 }
 
 /**
@@ -219,7 +219,9 @@ async function runSessionTurn(
   // No maxIterations override: interactive sessions run unbounded, same as
   // Claude Code and opencode. loop-health + the todo/verify gates are what
   // end a run in practice.
-  const loop = await getAppRuntime().runPromise(createAgentLoopEffect(sessionId));
+  const loop = await getAppRuntime().runPromise(
+    createAgentLoopEffect(sessionId),
+  );
   activeLoops.set(sessionId, loop);
 
   // Per-turn store handle for title-pinning below. Cheap (effect runtime
@@ -801,15 +803,104 @@ export const methodHandlers: Record<
     return readDailyUsage();
   },
 
+  // --- Background shells (TUI shells panel) --------------------------------
+  // peek, never get: an IPC poll from a panel the user opened must not create
+  // a registry for a session that never started one.
+  "shells.list": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    const { sessionId } = params as { sessionId: string };
+    return peekShellRegistry(sessionId)?.list() ?? [];
+  },
+
+  // Positional read: the cursor lives with the caller, so the panel polling
+  // here never consumes output the model still owes itself via bashoutput.
+  "shells.output": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { sessionId, shellId, cursor } = params as {
+      sessionId: string;
+      shellId: string;
+      cursor?: number;
+    };
+    const registry = peekShellRegistry(sessionId);
+    if (!registry) {
+      return {
+        found: false,
+        text: "",
+        status: "failed",
+        exitCode: null,
+        droppedChars: 0,
+        nextCursor: 0,
+      };
+    }
+    return registry.readFrom(shellId, cursor ?? 0);
+  },
+
+  "shells.kill": async (
+    params: Record<string, unknown>,
+  ): Promise<{ killed: boolean }> => {
+    const { sessionId, shellId } = params as {
+      sessionId: string;
+      shellId: string;
+    };
+    return { killed: peekShellRegistry(sessionId)?.kill(shellId) ?? false };
+  },
+
+  "shells.remove": async (
+    params: Record<string, unknown>,
+  ): Promise<{ removed: boolean }> => {
+    const { sessionId, shellId } = params as {
+      sessionId: string;
+      shellId: string;
+    };
+    return { removed: peekShellRegistry(sessionId)?.remove(shellId) ?? false };
+  },
+
+  // --- Subagents (TUI agents panel) ----------------------------------------
+  // `sessionId` is the ROOT session; the registry resolves the tree, so a
+  // frontend never has to learn a subagent's synthetic id to list one.
+  "agents.list": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown[]> => {
+    const { sessionId } = params as { sessionId: string };
+    return getAgentRegistry().listForRoot(sessionId);
+  },
+
+  // Positional read, like shells.output. Nothing else reads a subagent's
+  // activity buffer, so there is no model cursor to disturb.
+  "agents.output": async (
+    params: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const { agentId, cursor } = params as {
+      sessionId: string;
+      agentId: string;
+      cursor?: number;
+    };
+    return getAgentRegistry().readFrom(agentId, cursor ?? 0);
+  },
+
+  "agents.stop": async (
+    params: Record<string, unknown>,
+  ): Promise<{ stopped: boolean }> => {
+    const { agentId } = params as { sessionId: string; agentId: string };
+    return { stopped: getAgentRegistry().stop(agentId) };
+  },
+
+  "agents.remove": async (
+    params: Record<string, unknown>,
+  ): Promise<{ removed: boolean }> => {
+    const { agentId } = params as { sessionId: string; agentId: string };
+    return { removed: getAgentRegistry().remove(agentId) };
+  },
+
   // Persisted prompt history for up-arrow recall. Core owns
   // ~/.freecode/history.jsonl; the editor's in-memory ring is seeded at
   // startup and appended on every submit.
   "history.list": async (): Promise<string[]> => {
     return readHistoryDisplays();
   },
-  "history.append": async (
-    params: Record<string, unknown>,
-  ): Promise<void> => {
+  "history.append": async (params: Record<string, unknown>): Promise<void> => {
     const { text } = params as { text: string };
     appendHistory(text);
   },
@@ -939,8 +1030,9 @@ export const methodHandlers: Record<
       return undefined;
     }
     if (!provider) return undefined;
-    const model = resolveCatalogue().find((e) => e.id === provider)
-      ?.defaultModel;
+    const model = resolveCatalogue().find(
+      (e) => e.id === provider,
+    )?.defaultModel;
     return { provider, model };
   },
 
@@ -1325,7 +1417,15 @@ export async function startServer() {
   // signal handlers, which can (spec D3/D4) — quitting is how most sessions
   // actually end, and it was the path that mined nothing and leaked all six
   // per-session caches.
-  process.on("exit", () => hookSettings.dispose());
+  process.on("exit", () => {
+    hookSettings.dispose();
+    // Synchronous backstop: a background shell must not outlive the daemon
+    // even on an exit path that never ran endSession (crash, plain exit).
+    disposeAllShellRegistries();
+    // Same backstop for subagents: interrupting the loops also releases the
+    // provider streams they are holding open.
+    disposeAllAgents();
+  });
 
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
@@ -1344,6 +1444,7 @@ export async function startServer() {
       ),
     );
     hookSettings.dispose();
+    disposeAllShellRegistries();
     process.exit(signal === "SIGINT" ? 130 : 143);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

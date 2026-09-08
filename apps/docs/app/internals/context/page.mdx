@@ -248,13 +248,24 @@ there is what the tools are for.
 
 ## Known gaps
 
-1. **The git HEAD never reaches the model.** It is computed with an `execSync`
-   per cache miss, stored on `ProjectContext`, frozen per session, threaded
-   through the loop and passed into `compileDynamicContext` — and
-   `compileProjectSummary` uses it only as a **cache key**. The rendered section
-   is `Project` / `Path` / `File tree` and nothing else (`compiler.ts:115`).
-   `CLAUDE.md` and this codebase's own comments describe git HEAD as part of what
-   the model is given; it isn't.
+1. ~~The git HEAD never reaches the model.~~ **Fixed** by rendering it:
+   `compileProjectSummary` takes the head it was already being handed and emits
+   a `Git HEAD:` line between `Path` and the file tree, so `CLAUDE.md` and the
+   in-code comments now describe what the model actually gets. The line is
+   dropped when `tree-cache` reports `no-git`, which is a sentinel rather than a
+   value. It is safe in that cache-sensitive slot only because
+   `session-context.ts` freezes `gitHead` for the session — a live read would
+   rewrite position 0 on every commit and re-bill the whole conversation
+   behind it.
+1. ~~The git HEAD never reaches the model.~~ **Fixed** by rendering it:
+   `compileProjectSummary` takes the head it was already being handed and emits
+   a `Git HEAD:` line between `Path` and the file tree, so `CLAUDE.md` and the
+   in-code comments now describe what the model actually gets. The line is
+   dropped when `tree-cache` reports `no-git`, which is a sentinel rather than a
+   value. It is safe in that cache-sensitive slot only because
+   `session-context.ts` freezes `gitHead` for the session — a live read would
+   rewrite position 0 on every commit and re-bill the whole conversation
+   behind it.
 2. ~~The compiler's `fileTreeCache` is keyed on something the value doesn't
    depend on.~~ **Fixed** by deleting the cache: `compileProjectSummary` was
    only ever formatting a four-line string, so caching it bought nothing and
@@ -278,17 +289,22 @@ there is what the tools are for.
    dead, but it is 126 lines of dead code that reads like the intended design.
    It also builds paths with `path.relative(process.cwd(), …)` rather than the
    project path.
-5. **Editing `CLAUDE.md` mid-session busts the prompt cache silently.**
-   `compileInstructionsSection` re-reads from disk every turn and feeds the
-   `cache: true` block, so an edit changes the first breakpoint and re-bills
-   everything after it. Legitimate — but nothing calls `recordInvalidation`, so
-   [the cache-miss detector](/internals/providers#cache-observability) reports it
-   as an unexplained bust, which is the false positive the journal exists to
-   prevent. (Same shape as the MCP tool-set gap.)
-6. **The 40,000-character instruction cap truncates mid-file, after joining.**
-   Global instructions render first, so a large global `CLAUDE.md` can silently
-   push the project's own file out of the prompt. The truncation marker says the
-   character count but not *which* file was cut.
+5. ~~Editing `CLAUDE.md` mid-session busts the prompt cache silently.~~
+   **Fixed.** `noteStaticPrefix` fingerprints the compiled static block each
+   turn and records an invalidation when it moves, so
+   [the cache-miss detector](/internals/providers#cache-observability)
+   attributes the miss instead of reporting the user's own edit as an
+   unexplained bust. Fingerprinting the whole block rather than watching
+   `CLAUDE.md` in particular also covers an edited `AGENTS.md`, a skill
+   appearing or disappearing, and whatever joins that block later. The MCP
+   tool-set gap is a separate site and is still open.
+6. ~~The 40,000-character instruction cap truncates mid-file, after joining.~~
+   **Fixed** (2026-09-08). `compileInstructionsSection` allocates the budget
+   most specific first, so a fat global `CLAUDE.md` can no longer push the
+   project's own file out. Every casualty is named: a cut file carries
+   `[Truncated: <path> did not fit …]`, one squeezed out entirely is still
+   listed with `[Omitted: …]` rather than vanishing, and both paths `logger.warn`.
+   Prompt order stays global-then-project regardless of allocation order.
 7. **Instruction resolution is root-only.** No walk-up for monorepos, no
    `@imports`, no glob-scoped rules — so a package inside a monorepo cannot ship
    instructions that apply only to it. Deferred deliberately; tracked in

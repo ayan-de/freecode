@@ -89,7 +89,12 @@ export type StreamEvent =
       toolName: string;
       args: Record<string, unknown>;
     }
-  | { type: "tool_output"; sessionId?: string; toolCallId: string; content: string }
+  | {
+      type: "tool_output";
+      sessionId?: string;
+      toolCallId: string;
+      content: string;
+    }
   | {
       type: "tool_complete";
       sessionId?: string;
@@ -156,7 +161,12 @@ export type StreamEvent =
     }
   // Turn-level advisory the user needs to see (e.g. an attachment dropped
   // because the model can't accept it). Does not fail the turn.
-  | { type: "notice"; sessionId?: string; level: "info" | "warn"; content: string }
+  | {
+      type: "notice";
+      sessionId?: string;
+      level: "info" | "warn";
+      content: string;
+    }
   // Running spend for the current run() — emitted once per completed turn so
   // the frontend can render a live per-session counter (spec
   // 2026-08-05-token-efficiency, D7). Core computes; frontends only display.
@@ -180,6 +190,45 @@ export type StreamEvent =
       tokensBefore: number;
       tokensAfter: number;
       reason?: string; // why it didn't compact, when compacted=false
+    }
+  // Background shells (`bash(run_in_background: true)`). The registry lives in
+  // core (`tools/shells/`); these events let the TUI's shells panel render a
+  // live tail without polling. `shell_output` is a raw chunk, not a tail — the
+  // frontend accumulates and decides how much to show.
+  | {
+      type: "shell_start";
+      sessionId?: string;
+      shellId: string;
+      command: string;
+      cwd: string;
+    }
+  | { type: "shell_output"; sessionId?: string; shellId: string; chunk: string }
+  | {
+      type: "shell_exit";
+      sessionId?: string;
+      shellId: string;
+      status: "completed" | "failed" | "killed";
+      exitCode: number | null;
+    }
+  // Subagents (`agent` tool). The roster lives in core
+  // (`agent/registry/`); these events are stamped with the ROOT session id, not
+  // the subagent's own — the frontend is only subscribed to the root, which is
+  // why a subagent's ordinary stream events never reach it.
+  | {
+      type: "agent_start";
+      sessionId?: string;
+      agentId: string;
+      parentId: string;
+      task: string;
+      agentType: string;
+      depth: number;
+    }
+  | { type: "agent_output"; sessionId?: string; agentId: string; chunk: string }
+  | {
+      type: "agent_exit";
+      sessionId?: string;
+      agentId: string;
+      status: "completed" | "failed" | "killed";
     }
   | {
       type: "question_asked";
@@ -341,6 +390,49 @@ export const METHODS = {
   "usage.get": {
     params: undefined,
     result: [] as { date: string; tokencount: number }[],
+  },
+  // Background shells. `shells.output` is a POSITIONAL read (cursor in, cursor
+  // out) and deliberately does not touch the model's `bashoutput` cursor —
+  // opening the panel must not consume output the model has not seen.
+  "shells.list": {
+    params: { sessionId: "" as string },
+    result: [] as import("../types.js").ShellSummary[],
+  },
+  "shells.output": {
+    params: {} as { sessionId: string; shellId: string; cursor?: number },
+    result: {} as import("../types.js").ShellOutputResult,
+  },
+  "shells.kill": {
+    params: { sessionId: "" as string, shellId: "" as string },
+    result: { killed: false as boolean },
+  },
+  // Drop a SETTLED shell from the roster so a long session's panel does not
+  // fill with finished commands. Refused while it is still running.
+  "shells.remove": {
+    params: { sessionId: "" as string, shellId: "" as string },
+    result: { removed: false as boolean },
+  },
+  // Subagents. `sessionId` is the ROOT session; core resolves the tree, so a
+  // frontend never has to know a subagent's synthetic id to list it.
+  // `agents.output` is positional, exactly like `shells.output`.
+  "agents.list": {
+    params: { sessionId: "" as string },
+    result: [] as import("../types.js").AgentSummary[],
+  },
+  "agents.output": {
+    params: {} as { sessionId: string; agentId: string; cursor?: number },
+    result: {} as import("../types.js").AgentOutputResult,
+  },
+  // Interrupts the subagent's loop. The parent still gets a tool result — an
+  // aborted subagent reports failure rather than vanishing.
+  "agents.stop": {
+    params: { sessionId: "" as string, agentId: "" as string },
+    result: { stopped: false as boolean },
+  },
+  // Drop a SETTLED agent from the roster. Refused while it is still running.
+  "agents.remove": {
+    params: { sessionId: "" as string, agentId: "" as string },
+    result: { removed: false as boolean },
   },
   "skills.list": {
     params: { projectPath: undefined as string | undefined },
@@ -591,6 +683,14 @@ export const REQUIRED_PARAMS: Record<
   "permission.reject": { requestId: "string" },
   "context.stats": { sessionId: "string" },
   "usage.get": {},
+  "shells.list": { sessionId: "string" },
+  "shells.output": { sessionId: "string", shellId: "string" },
+  "shells.kill": { sessionId: "string", shellId: "string" },
+  "shells.remove": { sessionId: "string", shellId: "string" },
+  "agents.list": { sessionId: "string" },
+  "agents.output": { sessionId: "string", agentId: "string" },
+  "agents.stop": { sessionId: "string", agentId: "string" },
+  "agents.remove": { sessionId: "string", agentId: "string" },
   "skills.list": {},
   "mcp.status": {},
   "history.list": {},

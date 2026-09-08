@@ -56,6 +56,7 @@ import {
   type RedirectReason,
 } from "./redirect/index.js";
 import { logger } from "../utils/logger.js";
+import { envInt } from "../utils/env.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
 import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
@@ -113,7 +114,10 @@ import { getProvider, allowsAuxiliaryCalls } from "../providers/index.js";
 import type { ProviderId } from "../providers/index.js";
 import { isPlainObject } from "../providers/utils.js";
 import { isTimeoutError } from "../providers/fetch-timeout.js";
-import { recordInvalidation } from "../providers/cache-invalidation.js";
+import {
+  noteStaticPrefix,
+  recordInvalidation,
+} from "../providers/cache-invalidation.js";
 import {
   checkCacheUsage,
   describeCacheProblem,
@@ -173,11 +177,16 @@ const MAX_OVERFLOW_COMPACTIONS = 3;
 // the conversation and it now fires on a cost target (~107K tokens ≈ 428K
 // chars). A 200K-char (~50K token) share for tool results leaves room for the
 // rest of the context under that target.
-const TOOL_RESULT_BUDGET_CHARS = Number.isFinite(
-  Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS),
-)
-  ? Math.max(0, Number(process.env.FREECODE_TOOL_RESULT_BUDGET_CHARS))
-  : 200_000;
+//
+// 0 is a legitimate setting (prune everything), which is exactly why the parse
+// has to distinguish it from an EMPTY variable — `Number("")` is 0, so the
+// previous parse read `FREECODE_TOOL_RESULT_BUDGET_CHARS=""` as "prune every
+// tool result to a marker".
+const TOOL_RESULT_BUDGET_CHARS = envInt(
+  "FREECODE_TOOL_RESULT_BUDGET_CHARS",
+  200_000,
+  { min: 0 },
+);
 
 // The marker that stands in for a replaced tool result. Deterministic in
 // (id, size) so re-deriving it always yields the same bytes — though the
@@ -1040,6 +1049,7 @@ export class AgentLoop {
               originalRequest: input.prompt,
               changedFiles: [...this.mutatedFiles],
               priorReport: this.lastVerifierReport,
+              parentSessionId: this.state.sessionId,
             });
             if (this.abort.signal.aborted)
               return await this.complete(
@@ -1448,6 +1458,14 @@ export class AgentLoop {
         model,
       );
 
+      // These are recompiled from disk every turn, so a mid-session CLAUDE.md
+      // edit rewrites the cached prefix. Document it here or D2 reports the
+      // user's own edit as an unexplained harness bust.
+      noteStaticPrefix(
+        this.state.sessionId,
+        systemBlocks.map((b) => b.text).join("\n"),
+      );
+
       // The compaction summary — how the model knows what happened before a
       // compaction trimmed the history. Deliberately NOT
       // renderPromptMemoryContext(), which also renders `recentMessages`: those
@@ -1523,9 +1541,12 @@ export class AgentLoop {
       // can be checked against it rather than trusted (D12).
       this.lastInjectedMemories = retrievedMemories;
       // Persistent task list: re-rendered from the todo store every turn (not
-      // from history), so the plan survives context compaction and the model
-      // never loses track of remaining work on long tasks.
-      const todoBlock = renderTodoPromptBlock(this.state.sessionId);
+      // from history), so the plan survives context compaction and a process
+      // restart / session.resume. The model never loses remaining work.
+      const todoBlock = renderTodoPromptBlock(
+        this.state.sessionId,
+        this.state.projectPath,
+      );
       // Drain any queued <system-reminder> blocks (todo nudge / completion
       // gate) into this turn's prompt. Transient — never persisted to history.
       const reminderText = this.pendingReminders.join("\n\n");
@@ -2035,8 +2056,8 @@ export class AgentLoop {
       model: resolvedModel,
       messageCount: prunedMessages.length,
       toolCount: tools.length,
-      promptChars: estimatePromptChars(prunedMessages, system) +
-        ephemeralTail.length,
+      promptChars:
+        estimatePromptChars(prunedMessages, system) + ephemeralTail.length,
       streamed: Boolean(aiProvider.stream),
     });
 
@@ -2579,6 +2600,11 @@ export class AgentLoop {
       cwd: process.cwd(),
       projectPath: this.state.projectPath,
       sessionId: this.state.sessionId,
+      // Lets a long-running tool stream a live tail onto the row the UI is
+      // already showing, instead of the user staring at a spinner for the
+      // whole of a build (see bash.ts).
+      toolCallId: toolCall.id,
+      agentMode: this.state.agentMode,
       abort: this.abort.signal,
     };
 
@@ -2863,10 +2889,12 @@ export class AgentLoop {
       events,
       turnCount: this.state.turnCount,
       goal,
-      todos: getTodos(this.state.sessionId).map((t) => ({
-        content: t.content,
-        status: t.status,
-      })),
+      todos: getTodos(this.state.sessionId, this.state.projectPath).map(
+        (t) => ({
+          content: t.content,
+          status: t.status,
+        }),
+      ),
     });
     // Nothing to reason about: no calls, no errors, no plan. Advice formed on
     // an empty packet would be a guess dressed as evidence.

@@ -534,37 +534,69 @@ most expensive kind of wrong answer this harness can give.
 
 | Category | What it needs first |
 | --- | --- |
-| `compaction-boundary` | A turn long enough to compact. Reachable only by accident today, and an accident is not a p ≥ 0.99 case — but see the note below: it may be cheaper than "larger" suggests. |
+| ~~`compaction-boundary`~~ | **Built 2026-09-08.** Needed `env` *and* `followUps` — see the note below; "a turn long enough to compact" was the wrong diagnosis, since length is not what gates it. |
 | `memory-recall` | A seeded memory dir. `files` paths are sandbox-relative and `assertSafeRelativePath` refuses to escape, which is correct — so a fixture cannot reach `~/.freecode`. |
 | `resume` | A prior session to resume from. One `runEffect` per trial means there is no earlier turn. |
 | `mcp-failure` | A fixture MCP server. `initRunner` calls `initMcpServers()` against the user's real config, so the suite is not hermetic here and could not be made to fail on purpose. |
 
 They stay in `CATEGORIES_WITHOUT_CASES` with that reason recorded next to them.
-The cheapest unlock is `resume` (a second `runEffect` on the same session id);
+`resume` is now the cheapest unlock and most of it already exists: `followUps`
+is a second `runEffect` on the same session id, so what remains is deciding what
+a `resume` case should assert;
 `memory-recall` wants a `memory` fixture key alongside `files`; the other two are
 larger. None of it is Phase 4 work — it is harness work, and it should be
 specified before it is built.
 
-**A cheaper route to `compaction-boundary` (noted 2026-09-05, not built.)** The
-objection above is that compacting is an *accident*, and an accident cannot
-carry a p ≥ 0.99 case. But the threshold is already a knob:
-`getCompactTarget()` reads `FREECODE_COMPACT_TARGET_TOKENS`, and
-`shouldCompact` takes `min(windowLimit, target) - buffer`. Set the target to a
-few thousand for one case and compaction stops being an accident and becomes
-the *point* of the case — deterministic, and reached by an ordinary short
-prompt instead of a manufactured 100k one.
+**`compaction-boundary` is built (2026-09-08). The route below was half right,
+and the half it got wrong is the interesting part.**
 
-What it needs: a per-case `env` key on `EvalCase`, honoured by `runner.ts` and
-scoped to the trial. That is a real harness change and wants its own spec pass —
-in particular, whether a case may set arbitrary env (it should not; an allowlist
-of compaction knobs is the safe shape) and how the gate treats a case whose
-environment differs from every other case's.
+The original note said: compacting is an *accident*, an accident cannot carry a
+p ≥ 0.99 case, but the threshold is already a knob (`getCompactTarget()` reads
+`FREECODE_COMPACT_TARGET_TOKENS`, `getAutoCompactOverride()` reads
+`FREECODE_AUTO_COMPACT_TOKENS`), so lowering it makes compaction the *point* of
+the case rather than an accident.
 
-Why it matters now: the 2026-09-05 compaction changes — the head carve-out in
-`selectForCompaction` and the tool transcript from `addToolTurn` — are exactly
-what this category would measure, and today nothing does. They ship on unit
-tests and reasoning, which is weaker evidence than this suite exists to
-provide.
+The knob is real and is now exposed as a per-case `env`, allowlisted to those
+two keys (`EVAL_ENV_ALLOWLIST` in `dataset.ts`) and scoped to the trial by
+`applyEnv` in `runner.ts`. An open `env` would let a case switch off the thing
+being measured, which would quietly stop the suite being evidence.
+
+**But the knob alone cannot reach the path, and two calibration runs proved
+it.** `shouldCompact` only decides *when the check fires*.
+`selectForCompaction` then returns `summarize: []` while
+`countUserTurns <= config.preserveRecentTurns` (2) — and the only thing that
+creates a user turn is the prompt itself (`loop.ts` calls
+`memory.addMessage("user", input.prompt)` once per `run()`; a tool-calling turn
+is recorded as `assistant` by `addToolTurn`). One `runEffect` is one user turn,
+so **a single-prompt case cannot compact at any token count.** Lowering the
+threshold on such a case just fires a check that finds nothing to do.
+
+The second capability is therefore `followUps: string[]` — further user turns
+sent on the same session and the same loop after the first settles. Three
+prompts is the minimum that can compact. This is also, as this section already
+guessed, the cheapest unlock for `resume`.
+
+Two measurements worth keeping, both from calibration runs against
+minimax/MiniMax-M3:
+
+- **The transcript does not grow the way you would expect.** History pruning
+  caps tool results in old turns, so a six-file read-and-edit task settles
+  near 19K measured input tokens instead of climbing. Sizing a fixture up made
+  the peak go *down*. A `compaction-boundary` case wants more user turns, not
+  bigger files.
+- **The trigger and the thing compacted are measured on different scales.**
+  `shouldCompact` judges the provider's measured input (16K on the shipped
+  case); `selectForCompaction` works over `MemoryService`'s estimated
+  transcript (872 tokens). `compact.occurred` records the latter, so both
+  `freecode trace` and `Trace.compactedTokens` understate compaction heavily.
+  Recorded in `TODO.md`; it does not affect the case, which asserts that a
+  compaction happened and that the task still finished.
+
+The shipped case asserts both halves: `expectCompaction: 1` and a `verify` that
+only passes if ground rules stated in the FIRST prompt — do not modify
+check.mjs, do not drop existing exports — survived into the third turn, which
+names neither. That is the head carve-out under test rather than described.
+3/3 trials, exactly one compaction each.
 
 **Every phase in this spec is now built.** What is left is not in this spec: the harness capability §9.1 names, and plan §3's scripted provider. Phases 1–3 improved how the suite reports and Phase 4 added the coverage that could be added without new harness capability.
 
