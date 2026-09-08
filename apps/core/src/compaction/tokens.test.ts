@@ -9,6 +9,11 @@ import {
   DEFAULT_COMPACT_TARGET_TOKENS,
 } from "./tokens.js";
 
+// These assert the *defaults*, so an ambient override in the developer's shell
+// must not decide whether they pass. The one test that needs it sets it itself.
+delete process.env.FREECODE_COMPACT_TARGET_TOKENS;
+delete process.env.FREECODE_AUTO_COMPACT_TOKENS;
+
 test("estimateTokenCount uses a conservative char estimate", () => {
   assert.equal(estimateTokenCount("Hello World"), 3);
 });

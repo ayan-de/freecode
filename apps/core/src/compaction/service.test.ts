@@ -7,6 +7,11 @@ import { createHookRuntime } from "../hooks/runtime.js";
 import { FileMemoryStorage } from "./storage.js";
 import { MemoryService } from "./service.js";
 
+// The compaction thresholds asserted below are the *defaults*; an ambient
+// override in the developer's shell must not decide whether they pass.
+delete process.env.FREECODE_COMPACT_TARGET_TOKENS;
+delete process.env.FREECODE_AUTO_COMPACT_TOKENS;
+
 test("MemoryService compacts old messages and exposes prompt context", async () => {
   const dir = mkdtempSync(join(tmpdir(), "freecode-memory-"));
   try {
