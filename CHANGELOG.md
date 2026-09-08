@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.31.0
+
+A hooks release that wires the agent loop into an external "board" process. The board-webhook reports activity (tool starts/outputs/completes, permission asks, session lifecycle) and can answer permission prompts remotely, all using the Claude Code hook JSON shape so a supervising board needs no FreeCode-specific mapper. It is inert unless `FREECODE_HOOK_URL` is set, so existing installs behave exactly as before.
+
+### Added
+
+- **`board-webhook` builtin hook** (`d296781`). Reports activity to a remote observer and accepts remote permission decisions via the same URL. Activity reporting is fire-and-forget — an observer can never fail a turn. The permission subscription is the exception: it waits as long as the agent would wait for a human, and an absent or malformed reply means "no decision" rather than deny, leaving the pane picker to the user.
+- **Bootstrap registration** (`27079c8`). `board-webhook` registers in `initHooks`, the one place both `serve` and `run` go through, so it reaches interactive and headless runs identically. Registered with source `"session"` (not `"settings"`); `HookSettingsManager.load()` clears every settings-source hook on each load, which would have un-registered the webhook as soon as `settings.json` was read.
+
+### Changed
+
+- **`toolUseId` carried into hook context and `CLAUDE_TOOL_USE_ID`** (`c38f7ca`). A permission dialog names a tool but not which in-flight call raised it. Carrying the tool-use id lets a supervising process correlate the dialog with its `PostToolUse` and clear the block on exactly that call.
+
 ## v0.30.3
 
 A small release covering the agent-comparison benchmark and a few prompt/transcript refinements. `opencode` is now isolatable, which made the first fully metered and officially graded freecode-vs-opencode matchup possible; alongside that, memory prompt rendering became configurable, session continuation stopped announcing itself, and standalone file updates render on their own instead of inside an empty tool group.
