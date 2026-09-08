@@ -9,6 +9,7 @@
 // =============================================================================
 
 import { registerRtkHook } from "./builtin/rtk-rewrite.js";
+import { registerBoardWebhook } from "./builtin/board-webhook.js";
 import { HookSettingsManager } from "./settings.js";
 import { warnOnUnknownSettings } from "../settings/validate.js";
 
@@ -37,6 +38,10 @@ export function initHooks(
   // Optional rtk integration: rewrites bash commands to compact `rtk`
   // equivalents to save tokens. No-op unless rtk resolves; FREECODE_RTK=0 opts out.
   registerRtkHook();
+
+  // Optional supervisor integration: reports activity to a board over HTTP and
+  // lets it answer permission requests. No-op unless FREECODE_HOOK_URL is set.
+  registerBoardWebhook();
 
   warnOnUnknownSettings(projectRoot);
 

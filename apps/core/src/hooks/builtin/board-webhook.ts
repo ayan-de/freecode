@@ -199,7 +199,10 @@ export function registerBoardWebhook(): void {
           return { action: "continue" };
         },
       },
-      "settings",
+      // "session", not "settings": HookSettingsManager.load() clears every
+      // settings-source hook on each (re)load, which would silently unregister
+      // this one the moment settings.json is read or changed.
+      "session",
     );
   }
 
