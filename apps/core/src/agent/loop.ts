@@ -2442,6 +2442,10 @@ export class AgentLoop {
       sessionId: this.state.sessionId,
       turnCount: this.state.turnCount,
       toolName: toolCall.tool,
+      // Carried so PreToolUse/PostToolUse can be correlated with the
+      // permission dialog this tool raises; a supervising board needs the id
+      // to know which in-flight tool is the blocking one.
+      toolUseId: toolCall.id,
     };
 
     // PreToolUse Hook — can block or modify tool call

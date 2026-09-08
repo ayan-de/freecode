@@ -17,6 +17,33 @@ export interface CommandExecutorOptions {
   timeout?: number;
 }
 
+// Build the environment a shell hook sees. Extracted so the contract can be
+// asserted without spawning a shell.
+export function buildHookEnv(
+  input: ToolCallInput,
+  context: HookContext,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+  };
+  env.CLAUDE_SESSION_ID = context.sessionId;
+  env.CLAUDE_TOOL_NAME = input.toolName;
+  env.CLAUDE_TOOL_INPUT = JSON.stringify(input.toolInput);
+  // PostToolUse only: the tool's output, already capped by the producer.
+  if (typeof input.result === "string") {
+    env.CLAUDE_TOOL_OUTPUT = input.result;
+  }
+  if (typeof context.cwd === "string") env.CLAUDE_CWD = context.cwd;
+  if (typeof context.agentId === "string") env.CLAUDE_AGENT_ID = context.agentId;
+  if (typeof context.agentType === "string")
+    env.CLAUDE_AGENT_TYPE = context.agentType;
+  // Correlates a permission dialog with the tool that raised it, so a
+  // supervising board can tell which in-flight tool is blocked.
+  if (typeof context.toolUseId === "string")
+    env.CLAUDE_TOOL_USE_ID = context.toolUseId;
+  return env;
+}
+
 export async function executeCommandHook(
   command: string,
   input: ToolCallInput,
@@ -32,22 +59,7 @@ export async function executeCommandHook(
         ? ["-NoProfile", "-NonInteractive", "-Command", command]
         : ["-c", command];
 
-    // Build environment
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-    };
-    env.CLAUDE_SESSION_ID = context.sessionId;
-    env.CLAUDE_TOOL_NAME = input.toolName;
-    env.CLAUDE_TOOL_INPUT = JSON.stringify(input.toolInput);
-    // PostToolUse only: the tool's output, already capped by the producer.
-    if (typeof input.result === "string") {
-      env.CLAUDE_TOOL_OUTPUT = input.result;
-    }
-    if (typeof context.cwd === "string") env.CLAUDE_CWD = context.cwd;
-    if (typeof context.agentId === "string")
-      env.CLAUDE_AGENT_ID = context.agentId;
-    if (typeof context.agentType === "string")
-      env.CLAUDE_AGENT_TYPE = context.agentType;
+    const env = buildHookEnv(input, context);
 
     let timedOut = false;
     const timeoutId = setTimeout(() => {

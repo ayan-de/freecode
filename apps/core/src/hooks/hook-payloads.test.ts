@@ -8,6 +8,7 @@ import { registerHook, unregisterAllHooks } from "./registry.js";
 import { runPostToolUseHooks } from "./PostToolUse.js";
 import { runUserPromptSubmitHooks } from "./UserPromptSubmit.js";
 import { MAX_HOOK_PAYLOAD_CHARS } from "./types.js";
+import { buildHookEnv } from "./executors/command.js";
 import type { ToolCall, ToolResult } from "../agent/types.js";
 
 const ctx = { sessionId: "s1", turnCount: 1 };
@@ -103,4 +104,22 @@ test("a UserPromptSubmit hook's modifiedOutput becomes modifiedPrompt", async ()
   const result = await runUserPromptSubmitHooks("original", ctx);
   assert.equal(result.modifiedPrompt, "rewritten prompt");
   unregisterAllHooks();
+});
+
+// --- tool-use id -------------------------------------------------------------
+
+test("command executor exports CLAUDE_TOOL_USE_ID when the context carries toolUseId", () => {
+  const env = buildHookEnv(
+    { toolName: "bash", toolInput: { command: "ls" } },
+    { sessionId: "s1", turnCount: 1, toolName: "bash", toolUseId: "call_42" },
+  );
+  assert.equal(env.CLAUDE_TOOL_USE_ID, "call_42");
+});
+
+test("command executor omits CLAUDE_TOOL_USE_ID when the context has none", () => {
+  const env = buildHookEnv(
+    { toolName: "bash", toolInput: { command: "ls" } },
+    { sessionId: "s1", turnCount: 1, toolName: "bash" },
+  );
+  assert.equal(env.CLAUDE_TOOL_USE_ID, undefined);
 });
