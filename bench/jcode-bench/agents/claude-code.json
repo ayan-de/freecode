@@ -1,0 +1,21 @@
+{
+  "id": "claude-code",
+  "versionCmd": ["claude", "--version"],
+  "run": [
+    "claude",
+    "-p",
+    "{prompt}",
+    "--dangerously-skip-permissions",
+    "--model",
+    "{model}"
+  ],
+  "model": "MiniMax-M3",
+  "autonomy": "--dangerously-skip-permissions: all permission checks bypassed",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.minimax.io/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "${MINIMAX_API_KEY}",
+    "ANTHROPIC_API_KEY": "",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048576"
+  },
+  "notes": "Identical to bench/agent-bench/agents/claude-code.json — same pin, same fairness correction on the compaction window, same reason ANTHROPIC_API_KEY is cleared. Kept as a separate file so the two harnesses can diverge on a cap without editing each other."
+}

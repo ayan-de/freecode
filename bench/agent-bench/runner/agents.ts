@@ -19,11 +19,16 @@ import type { AgentSpec } from "./types.js";
 
 const AGENT_DIR = path.join(import.meta.dirname, "..", "agents");
 
-export function loadAgent(id: string): AgentSpec {
-  const file = path.join(AGENT_DIR, `${id}.json`);
+/**
+ * `dir` defaults to this harness's adapters; bench/jcode-bench passes its own,
+ * because an optimisation run wants a different turn cap than a bug fix and
+ * the adapter file is where a cap lives.
+ */
+export function loadAgent(id: string, dir: string = AGENT_DIR): AgentSpec {
+  const file = path.join(dir, `${id}.json`);
   if (!fs.existsSync(file)) {
     const have = fs
-      .readdirSync(AGENT_DIR)
+      .readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
       .map((f) => f.replace(/\.json$/, ""));
     throw new Error(`no adapter ${id}; have: ${have.join(", ")}`);

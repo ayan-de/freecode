@@ -471,6 +471,40 @@ export class RolloutRecorder {
     }
   }
 
+  recordPokeTriggered(
+    turnId: string,
+    fields: { pokeIndex: number; maxPerRun: number; remaining: number },
+  ): void {
+    this.write(
+      this.makeEvent("poke.triggered", { aggregateID: this.sessionId, turnId, fields }),
+    );
+  }
+
+  recordPokeSkipped(turnId: string, reason: string, remaining: number): void {
+    this.write(
+      this.makeEvent("poke.skipped", {
+        aggregateID: this.sessionId,
+        turnId,
+        fields: { reason, remaining },
+      }),
+    );
+  }
+
+  recordTodoSignal(
+    turnId: string,
+    fields: {
+      kind: "confidence_spike" | "hill_climb_low";
+      itemId: string;
+      from?: number;
+      to: number;
+      gated: boolean;
+    },
+  ): void {
+    this.write(
+      this.makeEvent("todo.signal", { aggregateID: this.sessionId, turnId, fields }),
+    );
+  }
+
   recordRedirectSkipped(turnId: string, reason: string): void {
     this.write(
       this.makeEvent("redirect.skipped", {

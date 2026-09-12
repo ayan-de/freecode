@@ -1,0 +1,6 @@
+{
+  "name": "harness-signals",
+  "private": true,
+  "type": "module",
+  "//": "ESM only, outside the pnpm workspace like the other bench/ dirs. Reads ~/.freecode/rollout/sessions/*/events.jsonl directly — a JSONL fold, no import from apps/core, so it can never change what the loop does while measuring it."
+}

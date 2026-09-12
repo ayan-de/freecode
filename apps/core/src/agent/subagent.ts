@@ -125,6 +125,8 @@ export async function executeSubagent(
       // Same reasoning for redirection: a subagent is turn-capped and
       // disposable, so re-planning belongs to the parent that spawned it.
       redirect: false,
+      // And for auto-poke: a subagent's stop is its parent's to judge.
+      autoPoke: false,
       sessionStore,
     });
     if (parentSessionId) agents.attachInterrupt(id, () => loop.interrupt());

@@ -25,7 +25,12 @@
     "bench:grade": "tsx bench/agent-bench/runner/grade.ts",
     "bench:image": "docker build -t agent-bench bench/agent-bench/isolate",
     "bench:bundle": "tsx bench/agent-bench/runner/bundle.ts",
-    "test:agent-bench": "tsc -p bench/agent-bench/tsconfig.json && tsx --test bench/agent-bench/**/*.test.ts"
+    "test:agent-bench": "tsc -p bench/agent-bench/tsconfig.json && tsx --test bench/agent-bench/**/*.test.ts",
+    "bench:jcode": "tsx bench/jcode-bench/runner/run.ts",
+    "bench:jcode:publish": "tsx bench/jcode-bench/runner/publish-cli.ts",
+    "bench:signals": "tsx bench/harness-signals/run.ts",
+    "test:jcode-bench": "tsc -p bench/jcode-bench/tsconfig.json && tsx --test bench/jcode-bench/runner/*.test.ts",
+    "test:harness-signals": "tsc -p bench/harness-signals/tsconfig.json && tsx --test bench/harness-signals/*.test.ts"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",

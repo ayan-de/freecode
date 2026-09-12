@@ -1,0 +1,6 @@
+# The upstream task repo (1jehuang/jcode-bench), cloned on first run.
+.cache/
+
+# Per-trial workspaces, transcripts, callgrind dumps, proxy logs. The slim
+# curve the page reads is published into apps/web/app/data/jcode-bench/.
+results/

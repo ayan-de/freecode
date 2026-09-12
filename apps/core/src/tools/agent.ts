@@ -237,6 +237,8 @@ async function executeSubagent(
       // Delegated machine work, nothing durable to learn from it — same
       // reasoning as agent/subagent.ts.
       memoryExtraction: false,
+      redirect: false,
+      autoPoke: false,
     });
     // Late-bound because the loop cannot exist until the spawn has been
     // allowed; this is what makes `k` in the /agents panel able to stop it.

@@ -1,0 +1,6 @@
+{
+  "name": "jcode-bench",
+  "private": true,
+  "type": "module",
+  "//": "ESM only, outside the pnpm workspace like bench/agent-bench, whose adapters, recording proxy and spawn code this harness imports by relative path. Nothing here is imported by apps/core."
+}

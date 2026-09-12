@@ -110,3 +110,26 @@ test("todowrite without a session directory does not create one", async () => {
     0,
   );
 });
+
+test("confidence and hillClimbability round-trip, clamp, and coerce strings", async () => {
+  const sessionId = "todo-scores";
+  clearTodos(sessionId);
+  await TodoWriteTool.execute(
+    {
+      todos: [
+        // MiniMax-style string numbers, an out-of-range value, and none at all.
+        { id: "a", content: "verify", status: "in_progress", confidence: "75", hillClimbability: 140 },
+        { id: "b", content: "plan", status: "pending" },
+      ] as unknown as TodoItem[],
+    },
+    ctx(sessionId),
+  );
+  const [a, b] = getTodos(sessionId);
+  assert.equal(a!.confidence, 75);
+  assert.equal(a!.hillClimbability, 100);
+  assert.equal(b!.confidence, undefined);
+  assert.equal(b!.hillClimbability, undefined);
+  // The prompt block shows the numbers so the model can step them next call.
+  assert.match(renderTodoPromptBlock(sessionId), /verify \(confidence 75, hill-climb 100\)/);
+  assert.match(renderTodoPromptBlock(sessionId), /\[ \] plan$/);
+});

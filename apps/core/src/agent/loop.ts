@@ -55,11 +55,23 @@ import {
   requestRedirect,
   type RedirectReason,
 } from "./redirect/index.js";
+import {
+  loadSignalSettings,
+  diffTodoSignals,
+  confidenceSpikeReminder,
+  hillClimbReminder,
+  decidePoke,
+  notePoke,
+  initialPokeState,
+  pokeReminder,
+  type SignalSettings,
+  type PokeState,
+} from "./signals/index.js";
 import { logger } from "../utils/logger.js";
 import { envInt } from "../utils/env.js";
 import { Effect } from "effect";
 import { createToolOrchestrator, getTool } from "../tools/index.js";
-import { getTodos, renderTodoPromptBlock } from "../tools/todo.js";
+import { getTodos, renderTodoPromptBlock, type TodoItem } from "../tools/todo.js";
 import {
   MAX_TRUNCATED_TOOL_RETRIES,
   shouldNudgeTodo,
@@ -234,6 +246,13 @@ export interface AgentLoopConfig {
    */
   budgetMaxRedirects?: number;
   /**
+   * Allow auto-poke — sending the model back when it stops with todos open.
+   * Defaults to true here and is *still* gated by the off-by-default
+   * `signals.autoPoke.enabled` setting; `agent/subagent.ts` sets it false,
+   * because a subagent's stop is its parent's to judge.
+   */
+  autoPoke?: boolean;
+  /**
    * Answer every `ask` decision with "allow" instead of prompting. Set by
    * `freecode run --yes`, where there is no frontend to prompt: `askPermission`
    * rejects with no subscriber, so an unattended `build` run was denied every
@@ -340,6 +359,7 @@ export class AgentLoop {
     heuristics: LoopHeuristics;
     redirect: boolean;
     budgetMaxRedirects?: number;
+    autoPoke: boolean;
     autoApproveAsks: boolean;
   };
   private memory: MemoryService;
@@ -399,6 +419,11 @@ export class AgentLoop {
   // driving the adversarial verification gate for non-trivial changes.
   private mutatedFiles = new Set<string>();
   private verifierAttempts = 0;
+  // Harness signals (agent/signals): auto-poke state for this run, and the
+  // settings resolved once per run so a mid-run settings edit cannot flip a
+  // gate between two turns of the same trajectory.
+  private pokeState: PokeState = initialPokeState();
+  private signalSettings?: SignalSettings;
   // How many times this run has given the model another turn after it
   // truncated a tool call. Capped: a model that keeps overflowing the output
   // limit must end the run, not retry forever at full prompt cost.
@@ -435,6 +460,7 @@ export class AgentLoop {
       heuristics: { ...DEFAULT_LOOP_HEURISTICS, ...config?.heuristics },
       redirect: config?.redirect ?? true,
       budgetMaxRedirects: config?.budgetMaxRedirects,
+      autoPoke: config?.autoPoke ?? true,
       autoApproveAsks: config?.autoApproveAsks ?? false,
     };
     this.sessionGrants = config?.sessionGrants;
@@ -893,11 +919,19 @@ export class AgentLoop {
         });
 
         // Execute one turn: send prompt, get response, parse tools, execute
+        // Snapshot the plan before the turn so a todowrite in it can be
+        // diffed for confidence/hill-climb signals afterwards. A Map lookup;
+        // the disk read happens once per session.
+        const todosBefore = getTodos(
+          this.state.sessionId,
+          this.state.projectPath,
+        );
         const turnResult = await this.executeTurn(
           input.provider,
           input.model,
           contextResult.value,
         );
+        if (turnResult.usedTodoWrite) this.applyTodoSignals(todosBefore);
 
         // TurnEnd Hook — cost/usage tracking, logging
         await this.hooks.runTurnEnd(
@@ -1109,6 +1143,18 @@ export class AgentLoop {
               };
               continue;
             }
+          }
+
+          // Auto-poke (agent/signals): open todos do not normally override a
+          // stop — but when the gate is on, send the model back, capped and
+          // fingerprinted so a model that cannot finish is not poked forever.
+          if (this.maybePoke()) {
+            this.state = {
+              ...this.state,
+              iterationCount: this.state.iterationCount + 1,
+              turnCount: this.state.turnCount + 1,
+            };
+            continue;
           }
 
           // The model answered with no further tool calls: this run is done and
@@ -2913,6 +2959,100 @@ export class AgentLoop {
       ...this.state,
       loopHealth: { ...this.state.loopHealth, repeatedReasoningScore: score },
     };
+  }
+
+  // ===========================================================================
+  // PRIVATE: signals()
+  // Resolved once per run (first use). See agent/signals/settings.ts.
+  // ===========================================================================
+  private signals(): SignalSettings {
+    if (!this.signalSettings) {
+      this.signalSettings = loadSignalSettings(this.state.projectPath);
+    }
+    return this.signalSettings;
+  }
+
+  // ===========================================================================
+  // PRIVATE: applyTodoSignals()
+  // Fold one todowrite call into the rollout log (always) and, when the
+  // matching gate is on, into a reminder for the next turn. No model call.
+  // ===========================================================================
+  private applyTodoSignals(todosBefore: TodoItem[]): void {
+    const settings = this.signals();
+    const after = getTodos(this.state.sessionId, this.state.projectPath);
+    const signals = diffTodoSignals(todosBefore, after, {
+      spike: settings.confidenceGate.spike,
+      threshold: settings.hillClimbGate.threshold,
+    });
+    if (signals.length === 0) return;
+    const turnId = `turn-${this.state.turnCount}`;
+    const spikes = signals.filter((s) => s.kind === "confidence_spike");
+    const lows = signals.filter((s) => s.kind === "hill_climb_low");
+    for (const s of signals) {
+      const gated =
+        s.kind === "confidence_spike"
+          ? settings.confidenceGate.enabled
+          : settings.hillClimbGate.enabled;
+      this.recorder.recordTodoSignal(turnId, {
+        kind: s.kind,
+        itemId: s.itemId,
+        ...(s.kind === "confidence_spike" ? { from: s.from } : {}),
+        to: s.kind === "confidence_spike" ? s.to : s.score,
+        gated,
+      });
+    }
+    if (settings.confidenceGate.enabled && spikes.length > 0) {
+      this.pendingReminders.push(
+        confidenceSpikeReminder(
+          spikes as Extract<(typeof signals)[number], { kind: "confidence_spike" }>[],
+        ),
+      );
+    }
+    if (settings.hillClimbGate.enabled && lows.length > 0) {
+      this.pendingReminders.push(
+        hillClimbReminder(
+          lows as Extract<(typeof signals)[number], { kind: "hill_climb_low" }>[],
+          settings.hillClimbGate.threshold,
+        ),
+      );
+    }
+  }
+
+  // ===========================================================================
+  // PRIVATE: maybePoke()
+  // The model stopped. If todos are open and the gate is on, queue a poke and
+  // return true so run() grants another turn. Every stop with a list is
+  // recorded either way — that is what lets the bench compare across the flip.
+  // ===========================================================================
+  private maybePoke(): boolean {
+    const todos = getTodos(this.state.sessionId, this.state.projectPath);
+    if (todos.length === 0) return false;
+    const settings = this.signals();
+    const turnId = `turn-${this.state.turnCount}`;
+    const decision = decidePoke({
+      enabled: settings.autoPoke.enabled && this.config.autoPoke,
+      maxPerRun: settings.autoPoke.maxPerRun,
+      todos,
+      state: this.pokeState,
+    });
+    const remaining = todos.filter((t) => t.status !== "completed").length;
+    if (!decision.poke) {
+      this.recorder.recordPokeSkipped(turnId, decision.skip, remaining);
+      return false;
+    }
+    this.pokeState = notePoke(this.pokeState, decision.fingerprint);
+    this.recorder.recordPokeTriggered(turnId, {
+      pokeIndex: this.pokeState.pokes,
+      maxPerRun: settings.autoPoke.maxPerRun,
+      remaining: decision.remaining.length,
+    });
+    this.pendingReminders.push(
+      pokeReminder(decision.remaining, this.pokeState.pokes, settings.autoPoke.maxPerRun),
+    );
+    logger.debug(
+      `[AgentLoop] Auto-poke ${this.pokeState.pokes}/${settings.autoPoke.maxPerRun}: ${decision.remaining.length} todo(s) open`,
+    );
+    return true;
   }
 
   // ===========================================================================

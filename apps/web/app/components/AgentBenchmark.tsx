@@ -236,7 +236,9 @@ export function AgentBenchmark({ views }: { views: BenchView[] }) {
     <section className="w-full max-w-4xl mx-auto px-6 py-16 md:py-24">
       <header className="mb-8">
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground/60 mb-3">
-          Agent benchmark
+          <a href="/bench" className="hover:text-foreground">Benchmarks</a>
+          <span className="mx-1.5 text-muted-foreground/40">/</span>
+          Agent comparison
         </p>
         <h1 className="text-3xl md:text-4xl font-medium text-foreground tracking-tight">
           We gave every agent the same bugs

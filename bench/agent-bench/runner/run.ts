@@ -66,7 +66,7 @@ async function main() {
     ensureNetworks();
   }
 
-  const agents = agentIds.map(loadAgent);
+  const agents = agentIds.map((id) => loadAgent(id));
   const versions = new Map(
     agents.map((a) => [a.id, agentVersion(a, isolate ? IMAGE : undefined)]),
   );

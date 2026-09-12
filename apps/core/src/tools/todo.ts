@@ -19,6 +19,19 @@ export interface TodoItem {
   id: string;
   content: string;
   status: TodoStatus;
+  /**
+   * 0–100: how sure the model is that this item is (or will be) done correctly.
+   * Set at assignment and revised as verification happens. The value at
+   * assignment and the value at completion are what the confidence-stepping
+   * bench folds out of the rollout log (`bench/harness-signals/`).
+   */
+  confidence?: number;
+  /**
+   * 0–100: how measurable and iterable progress on this item is — whether
+   * there is a number, a test, or a check the model can climb against.
+   * Below the gate (`agent/signals`), the harness asks for a reframe.
+   */
+  hillClimbability?: number;
 }
 
 interface TodoWriteParams {
@@ -89,9 +102,31 @@ function parseTodos(raw: unknown): TodoItem[] | undefined {
           : String(todos.length + 1),
       content: t.content,
       status: t.status as TodoStatus,
+      ...optionalScores(t),
     });
   }
   return todos;
+}
+
+/**
+ * Clamp a 0–100 score, or drop it. Providers that send numbers as strings
+ * (MiniMax) are coerced here so a "75" is a 75 and not a validation loop.
+ */
+export function parseScore(raw: unknown): number | undefined {
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isFinite(n)) return undefined;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function optionalScores(
+  t: Record<string, unknown>,
+): Pick<TodoItem, "confidence" | "hillClimbability"> {
+  const confidence = parseScore(t.confidence);
+  const hillClimbability = parseScore(t.hillClimbability);
+  return {
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(hillClimbability !== undefined ? { hillClimbability } : {}),
+  };
 }
 
 function loadFromDisk(
@@ -156,7 +191,7 @@ export function renderTodoPromptBlock(
     in_progress: "[~]",
     pending: "[ ]",
   };
-  const lines = todos.map((t) => `${marks[t.status]} ${t.content}`);
+  const lines = todos.map((t) => `${marks[t.status]} ${t.content}${scoreSuffix(t)}`);
   return [
     "## Current Task List",
     "",
@@ -166,6 +201,14 @@ export function renderTodoPromptBlock(
     "",
     ...lines,
   ].join("\n");
+}
+
+/** `(confidence 60, hill-climb 90)` — the model must see its last values to step them. */
+function scoreSuffix(t: TodoItem): string {
+  const parts: string[] = [];
+  if (t.confidence !== undefined) parts.push(`confidence ${t.confidence}`);
+  if (t.hillClimbability !== undefined) parts.push(`hill-climb ${t.hillClimbability}`);
+  return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
 const todoSchema: JsonSchema = {
@@ -188,6 +231,16 @@ const todoSchema: JsonSchema = {
             type: "string",
             enum: STATUSES,
             description: "Current state of the task.",
+          },
+          confidence: {
+            type: "number",
+            description:
+              "0-100. How confident you are this item is (or will be) done correctly. Give an honest number at assignment; raise it only as tests, checks, or evidence land. Never jump straight to 100 on completion without having verified.",
+          },
+          hillClimbability: {
+            type: "number",
+            description:
+              "0-100. How measurable progress on this item is: is there a number, a test, or a check you can iterate against? Below 90, reframe the item into a verifiable objective or add an item that builds the check.",
           },
         },
         required: ["content", "status"],
@@ -247,6 +300,7 @@ function normalize(todos: TodoItem[]): TodoItem[] {
     id: t.id && String(t.id).length > 0 ? String(t.id) : String(i + 1),
     content: t.content,
     status: t.status,
+    ...optionalScores(t as unknown as Record<string, unknown>),
   }));
 }
 
@@ -257,7 +311,7 @@ function render(todos: TodoItem[]): string {
     in_progress: "[~]",
     pending: "[ ]",
   };
-  return todos.map((t) => `${marks[t.status]} ${t.content}`).join("\n");
+  return todos.map((t) => `${marks[t.status]} ${t.content}${scoreSuffix(t)}`).join("\n");
 }
 
 async function executeTodoWrite(
@@ -303,6 +357,8 @@ export const TodoWriteTool: Tool<TodoWriteParams> = buildTool({
     "Use it when the work needs 3+ distinct steps, the user named several deliverables, asked for a plan, or new instructions arrive mid-task (capture before acting). Write the list BEFORE exploring — the plan frames the exploration. Do NOT use it for a single straightforward task or an informational question.",
     "",
     "States: pending, in_progress (exactly ONE at a time), completed. Mark items completed as you finish them — never batched at the end, only when genuinely done. If blocked, leave in_progress and add an item naming the blocker.",
+    "",
+    "Each item may carry two 0-100 scores. `confidence`: how sure you are the item is done correctly — set it honestly at assignment and step it up only as verification happens, never straight to 100. `hillClimbability`: how measurable progress on the item is (a test, a number, a check to iterate against). An item under 90 is a goal you cannot climb — reframe it, or add an item that builds the check.",
   ].join("\n"),
   schemas: { parameters: todoSchema },
   permissions: { operations: [] },

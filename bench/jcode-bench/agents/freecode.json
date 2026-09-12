@@ -1,0 +1,19 @@
+{
+  "id": "freecode",
+  "versionCmd": ["freecode", "--version"],
+  "run": [
+    "freecode",
+    "run",
+    "{prompt}",
+    "--model",
+    "{model}",
+    "--agent",
+    "danger"
+  ],
+  "model": "minimax/MiniMax-M3",
+  "autonomy": "--agent danger: no permission prompts; no turn cap (the wall clock is the cap)",
+  "env": {
+    "MINIMAX_API_KEY": "${MINIMAX_API_KEY}"
+  },
+  "notes": "Same pin and same reasoning as bench/agent-bench/agents/freecode.json, minus `--max-turns`: an optimisation run is a climb, and jcode's published runs took 30–160 grades. The runner's --timeout is the only cap, and time is recorded rather than judged (jcode bench: 'time is recorded, not capped'). Gates are inherited from the operator's env: FREECODE_AUTO_POKE=1 etc. are passed through and recorded on the trial as harnessFlags, so a run with auto-poke on is labelled as such on the page."
+}

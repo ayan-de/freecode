@@ -55,7 +55,6 @@ local.properties
 # FreeCode runtime data
 .freecode/
 apps/*/.freecode/
-bench/jcode-bench/target
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 graft/

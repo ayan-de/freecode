@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-09-12T09:36:10.282Z",
+  "sessionsScanned": 3364,
+  "sessionsWithTodos": 213,
+  "window": {
+    "from": "2026-07-27T19:05:32.873Z",
+    "to": "2026-09-09T23:20:49.466Z"
+  },
+  "confidence": {
+    "n": 0,
+    "trajectories": [],
+    "assignedMean": null,
+    "completedMean": null,
+    "spikes": {
+      "n": 0,
+      "gated": 0
+    },
+    "rated": 0
+  },
+  "hillClimb": {
+    "n": 0,
+    "sessions": 0,
+    "histogram": {},
+    "mean": null,
+    "median": null,
+    "belowGate": 0,
+    "belowGateRate": null,
+    "range": null,
+    "threshold": 90,
+    "flagged": {
+      "n": 0,
+      "gated": 0
+    }
+  },
+  "autoPoke": {
+    "sessionsWithTodos": 213,
+    "sessionsEndedOpen": 111,
+    "endedOpenRate": 0.5211267605633803,
+    "stopsConsidered": 0,
+    "pokes": 0,
+    "productive": 0,
+    "productiveRate": null,
+    "itemsCompletedAfterPoke": 0,
+    "skipped": {},
+    "gatedSessions": 0,
+    "endedOpenByGate": {
+      "on": {
+        "n": 0,
+        "open": 0
+      },
+      "off": {
+        "n": 213,
+        "open": 111
+      }
+    }
+  }
+}

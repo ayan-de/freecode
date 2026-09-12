@@ -43,7 +43,10 @@ export type RolloutEvent =
   | ModelResponseEvent
   | ModelErrorEvent
   | RedirectTriggeredEvent
-  | RedirectSkippedEvent;
+  | RedirectSkippedEvent
+  | PokeTriggeredEvent
+  | PokeSkippedEvent
+  | TodoSignalEvent;
 
 export interface TurnStartedEvent extends BaseEvent {
   type: "turn.started";
@@ -282,4 +285,49 @@ export interface RedirectSkippedEvent extends BaseEvent {
   turnId: string;
   /** RedirectSkipReason — "cap_reached", "timeout", "disabled", … */
   reason: string;
+}
+
+// ============================================================================
+// Harness signals (`agent/signals/`)
+//
+// Auto-poke: the model stopped with todos open and the loop sent it back — or
+// looked and did not. `poke.skipped` with "disabled" is written on every such
+// stop, so a fold can tell "the gate was off" from "the gate never had a
+// reason", and the bench can compare runs across the flip.
+//
+// Todo signals: what one todowrite call said about the model's own judgement
+// (a confidence spike at completion, a goal rated hard to climb). Recorded
+// whether or not the matching gate was on — `gated` says if a reminder went
+// out. Item text stays out, like every other model-authored string in this
+// log; the ids are enough to join back to the `function.call` args.
+// ============================================================================
+
+export interface PokeTriggeredEvent extends BaseEvent {
+  type: "poke.triggered";
+  turnId: string;
+  /** 1-based index of this poke within the run. */
+  pokeIndex: number;
+  maxPerRun: number;
+  /** Open todo items at the moment of the poke. */
+  remaining: number;
+}
+
+export interface PokeSkippedEvent extends BaseEvent {
+  type: "poke.skipped";
+  turnId: string;
+  /** PokeSkipReason — "disabled", "nothing_open", "cap_reached", "no_progress". */
+  reason: string;
+  remaining: number;
+}
+
+export interface TodoSignalEvent extends BaseEvent {
+  type: "todo.signal";
+  turnId: string;
+  kind: "confidence_spike" | "hill_climb_low";
+  itemId: string;
+  /** confidence_spike: the two numbers. hill_climb_low: `to` is the rating. */
+  from?: number;
+  to: number;
+  /** Whether the gate was on and a reminder was queued for the next turn. */
+  gated: boolean;
 }
