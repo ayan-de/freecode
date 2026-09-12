@@ -29,7 +29,7 @@ export class ModeLine implements Component {
     private getMode: () => AgentMode,
     private getProvider: () => string,
     private getModel: () => string,
-    private getEffort: () => EffortLevel,
+    private getEffort: () => EffortLevel | undefined,
     /**
      * Background shells still running. Rendered as a chip left of Effort so a
      * dev server the agent started stays visible without opening /shells —
@@ -56,8 +56,10 @@ export class ModeLine implements Component {
     )}`;
     const left = ` ${modeText}${hintText}  ${modelText}`;
 
+    // No level set means the provider's own default, which is not "low" —
+    // rendering a level we never sent would misreport what the turn ran at.
     const effortText = `${chalk.bold.whiteBright("Effort:")} ${chalk.dim(
-      this.getEffort(),
+      this.getEffort() ?? "default",
     )} `;
 
     // Only when something is actually running: a permanently-present chip

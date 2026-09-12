@@ -1,4 +1,7 @@
 import type { CommandModule } from "yargs";
+// Type-only: erased at compile time, so it costs the --help path nothing and
+// keeps the flag's choices tied to the shared union rather than a local copy.
+import type { EffortLevel } from "@thisisayande/freecode-shared";
 
 // Headless single-turn run: `freecode run [message..]`.
 // Boots the same backend the JSON-RPC server uses (providers, MCP, Effect
@@ -9,6 +12,7 @@ import type { CommandModule } from "yargs";
 interface RunArgs {
   message: string[];
   model?: string;
+  effort?: EffortLevel;
   agent: string;
   continue: boolean;
   session?: string;
@@ -29,6 +33,16 @@ const AGENT_MODES: AgentMode[] = [
   "explore",
   "danger",
 ];
+
+// Same `choices` guarantee as AGENT_MODES: yargs rejects anything else at
+// parse time, which is what makes the cast at the read site safe.
+//
+// Omitting --effort leaves `effort` undefined, and undefined is NOT the same
+// as "low": applyEffort() returns early on undefined, so the provider's own
+// default applies. That distinction is the whole point of this flag — the TUI
+// sends an explicit level on every turn, so without a way to say the same
+// thing here, a headless run could not reproduce a TUI turn.
+const EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
 
 // Read piped stdin when no message positional was given (e.g. `echo ... | freecode run`).
 function readStdin(): Promise<string> {
@@ -55,6 +69,12 @@ export const runCommand: CommandModule<object, RunArgs> = {
         alias: "m",
         type: "string",
         describe: "model to use, in provider/model format",
+      })
+      .option("effort", {
+        type: "string",
+        choices: EFFORT_LEVELS,
+        describe:
+          "reasoning effort; omitted leaves the provider default (only anthropic/openai/gemini honour it)",
       })
       .option("agent", {
         type: "string",
@@ -212,6 +232,8 @@ export const runCommand: CommandModule<object, RunArgs> = {
           model,
           projectPath,
           agentMode,
+          // Safe: yargs `choices` rejected anything outside EFFORT_LEVELS.
+          effort: argv.effort as EffortLevel | undefined,
         }),
       );
       process.stdout.write("\n");

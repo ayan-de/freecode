@@ -164,7 +164,12 @@ let currentSession: SessionInfo | null = null;
 let activeTurnSessionId: string | null = null;
 let currentProvider = "";
 let currentModel = "";
-let currentEffort: EffortLevel = "low";
+// Undefined, not "low": an explicit level is sent on every turn, so a default
+// here is a reasoning-budget cut the user never chose and the headless path
+// (`freecode run`, which sets no effort) does not share. Left undefined, the
+// provider's own default applies and the two entry points agree. Only
+// anthropic/openai/gemini honour effort at all — see providers/effort.ts.
+let currentEffort: EffortLevel | undefined = undefined;
 let currentAgentMode: "plan" | "build" | "review" | "explore" | "danger" =
   "build";
 // True once the saved mode (or lack thereof) has been fetched from config —

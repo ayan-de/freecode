@@ -170,3 +170,20 @@ test("defaults to no /agents chip when the count getter is not supplied", () => 
   );
   assert.doesNotMatch(strip(modeLine.render(120)[0]), /\/agents/);
 });
+
+// No effort level set means the provider's own default was used, which is not
+// "low" — the TUI used to default the field and so reported a budget it had
+// silently chosen. Rendering a level here that no turn actually sent is the
+// bug this asserts against.
+test("renders 'default' when no effort level is set", () => {
+  const modeLine = new ModeLine(
+    () => false,
+    () => "build",
+    () => "anthropic",
+    () => "claude-opus-5",
+    () => undefined,
+  );
+  const rendered = strip(modeLine.render(100)[0]);
+  assert.match(rendered, /Effort: default/);
+  assert.doesNotMatch(rendered, /Effort: low/);
+});
